@@ -84,6 +84,15 @@ relying on the old one implicitly:
   renders, which is how the gate id gets there too), or leave it off where the browser's
   constraint UI is what the page wants. See
   [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form).
+- **Attach mode leaves the form element's `aria-describedby` to you, as well.** `FormidableForm`
+  points the `<form>` it owns at the model-level message list's id, so a `FormidableModelMessage`
+  describes the form without anything being wired. `<FormidableValidator>` renders the same
+  component but reaches no `<form>`, so a page rendering that component writes the attribute on
+  its own `EditForm` — `FormidableFieldId.MessagesFor` of the model-level field, beside the gate
+  id it already writes there. It is the same split the bullets around it describe, and it has its
+  own cause: what a Formidable component renders travels into attach mode, and what
+  `FormidableForm`'s own `<form>` element carries does not. See
+  [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form).
 - **Attach mode lists issues in the engine's order, not the page's.** Under `<FormidableForm>`,
   a summary reports issues in the document order of the fields that render them, because the form
   resolves where those fields sit and hands its engine the answer. `<FormidableValidator>` renders

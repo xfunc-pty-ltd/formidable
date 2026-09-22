@@ -23,25 +23,30 @@
     /* the custom select chevron, stroked in the muted colour — a data URI cannot read a
        token, so each scheme carries its own */
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%234a5565' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    /* the severity and confirmed-field glyphs, stroked to match their message colour so shape
-       and colour say the same thing — colour alone is exactly what a stylesheet must
-       not rely on for severity. Baked per scheme like the chevron above, for the same reason. */
+    /* the severity and confirmed-field glyphs, so shape and colour say the same thing —
+       colour alone is exactly what a stylesheet must not rely on for severity. Unlike the
+       chevron above these are MASKS, not background images: a mask reads the drawing's alpha
+       and nothing else, so the shape carries no colour of its own and the rule applying it
+       supplies one. That is what collapses these to one URI each instead of a copy per
+       scheme, and it is what lets a page recolour a glyph at runtime: a data URI cannot read
+       a token, but the paint underneath it can. The stroke below is opaque black for that
+       reason — it says "draw here", not "draw red". */
     --message-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23b91c1c' \
-stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23b91c1c' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
+stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23000' \
 stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
     --message-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23a16207' \
-stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23a16207' \
+viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23000' \
+stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23000' \
 stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='15' r='1' \
-fill='%23a16207'/%3E%3C/svg%3E");
+fill='%23000'/%3E%3C/svg%3E");
     --message-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23516fca' \
-stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23516fca' stroke-width='2' \
-stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23516fca'/%3E%3C/svg%3E");
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
+stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23000' stroke-width='2' \
+stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23000'/%3E%3C/svg%3E");
     --valid-badge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \
-20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%2315803d' \
-stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%2315803d' \
+20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
+stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%23000' \
 stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     /* chrome (same in both schemes) */
@@ -79,23 +84,6 @@ stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         --valid: #4ade80;
         --summary-bg: rgba(248, 113, 113, .09);
         --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2399a1af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-        --message-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23fca5a5' \
-stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23fca5a5' \
-stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
-        --message-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23fbbf24' \
-stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23fbbf24' \
-stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='15' r='1' \
-fill='%23fbbf24'/%3E%3C/svg%3E");
-        --message-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23a5b4fc' \
-stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23a5b4fc' stroke-width='2' \
-stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23a5b4fc'/%3E%3C/svg%3E");
-        --valid-badge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%234ade80' \
-stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%234ade80' \
-stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
 
     /* Native picker/spinner chrome (calendar glyphs, the number input's up/down arrows) follows
@@ -499,7 +487,7 @@ form .formidable-pending {
 /* CSS-only field-corner state icon: the pending spinner or the confirmed check. Two anchors per
    state cover both field shapes: label-wrapped inputs (most pages) anchor on the label;
    unwrapped controls (ForeignControl's select is a direct child of .field) anchor on .field.
-   The child combinator keeps the two from ever both matching at once. */
+   The child combinator keeps the two anchors from ever both matching at once. */
 @keyframes formidable-spin {
     to {
         transform: rotate(360deg);
@@ -533,9 +521,15 @@ form .formidable-pending {
    check claims, so "checking" is the honest cue, not the stale "passed". */
 .field > label:has(> .formidable-valid):not(:has(> .formidable-pending))::after,
 .field:has(> .formidable-valid):not(:has(> .formidable-pending))::after {
-    background-image: var(--valid-badge);
-    background-repeat: no-repeat;
-    background-size: contain;
+    /* var(--valid) rather than currentColor: this anchors on the label or the .field around
+       it, whose colour is body text, not the state colour the border is drawing. */
+    background-color: var(--valid);
+    -webkit-mask-image: var(--valid-badge);
+    mask-image: var(--valid-badge);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
 }
 
 /* ---------- messages ---------- */
@@ -588,15 +582,20 @@ form .formidable-pending {
 }
 
 /* The severity glyph. Colour is not the only thing telling error, warning and info apart: each
-   modifier below points this at its own shape, stroked to match the text colour beside it. */
+   modifier below points this at its own shape. The shape arrives as a mask and the paint is
+   currentColor, so the glyph takes the colour of the message text beside it rather than carrying
+   a copy of it — including a colour a page has just changed that text to. */
 .formidable-message::before {
     content: "";
     flex: none;
     width: 14px;
     height: 14px;
     margin-top: .1rem;
-    background-repeat: no-repeat;
-    background-size: contain;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
 }
 
 .formidable-message--error {
@@ -604,7 +603,8 @@ form .formidable-pending {
 }
 
 .formidable-message--error::before {
-    background-image: var(--message-icon-error);
+    -webkit-mask-image: var(--message-icon-error);
+    mask-image: var(--message-icon-error);
 }
 
 .formidable-message--warning {
@@ -612,7 +612,8 @@ form .formidable-pending {
 }
 
 .formidable-message--warning::before {
-    background-image: var(--message-icon-warning);
+    -webkit-mask-image: var(--message-icon-warning);
+    mask-image: var(--message-icon-warning);
 }
 
 .formidable-message--info {
@@ -620,7 +621,8 @@ form .formidable-pending {
 }
 
 .formidable-message--info::before {
-    background-image: var(--message-icon-info);
+    -webkit-mask-image: var(--message-icon-info);
+    mask-image: var(--message-icon-info);
 }
 
 /* native Blazor ValidationMessage on the vanilla-interop page */

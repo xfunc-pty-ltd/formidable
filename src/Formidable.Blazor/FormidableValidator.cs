@@ -555,12 +555,12 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
     /// <summary>
     /// The version-gated reconcile both deferred paths above and <see cref="NotifyFieldSetChanged"/>
-    /// run. Comparing against <see cref="_lastReconciledFieldSetVersion"/> before latching and
+    /// run. Comparing against <c>_lastReconciledFieldSetVersion</c> before latching and
     /// calling <see cref="FormidableEngine{TModel}.OnRenderedFieldsChanged"/> is what lets
     /// several registry changes in one batch — each deferring its own continuation — coalesce to
     /// one reconcile: whichever continuation runs first finds the version has moved and does the
     /// work, and every later one for the same settled state finds nothing new and skips. Guards
-    /// first on <see cref="_engine"/> being null, which is also what keeps a continuation that
+    /// first on <c>_engine</c> being null, which is also what keeps a continuation that
     /// was still pending when <see cref="Dispose"/> ran from reconciling against the engine
     /// Dispose already tore down — Dispose nulls the field for exactly this reason.
     /// </summary>

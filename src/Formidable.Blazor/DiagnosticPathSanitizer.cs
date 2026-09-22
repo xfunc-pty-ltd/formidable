@@ -27,10 +27,13 @@ internal static class DiagnosticPathSanitizer
     /// <summary>
     /// Replaces every line-ending sequence <see cref="string.ReplaceLineEndings(string)"/>
     /// recognizes — CR, LF, CRLF, form feed, NEL, and the Unicode line and paragraph
-    /// separators — with a single space, so the result can never split the single line a Trace
-    /// entry or a formatted log message is meant to occupy, then caps the result at
-    /// <see cref="MaxLength"/> — appending a marker naming how much was cut, rather than
-    /// truncating silently to something that reads as a real, if short, path.
+    /// separators — with a single space, so none of those can split the single line a Trace
+    /// entry or a formatted log message is meant to occupy. That set is what the guarantee is
+    /// scoped to: it is not every character a console renders as a move to the next row, and a
+    /// vertical tab is the one outside it, passed through to wrap a console line rather than
+    /// forge a record. Then caps the result at <see cref="MaxLength"/> — appending a marker
+    /// naming how much was cut, rather than truncating silently to something that reads as a
+    /// real, if short, path.
     /// </summary>
     internal static string ForDiagnostic(string path)
     {

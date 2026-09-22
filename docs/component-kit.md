@@ -109,7 +109,8 @@ form fails to start:
 
 *Source: `src/Shared/MissingFluentValidatorMessage.cs`*
 
-The first fires when the container this render is resolving from has no `IModelValidator<T>`. A
+The first fires when the container this render is resolving from has no
+`IModelValidator<TModel>`. A
 single-project app has one container, so that means no `AddFormidableBlazor()` call anywhere; a
 two-project Blazor Web App has one container per project, and a page that prerenders or runs on the
 server's circuit resolves from the server's — [Hosting models](quickstart.md#hosting-models) has
@@ -197,6 +198,10 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
+The attributes `FormidableForm` sets on that `<form>` itself take three positions against the
+splat rather than two: `id` and `tabindex` win it outright, `novalidate` loses it outright, and
+`aria-describedby` merges with it.
+
 The `<form>` element always carries the model-level field's id and `tabindex="-1"` — the same
 `FormidableFieldId.For(...)` id every other field-owning element in the kit renders, computed
 from the engine's own model-level field (the model paired with an empty path). That is the landing
@@ -216,14 +221,25 @@ browser's own bubble, so the message the visitor saw would stop being FluentVali
 `novalidate` switches off exactly that check and nothing else. `:invalid` still matches,
 `ValidityState` is still computed, and `checkValidity()`/`reportValidity()` still answer when
 called — a stylesheet keying on `:invalid`, or a page asking the browser directly, sees what it
-always saw. Unlike `id` and `tabindex` above, the attribute renders in the consumer-wins
-position, before the splat: splatting `novalidate="@false"` removes it and hands the submit back
-to the browser's native constraint UI. That opt-out is the bool `@false` — the string `"false"`
-would render the attribute, and a rendered `novalidate` is on whatever its value says.
+always saw. The attribute renders before the splat, which is the position a consumer wins:
+splatting `novalidate="@false"` removes it and hands the submit back to the browser's native
+constraint UI. That opt-out is the bool `@false` — the string `"false"` would render the
+attribute, and a rendered `novalidate` is on whatever its value says.
 `FormidableValidator` cannot make this call for a page: it renders no `<form>` and does not
 reach the `EditForm` the page owns, so in attach mode the attribute is the page's own to write —
 see [its section below](#formidablevalidatortmodel-attaching-to-an-existing-form) for where it
 goes.
+
+`aria-describedby` is the third position, and it is the only one that keeps both values. The
+`<form>` points at the model-level message list's id — `FormidableFieldId.MessagesFor` of the id
+above — so a `FormidableModelMessage` describes the form without the page wiring anything. A
+consumer who splats an `aria-describedby` of their own neither loses it nor replaces the computed
+one: the two are joined, splatted ids first and the computed id appended, which is the
+consumer-first shape a kit input applies to its own `aria-describedby`. Splatted first because
+they are the only ids describing anything while `FormidableModelMessage` is absent or empty, and
+appended rather than reshuffled so a page's own hint stays where the page put it. Attach
+mode writes this attribute by hand alongside the gate id — see
+[its section below](#formidablevalidatortmodel-attaching-to-an-existing-form).
 
 `ChildContent` is a typed fragment, `RenderFragment<FormidableFormContext>` — the shape
 `EditForm` gives its own body — so form markup reads the cascaded context as `context` without
@@ -1489,8 +1505,12 @@ It registers nothing. Registration is how a *field's* submit errors earn disclos
 model-level field is always disclosed, because its element is the form's own, on the page for as
 long as the form is. Beside a `FormidableSummary` the component is redundant — the summary
 already lists model-level issues among everything else — so it earns its place on the form that
-has no summary. Attach mode changes nothing here: `FormidableValidator` cascades the same
-context, so the component renders the same list inside a consumer's own `EditForm`.
+has no summary. Attach mode changes nothing about the component: `FormidableValidator` cascades
+the same context, so it renders the same list inside a consumer's own `EditForm`. What attach
+mode does change is what points at that list. `FormidableForm` describes its own `<form>` element
+with the list's id; `FormidableValidator` renders no `<form>` and cannot reach the one the page
+owns, so the page writes that `aria-describedby` itself, beside the gate id — see
+[the attach-mode section below](#formidablevalidatortmodel-attaching-to-an-existing-form).
 
 **Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
 summary-less variant form under *Without a summary*: submit with the trip details collapsed and
@@ -2006,8 +2026,10 @@ defensive gate's summary entry to land somewhere, so it renders that id itself, 
 it already has:
 
 ```razor
-<EditForm Model="_model" OnSubmit="HandleSubmit" id="@GateId" tabindex="-1">
+<EditForm Model="_model" OnSubmit="HandleSubmit" id="@GateId" tabindex="-1"
+          aria-describedby="@GateMessagesId">
     <FormidableValidator TModel="Order" @ref="_validator" Context="formidable">
+        <FormidableModelMessage />
         ...
     </FormidableValidator>
 </EditForm>
@@ -2015,10 +2037,21 @@ it already has:
 
 ```csharp
 private string GateId => FormidableFieldId.For(new FieldIdentifier(_model, string.Empty));
+
+private string GateMessagesId =>
+    FormidableFieldId.MessagesFor(new FieldIdentifier(_model, string.Empty));
 ```
 
 This is the same pattern every `FormidableForm`-rooted page rendered by hand before the form took
-it over; attach mode is the one place it still applies.
+it over; attach mode is the one place it still applies. The `aria-describedby` is the second
+half of it, and it is owed only where the page renders a
+[`FormidableModelMessage`](#formidablemodelmessage): `FormidableForm` points its own `<form>` at
+that list's id automatically, and `FormidableValidator` has nowhere to put the same attribute,
+exactly as it has nowhere to put the id. Compute that id rather than appending `-messages` to
+`GateId` by hand — `FormidableFieldId.MessagesFor` owns the suffix, so a hand-wired reference and
+the list it describes cannot drift apart. Leave the component out and leave the attribute off
+with it: an id naming nothing is inert to a screen reader, but it is what a scanner reports (see
+[CSS and accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby)).
 
 `novalidate` is the page's to write for the same reason. `FormidableForm` renders it by default so
 that the browser's own interactive constraint validation never answers a submit ahead of

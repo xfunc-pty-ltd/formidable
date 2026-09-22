@@ -1083,9 +1083,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <c>aria-describedby</c> first, then the model-level message list's id
     /// (<see cref="FormidableFieldId.MessagesFor(string)"/> of <c>_modelLevelFieldId</c>) appended
     /// — the same consumer-first, computed-appended shape a kit input applies to its own
-    /// <c>aria-describedby</c>. Splatted first because the splatted ids are the only ones present
-    /// while <see cref="FormidableModelMessage"/> is absent or has nothing to say; appending keeps
-    /// a consumer's own hint intact rather than reshuffling it once the model-level list joins it.
+    /// <c>aria-describedby</c>. The computed id is rendered unconditionally here, where a kit
+    /// input renders one only while its own field has issues, so the splatted ids are the only
+    /// ones describing anything while <see cref="FormidableModelMessage"/> is absent or standing
+    /// empty; that is what puts them first. Appending keeps a consumer's own hint where the
+    /// consumer put it rather than reshuffling it once the model-level list has something to say.
     /// </summary>
     private string ComputeModelLevelAriaDescribedBy()
     {

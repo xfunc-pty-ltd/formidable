@@ -61,8 +61,7 @@ namespace Formidable.Blazor;
 /// and both of core's satisfies that except one, each re-entering the dispatcher explicitly
 /// through _renderDispatch wherever its continuation goes on to touch that state. The one
 /// exception sits inside a _renderDispatch delegate already, at the tail of
-/// <see cref="DiscloseLoadedValuesAsync"/> — that method is itself entered from component
-/// code already on the dispatcher, so the exception is not an await made off the dispatcher,
+/// <see cref="DiscloseLoadedValuesAsync"/> — so it is not an await made off the dispatcher,
 /// only one whose continuation stays on the context _renderDispatch just re-entered, which is
 /// the point rather than an oversight. Blazor's kit components and its JS-backed services
 /// keep the renderer's context throughout their own awaits instead, since those continuations
@@ -727,7 +726,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // sources rather than their filtered views, which errs only toward building a map that
         // then goes unconsulted.
         var showing = _liveVerdicts.Count > 0 || _submitVerdictAdvisories.Count > 0 || _serverAdvisories.Count > 0
-            ? new Dictionary<FieldIdentifier, HashSet<string>>()
+            ? new HashSet<(FieldIdentifier Field, string Message)>()
             : null;
 
         if (_faultIssue is not null)
@@ -747,7 +746,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         foreach (var (field, issues) in SubmitAdvisoryEntries())
         {
-            foreach (var issue in ExceptShadowed(issues, ShowingFor(showing!, field)))
+            // The live loop below runs the same test, and that copy is the reachable one:
+            // _liveVerdicts holds an empty list for every engaged field with nothing to say, and
+            // ExceptShadowed is an iterator, so skipping it saves a state machine per such field.
+            // Neither advisory source yields an empty list — ResolveVisibleAdvisories groups, so
+            // its buckets are non-empty, and a server bucket takes its issue as it is created —
+            // so this copy guards a case the advisory channel cannot present. It is kept for the
+            // symmetry, for the single integer test it costs, and because the live store is proof
+            // that a per-field issue store can carry an empty-list path.
+            if (issues.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var issue in ExceptShadowed(issues, field, showing!))
             {
                 result.Add(new VisibleIssue(field, issue));
             }
@@ -757,7 +769,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             foreach (var (field, issues) in LiveEntries())
             {
-                foreach (var issue in ExceptShadowed(issues, ShowingFor(showing, field)))
+                if (issues.Count == 0)
+                {
+                    continue;
+                }
+
+                foreach (var issue in ExceptShadowed(issues, field, showing))
                 {
                     result.Add(new VisibleIssue(field, issue));
                 }
@@ -1093,27 +1110,24 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Records one message as showing for a field, when a shadow map is being kept.</summary>
     private static void RecordShowing(
-        Dictionary<FieldIdentifier, HashSet<string>>? showing,
+        HashSet<(FieldIdentifier Field, string Message)>? showing,
         FieldIdentifier field,
-        ValidationIssue issue)
-    {
-        if (showing is not null)
-        {
-            ShowingFor(showing, field).Add(issue.Message);
-        }
-    }
+        ValidationIssue issue) => showing?.Add((field, issue.Message));
 
-    /// <summary>The messages already showing for one field, created on first use.</summary>
-    private static HashSet<string> ShowingFor(
-        Dictionary<FieldIdentifier, HashSet<string>> showing,
-        FieldIdentifier field)
+    /// <summary>Field-keyed sibling of <see cref="ExceptShadowed(List{ValidationIssue}, HashSet{string})"/> for the whole-form read,
+    /// where one set spans every field rather than one set existing per field.</summary>
+    private static IEnumerable<ValidationIssue> ExceptShadowed(
+        List<ValidationIssue> issues,
+        FieldIdentifier field,
+        HashSet<(FieldIdentifier Field, string Message)> showing)
     {
-        if (!showing.TryGetValue(field, out var messages))
+        foreach (var issue in issues)
         {
-            showing[field] = messages = new HashSet<string>(StringComparer.Ordinal);
+            if (showing.Add((field, issue.Message)))
+            {
+                yield return issue;
+            }
         }
-
-        return messages;
     }
 
     /// <inheritdoc />
@@ -1467,7 +1481,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>
-    /// Flips <see cref="IsValidating"/> and notifies, marshaled through <see cref="_renderDispatch"/> so
+    /// Flips <see cref="IsValidating"/> and notifies, marshaled through <c>_renderDispatch</c> so
     /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
     /// The write is skipped when <paramref name="pass"/> is no longer the current one —
     /// a superseded pass must not stomp a newer pass's state. <paramref name="fields"/> narrows which
@@ -2161,18 +2175,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             "required indicator and aria-required reach only the fields " +
             "FormidableOptions.RequiredOverride declares required, and a " +
             "DiscloseLoadedValuesAsync load confirms nothing. A validator that wraps another " +
-            "keeps all three by deriving from DelegatingModelValidator rather than implementing " +
-            "IModelValidator alone; one that is not a FluentValidation AbstractValidator has no " +
-            "rules Formidable can read.");
+            "keeps what the validator underneath has by deriving from DelegatingModelValidator " +
+            "rather than implementing IModelValidator alone; one that is not a FluentValidation " +
+            "AbstractValidator has no rules Formidable can read.");
         _logger?.LogInformation(
             "Formidable: the validator for {Model} ('{Validator}') cannot report its own rules. " +
             "Validation is unaffected, but nothing is marked required from the rules, so a " +
             "required indicator and aria-required reach only the fields " +
             "FormidableOptions.RequiredOverride declares required, and a " +
             "DiscloseLoadedValuesAsync load confirms nothing. A validator that wraps another " +
-            "keeps all three by deriving from DelegatingModelValidator rather than implementing " +
-            "IModelValidator alone; one that is not a FluentValidation AbstractValidator has no " +
-            "rules Formidable can read.",
+            "keeps what the validator underneath has by deriving from DelegatingModelValidator " +
+            "rather than implementing IModelValidator alone; one that is not a FluentValidation " +
+            "AbstractValidator has no rules Formidable can read.",
             model, validator);
     }
 

@@ -96,7 +96,10 @@ internal static class FormidableEngineFactory
     private static IModelIntrospector ResolveIntrospector(IServiceProvider services) =>
         (IModelIntrospector?)services.GetService(typeof(IModelIntrospector))
             ?? throw new InvalidOperationException(
-                "No IModelIntrospector is registered — call services.AddFormidableBlazor().");
+                "No IModelIntrospector is registered in the container this render is resolving " +
+                "from — call services.AddFormidableBlazor(). A two-project Blazor Web App has " +
+                "one container per project, and a page that prerenders or runs on the server's " +
+                "circuit resolves from the server's, so register there too.");
 
     private static FormidableOptions ResolveOptions(IServiceProvider services) =>
         (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();

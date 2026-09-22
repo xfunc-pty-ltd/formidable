@@ -25,10 +25,14 @@ falls back to `new FormidableOptions()`) is a fully working configuration:
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
 
 `Options` is the parameter this page is quoted for. Any attribute `FormidableForm<TModel>` does
-not recognise is splatted onto the `<form>` element it renders — except `id` and `tabindex`,
-which `FormidableForm` always sets itself, so the all-suppressed defensive gate's summary entry
-has an element to focus without this page (or any other) wiring it up (see
-[CSS and accessibility](css-and-accessibility.md)).
+not recognise is splatted onto the `<form>` element it renders, and the attributes
+`FormidableForm` sets on that element itself take three positions against the splat rather than
+two. `id` and `tabindex` win it outright, so the all-suppressed defensive gate's summary entry
+has an element to focus without this page (or any other) wiring it up. `novalidate` loses it
+outright, so splatting `novalidate="@false"` hands the submit back to the browser's own
+constraint UI. And `aria-describedby` merges: the splatted value first, then the model-level
+message list's id appended. See [CSS and accessibility](css-and-accessibility.md) and
+[Component kit](component-kit.md#formidableformtmodel).
 
 Here's the one rule worth knowing before anything else: `FormidableForm<TModel>` builds its
 engine once per `Model` instance and passes `Options` straight into the engine's constructor at
@@ -420,7 +424,7 @@ it registered. When `true`, every component bound to a field re-reads its access
 parameter set and compares the field it now names against the one it registered, throwing an
 `InvalidOperationException` that names the field and the fix when the two diverge with no teardown
 in between. A field is the object owning the value plus a member name, so a fresh owner is a
-different field — which is what the exception leads with. An unkeyed row list is the common
+different field — which is what the exception explains first. An unkeyed row list is the common
 way to produce that divergence; replacing a nested object under a field bound to it produces
 the same divergence and the same throw, with no collection anywhere on the page.
 
@@ -471,6 +475,10 @@ the announcement arrives, and the messages stop being a list the visitor can mov
 `status` and `alert` also carry an implicit `aria-atomic` of true, so correcting one field reads
 back every message still standing. `aria-live` costs neither. The list stays a list, atomicity
 stays false, and only what changed is announced.
+
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
+summary-less variant form under *Without a summary* sets it to `"polite"` on options of its own,
+since a form with no summary has only its message lists to announce through.
 
 ### `DefensiveGateMessage`
 
@@ -764,6 +772,9 @@ names assigns a new map to its own copy.
 - `ShowRequiredIndicators` and `RequiredIndicatorContent` (and the marker they feed) —
   [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
   carries its mark and stays silent at the same time.
+- `InlineMessageLive` — [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)'s
+  summary-less variant, which has no summary announcing for it, so the attribute is what the
+  browser suite asserts on the model-level list there.
 
 `ClickRecovery` has no sample page either, for a better reason: it is on by default on every
 page here, and what it prevents is a click going missing. The gated browser suite is where it is
@@ -774,8 +785,7 @@ that is the smallest page that reproduces the shift.
 linked from its entry is its worked example.
 
 Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic` reports into
-your telemetry rather than onto the screen; `InlineMessageLive` changes only what a screen reader
-announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a reading order every
+your telemetry rather than onto the screen; `OrderIssues` re-sorts a reading order every
 sample page is already content with, since each lays its fields out top to bottom; and
 `DefensiveGateMessage`, `ModelLevelDisplayName` and `ValidationFaultMessage` replace strings the
 samples are content to show as they ship, in a corpus written in one language. Each one's entry

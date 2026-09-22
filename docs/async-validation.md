@@ -297,15 +297,19 @@ Once a form has been submitted, an edit still takes both branches of the flowcha
 live pass and it arms the refresh. `LiveProfile` defaults to `null`, meaning `SubmitProfile`, so
 by default the two passes select exactly the same rules: everything the live pass just ran is
 everything the refresh is about to run. Run naively, every rule on the form would answer twice
-for one edit. It doesn't, because the engine keeps a verdict store: every rule's most recent
-answer, keyed by the rule itself and stamped with the engine's count of committed field changes
-as the producing pass
-began. A pass reads that count at its own beginning, executes only the selected rules with no
-fresh verdict at that stamp, and assembles its report from every selected rule, served from the
-store or just executed. What it publishes is always a whole-profile answer, however little it
-actually ran. An async rule written in `ConfigureDraftRules()` (the uniqueness check at the top
-of this page) answers once per post-submit edit: the live pass runs it, and the refresh serves
-the stored verdict.
+for one edit. It doesn't, because the engine keeps a verdict store. It holds one entry per
+executed SET of rules rather than one per rule: a pass runs the stale remainder of its selection
+in as few validator calls as its rules' selection classes allow, and the issues one call produces
+answer for exactly the set that call was given, with nothing inside the report attributing them
+to one rule or another. A selection class is a group of rules that every profile either selects
+whole or not at all. Each entry carries the engine's count of committed field changes as the
+producing pass began, and an index from rule to set keeps the per-rule question — is this rule
+answered, and is that answer still fresh — a dictionary read. A pass reads that count at its own
+beginning, serves every stored set that is still fresh and that its own selection wholly
+contains, executes the rules left over, and assembles its report from all of them. What it
+publishes is always a whole-profile answer, however little it actually ran. An async rule written
+in `ConfigureDraftRules()` (the uniqueness check at the top of this page) answers once per
+post-submit edit: the live pass runs it, and the refresh serves the stored verdict.
 
 On the default profiles that is the usual shape of a whole refresh rather than of one rule in it.
 The live pass selects everything the refresh selects, so once it has landed the refresh executes

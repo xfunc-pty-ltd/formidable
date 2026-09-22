@@ -346,7 +346,7 @@ public sealed class FormidableOptions
     /// one it registered, throwing an <see cref="InvalidOperationException"/> that names the field
     /// and the fix when the two diverge without the component having been torn down in between.
     /// A field is the object owning the value plus a member name, so a fresh owner is a
-    /// different field — which is what the exception leads with. A row list rendered without
+    /// different field — which is what the exception explains first. A row list rendered without
     /// a <c>@key</c> is the common way to produce that divergence: removing or reordering a
     /// row leaves Blazor reusing each row's components for the next item along, and since a
     /// field is resolved once at registration, the registration, the element id, the aria

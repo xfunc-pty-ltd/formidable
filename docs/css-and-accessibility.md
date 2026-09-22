@@ -645,9 +645,9 @@ to chase down: WAI-ARIA 1.2 §8.6.1 tells user agents to ignore a reference that
 nothing, and ARIA 1.3 permits an author to leave one dangling too, on the general ground that a
 modern page's DOM can be populated when necessary, not because it names this exact case. The real
 cost sits elsewhere — a scanner cannot tell whether the reference was meant to resolve, so
-axe-core reports it as `needs review` at `impact: critical`, once per element carrying the
-attribute per run, rather than as a violation. Add the matching component and the finding
-disappears with it.
+axe-core reports it as `needs review` at `impact: critical`, once per run for each element whose
+reference resolves to nothing, rather than as a violation. Add the matching component and the
+finding disappears with it.
 
 ### `FormidableSummary` as a live region
 

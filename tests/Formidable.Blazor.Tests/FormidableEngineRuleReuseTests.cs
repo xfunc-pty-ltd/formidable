@@ -8,13 +8,16 @@ using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 namespace Formidable.Blazor.Tests;
 
 /// <summary>
-/// The per-rule verdict store: after one edit, each rule the live and submit profiles select
-/// executes AT MOST ONCE across the live pass and the post-submit refresh, in any pass order —
-/// by construction (verdicts stamped by edit stamp, keyed by rule identity), not by scheduling.
-/// The headline pin runs the hardest shape for that claim: a live profile whose ruleset name
-/// the submit profile's own list never carries, over a rule declared into both by comma
-/// membership — where profile-name arithmetic could not see that
-/// <c>RuleSet("Submit,Shared", ...)</c> declares ONE rule.
+/// Rule reuse: after one edit, each rule the live and submit profiles select executes AT MOST
+/// ONCE across the live pass and the post-submit refresh, in any pass order — by construction,
+/// not by scheduling. The engine holds one verdict per executed SET — stamped with the edit
+/// stamp, covering the rules one validator call answered together, partitioned by selection
+/// class — and indexes each rule to the set that answered it, so a stored set serves a later
+/// pass whenever that pass's own selection contains it whole, at the same edit stamp. The
+/// headline pin runs the hardest shape for that claim: a live profile whose ruleset name the
+/// submit profile's own list never carries, over a rule declared into both by comma membership
+/// — where profile-name arithmetic could not see that <c>RuleSet("Submit,Shared", ...)</c>
+/// declares ONE rule.
 /// </summary>
 /// <remarks>
 /// The counters are what carry these tests: two runs of a rule leave exactly the issues one run

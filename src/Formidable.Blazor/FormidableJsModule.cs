@@ -58,6 +58,11 @@ internal sealed class FormidableJsModule
         await module.InvokeVoidAsync(identifier, args);
     }
 
+    /// <summary>
+    /// The import itself, and the one place the cache is written: the in-flight task is installed
+    /// before the first await, so concurrent first callers share it, and a faulted import is
+    /// dropped again so the next call re-imports rather than inheriting the failure.
+    /// </summary>
     private async Task<IJSObjectReference> ImportAsync()
     {
         var moduleTask = _moduleTask ??= _jsRuntime.InvokeAsync<IJSObjectReference>(
