@@ -89,12 +89,16 @@ Versions are not set by hand anywhere in the source tree.
 reachable from the commit being built, and `src/Directory.Build.props` sets `MinVerTagPrefix` to `v`.
 So MinVer looks for tags shaped `v<version>`, not bare `<version>`.
 
-1. **Roll `CHANGELOG.md` forward** on `main`, in the commit you're about to tag. Retitle
-   `## [Unreleased]` to the version you're about to tag plus today's date
-   (`## [0.1.0-preview.1] - 2026-08-21`, Keep a Changelog's own dated-release shape), then add a
-   fresh, empty `## [Unreleased]` above it for whatever lands next. Commit that on its own
-   (`docs: release 0.1.0-preview.1` or similar) before tagging: the tag then points at a commit
-   whose CHANGELOG already reads correctly for the version it's tagging.
+1. **Regenerate `CHANGELOG.md`** on `main`, in the commit you're about to tag:
+
+   ```bash
+   git cliff --tag v0.1.0-preview.1 -o CHANGELOG.md
+   ```
+
+   (git-cliff is a one-time machine install, like `pwsh` above; `cliff.toml` in the repo root holds
+   the format.) Review the diff, then commit it on its own (`docs: release 0.1.0-preview.1` or
+   similar) before tagging: the tag then points at a commit whose CHANGELOG already reads correctly
+   for the version it's tagging.
 
 2. **Tag the release commit** on `main`, using the `v0.x.y-preview.N` shape while the project is
    pre-1.0 (adjust `0.x.y` and drop `-preview.N` once the project leaves preview):
