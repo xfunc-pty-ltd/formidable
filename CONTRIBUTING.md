@@ -95,11 +95,11 @@ are squash-merged, so history stays linear whatever your fork looks like.
 
 1. Fork the repository on GitHub and clone your fork.
 2. Add this repository as `upstream`:
-   `git remote add upstream https://github.com/xfunc/formidable.git`.
+   `git remote add upstream https://github.com/xfunc-pty-ltd/formidable.git`.
 3. Branch off `main` for one change (`fix/summary-focus`, `docs/quickstart-typo`).
 4. Commit following [Commit conventions](#commit-conventions) below, and run the checks in
    [Before opening a PR](#before-opening-a-pr).
-5. Push the branch to your fork and open a pull request against `xfunc/formidable`'s `main`.
+5. Push the branch to your fork and open a pull request against `xfunc-pty-ltd/formidable`'s `main`.
 6. CI runs the build, the tests and the commit-shape check; the maintainer reviews and
    squash-merges. The squash subject is taken from the pull request title, so give the PR a
    title in the same `type(scope): subject` shape.

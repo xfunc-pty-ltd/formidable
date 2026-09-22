@@ -21,7 +21,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
-- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xfunc/formidable/commit/{{ commit.id }}){% for f in commit.footers %}{% if f.separator == " #" %}, #{{ f.value }}{% elif f.value is starting_with("#") %}, {{ f.value }}{% endif %}{% endfor %})
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xfunc-pty-ltd/formidable/commit/{{ commit.id }}){% for f in commit.footers %}{% if f.separator == " #" %}, #{{ f.value }}{% elif f.value is starting_with("#") %}, {{ f.value }}{% endif %}{% endfor %})
 {%- endfor %}
 {% endfor %}
 """
@@ -29,10 +29,10 @@ footer = """
 
 <!-- publish-day: verify -->
 {%- for release in releases %}
-{% if release.version %}[{{ release.version | trim_start_matches(pat="v") }}]: https://github.com/xfunc/formidable/releases/tag/{{ release.version }}{% else %}[Unreleased]: https://github.com/xfunc/formidable/commits/main{% endif %}
+{% if release.version %}[{{ release.version | trim_start_matches(pat="v") }}]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/{{ release.version }}{% else %}[Unreleased]: https://github.com/xfunc-pty-ltd/formidable/commits/main{% endif %}
 {%- endfor %}"""
 postprocessors = [
-  { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/xfunc/formidable/issues/${1})" },
+  { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/xfunc-pty-ltd/formidable/issues/${1})" },
 ]
 
 [git]

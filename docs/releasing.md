@@ -7,7 +7,7 @@ memory of the steps.
 
 ## Prerequisites (one-time)
 
-- The repository is pushed to `github.com/xfunc/formidable` (`RepositoryUrl` / `PackageProjectUrl`
+- The repository is pushed to `github.com/xfunc-pty-ltd/formidable` (`RepositoryUrl` / `PackageProjectUrl`
   in `src/Directory.Build.props` already point there; the git remote itself is a separate, manual
   step this repo hasn't taken yet).
 - A deployment environment named `nuget-org` exists (GitHub repo → Settings → Environments → New

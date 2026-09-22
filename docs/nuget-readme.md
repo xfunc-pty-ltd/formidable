@@ -65,17 +65,17 @@ App page carrying @rendermode InteractiveServer, @rendermode InteractiveWebAssem
 In a Blazor Web App (the two-project template), add the same two lines to both Program.cs
 files: pages prerender and can run on the server, and a validator registered only in the
 .Client project is invisible there. The quickstart
-(https://github.com/xfunc/formidable/blob/main/docs/quickstart.md) has the exact settings per
+(https://github.com/xfunc-pty-ltd/formidable/blob/main/docs/quickstart.md) has the exact settings per
 render mode.
 
 ## Links
 
 The full documentation, the runnable sample app, and every recipe live in the repository:
 
-- Repository: https://github.com/xfunc/formidable
-- Documentation index: https://github.com/xfunc/formidable/tree/main/docs
-- Recipes (behaviour to configuration): https://github.com/xfunc/formidable/blob/main/docs/recipes.md
-- Live demo: https://xfunc.github.io/formidable/
-- Issues and contributions: https://github.com/xfunc/formidable/blob/main/CONTRIBUTING.md
+- Repository: https://github.com/xfunc-pty-ltd/formidable
+- Documentation index: https://github.com/xfunc-pty-ltd/formidable/tree/main/docs
+- Recipes (behaviour to configuration): https://github.com/xfunc-pty-ltd/formidable/blob/main/docs/recipes.md
+- Live demo: https://xfunc-pty-ltd.github.io/formidable/
+- Issues and contributions: https://github.com/xfunc-pty-ltd/formidable/blob/main/CONTRIBUTING.md
 
 Licensed under the MIT License.

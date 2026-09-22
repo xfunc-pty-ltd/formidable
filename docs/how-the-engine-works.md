@@ -6,7 +6,7 @@ and the other pages first.
 <!-- publish-day: verify: issues URL once the repo is public -->
 
 Having to come here is a failure of the engine to "just work" without you thinking about its
-internals, so please [raise an issue](https://github.com/xfunc/formidable/issues) describing
+internals, so please [raise an issue](https://github.com/xfunc-pty-ltd/formidable/issues) describing
 what you are trying to do that you cannot get working. The page is still provided so that
 contributors, and anyone who is simply a sucker for punishment, have some information on the
 engine's internal workings.
