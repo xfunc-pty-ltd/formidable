@@ -15,16 +15,11 @@ namespace Formidable.Blazor;
 /// <see cref="IFormValidationEngine.StateChanged"/> so the summary stays current through live
 /// edits, refreshes, and server-applied issues — not just at submit time.
 /// </summary>
-public sealed class FormidableSummary : ComponentBase, IDisposable
+public sealed class FormidableSummary : FormidableComponentBase
 {
     private const string ErrorGroupClass = "formidable-summary__group formidable-summary__group--error";
     private const string WarningGroupClass = "formidable-summary__group formidable-summary__group--warning";
     private const string InfoGroupClass = "formidable-summary__group formidable-summary__group--info";
-
-    private readonly FormContextBinding _binding = new();
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
 
     [Inject]
     private IFormidableFocusService FocusService { get; set; } = default!;
@@ -39,16 +34,14 @@ public sealed class FormidableSummary : ComponentBase, IDisposable
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
-    /// <inheritdoc />
-    protected override void OnParametersSet()
-    {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(Context, GetType(), stateChanged: OnEngineStateChanged);
-    }
+    /// <summary>
+    /// Null: the summary speaks for the whole form rather than for one field, so it registers
+    /// nothing — it reads the engine's already-visible issues and has no field of its own to
+    /// reveal.
+    /// </summary>
+    /// <param name="context">The context now being bound.</param>
+    /// <returns>Always null.</returns>
+    protected override FieldRegistration? Register(FormidableFormContext context) => null;
 
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
@@ -116,9 +109,4 @@ public sealed class FormidableSummary : ComponentBase, IDisposable
 
         await FocusService.FocusAsync(field);
     }
-
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
-
-    /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
 }

@@ -64,12 +64,15 @@ public interface IFormValidationEngine
 
     /// <summary>
     /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
-    /// submit results. The payload is treated as the server's CURRENT verdict: each call replaces
-    /// the issues added by the previous call, rather than accumulating with them, so re-submitting
-    /// the same or a corrected payload does not duplicate inline errors. Client-sourced submit
-    /// issues on the same fields are unaffected by a replace. Only error-severity issues in
-    /// <paramref name="issues"/> are applied; other severities are ignored. Applied issues also
-    /// persist until the next debounced refresh replaces the submit-visible state from the client
+    /// submit results: the server's verdict applies at the severity it carries. Errors land on
+    /// their fields and reach the EditContext's message store; warnings and infos land as
+    /// advisories, which the reads above surface and the store — an error-only surface — does not.
+    /// The payload is treated as the server's CURRENT verdict: each call replaces the issues added
+    /// by the previous call, rather than accumulating with them, so re-submitting the same or a
+    /// corrected payload does not duplicate inline messages. Client-sourced submit issues on the
+    /// same fields are unaffected by a replace, and an advisory whose message a client rule already
+    /// disclosed for the same field shows once, as the client's copy. Applied issues also persist
+    /// until the next debounced refresh replaces the submit-visible state from the client
     /// validator's report; a server-only issue with no matching client rule clears on that refresh.
     /// Because the payload is treated as a submit result, applying one also sets
     /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
@@ -78,10 +81,14 @@ public interface IFormValidationEngine
     /// renders. <paramref name="issues"/> is enumerated exactly once.
     /// </summary>
     /// <remarks>
-    /// Replace is value-equality-based: if a client-sourced issue on a field is value-identical
-    /// to a server issue previously applied to that field, a subsequent replace may remove either
-    /// of the two equal entries — the two are indistinguishable, so which one is removed is
-    /// unspecified.
+    /// Errors bypass the field registry: the server judged what was actually submitted, so an error
+    /// shows whether or not the client rendered its field, and only a disclosure override returning
+    /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
+    /// own do — one with no rendered field is not shown, and the suppressed-issue diagnostic reports
+    /// it — because an advisory blocks nothing, so hiding one strands no verdict. Replace is
+    /// value-equality-based: if a client-sourced issue on a field is value-identical to a server
+    /// issue previously applied to that field, a subsequent replace may remove either of the two
+    /// equal entries — the two are indistinguishable, so which one is removed is unspecified.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 }

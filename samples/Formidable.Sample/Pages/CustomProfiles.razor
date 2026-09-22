@@ -8,14 +8,15 @@
     <Rules>
         <ul>
             <li>Profiles are just named rule-set selections. <code>Draft</code> and <code>Submit</code> are the two built-ins <code>DraftSubmitValidator</code> wires up for you; this page's validator defines a third, <strong>AdminReview</strong>.</li>
-            <li><strong>Title</strong> — required under every profile (a common rule). <strong>Slug</strong> and <strong>Category</strong> (a <code>FormidableInputSelect</code> — a closed set is validated exactly like any other field) — required under the <code>Submit</code> ruleset. <strong>Review note</strong> — required only under the <code>AdminReview</code> ruleset, which also includes <code>Submit</code>'s rules.</li>
+            <li><strong>Title</strong> — required under every profile (a common rule). <strong>Slug</strong>, <strong>Category</strong> (a <code>FormidableInputSelect</code> — a closed set is validated exactly like any other field), <strong>Read minutes</strong> (a <code>FormidableInputNumber</code>, whole number 1–180) and <strong>Publish date</strong> (a <code>FormidableInputDate</code>) — required under the <code>Submit</code> ruleset. <strong>Review note</strong> — required only under the <code>AdminReview</code> ruleset, which also includes <code>Submit</code>'s rules.</li>
+            <li>Read minutes and Publish date are the typed inputs: an unparseable or emptied entry reverts silently rather than raising its own error, so FluentValidation's "required"/range messages stay the only word on either field. Publish date also carries <code>UpdateOn="OnBlur"</code>, the recommended pairing for a date input.</li>
             <li>The picker rebuilds the form on change: <code>FormidableForm</code> only reads its <code>Options</code> parameter when the <code>Model</code> reference changes, so a profile swap needs a fresh model instance to take effect.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>With <em>Standard submit</em> selected, fill Title, Slug and Category, leave Review note empty, and submit — it goes through.</li>
-            <li>Switch to <em>Admin review</em> — the form resets. Enter the same Title, Slug and Category and submit — blocked: the review note is now required.</li>
+            <li>With <em>Standard submit</em> selected, fill Title, Slug, Category, Read minutes and Publish date, leave Review note empty, and submit — it goes through.</li>
+            <li>Switch to <em>Admin review</em> — the form resets. Enter the same fields and submit — blocked: the review note is now required.</li>
             <li>Fill in Review note and submit again — it goes through under admin review.</li>
         </ol>
     </TryIt>
@@ -44,6 +45,10 @@
         </FormidableInputSelect>
         <FormidableFieldMessage For="() => _post.Category" />
     </div>
+    <div class="field"><label>Read minutes <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
+        <FormidableFieldMessage For="() => _post.ReadMinutes" /></div>
+    <div class="field"><label>Publish date <FormidableInputDate @bind-Value="_post.PublishDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
+        <FormidableFieldMessage For="() => _post.PublishDate" /></div>
     <div class="field"><label>Review note <FormidableInputText @bind-Value="_post.ReviewNote" /></label>
         <FormidableFieldMessage For="() => _post.ReviewNote" /></div>
 

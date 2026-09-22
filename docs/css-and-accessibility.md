@@ -30,14 +30,14 @@ public static class FormidableCss
         Assemble(state.HasErrors, state.IsTouched || state.IsModified, state.IsValidating, classes);
 
     /// <summary>
-    /// Assembles the space-joined class string from three already-decided booleans: invalid wins
+    /// Joins the three already-decided booleans into a space-joined class string: invalid wins
     /// outright, valid applies only when not invalid, and pending appends to whichever of those
-    /// (or neither) applies. <see cref="Compute"/> and
-    /// <see cref="FormidableFieldCssClassProvider"/> each decide <paramref name="invalid"/> and
-    /// <paramref name="validWithoutError"/> their own way, from different sources — this only
-    /// joins the three strings the same way both callers always have.
+    /// (or neither) applies. Private to <see cref="Compute"/>, its one caller — a Formidable
+    /// input and <see cref="FormidableFieldCssClassProvider"/>'s native-input path both build a
+    /// <see cref="FieldState"/> from their own sources and hand it to <see cref="Compute"/>, so
+    /// this join happens in exactly one place for both.
     /// </summary>
-    internal static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
+    private static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
     {
         var baseClass = invalid ? classes.Invalid : validWithoutError ? classes.Valid : string.Empty;
 
@@ -121,36 +121,39 @@ up the same configured class names automatically:
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Internal fast path for a field-scoped "is this field validating right now" read — the one
-/// piece of <see cref="FieldState"/> <see cref="FormidableFieldCssClassProvider"/> needs, without
-/// the severity scan the rest of <see cref="IFormValidationEngine.GetFieldState"/> does for
-/// errors/warnings the provider already answers from the <c>EditContext</c> instead.
-/// <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
-/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so the provider falls back
-/// to <see cref="IFormValidationEngine.GetFieldState"/> for it — the capability stays
-/// engine-internal rather than growing the public engine contract for what only this one caller
-/// wants.
+/// Internal fast-path reads for the two <see cref="FieldState"/> members
+/// <see cref="FormidableFieldCssClassProvider"/> needs, without the severity scan the rest of
+/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings the provider
+/// already answers from the <c>EditContext</c> instead. <see cref="FormValidationEngine{TModel}"/>
+/// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
+/// does not, so the provider falls back to <see cref="IFormValidationEngine.GetFieldState"/> for
+/// both reads — the capability stays engine-internal rather than growing the public engine
+/// contract for what only this one caller wants.
 /// </summary>
 internal interface IValidatingFieldReader
 {
     /// <summary>Whether a validation pass currently in flight covers <paramref name="field"/>.</summary>
     bool IsFieldValidating(FieldIdentifier field);
+
+    /// <summary>Whether <paramref name="field"/> has been marked touched.</summary>
+    bool IsFieldTouched(FieldIdentifier field);
 }
 
 /// <summary>
 /// Applies the configured class names to native InputBase components via the EditContext,
 /// including the Pending class while the engine reports the field as validating. Every engine
 /// installs one of these on its EditContext as it is built, so a form needs no wiring to get these
-/// classes.
+/// classes. The Valid decision is the same one <see cref="FormidableCss.Compute"/> makes for a
+/// Formidable input: touched or modified, with no error, earns it.
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
     private readonly FormidableCssClasses _classes;
     private readonly IFormValidationEngine _engine;
-    private readonly IValidatingFieldReader? _validatingReader;
+    private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
-    /// Creates a provider using the given class names, reading pending state from
+    /// Creates a provider using the given class names, reading touched/pending state from
     /// <paramref name="engine"/>. Construction is a consumer's business only when their own
     /// <c>EditContext.SetFieldCssClassProvider</c> call has replaced the installed one and they
     /// want Formidable's classes back, or when their own provider wants to delegate to this one:
@@ -163,19 +166,36 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
         ArgumentNullException.ThrowIfNull(engine);
         _classes = classes;
         _engine = engine;
-        _validatingReader = engine as IValidatingFieldReader;
+        _reader = engine as IValidatingFieldReader;
     }
 
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        var invalid = editContext.GetValidationMessages(fieldIdentifier).Any();
-        var validWithoutError = editContext.IsModified(fieldIdentifier);
-        var pending = _validatingReader is not null
-            ? _validatingReader.IsFieldValidating(fieldIdentifier)
-            : _engine.GetFieldState(fieldIdentifier).IsValidating;
+        bool touched, pending;
+        if (_reader is not null)
+        {
+            touched = _reader.IsFieldTouched(fieldIdentifier);
+            pending = _reader.IsFieldValidating(fieldIdentifier);
+        }
+        else
+        {
+            var fallback = _engine.GetFieldState(fieldIdentifier);
+            touched = fallback.IsTouched;
+            pending = fallback.IsValidating;
+        }
 
-        return FormidableCss.Assemble(invalid, validWithoutError, pending, _classes);
+        var state = new FieldState(
+            IsTouched: touched,
+            IsModified: editContext.IsModified(fieldIdentifier),
+            IsValidating: pending,
+            HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
+            // Compute's rule never looks at HasWarnings (only HasErrors and IsTouched||IsModified
+            // decide Invalid/Valid), so this is a placeholder, not a read -- a future warning-only
+            // class would need its own source for this bit before this synthesis could feed it.
+            HasWarnings: false);
+
+        return FormidableCss.Compute(state, _classes);
     }
 }
 ```
@@ -188,25 +208,24 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
 
-This is the same three class names as `FormidableCss.Compute`, and the same three-part outcome,
-but `Invalid`/`Valid` still come from a narrower pair of sources: the `EditContext`'s
-own message store and its `IsModified` flag, not the engine's `FieldState`. Concretely, a field
-the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`) but that the
-`EditContext` has never seen `NotifyFieldChanged` for still gets no class through this path —
-`FormidableCss.Compute`'s `IsTouched || IsModified` branch (see above) stays out of the
-provider deliberately, the same choice that keeps the kit from wiring touch onto blur app-wide.
-`Pending` is different: the provider is constructed with the owning `IFormValidationEngine` and
-appends `Pending` whenever the field is currently validating, space-joined after whatever
-`Invalid`/`Valid` decision was made — the identical append rule `FormidableCss.Compute` uses
-(both funnel through the same internal `FormidableCss.Assemble`), so `Pending` can appear alone on
-an untouched, unmodified field just as it can on a Formidable input. Reading that one bit costs
-less than the full `GetFieldState` a Formidable input reads for its own `CssClass`: the provider
-probes the engine for `IValidatingFieldReader`, an internal fast path
-`FormValidationEngine<TModel>` implements, and falls back to `GetFieldState(fieldIdentifier).
-IsValidating` only for an `IFormValidationEngine` that doesn't implement it (a test double, say).
-A native input inside a Formidable form shows the same "checking…" cue a Formidable input does,
-automatically; see the Vanilla interop section of [Component kit](component-kit.md) for the
-provider wired into a native `InputText` beside a Formidable one.
+This is the same three class names as `FormidableCss.Compute`, and now genuinely the same rule:
+the provider builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the
+`EditContext`, `IsTouched` and `IsValidating` read from the engine — and hands it to
+`FormidableCss.Compute`, the one place the invalid/valid/pending decision is made. Concretely, a
+field the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`) earns `Valid`
+through this path exactly as it does on a Formidable input, even before the `EditContext` has
+ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s `IsTouched || IsModified` branch
+(see above) is the one decision both paths share, not two decisions that happen to agree. Reading
+the touched and pending bits costs less than the full `GetFieldState` a Formidable input reads for
+its own `CssClass`: the provider probes the engine for `IValidatingFieldReader`, an internal fast
+path `FormValidationEngine<TModel>` implements for both reads, and falls back to
+`GetFieldState(fieldIdentifier)` for both reads at once when an `IFormValidationEngine` doesn't
+implement it (a test double, say) — the probe is a single `as` check, not a per-member one, so
+there's no in-between case where one read has the fast path and the other doesn't. A native input
+inside a Formidable form shows the
+same "checking…" cue a Formidable input does, automatically; see the Vanilla interop section of
+[Component kit](component-kit.md) for the provider wired into a native `InputText` beside a
+Formidable one.
 
 Installation is the engine's job, so a form never constructs a provider to get these classes. The
 constructor is public for the case where an `EditContext` no longer has Formidable's provider on

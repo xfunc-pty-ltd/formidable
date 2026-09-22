@@ -7,6 +7,8 @@ public class ReviewedPost
     public string Title { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
+    public int? ReadMinutes { get; set; }
+    public DateOnly? PublishDate { get; set; }
     public string ReviewNote { get; set; } = string.Empty;
 }
 
@@ -31,6 +33,11 @@ public class ReviewedPostValidator : ProfiledValidator<ReviewedPost>
         {
             RuleFor(p => p.Slug).NotEmpty().WithMessage("Slug is required");
             RuleFor(p => p.Category).NotEmpty().WithMessage("Category is required");
+            RuleFor(p => p.ReadMinutes)
+                .Cascade(CascadeMode.Stop)
+                .NotNull().WithMessage("Read time is required")
+                .InclusiveBetween(1, 180).WithMessage("Read time must be between 1 and 180 minutes");
+            RuleFor(p => p.PublishDate).NotNull().WithMessage("Publish date is required");
         });
 
         Profile("AdminReview", () =>

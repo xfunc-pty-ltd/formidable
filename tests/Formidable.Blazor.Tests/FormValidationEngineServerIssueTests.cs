@@ -243,4 +243,204 @@ public class FormValidationEngineServerIssueTests
         Assert.Contains(clientMessage, messages);
         Assert.DoesNotContain("Server rejected this description", messages);
     }
+
+    [Fact]
+    public void Server_advisories_land_at_the_severity_they_carry()
+    {
+        using var engine = DisclosedEngine(out var editContext, out var order);
+
+        engine.ApplyServerIssues(
+        [
+            new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning),
+            new ValidationIssue("Customer", "This customer was created today", ValidationSeverity.Info),
+        ]);
+
+        Assert.Contains(
+            engine.GetIssues(new FieldIdentifier(order, nameof(EngineOrder.Description))),
+            i => i.Message == "Server prefers short references" && i.Severity == ValidationSeverity.Warning);
+        Assert.Contains(
+            engine.GetIssues(new FieldIdentifier(order, nameof(EngineOrder.Customer))),
+            i => i.Message == "This customer was created today" && i.Severity == ValidationSeverity.Info);
+
+        // The store is the EditContext interop surface a native ValidationMessage renders straight
+        // out, and it carries error severity only. An applied advisory shows through Formidable's
+        // own reads without ever becoming a native validation message.
+        Assert.Empty(editContext.GetValidationMessages());
+    }
+
+    [Fact]
+    public void An_advisory_only_payload_is_still_a_disclosure_event()
+    {
+        using var engine = DisclosedEngine(out _, out _);
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning)]);
+
+        Assert.True(engine.HasSubmitted);
+    }
+
+    [Fact]
+    public async Task A_server_advisory_the_client_already_shows_is_shown_once()
+    {
+        using var engine = DisclosedEngine(out _, out var order);
+        order.Description = "a-b"; // passes NotEmpty, fails the Warning no-hyphen rule
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        // The client's own submit discloses the hyphen warning first.
+        await engine.ValidateForSubmitAsync();
+        Assert.Single(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+
+        // The server ran the same validator, so its response carries that warning word for word -
+        // alongside one only the server could know.
+        engine.ApplyServerIssues(
+        [
+            new ValidationIssue("Description", "Avoid hyphens", ValidationSeverity.Warning, Code: "server"),
+            new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning),
+        ]);
+
+        var issues = engine.GetIssues(description);
+        Assert.Contains(issues, i => i.Message == "Server prefers short references");
+
+        // Once, and the surviving copy is the client's: the shadow rule keeps the first issue
+        // showing for a field and drops the later repeat, and an applied payload lands after
+        // whatever the submit already disclosed.
+        var shown = Assert.Single(issues, i => i.Message == "Avoid hyphens");
+        Assert.NotEqual("server", shown.Code);
+        Assert.Single(engine.GetVisibleIssues(), v => v.Issue.Message == "Avoid hyphens");
+    }
+
+    [Fact]
+    public async Task A_reapplied_server_advisory_is_not_duplicated_by_an_intervening_refresh()
+    {
+        // The advisory channel's half of the replace-per-apply contract, in the shape the error
+        // channel's own pin above uses: apply, edit (arming the debounced refresh, whose client
+        // pass re-produces an equal advisory and re-keys the applied-server bookkeeping to it),
+        // let the refresh run, apply the same verdict again. Exactly one of each message survives.
+        using var engine = DisclosedEngine(out _, out var order);
+        order.Description = "a-b";
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await engine.ValidateForSubmitAsync();
+
+        ValidationIssue[] payload =
+        [
+            new ValidationIssue("Description", "Avoid hyphens", ValidationSeverity.Warning),
+            new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning),
+        ];
+
+        engine.ApplyServerIssues(payload);
+
+        engine.EditContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        engine.ApplyServerIssues(payload);
+
+        Assert.Single(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+        Assert.Single(engine.GetIssues(description), i => i.Message == "Server prefers short references");
+        Assert.Single(engine.GetVisibleIssues(), v => v.Issue.Message == "Server prefers short references");
+    }
+
+    [Fact]
+    public async Task A_client_advisory_survives_a_server_replace_across_an_intervening_refresh()
+    {
+        // The other direction, and the one the error channel learned the hard way: a field can
+        // carry a server-applied advisory and an independently-failing client advisory at once.
+        // Re-keying the bookkeeping by field would adopt the client's own advisory as the server's
+        // and let the next (empty) apply delete it.
+        using var engine = DisclosedEngine(out _, out var order);
+        order.Description = "a-b";
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await engine.ValidateForSubmitAsync();
+        Assert.Single(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning)]);
+        Assert.Contains(engine.GetIssues(description), i => i.Message == "Server prefers short references");
+
+        // An unrelated field's edit arms the debounced refresh; Description is untouched and still
+        // fails its own client warning rule the whole time.
+        engine.EditContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        engine.ApplyServerIssues([]);
+
+        var issues = engine.GetIssues(description);
+        Assert.Contains(issues, i => i.Message == "Avoid hyphens");
+        Assert.DoesNotContain(issues, i => i.Message == "Server prefers short references");
+    }
+
+    [Fact]
+    public async Task A_server_advisory_replaces_only_its_own_severity_across_a_refresh()
+    {
+        // A message alone does not identify an advisory: the channel holds every non-error severity
+        // in one list, so a server Info and a client Warning can carry the same sentence. The
+        // refresh's bookkeeping has to match on both, or the next apply deletes the client's copy
+        // as though the server had put it there.
+        using var engine = DisclosedEngine(out _, out var order);
+        order.Description = "a-b"; // fails the client's Warning-severity no-hyphen rule
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await engine.ValidateForSubmitAsync();
+
+        // The same sentence at the other severity.
+        ValidationIssue[] payload = [new ValidationIssue("Description", "Avoid hyphens", ValidationSeverity.Info)];
+        engine.ApplyServerIssues(payload);
+
+        engine.EditContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        engine.ApplyServerIssues(payload);
+
+        // Both survive, each at its own severity. The shadow rule shows the first copy only, and
+        // that copy is the client's Warning — disclosed at submit, and never taken away.
+        var shown = Assert.Single(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+        Assert.Equal(ValidationSeverity.Warning, shown.Severity);
+        Assert.True(engine.GetFieldState(description).HasWarnings);
+
+        // The server's Info is genuinely behind it, still tracked as the server's own: clearing the
+        // server verdict takes that copy and leaves the client's Warning standing.
+        engine.ApplyServerIssues([]);
+        Assert.Equal(
+            ValidationSeverity.Warning,
+            Assert.Single(engine.GetIssues(description), i => i.Message == "Avoid hyphens").Severity);
+    }
+
+    [Fact]
+    public void A_server_advisory_with_nowhere_to_show_is_suppressed_and_reported()
+    {
+        var suppressed = new List<ValidationIssue>();
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { SuppressedIssueDiagnostic = suppressed.Add }, _time);
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server prefers short references", ValidationSeverity.Warning)]);
+
+        // Nothing rendered a field for Description, so the advisory has nowhere to land: it is not
+        // shown, the diagnostic names it, and no defensive gate stands in for it - an advisory
+        // blocks nothing, so a hidden one has nothing to block.
+        Assert.Empty(engine.GetIssues(new FieldIdentifier(order, nameof(EngineOrder.Description))));
+        Assert.Empty(engine.GetIssues(new FieldIdentifier(order, string.Empty)));
+        Assert.Empty(engine.GetVisibleIssues());
+        Assert.Contains(suppressed, i => i.Message == "Server prefers short references");
+    }
+
+    /// <summary>
+    /// An engine over its own model whose disclosure override forces every issue visible — the
+    /// engine-level stand-in for a page that renders, and so registers, each field under test.
+    /// </summary>
+    private FormValidationEngine<EngineOrder> DisclosedEngine(out EditContext editContext, out EngineOrder order)
+    {
+        order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        editContext = new EditContext(order);
+        return new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, _time);
+    }
 }

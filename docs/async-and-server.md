@@ -44,10 +44,12 @@ validator the client runs answers the request server-side too, and a form and it
 never quietly disagree about what "required" means.
 
 When the server rejects a submission, `FormidableForm.ApplyServerIssues` takes its answer and
-applies it to the same fields the client's own errors would occupy. Each call replaces the
-previous server verdict rather than piling onto it, so resubmitting never leaves a stale
-duplicate message behind. `_form` below is the `FormidableForm` reference, captured on its
-element with `@ref="_form"`.
+applies it to the same fields the client's own messages would occupy. The whole verdict lands, at
+the severity it carries: errors block and mark their fields `formidable-invalid`, warnings and
+infos show as advisories on the fields they name, without blocking anything. Each call replaces
+the previous server verdict rather than piling onto it, so resubmitting never leaves a stale
+duplicate behind, and an advisory the client already showed for that field doesn't double up.
+`_form` below is the `FormidableForm` reference, captured on its element with `@ref="_form"`.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/signups", _signup);

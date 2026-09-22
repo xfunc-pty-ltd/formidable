@@ -14,13 +14,8 @@ namespace Formidable.Blazor;
 /// the currently-active registry.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
-public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
+public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
 {
-    private readonly FormContextBinding _binding = new();
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
-
     /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>
     [Parameter, EditorRequired]
     public Expression<Func<TValue>> For { get; set; } = default!;
@@ -29,21 +24,14 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    /// <inheritdoc />
-    protected override void OnParametersSet()
-    {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context => context.Registry.Register(
-                FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
-    }
+    /// <summary>
+    /// False: an anchor renders nothing, so a validation state change gives it nothing to
+    /// re-render — registering the field is its whole job.
+    /// </summary>
+    protected override bool ObservesEngineState => false;
 
     /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
+    protected override FieldRegistration? Register(FormidableFormContext context) =>
+        context.Registry.Register(
+            FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered);
 }

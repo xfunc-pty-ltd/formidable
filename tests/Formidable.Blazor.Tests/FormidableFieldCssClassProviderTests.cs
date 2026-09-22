@@ -9,8 +9,11 @@ namespace Formidable.Blazor.Tests;
 /// Pins the class the engine's installed <c>FieldCssClassProvider</c> hands a native
 /// <c>InputBase</c> (read via <c>EditContext.FieldCssClass</c>, the same surface
 /// <c>InputBase.CssClass</c> itself reads) so it stays observably unchanged, then covers the
-/// added Pending class. Going through this surface rather than constructing the provider
-/// directly means these assertions hold regardless of how the provider is wired internally.
+/// added Pending class -- and, for the Valid decision specifically, pins it as an alignment with
+/// the kit-input path rather than a fixed string, since that decision is deliberately shared
+/// (<see cref="FormidableCss.Compute"/>). Going through this surface rather than constructing the
+/// provider directly means these assertions hold regardless of how the provider is wired
+/// internally.
 /// </summary>
 public class FormidableFieldCssClassProviderTests
 {
@@ -53,11 +56,11 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-invalid", engine.EditContext.FieldCssClass(field));
     }
 
-    // The provider reads only EditContext.IsModified for the Valid decision;
-    // FormidableCss.Compute's IsTouched||IsModified branch stays out of the native path, so
-    // engine-level touch alone — with no EditContext modification — earns no class.
+    // Deliberate behavior change: the provider's Valid predicate reads touched-or-modified through
+    // the same rule FormidableCss.Compute applies to a Formidable input, so engine-level touch
+    // alone earns the Valid class on the native path too -- one decision, one owner, both seams.
     [Fact]
-    public void Engine_level_touched_alone_does_not_earn_the_valid_class()
+    public void Engine_level_touched_alone_earns_the_valid_class_matching_the_kit_seam()
     {
         var order = new EngineOrder();
         using var engine = CreateEngine(order, new EngineOrderValidator());
@@ -67,7 +70,12 @@ public class FormidableFieldCssClassProviderTests
 
         Assert.True(engine.GetFieldState(field).IsTouched);
         Assert.False(engine.EditContext.IsModified(field));
-        Assert.Equal(string.Empty, engine.EditContext.FieldCssClass(field));
+
+        var providerClass = engine.EditContext.FieldCssClass(field);
+        var kitClass = FormidableCss.Compute(engine.GetFieldState(field), engine.Options.CssClasses);
+
+        Assert.Equal("formidable-valid", providerClass);
+        Assert.Equal(kitClass, providerClass);
     }
 
     [Fact]
@@ -99,24 +107,25 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-invalid", engine.EditContext.FieldCssClass(field));
     }
 
-    // FormidableFieldCssClassProvider's Pending read prefers an internal fast path
-    // (IValidatingFieldReader) that FormValidationEngine<TModel> implements, and every test
-    // above goes through a real engine — so those tests only ever exercise that fast path. This
-    // one constructs the provider directly with an IFormValidationEngine that does NOT implement
-    // the fast-path interface (the same shape any third-party engine implementation has), to
-    // prove the GetFieldState(...).IsValidating fallback actually runs and produces the identical
-    // class the fast path does for the same field state.
+    // FormidableFieldCssClassProvider prefers an internal fast path (IValidatingFieldReader) that
+    // FormValidationEngine<TModel> implements for both the touched and the pending reads, and
+    // every test above goes through a real engine -- so those tests only ever exercise that fast
+    // path. This one constructs the provider directly with an IFormValidationEngine that does NOT
+    // implement the fast-path interface (the same shape any third-party engine implementation
+    // has), to prove the GetFieldState(...).IsTouched/.IsValidating fallbacks actually run: the
+    // EditContext is never modified, so a Valid class can only have come from the touched
+    // fallback, not from IsModified (which the provider still reads straight off the EditContext).
     [Fact]
     public void Provider_falls_back_to_GetFieldState_when_the_engine_has_no_fast_path()
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        var state = new FieldState(IsTouched: true, IsModified: true, IsValidating: true, HasErrors: false, HasWarnings: false);
+        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: true, HasErrors: false, HasWarnings: false);
         var engine = new FieldStateStubEngine(editContext, state);
         var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
 
-        editContext.NotifyFieldChanged(field); // the provider's Valid/Invalid predicates read the EditContext directly, not the stub's FieldState
+        Assert.False(editContext.IsModified(field));
 
         Assert.Equal("formidable-valid formidable-pending", provider.GetFieldCssClass(editContext, field));
     }

@@ -255,11 +255,14 @@ showing. See the Virtualize section of [Component kit](component-kit.md) for the
 `true` to force an issue visible regardless of registration, `false` to force it suppressed
 regardless of registration, or `null` to defer to the registry as described above. It's the way
 out for issues that don't fit the render-registration model — forcing a rule visible without
-wrapping its field, or silencing a known-noisy rule outright. Server-applied issues
+wrapping its field, or silencing a known-noisy rule outright. Server-applied *errors*
 (`Engine.ApplyServerIssues`, see [Server integration](server-integration.md)) bypass
 the registry check entirely rather than defer to it. They're visible unless `DisclosureOverride`
-explicitly returns `false`: the server already validated the submitted data, and hiding a field
-the client happens not to have rendered isn't the concern disclosure exists to solve.
+explicitly returns `false`: the server already validated the submitted data, and an error that
+blocks the save has to reach the user whether or not the client happened to render its field.
+Advisories in the same payload defer to the registry like the client's own, and a suppressed one
+fires the diagnostic. Nothing is stranded by that: an advisory blocks no submit, so hiding one
+leaves the user nothing to fix.
 
 **Samples:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
 suppressed-issue list on the page reflects only the most recent submit. It's cleared at the start

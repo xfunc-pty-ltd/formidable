@@ -54,13 +54,18 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Custom profiles
 
-- [ ] With *Standard submit* selected: Title + Slug + Category filled, Review note empty — submit
-      goes through
-- [ ] Switch to *Admin review*: the form RESETS; re-enter Title + Slug + Category and submit —
-      blocked, the review note is now required
+- [ ] With *Standard submit* selected: Title + Slug + Category + Read minutes + Publish date
+      filled, Review note empty — submit goes through
+- [ ] Switch to *Admin review*: the form RESETS; re-enter all five fields and submit — blocked,
+      the review note is now required
 - [ ] Fill Review note and submit again: goes through under admin review
 - [ ] Category is a select (`FormidableInputSelect`): invalid/valid border and message behave
       exactly like the other fields
+- [ ] Read minutes is a number input (`FormidableInputNumber`): typing `0` and submitting shows
+      the range message; the native spinner chrome matches the theme in both light and dark
+- [ ] Publish date is a date input (`FormidableInputDate`, `UpdateOn="OnBlur"`): typing a date and
+      tabbing away commits it with no stray validation flash mid-type; calendar picker chrome is
+      legible in dark mode
 
 ### Progressive disclosure
 
@@ -159,6 +164,11 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       minimal-API mapping)
 - [ ] Empty send: the 400 lands inline, one message per field; summary click focuses
 - [ ] Fix one field, send again: every remaining error shows ONE message (no duplicates)
+- [ ] Description with a hyphen (e.g. `Q3-restock`) while a SKU line is still empty, then send:
+      the 400 carries the server's hyphen advisory as well as the SKU error, and the advisory
+      shows on Description in warning styling — no separate advisory list anywhere on the page.
+      Fill the SKU and send again: accepted — and the hyphen advisory stays, because the client's
+      own rule still fails it. Remove the hyphen too, click away from the field, and it goes
 - [ ] A whitespace-only SKU line: dropped by the pre-send Normalize; no misattributed errors
 - [ ] Switch to *MVC controller* and repeat the empty send: identical messages land on the
       identical fields — the hosting style makes no difference to the 400 shape

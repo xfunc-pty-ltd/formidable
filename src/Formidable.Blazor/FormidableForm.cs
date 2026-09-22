@@ -126,7 +126,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// Applies a server response's issues to this form's engine, forwarding
     /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
     /// contract whole: the payload is the server's current verdict and replaces what the previous
-    /// call applied, only error-severity issues reach fields, and applying any also sets
+    /// call applied, each issue lands at the severity it carries, and applying any also sets
     /// <see cref="IFormValidationEngine.HasSubmitted"/>, since the payload is treated as a submit
     /// result. A page holding the form with <c>@ref</c> has everything the round trip needs here,
     /// without reaching through <see cref="Engine"/> for it. Call from the renderer's

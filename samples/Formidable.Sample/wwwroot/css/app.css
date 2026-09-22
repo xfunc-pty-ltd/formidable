@@ -47,9 +47,11 @@
         --summary-bg: rgba(248, 113, 113, .09);
     }
 
-    /* Native picker chrome (calendar glyphs) follows color-scheme, not the theme tokens - the
-       tokens still paint the field's own background and text. */
-    form input[type="date"] {
+    /* Native picker/spinner chrome (calendar glyphs, the number input's up/down arrows) follows
+       color-scheme, not the theme tokens - the tokens still paint the field's own background and
+       text. */
+    form input[type="date"],
+    form input[type="number"] {
         color-scheme: dark;
     }
 }

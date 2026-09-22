@@ -285,18 +285,11 @@ five with two calls: `AddCommonAttributes` right after opening its element, for 
 every validated input shares, and `AddValueBinding` right before closing it, for whichever
 value-commit attribute(s) `UpdateOn` calls for:
 
-**Registration.** `OnParametersSet` resolves the field to a `FieldIdentifier` and registers it
-with the cascaded context's `FieldRegistry` — this is what makes the field's issues visible to
-progressive disclosure while the component stays mounted (see
-[Disclosure](disclosure.md)):
+**Registration.** Binding to the cascaded context is the one lifecycle every component in the kit
+shares, so it lives one level further down, on `FormidableComponentBase`: bind when parameters are
+set, rebind when the context instance is replaced, release on disposal.
 
 ```csharp
-    /// <summary>
-    /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, registers it,
-    /// and binds the engine subscription to the currently-cascaded context. A derived control that
-    /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
-    /// re-renders on a validation state change.
-    /// </summary>
     protected override void OnParametersSet()
     {
         if (_binding.IsBound(Context))
@@ -307,22 +300,44 @@ progressive disclosure while the component stays mounted (see
         _binding.Update(
             Context,
             GetType(),
-            register: context =>
-            {
-                Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
-                ElementId = FormidableFieldId.For(Field);
-                MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
-                return context.Registry.Register(Field, KeepRegistered);
-            },
-            stateChanged: OnEngineStateChanged);
+            register: Register,
+            stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
+    }
+```
+
+*Source: `src/Formidable.Blazor/FormidableComponentBase.cs`*
+
+The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
+cascaded context — so a steady-state render returns before it touches the registration or the
+subscription at all. `FormidableComponentBase` is public only because a public component cannot
+inherit a less accessible base; its constructor is not, and it is not an extension point —
+`FormidableInputBase` below and `FormidableField` further down are still the two ways to bring a
+control of your own to the engine.
+
+What an input contributes to that lifecycle is its `Register`: it resolves the field to a
+`FieldIdentifier`, computes the ids that address it, and registers it with the cascaded context's
+`FieldRegistry` — which is what makes the field's issues visible to progressive disclosure while
+the component stays mounted (see [Disclosure](disclosure.md)):
+
+```csharp
+    protected sealed override FieldRegistration? Register(FormidableFormContext context)
+    {
+        Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
+        ElementId = FormidableFieldId.For(Field);
+        MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
+        return context.Registry.Register(Field, KeepRegistered);
     }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
-The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
-cascaded context — so a steady-state render skips building the `register` closure and the
-`stateChanged` delegate entirely rather than build them only for `Update` to discard them unused.
+`Register` runs only when the binding targets a new context instance — the first render, and every
+rebind after it — which is why the field resolves there rather than per render: a rebind is exactly
+when that resolution can have changed. An input's `Register` is sealed: which field a control
+speaks for is not one of the things deriving from it is meant to change. `ObservesEngineState`, the
+other name in the snippet above, is the base's one opt-out from the engine subscription — it exists
+for a component that renders nothing at all, and [`FormidableFieldAnchor`](#formidablefieldanchortvalue)
+below is the component that takes it.
 
 Either spelling names that field. `@bind-Value="_order.Description"` fills in `ValueExpression`,
 which the Razor compiler supplies for every `@bind-Value` — the same `Value`/`ValueChanged`/
@@ -523,12 +538,27 @@ component at all.
 The kit wraps a control when the wrapper meaningfully improves its validation UX — a `<select>`
 and a `<textarea>` clear that bar the same way a plain text box always did, which is why
 `FormidableInputSelect` and `FormidableInputTextArea` ship beside `FormidableInputText` (see
-below). A native `<input>` whose type only changes what the browser renders, not how a value
-binds — a date or number input, say — clears that bar too, just without a dedicated wrapper:
-`FormidableInputText type="date"` (or `"number"`) splats the type straight through
-`AdditionalAttributes` and gets the same five extras any other `FormidableInputText` gets, with
-`UpdateOn="InputUpdateMode.OnBlur"` answering the per-segment `change` events those types fire
-natively (see [Options](options.md#updateon-per-input-not-a-formidableoptions-property)). Where a
+below). A native `<input>` whose `type` only changes what the browser renders, not how a value
+binds — `type="range"`, `type="tel"`, `type="password"` — clears that bar too, without a
+dedicated wrapper, by splatting the type straight through `AdditionalAttributes` onto a
+string-bound input: `FormidableInputText`'s value binding is a plain `string`, a straight cast
+with no conversion and no culture involved, so splatting any of those types onto it works exactly
+as splatting `type="date"`/`type="number"` does — the model just stays a string, the way Workout's
+own date fields deliberately do, parsing it by hand.
+
+A date or a number input looks like the same case only until the model stops being a string.
+`FormidableInputBase<TValue>.AddValueBinding(RenderTreeBuilder, int)` — the base's generic
+value-binding overload — serves every `TValue` without special-casing, but what its binder
+actually does with the DOM text depends on `TValue`: for `string?` it's an identity, no parsing
+and so no culture involved, which is why `FormidableInputText` (and splatting a type onto it) is
+free of the problem above. A control binding an actual `DateOnly`/`decimal`/etc. through that
+SAME overload would get real parsing instead, done under the *current thread's* culture — while a
+native `type="date"`/`type="number"` input's DOM value is a fixed, culture-invariant string (ISO
+`yyyy-MM-dd`, period-decimal) regardless. The two can disagree: under a comma-decimal culture the
+binder can silently misread `"12.5"` as `125`, and under a non-Gregorian calendar it can misread
+the year outright. That gap is exactly why `FormidableInputNumber` and `FormidableInputDate` ship
+as dedicated wrappers (see below): each takes a different overload entirely, supplying its own
+invariant, format-exact conversion instead of the generic overload's culture-sensitive one. Where a
 control needs something the kit provides no wrapper for — a plain `<input type="checkbox">`
 whose value binds through `checked` rather than `value`, a third-party component — it stays fully
 native instead, either paired with `FormidableFieldAnchor` or driven by `FormidableField`, both
@@ -563,7 +593,7 @@ consumer splatted, and `aria-invalid`/`aria-describedby` follow the field's issu
 like any kit input — `<RatingInput @bind-Value="_feedback.Rating"
 min="0" max="5" />` — where `min` and `max` splat through `AdditionalAttributes` untouched.
 
-Three rules apply to anything derived from the base:
+Four rules apply to anything derived from the base:
 
 - **Call `AddCommonAttributes` first, `AddValueBinding` last.** The first renders the splat, the
   `id`, the `class` and the aria attributes in the order that merges the consumer's `class` and
@@ -577,6 +607,14 @@ Three rules apply to anything derived from the base:
   subscription, so a control with resources of its own overrides `DisposeCore` instead. The one
   exception is `IAsyncDisposable`, since Blazor calls only the async overload when a component
   implements both interfaces — a control with a `DisposeAsync` has to call `Dispose()` from it.
+- **Leave the two shared-lifecycle hooks alone unless you mean it.** `ObservesEngineState` is why a
+  control re-renders when a validation pass lands; overriding it to `false` on something that
+  renders a verdict freezes that verdict — the state class and the aria pair keep whatever values
+  the last render happened to give them. `OnEngineStateChanged` is the relay itself: override it to
+  do something extra on every pass, and call `base` so the re-render still happens. Which field the
+  control speaks for is not adjustable at all — `Register` is sealed on `FormidableInputBase`,
+  because an input that resolved a different field, or none, would render no id, register nothing
+  for disclosure, and have no field to read state or issues for.
 - **Reach the rest through `Context`.** The protected cascaded `FormidableFormContext` is the
   route to everything the five don't cover: `Context.Engine.GetIssues(Field)` to render messages
   yourself, `Context.EditContext`, `Context.Registry`.
@@ -732,6 +770,143 @@ same as an `<input>`'s — its content is its value, not enumerable child elemen
 **Sample:** [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) — `Body` is the
 textarea.
 
+## `FormidableInputNumber<TValue>`
+
+A number needs the same five extras as a text box, plus one thing a text box's binding can't
+give it: an HTML `<input type="number">`'s DOM value is always period-decimal — `"12.5"`, never
+`"12,5"` — regardless of the browser's locale, but `AddValueBinding`'s typed overload resolves
+the current thread's culture. Under a comma-decimal culture, that overload would silently misread
+`"12.5"` as `125` rather than failing loudly, so `FormidableInputNumber<TValue>` converts through
+`CultureInfo.InvariantCulture` instead, using the string-projected overload with its own
+parser rather than the base's own conversion:
+
+```csharp
+    static FormidableInputNumber()
+    {
+        var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
+        if (targetType != typeof(int) &&
+            targetType != typeof(long) &&
+            targetType != typeof(short) &&
+            targetType != typeof(float) &&
+            targetType != typeof(double) &&
+            targetType != typeof(decimal))
+        {
+            throw new InvalidOperationException(
+                $"{typeof(FormidableInputNumber<TValue>)} does not support the type '{typeof(TValue)}'. " +
+                "Supported types are int, long, short, float, double, decimal, and their nullable forms.");
+        }
+    }
+```
+
+*Source: `src/Formidable.Blazor/FormidableInputNumber.cs`*
+
+`TValue` is checked once, in a static constructor, against the same set native
+`InputNumber<TValue>` supports — `int`, `long`, `short`, `float`, `double`, `decimal`, and their
+nullable forms. An unsupported `TValue` never gets as far as an instance: the runtime wraps the
+thrown `InvalidOperationException` in a `TypeInitializationException` the first time the closed
+generic type is touched, the standard shape for any failing static constructor.
+
+```csharp
+    protected override void BuildRenderTree(RenderTreeBuilder builder)
+    {
+        var formattedValue = FormatValueAsString(Value);
+
+        builder.OpenElement(0, "input");
+        builder.AddAttribute(1, "step", "any");
+        AddCommonAttributes(builder, 2);
+        builder.AddAttribute(6, "type", "number");
+        builder.AddAttribute(7, "value", formattedValue);
+        AddValueBinding(builder, 8, formattedValue, TryParseValue);
+        builder.CloseElement();
+    }
+```
+
+*Source: `src/Formidable.Blazor/FormidableInputNumber.cs`*
+
+`step="any"` renders first, *before* `AddCommonAttributes`' splat — the consumer-wins position,
+the opposite of `type` below. HTML's own default `step` is `1`, which makes any fractional value
+a native `stepMismatch`. `FormidableForm` renders no `novalidate` (neither does the framework's
+own `EditForm` underneath it), so a real `<button type="submit">` against a `stepMismatch` field
+never reaches Blazor's submit handler at all — the browser blocks the submit event and shows its
+own constraint-validation tooltip, not FluentValidation's message. The default `step="any"` turns
+that native check off, so every fractional value reaches the model and only FluentValidation
+judges it, matching native `InputNumber<TValue>`'s own default for every one of its supported
+types. Rendering it before the splat, rather than forcing it the way `type` is forced, means a
+consumer's own splatted `step` overrides the default outright — and opts back into the browser's
+native constraint UI for values that mismatch it, the same trade a consumer accepts by splatting
+any other native constraint attribute.
+
+`type="number"` renders in the component-wins position, after `AddCommonAttributes`' splat, the
+same spot `RatingInput`'s `type="range"` takes above. `AddValueBinding` here is a third overload
+— string-projected like `FormidableInputSelect`'s, but honouring `UpdateOn` (`OnChange`,
+`OnInput`, and the commit-on-change/notify-on-blur split under `OnBlur`) the way the typed
+overload does for a text box, including the same consumer-`@onblur`-chains-first contract. A
+control that needs invariant string conversion without losing `UpdateOn` is what this overload is
+for; `FormidableInputDate` below is the kit's other case.
+
+A string that fails to parse — including an emptied box when `TValue` is not nullable — leaves
+the field uncommitted, the same silent revert every kit input has: Blazor's own binder no-ops, so
+the model stays what it was and the rendered value snaps back to it on the next render. Model an
+optional number as `int?`, `decimal?`, and so on, so an emptied box commits `null` instead — a
+rule like `NotNull()` can then say so, and FluentValidation stays the only source of a message a
+visitor sees.
+
+**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
+`Read minutes`, required and range-checked under the `Submit` ruleset.
+
+## `FormidableInputDate<TValue>`
+
+The same problem, one step further: a native `<input type="date">`'s DOM value isn't just
+period-decimal, it's a specific calendar-and-format pair — ISO `yyyy-MM-dd`, always, regardless
+of locale. Under a non-Gregorian-calendar culture such as Thai (Buddhist calendar), the base's
+current-culture conversion can read `"2024-01-15"` back as a different year entirely rather than
+failing, so `FormidableInputDate<TValue>` formats and parses through that exact format string
+under `CultureInfo.InvariantCulture`:
+
+```csharp
+    private static string? FormatValueAsString(TValue? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            DateTime dateTime => BindConverter.FormatValue(dateTime, IsoDateFormat, CultureInfo.InvariantCulture),
+            DateTimeOffset dateTimeOffset => BindConverter.FormatValue(dateTimeOffset, IsoDateFormat, CultureInfo.InvariantCulture),
+            DateOnly dateOnly => BindConverter.FormatValue(dateOnly, IsoDateFormat, CultureInfo.InvariantCulture),
+            _ => value.ToString(),
+        };
+    }
+```
+
+*Source: `src/Formidable.Blazor/FormidableInputDate.cs`*
+
+`TValue` is checked the same way `FormidableInputNumber` checks its own — a static constructor
+against `DateTime`, `DateTimeOffset`, `DateOnly`, and their nullable forms, failing the same
+`TypeInitializationException`-wrapped way for anything else. Rendering follows the identical
+shape: `type="date"` in the component-wins position, `AddValueBinding`'s
+string-projected-but-`UpdateOn`-honouring overload doing the parsing.
+
+Prefer `UpdateOn="InputUpdateMode.OnBlur"` for this component specifically. Chromium fires a
+native date input's `change` event once per typed segment — day, month, year — rather than once
+per completed date, so the default `OnChange` can run a live pass, and briefly show a stale
+verdict, against a year the visitor hasn't finished typing. Under `OnBlur` the model still commits
+on every segment's `change` (so a wrapping form always reads the field's current value), but the
+engine is notified only once, on `blur`, once the value has had a chance to settle — the same
+per-segment problem [Options](options.md#updateon-per-input-not-a-formidableoptions-property)
+covers for the general case, now answered by the typed input directly rather than by splatting
+`type="date"` onto a text box.
+
+The same silent-revert and nullable-modelling rules as `FormidableInputNumber` apply: an
+unparseable or emptied non-nullable box leaves the model untouched and the rendered value reverts;
+model an optional date as `DateOnly?`/`DateTime?`/`DateTimeOffset?` so an emptied box commits
+`null` and a rule such as `NotNull()` can judge it.
+
+**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
+`Publish date`, required under the `Submit` ruleset.
+
 ## `FormidableFieldMessage<TValue>`
 
 Every field needs somewhere to show what's wrong with it. `FormidableFieldMessage` renders a
@@ -753,7 +928,7 @@ One base method decides whether rendering a message list also registers the fiel
     /// collection-level path revealed so collection-level rules
     /// surface even though the collection itself has no validated input registering it.
     /// </summary>
-    private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
+    private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
@@ -861,7 +1036,7 @@ public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    private protected override FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) =>
+    private protected override FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) =>
         context.Registry.Register(field, KeepRegistered);
 }
 ```
@@ -957,13 +1132,8 @@ using `FormidableField` either — a raw `<input>`, a native `<select>` bound ma
 third-party component. It renders nothing:
 
 ```csharp
-public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
+public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
 {
-    private readonly FormContextBinding _binding = new();
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
-
     /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>
     [Parameter, EditorRequired]
     public Expression<Func<TValue>> For { get; set; } = default!;
@@ -972,27 +1142,23 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    /// <inheritdoc />
-    protected override void OnParametersSet()
-    {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context => context.Registry.Register(
-                FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
-    }
+    /// <summary>
+    /// False: an anchor renders nothing, so a validation state change gives it nothing to
+    /// re-render — registering the field is its whole job.
+    /// </summary>
+    protected override bool ObservesEngineState => false;
 
     /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
+    protected override FieldRegistration? Register(FormidableFormContext context) =>
+        context.Registry.Register(
+            FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered);
 }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFieldAnchor.cs`*
+
+The whole component is its registration: the shared base does the binding, and an anchor is the one
+component that opts out of the engine subscription, since it has no markup of its own to re-render.
 
 Without something registering a field, its issues are permanently unrevealed, and placing a
 `FormidableFieldAnchor` next to the raw control is the whole fix. See the Vanilla interop section

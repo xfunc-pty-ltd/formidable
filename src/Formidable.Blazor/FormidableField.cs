@@ -16,14 +16,10 @@ namespace Formidable.Blazor;
 /// registration and the engine subscription always target the currently-active context.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
-public sealed class FormidableField<TValue> : ComponentBase, IDisposable
+public sealed class FormidableField<TValue> : FormidableComponentBase
 {
-    private readonly FormContextBinding _binding = new();
     private FieldIdentifier _field;
     private string _elementId = string.Empty;
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
 
     /// <summary>Accessor for the field to render, e.g. <c>() => Model.Description</c>.</summary>
     [Parameter, EditorRequired]
@@ -38,23 +34,11 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
     /// <inheritdoc />
-    protected override void OnParametersSet()
+    protected override FieldRegistration? Register(FormidableFormContext context)
     {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context =>
-            {
-                _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
-                _elementId = FormidableFieldId.For(_field);
-                return context.Registry.Register(_field, KeepRegistered);
-            },
-            stateChanged: OnEngineStateChanged);
+        _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+        _elementId = FormidableFieldId.For(_field);
+        return context.Registry.Register(_field, KeepRegistered);
     }
 
     /// <inheritdoc />
@@ -77,9 +61,4 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
 
         builder.AddContent(0, ChildContent(context));
     }
-
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
-
-    /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
 }

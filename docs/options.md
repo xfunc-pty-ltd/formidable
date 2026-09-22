@@ -114,8 +114,8 @@ so the live pass a notification starts waits for the value to actually settle in
 on a value still being typed.
 
 ```razor
-<FormidableInputText type="date" @bind-Value="Model.EventDate"
-                      UpdateOn="InputUpdateMode.OnBlur" />
+<FormidableInputDate @bind-Value="Model.EventDate"
+                     UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
 `OnBlur` is the one mode that binds an event a page may already want for itself, so it chains
@@ -124,8 +124,12 @@ it, and notifies the engine afterwards. A field that marks itself touched on blu
 after the mode is switched on.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
-full behaviour table across all three modes and both rule buckets.
-**Sample:** [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — both date fields.
+full behaviour table across all three modes and both rule buckets, and [Component
+kit](component-kit.md#formidableinputdatetvalue) for why `FormidableInputDate` in particular
+prefers this mode.
+**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
+`Publish date` is the typed date input; [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
+shows the same mode on the string-modelled pattern instead, on both its date fields.
 
 ## `FormidableOptions` is read once
 

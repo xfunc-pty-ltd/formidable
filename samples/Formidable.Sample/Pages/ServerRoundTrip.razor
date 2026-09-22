@@ -14,7 +14,7 @@
         <ul>
             <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
             <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
-            <li>Non-error issues in the response (advisories) are listed by the page, not applied to fields.</li>
+            <li>The verdict applies at the severity it carries: the response's errors block and mark their fields <code>formidable-invalid</code>, while its advisories land on the fields they name. One call carries both — the page writes no advisory plumbing of its own.</li>
             <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
             <li>The same validation filter runs in both hosting styles — pick Minimal API or the MVC controller above and the 400 shape is identical.</li>
             <li><code>OrdersController.cs</code> in the panel below is real server source — the MVC twin of the minimal-API mapping, behind the same filter. <code>requests.http</code> in the API project calls both endpoints without the UI.</li>
@@ -33,6 +33,7 @@
             <li>Click <em>Send to server</em> with everything empty — the 400 lands inline on the exact fields.</li>
             <li>Click an entry in the summary — it focuses that field.</li>
             <li>Fix one field and send again — the new verdict replaces the old one entirely.</li>
+            <li>Put a hyphen in the description while a SKU is still empty and send — the 400 carries the server's advisory about the hyphen alongside the SKU error, and it lands on the description as a warning that blocks nothing.</li>
             <li>Complete the order and send — the server accepts and the status line confirms.</li>
         </ol>
     </TryIt>
@@ -64,14 +65,4 @@
     </div>
 </FormidableForm>
 
-@if (_serverAdvisories.Count > 0)
-{
-    <h2>Server advisories (non-blocking)</h2>
-    <ul>
-        @foreach (var advisory in _serverAdvisories)
-        {
-            <li>@advisory</li>
-        }
-    </ul>
-}
 <p role="status">@_status</p>

@@ -18,12 +18,11 @@ namespace Formidable.Blazor;
 /// renderer's dispatcher and only from the still-current pass, for every validation pass — and
 /// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
 /// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
-/// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _submitInFlight,
-/// _liveVersion, _touched, _pendingRefreshFields, _pendingLiveFields) mutates synchronously on the
-/// caller's context — except on the dispatcher for: _pendingRefreshFields, when RunRefreshPassAsync
-/// snapshots and clears it at the start of a refresh pass; _pendingLiveFields, when a live pass
-/// clears it after writing its verdicts; and the two in-flight markers _submitInFlight and
-/// _liveVersion, which the pass that set them clears alongside IsValidating.
+/// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _currentPass,
+/// _touched, _pendingRefreshFields, _pendingLiveFields) mutates synchronously on the caller's
+/// context — except on the dispatcher for: _pendingRefreshFields, when a refresh pass snapshots
+/// and clears it as it begins; _pendingLiveFields, when a live pass clears it after writing its
+/// verdicts; and _currentPass, which the pass that recorded it clears alongside IsValidating.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -54,18 +53,17 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private ITimer? _refreshTimer;
     private CancellationTokenSource? _passCts;
-    private bool _submitInFlight;
     private bool _disposed;
     private HashSet<FieldIdentifier>? _validatingScope;
 
     private int _version;
 
-    // The pass version of the live pass in flight; -1 when none is. Held as a version rather than
-    // as a plain in-flight flag so it cannot go stale: a submit supersedes a live pass without
-    // waiting for it, and a flag the dying pass then declined to clear — it is no longer the
-    // current pass, so it must not write state — would leave every later refresh deferring to a
-    // pass that ended long ago.
-    private int _liveVersion = -1;
+    // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
+    // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
+    // record outright, and only a pass that is still the current one ever clears it. A pass that
+    // was superseded and therefore declined to write state — it is no longer current, so it must
+    // not — cannot leave the engine deferring to a pass that ended long ago.
+    private PassScope? _currentPass;
 
     /// <summary>
     /// Creates an engine bound to one model + edit context pair. <paramref name="logger"/> is
@@ -170,11 +168,17 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldValidating"/>
     bool IValidatingFieldReader.IsFieldValidating(FieldIdentifier field) => IsFieldValidating(field);
 
+    /// <inheritdoc cref="IValidatingFieldReader.IsFieldTouched"/>
+    bool IValidatingFieldReader.IsFieldTouched(FieldIdentifier field) => _touched.Contains(field);
+
     /// <inheritdoc />
     /// <remarks>
     /// Ordering is part of what a message list renders: the submit channel first (errors, then
-    /// advisories), then the live channel minus whatever it would repeat, and the fault issue last
-    /// — a fault is about the pass rather than the field, so it trails the field's own verdict.
+    /// advisories), then the live channel, and the fault issue last — a fault is about the pass
+    /// rather than the field, so it trails the field's own verdict. Everything after the errors is
+    /// filtered against what is already showing, so a message a later channel repeats — a server
+    /// response echoing an advisory the client already disclosed, a live rule failing the same way
+    /// twice — reads once, in the position the first channel to say it gave it.
     /// </remarks>
     public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field)
     {
@@ -198,7 +202,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         if (hasAdvisories)
         {
-            AddShowing(result, showing, advisories!);
+            result.AddRange(ExceptShadowed(advisories!, showing));
         }
 
         if (hasLive)
@@ -218,16 +222,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <remarks>
     /// Channel-major rather than field-major, because the summary groups by severity and the order
     /// within a group is the order issues arrive here: the fault issue first, then every field's
-    /// submit errors, then every field's advisories, then the live channel minus whatever it would
-    /// repeat for the same field.
+    /// submit errors, then every field's advisories, then the live channel — each channel after the
+    /// errors minus whatever is already showing for the same field, exactly as
+    /// <see cref="GetIssues"/> filters them.
     /// </remarks>
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
         var result = new List<VisibleIssue>();
 
-        // Only the live phase consults the shadow map, so it exists only when there is a live phase
-        // to consult it — a summary showing submit issues alone builds nothing.
-        var showing = _liveIssues.Count > 0 ? new Dictionary<FieldIdentifier, HashSet<string>>() : null;
+        // Only the filtered phases consult the shadow map, so it exists only when there is one to
+        // consult it — a summary showing submit errors alone builds nothing.
+        var showing = _liveIssues.Count > 0 || _submitAdvisories.Count > 0
+            ? new Dictionary<FieldIdentifier, HashSet<string>>()
+            : null;
 
         if (_faultIssue is not null)
         {
@@ -246,10 +253,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         foreach (var (field, issues) in _submitAdvisories)
         {
-            foreach (var issue in issues)
+            foreach (var issue in ExceptShadowed(issues, ShowingFor(showing!, field)))
             {
                 result.Add(new VisibleIssue(field, issue));
-                RecordShowing(showing, field, issue);
             }
         }
 
@@ -308,10 +314,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// The one shadow rule behind every merged issue read: a live-channel issue is dropped when the
-    /// same message is already showing for the same field, so a rule that fails in both channels
-    /// reads as one message rather than two. <paramref name="showing"/> grows as issues pass, which
-    /// is also what collapses two live issues carrying the same message into one.
+    /// The one shadow rule behind every merged issue read: an issue is dropped when the same
+    /// message is already showing for the same field, so a rule that fails in more than one channel
+    /// reads as one message rather than several. Submit errors are the against-list every other
+    /// channel is filtered by; the advisory channel is filtered too, which is what collapses a
+    /// server response echoing an advisory the client already disclosed — the client's copy is
+    /// there first, so the client's copy is the one that shows. <paramref name="showing"/> grows as
+    /// issues pass, which is also what collapses two issues in one channel carrying the same
+    /// message into one.
     /// </summary>
     private static IEnumerable<ValidationIssue> ExceptShadowed(
         List<ValidationIssue> issues,
@@ -367,7 +377,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     {
         MarkTouched(e.FieldIdentifier);
         _ = RunLivePassAsync(e.FieldIdentifier);
-        if (HasSubmitted || _submitInFlight)
+        if (HasSubmitted || SubmitInFlight)
         {
             _pendingRefreshFields.Add(e.FieldIdentifier);
             ScheduleRefresh();
@@ -375,104 +385,220 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// Whether the pass currently in flight is a live pass — true from the moment a live pass takes
-    /// the current version until it finishes, and false again as soon as any newer pass takes that
-    /// version from it.
+    /// Whether the pass currently in flight is a live pass — true from the moment a live pass
+    /// becomes the current one until it ends, and false again as soon as any newer pass takes that
+    /// place from it.
     /// </summary>
-    private bool LiveInFlight => _liveVersion == _version;
+    private bool LiveInFlight => _currentPass?.Kind == PassKind.Live;
+
+    /// <summary>
+    /// Whether the pass currently in flight is a submit. Live and refresh passes both read this and
+    /// stand down — submit is the higher-intent operation, and neither ever supersedes it.
+    /// </summary>
+    private bool SubmitInFlight => _currentPass?.Kind == PassKind.Submit;
 
     /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
-    /// new one linked to <paramref name="external"/>. Only one pass (live, submit, or refresh) is ever
-    /// in flight at a time — starting a new one supersedes whatever came before.
+    /// new one linked to <paramref name="external"/> and records the new pass as the current one.
+    /// Only one pass (live, submit, or refresh) is ever in flight at a time — starting a new one
+    /// supersedes whatever came before, which is exactly what taking over the descriptor means.
     /// </summary>
-    private CancellationToken BeginPass(CancellationToken external)
+    private PassScope BeginPass(PassKind kind, CancellationToken external)
     {
         _passCts?.Cancel();
         _passCts?.Dispose();
         _passCts = CancellationTokenSource.CreateLinkedTokenSource(external);
         _version++;
-        return _passCts.Token;
+        var pass = new PassScope(kind, _version, _passCts.Token);
+        _currentPass = pass;
+        return pass;
+    }
+
+    /// <summary>
+    /// Retires the pass in flight: the validating flag, the field scope narrowing it, and the
+    /// descriptor naming the pass all clear together, so nothing that runs afterwards can read a
+    /// pass that has already ended. The caller establishes that the pass is still the current one —
+    /// the verdict dispatch does that with its own version guard, <see cref="SetValidating"/> with
+    /// its.
+    /// </summary>
+    private void EndPass()
+    {
+        IsValidating = false;
+        _validatingScope = null;
+        _currentPass = null;
     }
 
     /// <summary>
     /// Flips <see cref="IsValidating"/> and notifies, marshaled through <see cref="_renderDispatch"/> so
     /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
-    /// The write is skipped when <paramref name="version"/> no longer matches the current pass —
-    /// a superseded pass must not stomp a newer pass's state. <paramref name="scope"/> narrows which
+    /// The write is skipped when <paramref name="pass"/> is no longer the current one —
+    /// a superseded pass must not stomp a newer pass's state. <paramref name="fields"/> narrows which
     /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the single field
     /// that triggered it; a refresh pass passes the fields edited within its debounce window; a
     /// submit pass passes <see langword="null"/> (form-wide, every field). Only meaningful when
-    /// <paramref name="value"/> is <see langword="true"/> — clearing always clears the scope too.
+    /// <paramref name="value"/> is <see langword="true"/> — clearing ends the pass outright (see
+    /// <see cref="EndPass"/>), scope and descriptor with it.
     /// Also raises the EditContext's own validation-state notification, not just the engine's: a
     /// native InputBase re-renders on that event, not on <see cref="StateChanged"/>, so without it
     /// the Pending class a native input picks up through
     /// <see cref="FormidableFieldCssClassProvider"/> would light on the next store rebuild but have
     /// no later trigger to clear it once the pass ends.
     /// </summary>
-    private Task SetValidating(bool value, int version, HashSet<FieldIdentifier>? scope = null) =>
+    private Task SetValidating(bool value, PassScope pass, HashSet<FieldIdentifier>? fields = null) =>
         _renderDispatch(() =>
         {
-            if (version == _version)
+            if (pass.Version == _version)
             {
-                IsValidating = value;
-                _validatingScope = value ? scope : null;
+                if (value)
+                {
+                    IsValidating = true;
+                    _validatingScope = fields;
+                }
+                else
+                {
+                    EndPass();
+                }
+
                 NotifyStateChanged();
                 EditContext.NotifyValidationStateChanged();
             }
             return Task.CompletedTask;
         });
 
-    private async Task RunLivePassAsync(FieldIdentifier changedField)
+    /// <summary>
+    /// The one lifecycle every pass runs: begin (taking the version and the linked token that make
+    /// the pass superseded-able), validate under <paramref name="profile"/>, dispatch the verdict
+    /// only if this pass is still the current one, and end the pass exactly once however it left.
+    /// Live, submit and refresh differ in what they hand in, not in how they run — a skeleton
+    /// hand-rolled per kind is one where a single copy can quietly stop raising a notification, or
+    /// stop clearing a flag, that the other two still do.
+    /// </summary>
+    /// <param name="kind">Which lifecycle this is; it also decides the fault policy below.</param>
+    /// <param name="profile">The profile the model is validated under.</param>
+    /// <param name="external">
+    /// The caller's own cancellation token, linked into the pass. Only a submit has one; live and
+    /// refresh pass <see cref="CancellationToken.None"/>, which is what lets one cancellation filter
+    /// serve all three — with no external token there is nothing a cancellation can mean except
+    /// supersession by a newer pass.
+    /// </param>
+    /// <param name="beginScope">
+    /// The fields the pending indicator covers, evaluated once the pass has begun: a refresh's scope
+    /// is a snapshot-and-clear of an accumulator, so when it is taken is part of what it means.
+    /// </param>
+    /// <param name="applyVerdict">
+    /// Writes this pass's verdict into engine state. Runs on the renderer's dispatcher, only while
+    /// the pass is still current, and always in the same dispatch as the store rebuild publishing it.
+    /// </param>
+    /// <returns>
+    /// The report this pass produced, or <see langword="null"/> when it ended before there was one —
+    /// superseded mid-validation, or faulted.
+    /// </returns>
+    private async Task<ValidationReport?> RunPassAsync(
+        PassKind kind,
+        ValidationProfile profile,
+        CancellationToken external,
+        Func<HashSet<FieldIdentifier>?> beginScope,
+        Action<ValidationReport> applyVerdict)
     {
-        if (_submitInFlight)
-        {
-            return; // submit is the higher-intent operation; live/refresh passes never supersede it
-        }
-
-        _pendingLiveFields.Add(changedField);
-        var version = _version + 1;
-        var token = BeginPass(CancellationToken.None);
-        _liveVersion = version;
-        await SetValidating(true, version, [changedField]).ConfigureAwait(false);
+        var pass = BeginPass(kind, external);
         try
         {
+            await SetValidating(true, pass, beginScope()).ConfigureAwait(false);
+
             ValidationReport report;
             try
             {
-                report = await _validator.ValidateAsync(_model, _options.LiveProfile, token).ConfigureAwait(false);
+                report = await _validator.ValidateAsync(_model, profile, pass.Token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (!external.IsCancellationRequested)
             {
-                return; // superseded by a newer pass
+                return null; // superseded by a newer pass, rather than cancelled by the caller
             }
-            catch (Exception exception)
+            catch (Exception exception) when (kind != PassKind.Submit)
             {
-                await _renderDispatch(() =>
-                {
-                    if (version == _version)
-                    {
-                        _faultIssue = new ValidationIssue(
-                            string.Empty,
-                            "Validation could not run to completion; recent changes may not be fully validated.");
-                        RebuildStore();
-                    }
-                    return Task.CompletedTask;
-                }).ConfigureAwait(false);
-
-                ValidationFaulted?.Invoke(exception);
-                return;
+                // A submit is the one pass someone is awaiting, so a validator that throws under it
+                // has somewhere to surface: the caller's own try/catch. A live or refresh pass is
+                // fire-and-forget, so its fault has to become form state and an event instead.
+                await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                return null;
             }
 
             await _renderDispatch(() =>
             {
-                if (version != _version)
+                if (pass.Version != _version)
                 {
                     return Task.CompletedTask; // superseded by a newer pass
                 }
 
                 _faultIssue = null;
+                applyVerdict(report);
 
+                // The pass ends here, not only in the finally below: retiring it before
+                // RebuildStore's notification means the verdict and the cleared pending indicator
+                // reach every subscriber in one round instead of two back-to-back ones — and the
+                // descriptor is gone before any notification, so a handler that reacts by letting a
+                // deferred refresh run cannot still see this pass as the one in flight.
+                EndPass();
+
+                RebuildStore();
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            return report;
+        }
+        finally
+        {
+            // The paths that never reach the verdict dispatch — a superseded pass, a cancelled one,
+            // a faulted one — end here instead, and this no-ops once the dispatch has ended the
+            // pass itself. It reaches one step further back than a per-kind hand-roll needs to: the
+            // start notification is inside the try as well, so a subscriber throwing from there
+            // leaves the flag cleared and costs one extra round, rather than leaving it stuck on.
+            if (IsValidating)
+            {
+                await SetValidating(false, pass).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The single fault policy behind every pass that reports rather than rethrows: a form-level
+    /// issue saying the verdict is incomplete, written only while <paramref name="pass"/> is still
+    /// the current one, then <see cref="ValidationFaulted"/> for a host that wants to log it. The
+    /// event is raised either way — a superseded pass's exception still happened.
+    /// </summary>
+    private async Task ReportFaultAsync(PassScope pass, Exception exception)
+    {
+        await _renderDispatch(() =>
+        {
+            if (pass.Version == _version)
+            {
+                _faultIssue = new ValidationIssue(
+                    string.Empty,
+                    "Validation could not run to completion; recent changes may not be fully validated.");
+                RebuildStore();
+            }
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+
+        ValidationFaulted?.Invoke(exception);
+    }
+
+    private async Task RunLivePassAsync(FieldIdentifier changedField)
+    {
+        if (SubmitInFlight)
+        {
+            return; // submit is the higher-intent operation; live/refresh passes never supersede it
+        }
+
+        _pendingLiveFields.Add(changedField);
+
+        await RunPassAsync(
+            PassKind.Live,
+            _options.LiveProfile,
+            CancellationToken.None,
+            () => [changedField],
+            report =>
+            {
                 // Every field whose pass this one superseded, not just the field that started it:
                 // each live pass validates the whole model under the same LiveProfile, so this
                 // report answers for those fields too. A superseded pass writes nothing — it is no
@@ -486,52 +612,28 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 }
 
                 _pendingLiveFields.Clear();
-
-                // The pass ends here, not only in the finally below: clearing the flag, the scope
-                // and the in-flight marker before RebuildStore's notification means the verdict and
-                // the cleared pending indicator reach every subscriber in one round instead of two
-                // back-to-back ones — and the marker still clears before any notification, so a
-                // handler that reacts by letting a deferred refresh run cannot see this pass as the
-                // one in flight.
-                IsValidating = false;
-                _validatingScope = null;
-                _liveVersion = -1;
-
-                RebuildStore();
-                return Task.CompletedTask;
             }).ConfigureAwait(false);
-        }
-        finally
-        {
-            // The paths that never reach the verdict dispatch — a superseded pass, a faulted one —
-            // end here instead, and this no-ops once the dispatch has ended the pass itself.
-            // What SetValidating does, plus the in-flight marker — cleared in the same dispatch and
-            // before the notification, exactly as the submit pass clears _submitInFlight, so that a
-            // handler which reacts by letting a deferred refresh run cannot still see this pass as
-            // the one in flight. Also raises EditContext.NotifyValidationStateChanged() itself
-            // (inlined rather than routed through SetValidating, which does the same) so a native
-            // InputBase — which re-renders on that event, not on StateChanged — clears the Pending
-            // class this pass's own start already gave it.
-            if (IsValidating)
-            {
-                await _renderDispatch(() =>
-                {
-                    if (version == _version)
-                    {
-                        IsValidating = false;
-                        _validatingScope = null;
-                        _liveVersion = -1;
-                        NotifyStateChanged();
-                        EditContext.NotifyValidationStateChanged();
-                    }
-                    return Task.CompletedTask;
-                }).ConfigureAwait(false);
-            }
-        }
     }
 
     private FieldIdentifier Resolve(ValidationIssue issue) =>
         _introspector.Resolve(_model, issue.Path).ToFieldIdentifier(_model, issue.Path);
+
+    /// <summary>
+    /// The one report an issue with nowhere to render gets: a Trace line for a debugger, a logged
+    /// warning for the host (WebAssembly's default provider is the browser console, so that channel
+    /// needs no wiring to be seen), and the options callback for a page that wants to show its own
+    /// list. Every site that decides an issue is suppressed ends here, so the three channels can
+    /// never drift apart between them.
+    /// </summary>
+    private void ReportSuppressed(ValidationIssue issue)
+    {
+        System.Diagnostics.Trace.WriteLine(
+            $"Formidable: issue at '{issue.Path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
+        _logger?.LogWarning(
+            "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
+            issue.Path);
+        _options.SuppressedIssueDiagnostic?.Invoke(issue);
+    }
 
     private bool IsVisible(ValidationIssue issue, FieldIdentifier field)
     {
@@ -627,35 +729,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <inheritdoc />
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
-        var version = _version + 1;
-        var token = BeginPass(cancellationToken);
-        try
-        {
-            _submitInFlight = true;
-            await SetValidating(true, version).ConfigureAwait(false);
-            ValidationReport report;
-            try
-            {
-                report = await _validator.ValidateAsync(_model, _options.SubmitProfile, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Superseded by a newer pass (not the caller's own cancellation) — report blocked quietly.
-                return new SubmitOutcome(false, ValidationReport.Empty, []);
-            }
+        var canProceed = false;
+        var summary = new List<string>();
 
-            var canProceed = false;
-            var summary = new List<string>();
-
-            await _renderDispatch(() =>
+        var passReport = await RunPassAsync(
+            PassKind.Submit,
+            _options.SubmitProfile,
+            cancellationToken,
+            static () => null, // a submit's pending indicator is form-wide: no scope narrows it
+            report =>
             {
-                if (version != _version)
-                {
-                    // Superseded — a newer pass owns engine state now, and the empty locals above
-                    // are what a pass that wrote nothing has to report.
-                    return Task.CompletedTask;
-                }
-
                 HasSubmitted = true;
                 _liveIssues.Clear();
 
@@ -663,7 +746,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // nothing left to hand on: its field's verdict is this report's, and any further
                 // edit is revalidated by the refresh that edit arms.
                 _pendingLiveFields.Clear();
-                _faultIssue = null;
 
                 if (report.IsValid)
                 {
@@ -690,12 +772,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
                     foreach (var suppressed in resolvedErrors.Where(x => !IsVisible(x.Issue, x.Field)))
                     {
-                        System.Diagnostics.Trace.WriteLine(
-                            $"Formidable: issue at '{suppressed.Issue.Path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
-                        _logger?.LogWarning(
-                            "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
-                            suppressed.Issue.Path);
-                        _options.SuppressedIssueDiagnostic?.Invoke(suppressed.Issue);
+                        ReportSuppressed(suppressed.Issue);
                     }
 
                     if (visibleErrors.Count == 0)
@@ -728,48 +805,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                         .Distinct()
                         .ToList();
                 }
-
-                // The pass ends here, not only in the finally below: clearing the flag, the scope
-                // and the in-flight marker before RebuildStore's notification means the verdict and
-                // the cleared pending indicator reach every subscriber in one round instead of two
-                // back-to-back ones — and the marker still clears before any notification, so a
-                // handler that reacts by letting a deferred refresh run cannot see this pass as the
-                // one in flight.
-                IsValidating = false;
-                _validatingScope = null;
-                _submitInFlight = false;
-
-                RebuildStore();
-                return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            return new SubmitOutcome(canProceed, report, summary);
-        }
-        finally
-        {
-            // The paths that never reach the verdict dispatch — a superseded pass, a cancelled one
-            // — end here instead, and this no-ops once the dispatch has ended the pass itself.
-            // Inlined rather than routed through SetValidating (which does the same) so the
-            // in-flight marker clears in the same dispatch; also raises
-            // EditContext.NotifyValidationStateChanged() so a native InputBase — which re-renders
-            // on that event, not on StateChanged — clears the Pending class this pass's own start
-            // already gave it.
-            if (IsValidating)
-            {
-                await _renderDispatch(() =>
-                {
-                    if (version == _version)
-                    {
-                        IsValidating = false;
-                        _validatingScope = null;
-                        _submitInFlight = false;
-                        NotifyStateChanged();
-                        EditContext.NotifyValidationStateChanged();
-                    }
-                    return Task.CompletedTask;
-                }).ConfigureAwait(false);
-            }
-        }
+        // No report at all means the pass was superseded before one existed — report blocked
+        // quietly. A pass superseded at the verdict dispatch has a report but never ran the writes
+        // above, so the untouched locals are what it has to say: blocked, with nothing to point at.
+        return passReport is null
+            ? new SubmitOutcome(false, ValidationReport.Empty, [])
+            : new SubmitOutcome(canProceed, passReport, summary);
     }
 
     /// <inheritdoc />
@@ -781,52 +824,83 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         _faultIssue = null;
 
         // The payload is the server's CURRENT verdict, not an addition to its last one: undo
-        // exactly what the previous call added before applying this call's issues. ValidationIssue
-        // is a record (value equality), so List<T>.Remove takes out one value-equal entry — the
-        // instance the previous apply added, or (see RunRefreshPassAsync) the message-matched
-        // refreshed issue standing in for it if a refresh landed since. If a client-sourced issue
-        // happens to be value-identical to a previously-applied server issue, removing either of
-        // the two equal entries is indistinguishable and acceptable.
+        // exactly what the previous call added before applying this call's issues. Each entry is
+        // undone from the channel its own severity names — the same one the apply below put it in.
+        // ValidationIssue is a record (value equality), so List<T>.Remove takes out one value-equal
+        // entry — the instance the previous apply added, or (see RunRefreshPassAsync) the
+        // message-matched refreshed issue standing in for it if a refresh landed since. If a
+        // client-sourced issue happens to be value-identical to a previously-applied server issue,
+        // removing either of the two equal entries is indistinguishable and acceptable.
         foreach (var (field, issue) in _appliedServerIssues)
         {
-            if (_submitIssues.TryGetValue(field, out var tracked))
+            var channel = ChannelFor(issue);
+            if (channel.TryGetValue(field, out var tracked))
             {
                 tracked.Remove(issue);
                 if (tracked.Count == 0)
                 {
-                    _submitIssues.Remove(field);
+                    channel.Remove(field);
                 }
             }
         }
 
         _appliedServerIssues = [];
 
-        foreach (var group in issues
-            .Where(i => i.Severity == ValidationSeverity.Error)
-            .Select(i => (Issue: i, Field: Resolve(i)))
-            .Where(x => _options.DisclosureOverride?.Invoke(x.Issue) != false) // server-declared: bypass registry
-            .GroupBy(x => x.Field, x => x.Issue))
+        foreach (var issue in issues)
         {
-            var field = group.Key;
-            if (_submitIssues.TryGetValue(field, out var existing))
+            var field = Resolve(issue);
+
+            if (issue.Severity == ValidationSeverity.Error)
             {
-                existing.AddRange(group);
+                // Server-declared errors bypass the registry rather than defer to it: the server
+                // judged what was actually submitted, and a verdict that blocks the save has to
+                // reach the user whether or not the client happened to render the field. Only an
+                // explicit override hides one.
+                if (_options.DisclosureOverride?.Invoke(issue) == false)
+                {
+                    continue;
+                }
+            }
+            else if (!IsVisible(issue, field))
+            {
+                // An advisory blocks nothing, so it follows the same disclosure rule the client's
+                // own advisories follow rather than the bypass above. Nowhere to render it means it
+                // is not shown, and the diagnostic names the registration that would have shown it.
+                // No defensive gate stands in for it either — that gate exists because a hidden
+                // error would otherwise fail a submit silently, and an advisory fails nothing.
+                ReportSuppressed(issue);
+                continue;
+            }
+
+            var channel = ChannelFor(issue);
+            if (channel.TryGetValue(field, out var existing))
+            {
+                existing.Add(issue);
             }
             else
             {
-                _submitIssues[field] = [.. group];
+                channel[field] = [issue];
             }
 
-            _submitVisible.Add(field); // sticky: reveal state never un-reveals a field
+            // Sticky: reveal state never un-reveals a field. The two sets are separate because the
+            // post-submit refresh watches them separately — a field can be an advisory site without
+            // ever having been an error site, and keeps its advisory refreshed either way.
+            var revealed = issue.Severity == ValidationSeverity.Error ? _submitVisible : _advisoryVisible;
+            revealed.Add(field);
 
-            foreach (var issue in group)
-            {
-                _appliedServerIssues.Add((field, issue));
-            }
+            _appliedServerIssues.Add((field, issue));
         }
 
         RebuildStore();
     }
+
+    /// <summary>
+    /// The submit-time channel an issue belongs to. Errors and advisories are kept apart because a
+    /// field can carry both at once and only the errors reach the message store, so a server issue
+    /// is applied to, undone from, and matched within the channel its own severity names.
+    /// </summary>
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> ChannelFor(ValidationIssue issue) =>
+        issue.Severity == ValidationSeverity.Error ? _submitIssues : _submitAdvisories;
 
     private void ScheduleRefresh()
     {
@@ -847,7 +921,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private async Task RunRefreshPassAsync()
     {
-        if (_submitInFlight || LiveInFlight)
+        if (SubmitInFlight || LiveInFlight)
         {
             // Defer and re-arm — the edit must still be revalidated once the pass in flight
             // finishes. Submit is the higher-intent operation and is never superseded; a live pass
@@ -861,69 +935,39 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
-        var version = _version + 1;
-        var token = BeginPass(CancellationToken.None);
-
-        // Snapshot-and-clear: this window's refresh flags exactly the fields the user edited
-        // since the last refresh (or since submit, for the first one). Fields edited while this
-        // pass is in flight land in the now-empty accumulator and are flagged by the NEXT
-        // refresh instead — they are not lost, just deferred one window (see ScheduleRefresh's
-        // re-arm on the _submitInFlight branch above for the analogous deferred case). If THIS
-        // pass is itself superseded before finishing (a live pass never defers to a refresh —
-        // see BeginPass), its already-captured scope is deliberately dropped, not merged into
-        // whatever runs next: the superseding pass owns the indicator outright, exactly as one
-        // live pass already displaces another's scope pre-submit — this is the same "post-submit
-        // editing reads like pre-submit editing" symmetry, not a gap.
-
-        // The empty case is reachable, not a bug: a re-armed timer (see the _submitInFlight defer
-        // above) can fire after an earlier refresh pass already snapshotted the union, leaving
-        // nothing new accumulated. The ternary's null branch then falls back to form-wide
-        // validating for this redundant pass — a brief conservative flash, the pre-scoping
-        // behaviour, never a stuck flag.
-        var scope = _pendingRefreshFields.Count > 0 ? new HashSet<FieldIdentifier>(_pendingRefreshFields) : null;
-        _pendingRefreshFields.Clear();
-
-        await SetValidating(true, version, scope).ConfigureAwait(false);
-        try
-        {
-            ValidationReport report;
-            try
+        await RunPassAsync(
+            PassKind.Refresh,
+            _options.SubmitProfile,
+            CancellationToken.None,
+            () =>
             {
-                report = await _validator.ValidateAsync(_model, _options.SubmitProfile, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
+                // Snapshot-and-clear: this window's refresh flags exactly the fields the user
+                // edited since the last refresh (or since submit, for the first one). Fields
+                // edited while this pass is in flight land in the now-empty accumulator and are
+                // flagged by the NEXT refresh instead — they are not lost, just deferred one
+                // window (see ScheduleRefresh's re-arm on the deferral branch above for the
+                // analogous case). If THIS pass is itself superseded before finishing (a live
+                // pass never defers to a refresh — see BeginPass), its already-captured scope is
+                // deliberately dropped, not merged into whatever runs next: the superseding pass
+                // owns the indicator outright, exactly as one live pass already displaces
+                // another's scope pre-submit — this is the same "post-submit editing reads like
+                // pre-submit editing" symmetry, not a gap.
+
+                // The empty case is reachable, not a bug: a re-armed timer (see the deferral
+                // above) can fire after an earlier refresh pass already snapshotted the union,
+                // leaving nothing new accumulated. The ternary's null branch then falls back to
+                // form-wide validating for this redundant pass — a brief conservative flash, the
+                // pre-scoping behaviour, never a stuck flag.
+                var edited = _pendingRefreshFields.Count > 0
+                    ? new HashSet<FieldIdentifier>(_pendingRefreshFields)
+                    : null;
+                _pendingRefreshFields.Clear();
+                return edited;
+            },
+            report =>
             {
-                return; // superseded by a newer pass
-            }
-            catch (Exception exception)
-            {
-                await _renderDispatch(() =>
-                {
-                    if (version == _version)
-                    {
-                        _faultIssue = new ValidationIssue(
-                            string.Empty,
-                            "Validation could not run to completion; recent changes may not be fully validated.");
-                        RebuildStore();
-                    }
-                    return Task.CompletedTask;
-                }).ConfigureAwait(false);
-
-                ValidationFaulted?.Invoke(exception);
-                return;
-            }
-
-            await _renderDispatch(() =>
-            {
-                if (version != _version)
-                {
-                    return Task.CompletedTask; // superseded by a newer pass
-                }
-
-                _faultIssue = null;
-
                 // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
-                // own issues (below) replace _submitIssues wholesale.
+                // own issues (below) replace both submit channels wholesale.
                 var previouslyApplied = _appliedServerIssues;
 
                 // Resurface only what the user already saw at submit AND is still failing —
@@ -933,26 +977,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     .Where(x => _submitVisible.Contains(x.Field))
                     .GroupBy(x => x.Field, x => x.Issue)
                     .ToDictionary(g => g.Key, g => g.ToList());
-
-                // Re-key by MESSAGE, not by field: a field can carry both a server-applied issue
-                // and an unrelated, independently-failing client-sourced submit issue at once (see
-                // ApplyServerIssues' own remarks), and adopting everything the refresh wrote for a
-                // previously-applied field would sweep up that unrelated client issue too, so the
-                // next apply would delete it — a worse bug than the duplicate this guards against.
-                // Instead, for each issue the previous apply is responsible for, adopt the
-                // refreshed issue on that field whose message matches it (the duplicate this fixes
-                // is by definition message-identical, so this still finds and replaces it) and drop
-                // the bookkeeping entry when no refreshed issue matches — the server's contribution
-                // is no longer part of what's shown, so there is nothing left to protect.
-                _appliedServerIssues = previouslyApplied
-                    .Select(entry => (
-                        entry.Field,
-                        Issue: _submitIssues.TryGetValue(entry.Field, out var current)
-                            ? current.FirstOrDefault(i => i.Message == entry.Issue.Message)
-                            : null))
-                    .Where(x => x.Issue is not null)
-                    .Select(x => (x.Field, Issue: x.Issue!))
-                    .ToList();
 
                 // Advisories follow the same "only what the user already saw" rule, but over the
                 // union of the two submit-time sets: a field that was an error site keeps any
@@ -965,26 +989,30 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     .GroupBy(x => x.Field, x => x.Issue)
                     .ToDictionary(g => g.Key, g => g.ToList());
 
-                // The pass ends here, not only in the finally below: clearing the flag and the
-                // scope before RebuildStore's notification means the refreshed verdict and the
-                // cleared pending indicator reach every subscriber in one round instead of two
-                // back-to-back ones.
-                IsValidating = false;
-                _validatingScope = null;
-
-                RebuildStore();
-                return Task.CompletedTask;
+                // Re-key by MESSAGE within the entry's own severity channel, not by field: a field
+                // can carry both a server-applied issue and an unrelated, independently-failing
+                // client-sourced one at once (see ApplyServerIssues' own remarks), and adopting
+                // everything the refresh wrote for a previously-applied field would sweep up that
+                // unrelated client issue too, so the next apply would delete it — a worse bug than
+                // the duplicate this guards against. Instead, for each issue the previous apply is
+                // responsible for, adopt the refreshed issue on that field whose message and
+                // severity match it (the duplicate this fixes is by definition an identical
+                // message at an identical severity, so this still finds and replaces it) and drop
+                // the bookkeeping entry when no refreshed issue matches — the server's contribution
+                // is no longer part of what's shown, so there is nothing left to protect. Both
+                // channels are rebuilt above before any of this runs, so an entry is matched
+                // against the refreshed list it would actually have to stand in for.
+                _appliedServerIssues = previouslyApplied
+                    .Select(entry => (
+                        entry.Field,
+                        Issue: ChannelFor(entry.Issue).TryGetValue(entry.Field, out var current)
+                            ? current.FirstOrDefault(i =>
+                                i.Message == entry.Issue.Message && i.Severity == entry.Issue.Severity)
+                            : null))
+                    .Where(x => x.Issue is not null)
+                    .Select(x => (x.Field, Issue: x.Issue!))
+                    .ToList();
             }).ConfigureAwait(false);
-        }
-        finally
-        {
-            // The paths that never reach the verdict dispatch — a superseded pass, a faulted one —
-            // end here instead, and this no-ops once the dispatch has ended the pass itself.
-            if (IsValidating)
-            {
-                await SetValidating(false, version).ConfigureAwait(false);
-            }
-        }
     }
 
     /// <inheritdoc />
@@ -999,3 +1027,31 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         EditContext.NotifyValidationStateChanged();
     }
 }
+
+/// <summary>
+/// Which of the engine's three lifecycles a pass is running. The kind is what the engine's own
+/// deference rules are written in — a refresh stands down for a live pass and for a submit, a live
+/// pass stands down for a submit — and it is also what decides whether a validator's exception is
+/// reported as form state or left to the caller awaiting the pass.
+/// </summary>
+internal enum PassKind
+{
+    /// <summary>One field's edit, revalidating the model under the live profile.</summary>
+    Live,
+
+    /// <summary>The form-wide pass a submit runs, under the submit profile.</summary>
+    Submit,
+
+    /// <summary>The debounced post-submit revalidation, also under the submit profile.</summary>
+    Refresh,
+}
+
+/// <summary>
+/// The identity a running pass carries: what it is, the version that decides whether it is still
+/// the current pass, and the token it was started with. A pass is superseded — never waited for —
+/// so every write it makes has to be gated on the version still being the engine's own.
+/// </summary>
+/// <param name="Kind">Which lifecycle this pass is running.</param>
+/// <param name="Version">The engine version this pass took when it began.</param>
+/// <param name="Token">The pass's cancellation token, linked to whatever the caller supplied.</param>
+internal readonly record struct PassScope(PassKind Kind, int Version, CancellationToken Token);

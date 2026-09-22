@@ -121,6 +121,45 @@ public class FormidableFieldAnchorTests : BunitContext
         Assert.False(firstEngine.Registry.IsRevealed(field));
     }
 
+    // The anchor renders nothing, so it deliberately never subscribes to the engine's StateChanged:
+    // a validation pass leaves it with nothing to re-render, and a form holding one anchor per row
+    // of a collection would otherwise schedule a render per anchor per pass. The message list
+    // beside it — revealed by the anchor's own registration — is the same pass's proof that the
+    // notification did fire.
+    [Fact]
+    public void Anchor_does_not_re_render_when_a_validation_pass_lands()
+    {
+        var order = new EngineOrder();
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        RenderFragment fragment = inner =>
+        {
+            inner.OpenComponent<FormidableFieldAnchor<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.CloseComponent();
+            inner.OpenComponent<FormidableFieldMessage<string>>(2);
+            inner.AddComponentParameter(3, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.CloseComponent();
+        };
+
+        var engine = CreateEngine(order);
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<CascadedContextHost>(0);
+            builder.AddComponentParameter(1, nameof(CascadedContextHost.Context), new FormidableFormContext(engine));
+            builder.AddComponentParameter(2, nameof(CascadedContextHost.ChildContent), fragment);
+            builder.CloseComponent();
+        });
+
+        var anchor = cut.FindComponent<FormidableFieldAnchor<string>>();
+        var rendersBeforeThePass = anchor.RenderCount;
+
+        order.Description = new string('x', 11); // past the draft rule's maximum length
+        cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(field));
+
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("li.formidable-message--error")));
+        Assert.Equal(rendersBeforeThePass, anchor.RenderCount);
+    }
+
     private static FormValidationEngine<EngineOrder> CreateEngine(EngineOrder order) =>
         new(order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),

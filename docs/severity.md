@@ -234,8 +234,8 @@ short-circuit to a 400 `ValidationProblemDetails` only when the report has at le
 error-severity issue; a report that's all warnings and infos lets the request through unblocked.
 When a request *is* blocked, any warnings or infos in that same report ride along on the
 response's `advisories` extension key. That key sits alongside the standard `errors` dictionary, not
-inside it, so a client can show them next to the fields that actually failed. See
-[Server integration](server-integration.md) for the full wire format and how the client
-re-applies a server response through `ApplyServerIssues`.
+inside it, and `ApplyServerIssues` applies the whole body at the severity each issue carries: the
+errors block, the advisories land on their own fields without blocking. See
+[Server integration](server-integration.md) for the full wire format and the round trip in full.
 
 **Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor)

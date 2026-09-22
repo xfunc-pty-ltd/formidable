@@ -20,9 +20,11 @@ public sealed class FormidableOptions
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
 
     /// <summary>
-    /// Invoked once per error issue suppressed at submit because no rendered field
-    /// registration matched and no disclosure override applied — usually a missing
-    /// wrapper or <c>FormidableFieldAnchor</c>. A Trace-output warning is emitted regardless, and
+    /// Invoked once per issue suppressed because no rendered field registration matched and no
+    /// disclosure override applied — usually a missing wrapper or <c>FormidableFieldAnchor</c>.
+    /// Two sites report here: a submit, for its own error-severity issues, and
+    /// <c>ApplyServerIssues</c>, for the advisories in a server response (a server-declared error
+    /// bypasses the registry rather than suppressing). A Trace-output warning is emitted regardless, and
     /// so is a logged warning when the host resolved an <c>ILoggerFactory</c> — WASM's default
     /// logging provider is the browser console, so that channel needs no wiring here to be seen.
     /// </summary>

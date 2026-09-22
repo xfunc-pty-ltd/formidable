@@ -32,12 +32,15 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
 adapters funnel into one wire format, defined once in the dependency-free core package, so
 whichever one rejects a request, the shape it sends back is identical. On the client side,
-closing the loop is three calls: deserialize the 400 body, flatten it with `ToIssues()`, and
-hand the result to `IFormValidationEngine.ApplyServerIssues`. That third call replaces what its
-own previous call added rather than piling onto it, so resubmitting the same or a corrected
-payload never leaves a stale duplicate error behind. That's the whole authoring surface: pick an
-adapter, apply what it sends back. What follows is the wire format underneath both of them, each
-adapter's own shape, and the normalize step both run before they validate anything.
+closing the loop is two calls: deserialize the 400 body, and hand it to
+`FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
+it carries — errors block and mark their fields `formidable-invalid`, warnings and infos land as
+advisories on the fields they name — and it replaces what its own previous call applied rather
+than piling onto it, so resubmitting the same or a corrected payload never leaves a stale
+duplicate behind. That's the whole authoring surface: pick an adapter, apply what it sends back.
+What follows is the wire format underneath both of them, each adapter's own shape, and the
+normalize step both run before
+they validate anything.
 
 ## The wire contract
 
@@ -650,12 +653,15 @@ wire-deserialized one.
 ```csharp
     /// <summary>
     /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
-    /// submit results. The payload is treated as the server's CURRENT verdict: each call replaces
-    /// the issues added by the previous call, rather than accumulating with them, so re-submitting
-    /// the same or a corrected payload does not duplicate inline errors. Client-sourced submit
-    /// issues on the same fields are unaffected by a replace. Only error-severity issues in
-    /// <paramref name="issues"/> are applied; other severities are ignored. Applied issues also
-    /// persist until the next debounced refresh replaces the submit-visible state from the client
+    /// submit results: the server's verdict applies at the severity it carries. Errors land on
+    /// their fields and reach the EditContext's message store; warnings and infos land as
+    /// advisories, which the reads above surface and the store — an error-only surface — does not.
+    /// The payload is treated as the server's CURRENT verdict: each call replaces the issues added
+    /// by the previous call, rather than accumulating with them, so re-submitting the same or a
+    /// corrected payload does not duplicate inline messages. Client-sourced submit issues on the
+    /// same fields are unaffected by a replace, and an advisory whose message a client rule already
+    /// disclosed for the same field shows once, as the client's copy. Applied issues also persist
+    /// until the next debounced refresh replaces the submit-visible state from the client
     /// validator's report; a server-only issue with no matching client rule clears on that refresh.
     /// Because the payload is treated as a submit result, applying one also sets
     /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
@@ -664,22 +670,28 @@ wire-deserialized one.
     /// renders. <paramref name="issues"/> is enumerated exactly once.
     /// </summary>
     /// <remarks>
-    /// Replace is value-equality-based: if a client-sourced issue on a field is value-identical
-    /// to a server issue previously applied to that field, a subsequent replace may remove either
-    /// of the two equal entries — the two are indistinguishable, so which one is removed is
-    /// unspecified.
+    /// Errors bypass the field registry: the server judged what was actually submitted, so an error
+    /// shows whether or not the client rendered its field, and only a disclosure override returning
+    /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
+    /// own do — one with no rendered field is not shown, and the suppressed-issue diagnostic reports
+    /// it — because an advisory blocks nothing, so hiding one strands no verdict. Replace is
+    /// value-equality-based: if a client-sourced issue on a field is value-identical to a server
+    /// issue previously applied to that field, a subsequent replace may remove either of the two
+    /// equal entries — the two are indistinguishable, so which one is removed is unspecified.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
 *Source: `src/Formidable.Blazor/IFormValidationEngine.cs`*
 
-**Replace, not accumulate.** Each call is the server's current verdict, full stop — it undoes
-exactly what its own previous call added, then applies the new payload. Calling it twice in a
-row with the same or a corrected body never leaves a stale duplicate inline error behind. Only
-error-severity issues in the payload are applied to fields; anything else in the payload is
-ignored by the engine entirely. That is why the page, not the engine, is responsible for
-presenting the advisories a 400 carries.
+**Replace, not accumulate.** Each call is the server's current verdict, full stop. It undoes
+exactly what its own previous call applied, then applies the new payload. Calling it twice in a
+row with the same or a corrected body never leaves a stale duplicate behind.
+
+**The severity is the server's to set.** An error lands on its field, blocks the submit and reaches
+the EditContext's message store. A warning or an info lands on the same field as an advisory:
+visible in Formidable's own message components and in the summary, blocking nothing, and never
+written to the store, which carries errors only. The page writes no advisory plumbing of its own.
 
 The sample deliberately skips client-side submit validation so the round-trip is visible end to
 end — press Send and the server's 400 lands on the exact fields:
@@ -690,7 +702,6 @@ end — press Send and the server's 400 lands on the exact fields:
         // Normalizing before the POST keeps the client's line list identical to what the
         // server validates (its filter normalizes too) - so issue paths always match rows.
         _order.Normalize();
-        _serverAdvisories.Clear();
         var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
         if (response.IsSuccessStatusCode)
@@ -699,31 +710,32 @@ end — press Send and the server's 400 lands on the exact fields:
             return;
         }
 
+        // One call for the whole verdict: every issue lands on the field it names, at the
+        // severity it carries, so the page needs no advisory plumbing of its own. Each call
+        // replaces the previous server verdict — pressing Send again with new input swaps the
+        // old messages for the new ones, rather than accumulating them, so a corrected
+        // resubmission cannot leave a stale one behind.
         var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        var issues = problem!.ToIssues();
-
-        // The engine applies error-severity issues to fields; non-error issues are the
-        // page's to present (a 400's advisories ride alongside its errors by contract).
-        // Each call replaces the previous server verdict — pressing Send again with new
-        // input swaps the old server errors for the new ones, rather than accumulating
-        // them, so a corrected resubmission cannot leave stale errors behind.
-        _form!.ApplyServerIssues(issues);
-        _serverAdvisories.AddRange(issues
-            .Where(i => i.Severity != ValidationSeverity.Error)
-            .Select(i => i.Message));
-        _status = "Server rejected the order — its errors are now inline.";
+        _form!.ApplyServerIssues(problem!);
+        _status = "Server rejected the order — its verdict is now inline.";
     }
 ```
 
 *Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs`*
 
-Error issues from `ToIssues()` reach the form's fields the moment `ApplyServerIssues` runs,
-bypassing the field-registry disclosure check entirely (see [Disclosure](disclosure.md)). The
-server already validated the submitted data, so a field the client happens not to have rendered
-isn't a disclosure concern. Non-error issues in the same payload are not applied to any field by
-the engine. The page pulls them back out of the same `issues` list itself (`_serverAdvisories`
-above) and renders them however it chooses. Formidable draws no opinion about where a server
-advisory belongs on the page.
+Errors reach the form's fields the moment `ApplyServerIssues` runs, bypassing the field-registry
+disclosure check entirely (see [Disclosure](disclosure.md)). The server already validated the
+submitted data, so a field the client happens not to have rendered isn't a disclosure concern —
+and an error that blocks the save has to reach the user either way. Advisories in the same payload
+defer to the registry exactly as the client's own advisories do: one whose field is on screen shows
+there, and one whose field isn't is dropped with a suppressed-issue diagnostic naming it. An
+advisory blocks nothing, so hiding one strands no verdict.
+
+Both sides usually run the same validator, so the same advisory often arrives twice — once from the
+client's own submit and once from the response. It shows once, as the client's copy. That
+de-duplication matches on the message text, so a client and a server phrasing the same advisory
+differently show both: keeping the two sides' message resources in step is the consumer's job, the
+same way keeping their rules in step is.
 
 **Advisories never ride a success response.** The wire contract above only defines the *rejection*
 shape — the `advisories` extension exists on a 400 `ValidationProblemDetails` body. Both adapters

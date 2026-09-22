@@ -8,14 +8,14 @@ public static class FormidableCss
         Assemble(state.HasErrors, state.IsTouched || state.IsModified, state.IsValidating, classes);
 
     /// <summary>
-    /// Assembles the space-joined class string from three already-decided booleans: invalid wins
+    /// Joins the three already-decided booleans into a space-joined class string: invalid wins
     /// outright, valid applies only when not invalid, and pending appends to whichever of those
-    /// (or neither) applies. <see cref="Compute"/> and
-    /// <see cref="FormidableFieldCssClassProvider"/> each decide <paramref name="invalid"/> and
-    /// <paramref name="validWithoutError"/> their own way, from different sources — this only
-    /// joins the three strings the same way both callers always have.
+    /// (or neither) applies. Private to <see cref="Compute"/>, its one caller — a Formidable
+    /// input and <see cref="FormidableFieldCssClassProvider"/>'s native-input path both build a
+    /// <see cref="FieldState"/> from their own sources and hand it to <see cref="Compute"/>, so
+    /// this join happens in exactly one place for both.
     /// </summary>
-    internal static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
+    private static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
     {
         var baseClass = invalid ? classes.Invalid : validWithoutError ? classes.Valid : string.Empty;
 

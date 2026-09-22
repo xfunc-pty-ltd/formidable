@@ -16,29 +16,25 @@ namespace Formidable.Blazor;
 /// accessible outside this assembly, so <see cref="FormidableFieldMessage{TValue}"/> and
 /// <see cref="FormidableCollectionMessage{TValue}"/> are the only two shapes; whether the field
 /// is also registered with the field registry is the one thing they differ on (see
-/// <see cref="Register"/>). <see cref="For"/> is (re-)read whenever
+/// <see cref="RegisterField"/>). <see cref="For"/> is (re-)read whenever
 /// the cascaded <see cref="FormidableFormContext"/> is a new instance — including the first
 /// render and again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c> swaps
 /// its model and rebuilds its engine and registry — so any registration and the engine
 /// subscription always target the currently-active context.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
-public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
+public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
 {
     private const string ErrorItemClass = "formidable-message formidable-message--error";
     private const string WarningItemClass = "formidable-message formidable-message--warning";
     private const string InfoItemClass = "formidable-message formidable-message--info";
 
-    private readonly FormContextBinding _binding = new();
     private FieldIdentifier _field;
     private string _messagesElementId = string.Empty;
 
     private protected FormidableMessageBase()
     {
     }
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
 
     /// <summary>Accessor for the field whose messages are rendered, e.g. <c>() => Model.Description</c>.</summary>
     [Parameter, EditorRequired]
@@ -52,26 +48,21 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
     /// collection-level path revealed so collection-level rules
     /// surface even though the collection itself has no validated input registering it.
     /// </summary>
-    private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
+    private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 
-    /// <inheritdoc />
-    protected override void OnParametersSet()
+    /// <summary>
+    /// Resolves <see cref="For"/> to the field these messages speak for, computes the id the list
+    /// renders — the target every <c>aria-describedby</c> for that field points at — and then
+    /// hands the registration decision to <see cref="RegisterField"/>, the one thing the two
+    /// message components differ on.
+    /// </summary>
+    /// <param name="context">The context now being bound.</param>
+    /// <returns>Whatever <see cref="RegisterField"/> returns.</returns>
+    protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context =>
-            {
-                _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
-                _messagesElementId = FormidableFieldId.MessagesFor(FormidableFieldId.For(_field));
-                return Register(context, _field);
-            },
-            stateChanged: OnEngineStateChanged);
+        _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+        _messagesElementId = FormidableFieldId.MessagesFor(FormidableFieldId.For(_field));
+        return RegisterField(context, _field);
     }
 
     /// <inheritdoc />
@@ -106,11 +97,6 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
 
         builder.CloseElement();
     }
-
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
-
-    /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
 }
 
 /// <summary>

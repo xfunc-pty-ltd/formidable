@@ -43,21 +43,9 @@ namespace Formidable.Blazor;
 /// </remarks>
 /// <typeparam name="TValue">The field's value type.</typeparam>
 public abstract class FormidableInputBase<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
-    : ComponentBase, IDisposable
+    : FormidableComponentBase
 {
     private const string BlurAttributeName = "onblur";
-
-    private readonly FormContextBinding _binding = new();
-
-    /// <summary>
-    /// The cascaded form context, and a derived control's route to the engine, the
-    /// <c>EditContext</c> and the field registry when the members below are not enough. Supplied by
-    /// a <c>FormidableForm</c>/<c>FormidableValidator</c> ancestor: it is null until parameters are
-    /// first set, and a control rendered outside such an ancestor throws from
-    /// <see cref="OnParametersSet"/> with a message naming the missing ancestor.
-    /// </summary>
-    [CascadingParameter]
-    protected FormidableFormContext? Context { get; private set; }
 
     /// <summary>
     /// Accessor for the field this input edits, e.g. <c>() => Model.Description</c> — the
@@ -66,8 +54,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// this when the input has no <c>@bind-Value</c> at all, or to deliberately override which
     /// field the input registers, validates and renders messages for — an explicit <c>For</c>
     /// wins over <see cref="ValueExpression"/> whenever both are present, silently and by design.
-    /// With neither, the input throws from <see cref="OnParametersSet"/>: it has no field to speak
-    /// for.
+    /// With neither, the input throws from <see cref="FormidableComponentBase.OnParametersSet"/>:
+    /// it has no field to speak for.
     /// </summary>
     [Parameter]
     public Expression<Func<TValue>>? For { get; set; }
@@ -149,29 +137,25 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     protected string CssClass => ComputeCssClass(State);
 
     /// <summary>
-    /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, registers it,
-    /// and binds the engine subscription to the currently-cascaded context. A derived control that
-    /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
-    /// re-renders on a validation state change.
+    /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, computes the
+    /// ids that address it, and registers it with the cascaded context's field registry. Called by
+    /// <see cref="FormidableComponentBase.OnParametersSet"/> whenever the cascaded context is a new
+    /// instance, so a derived control that overrides that method must call
+    /// <c>base.OnParametersSet()</c>, or it registers nothing and never re-renders on a validation
+    /// state change.
+    /// Sealed: an input that resolved a different field here, or none, would have no id to render,
+    /// nothing registered for disclosure, and no field to read state or issues for. What a derived
+    /// control is meant to change is the markup, and the behaviour it drives through
+    /// <see cref="FormidableComponentBase.Context"/> — not which field the control speaks for.
     /// </summary>
-    protected override void OnParametersSet()
+    /// <param name="context">The context now being bound.</param>
+    /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
+    protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
-        if (_binding.IsBound(Context))
-        {
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context =>
-            {
-                Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
-                ElementId = FormidableFieldId.For(Field);
-                MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
-                return context.Registry.Register(Field, KeepRegistered);
-            },
-            stateChanged: OnEngineStateChanged);
+        Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
+        ElementId = FormidableFieldId.For(Field);
+        MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
+        return context.Registry.Register(Field, KeepRegistered);
     }
 
     /// <summary>
@@ -323,9 +307,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <remarks>
     /// This overload is deliberately fixed to <c>change</c> and ignores <see cref="UpdateOn"/>:
     /// the controls it serves have no meaningful <c>input</c> event distinct from <c>change</c>,
-    /// and nothing to defer to <c>blur</c>. A control that wants the mode honoured takes the other
-    /// overload and formats its own value instead. A consumer-splatted <c>@onblur</c> therefore
-    /// passes straight through here — the library binds no <c>onblur</c> of its own to chain with.
+    /// and nothing to defer to <c>blur</c>. A control that wants the mode honoured takes the typed
+    /// overload — or the <see cref="StringValueParser"/> one to keep its own formatting — instead.
+    /// A consumer-splatted <c>@onblur</c> therefore passes straight through here — the library
+    /// binds no <c>onblur</c> of its own to chain with.
     /// </remarks>
     protected void AddValueBinding(
         RenderTreeBuilder builder,
@@ -339,6 +324,75 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             EventCallback.Factory.CreateBinder<string?>(this, setValueAsync, formattedValue));
         builder.SetUpdatesAttributeName("value");
     }
+
+    /// <summary>
+    /// Parses a DOM-committed string into <typeparamref name="TValue"/> for the
+    /// <see cref="AddValueBinding(RenderTreeBuilder, int, string, StringValueParser)"/> overload —
+    /// <see langword="false"/> when <paramref name="value"/> cannot become a
+    /// <typeparamref name="TValue"/>, in which case the caller leaves the field uncommitted (the
+    /// silent-revert contract every kit input shares).
+    /// </summary>
+    /// <param name="value">The string the DOM committed, exactly as the browser sent it.</param>
+    /// <param name="result">The parsed value when parsing succeeds; undefined otherwise.</param>
+    protected delegate bool StringValueParser(string? value, out TValue? result);
+
+    /// <summary>
+    /// The string-projected value binding that also honours <see cref="UpdateOn"/> — for a
+    /// control whose DOM value must round-trip through a culture-invariant string rather than
+    /// the culture-sensitive conversion <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
+    /// performs. A native <c>&lt;input type="number"&gt;</c> or <c>&lt;input type="date"&gt;</c>
+    /// always reports its <c>value</c> in a fixed, period-decimal or ISO <c>yyyy-MM-dd</c> form
+    /// regardless of the browser's locale, but that overload's binder resolves
+    /// <see cref="System.Globalization.CultureInfo.CurrentCulture"/> when none is supplied —
+    /// under a comma-decimal culture it silently misreads <c>"12.5"</c> as <c>125</c> rather than
+    /// failing loudly, and under a non-Gregorian calendar culture it can misread a year outright.
+    /// This overload exists so a control can supply its own <see cref="StringValueParser"/> doing
+    /// invariant, format-exact parsing (<see cref="FormidableInputNumber{TValue}"/> and
+    /// <see cref="FormidableInputDate{TValue}"/> are the kit's two cases) while still getting
+    /// <see cref="InputUpdateMode.OnInput"/> and the commit/notify split
+    /// <see cref="InputUpdateMode.OnBlur"/> needs, exactly as
+    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> provides them — including the
+    /// consumer-splatted <c>onblur</c> chaining, since both overloads share the same
+    /// <see cref="HandleBlurAsync"/>. It consumes <paramref name="sequence"/> and, under
+    /// <see cref="InputUpdateMode.OnBlur"/> only, <paramref name="sequence"/> + 1, exactly like
+    /// the typed overload.
+    /// </summary>
+    /// <param name="builder">The render tree being built.</param>
+    /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <param name="formattedValue">The field's current value, already formatted as a string.</param>
+    /// <param name="tryParseValue">Parses a DOM-committed string back into <typeparamref name="TValue"/>.</param>
+    protected void AddValueBinding(
+        RenderTreeBuilder builder,
+        int sequence,
+        string? formattedValue,
+        StringValueParser tryParseValue)
+    {
+        if (UpdateOn == InputUpdateMode.OnBlur)
+        {
+            builder.AddAttribute(
+                sequence,
+                "onchange",
+                EventCallback.Factory.CreateBinder<string?>(this, v => CommitParsedAsync(tryParseValue, v), formattedValue));
+            builder.SetUpdatesAttributeName("value");
+            builder.AddAttribute(
+                sequence + 1,
+                BlurAttributeName,
+                EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
+            return;
+        }
+
+        builder.AddAttribute(
+            sequence,
+            UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
+            EventCallback.Factory.CreateBinder<string?>(this, v => SetCurrentParsedAsync(tryParseValue, v), formattedValue));
+        builder.SetUpdatesAttributeName("value");
+    }
+
+    private Task CommitParsedAsync(StringValueParser tryParseValue, string? value) =>
+        tryParseValue(value, out var parsed) ? CommitValueAsync(parsed) : Task.CompletedTask;
+
+    private Task SetCurrentParsedAsync(StringValueParser tryParseValue, string? value) =>
+        tryParseValue(value, out var parsed) ? SetCurrentValueAsync(parsed) : Task.CompletedTask;
 
     /// <summary>
     /// Runs a consumer-splatted <c>onblur</c> handler, then notifies the engine — the chain
@@ -411,30 +465,5 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         }
 
         return computed.Length == 0 ? splattedClass : $"{splattedClass} {computed}";
-    }
-
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
-
-    /// <summary>
-    /// Runs <see cref="DisposeCore"/>, then releases the field registration and the engine
-    /// subscription. Deliberately not virtual: the base's cleanup is not a derived control's to
-    /// forget, so a removed field cannot stay revealed because someone missed a base call.
-    /// </summary>
-    public void Dispose()
-    {
-        DisposeCore();
-        _binding.Dispose();
-    }
-
-    /// <summary>
-    /// Releases resources a derived control owns — a JS module, a timer, a subscription. Called by
-    /// <see cref="Dispose"/> before the base releases the field registration and engine
-    /// subscription, and doing nothing by default. A derived control implementing
-    /// <see cref="IAsyncDisposable"/> owns the whole disposal path instead, because a component
-    /// implementing both interfaces has only its async overload called: such a control must invoke
-    /// <see cref="Dispose"/> from its <c>DisposeAsync</c>, or the registration is never released.
-    /// </summary>
-    protected virtual void DisposeCore()
-    {
     }
 }

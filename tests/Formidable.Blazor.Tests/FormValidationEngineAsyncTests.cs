@@ -139,4 +139,35 @@ public class FormValidationEngineAsyncTests
 
         Assert.Empty(editContext.GetValidationMessages(new FieldIdentifier(order, string.Empty)));
     }
+
+    // The mirror of the live-fault test above, and the half that is easy to lose: a submit is the
+    // one pass someone is awaiting, so a validator that throws under it belongs to that caller.
+    // Live and refresh are fire-and-forget, which is why their faults become form state plus the
+    // ValidationFaulted event instead - a submit must do neither, or a caller's try/catch silently
+    // stops seeing failures it used to handle and gets a quietly-blocked outcome in their place.
+    [Fact]
+    public async Task Throwing_submit_rule_propagates_to_the_caller_instead_of_reporting_a_fault()
+    {
+        var order = new EngineOrder();
+        var validator = new ThrowingValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            // ThrowingValidator's rule sits on the Draft ruleset; running the submit pass under
+            // that profile is what puts the throw on the submit path rather than the live one.
+            new FormidableOptions { SubmitProfile = ValidationProfile.Draft },
+            new FakeTimeProvider());
+        Exception? observed = null;
+        engine.ValidationFaulted += ex => observed = ex;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => engine.ValidateForSubmitAsync());
+
+        Assert.Null(observed); // no fault event: the exception went to the caller, not to a subscriber
+        Assert.DoesNotContain(
+            editContext.GetValidationMessages(new FieldIdentifier(order, string.Empty)),
+            m => m.Contains("could not run to completion"));
+        Assert.False(engine.IsValidating); // the pass still ended, however it left
+    }
 }

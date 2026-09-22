@@ -80,18 +80,56 @@ attributes, lives in
 
 ## A curated set of typed inputs, on purpose
 
-Formidable ships three typed input components: `FormidableInputText`, `FormidableInputSelect`,
-and `FormidableInputTextArea`. That's not an open-ended roadmap; it's the shape a headless kit is
-supposed to have. The seam is the contract: `FormidableField` is how any control talks to the
-engine, and each typed input is one pre-wired instance of that seam, shipped because wrapping it
-meaningfully improves the control's validation UX — a text box, a dropdown, and a text area all
-clear that bar the same way. Wrapping each once, in the kit, saves every consumer from rewriting
-the same handful of things for their own: registration, ids, aria, the CSS merge, the change
-handler. A checkbox, a radio group, a third-party date-picker widget, or any UI library's own
-input varies too much between projects for one wrapper to serve them all, so those ride the
-`FormidableField` seam above, or a native input paired with `FormidableFieldAnchor` — a native
-date input's home, by contrast, is `FormidableInputText type="date" UpdateOn="OnBlur"`. Three
-typed inputs, and a seam for everything else, is the whole shape.
-Not a promise of more typed inputs to come.
+Formidable ships five typed input components: `FormidableInputText`, `FormidableInputSelect`,
+`FormidableInputTextArea`, `FormidableInputNumber`, and `FormidableInputDate`. That's not an
+open-ended roadmap; it's the shape a headless kit is supposed to have. The seam is the contract:
+`FormidableField` is how any control talks to the engine, and each typed input is one pre-wired
+instance of that seam, shipped because wrapping it meaningfully improves the control's validation
+UX — a text box, a dropdown, a text area, a number, and a date all clear that bar the same way.
+Wrapping each once, in the kit, saves every consumer from rewriting the same handful of things for
+their own: registration, ids, aria, the CSS merge, the change handler. A checkbox, a radio group, a
+third-party date-picker widget, or any UI library's own input varies too much between projects for
+one wrapper to serve them all, so those ride the `FormidableField` seam above, or a native input
+paired with `FormidableFieldAnchor`.
+
+Splatting `type="date"` (or `type="number"`) onto `FormidableInputText` works, as far as it goes:
+the component binds a plain `string`, so the DOM's raw text lands in the model verbatim, with no
+conversion and therefore no culture involved at all — the same way Workout's own date fields do
+it, parsing the string by hand (`TryParseDate`) once it's in the model. What that pattern doesn't
+give you is a typed model: the field stays a `string`, and turning it into a `DateOnly` or a
+`decimal` is the page's job, every time.
+
+The moment the model itself is the typed value — `DateOnly`, `decimal`, and so on, not a
+string holding one — something has to convert the DOM text into it, and that's where a number or
+date input earns its own wrapper. A native `<input type="number">`/`<input type="date">`'s DOM
+value is a fixed, culture-invariant string — period-decimal for a number, ISO `yyyy-MM-dd` for a
+date — but the base's own typed value binding resolves the *current thread's* culture, and the
+two can disagree: under a comma-decimal culture it can misread `"12.5"` as `125`, and under a
+non-Gregorian-calendar culture it can misread a date's year outright. `FormidableInputNumber` and
+`FormidableInputDate` exist so that conversion is invariant by construction — matching the
+browser's own culture-blind wire format — rather than something every consumer has to hand-roll
+the way Workout's `TryParseDate` does. `FormidableInputDate` pairs with
+`UpdateOn="InputUpdateMode.OnBlur"` by preference: Chromium fires a native date input's `change`
+event once per typed segment (day, month, year), so the default `OnChange` can run a live pass
+against a year the visitor hasn't finished typing — `OnBlur` commits the model on every segment
+but validates only once, when the visitor moves on.
+
+Reach for the typed input when the model is a number or a date; reach for the string-modelled
+pattern — `FormidableInputText type="date"`/`type="number"`, with the page parsing by hand — when
+the model deliberately stays a string instead (a raw, unparsed value the validator judges as
+typed, the way an out-of-range entry and a non-numeric one might share one message, or where
+hand-parsing needs to reject something a format string alone wouldn't, as Workout's year-range
+check does).
+
+Model an optional number or date as the nullable form — `int?`, `decimal?`, `DateOnly?`, and so
+on — and an emptied box commits `null`, the same way a cleared `<select>` can: FluentValidation's
+own rules speak from there (`NotNull()` for "required," `InclusiveBetween()` for a range). A
+non-nullable `TValue` has no `null` to fall back to, so an emptied box — like any input the box
+can't parse — reverts instead: Blazor's own binder no-ops, the model stays whatever it already
+was, and the rendered value snaps back to it. Neither typed input raises a message of its own for
+that; the message a visitor sees is always FluentValidation's, never a binder's.
+
+Five typed inputs, and a seam for everything else, is the whole shape. Not a promise of more
+typed inputs to come.
 
 **Next:** [Async and server](async-and-server.md)

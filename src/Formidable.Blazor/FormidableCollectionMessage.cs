@@ -18,6 +18,6 @@ public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    private protected override FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) =>
+    private protected override FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) =>
         context.Registry.Register(field, KeepRegistered);
 }

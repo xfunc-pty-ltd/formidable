@@ -39,8 +39,8 @@ date input firing once per date segment being the clearest case: without the spl
 would start (and cancel) its own live pass on a value that isn't finished yet.
 
 ```razor
-<FormidableInputText type="date" @bind-Value="Model.EventDate"
-                      UpdateOn="InputUpdateMode.OnBlur" />
+<FormidableInputDate @bind-Value="Model.EventDate"
+                     UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
 | | Draft-bucket rule (`ConfigureDraftRules`) | Submit-ruleset rule (`ConfigureSubmitRules`) |
@@ -58,7 +58,10 @@ next one.
 **Read:** [Profiles](profiles.md), [Options](options.md).
 **Samples:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor),
 [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur`, both date fields).
+[`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`OnBlur` on the
+typed `FormidableInputDate`),
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
+pattern, both date fields).
 
 ### I want presence rules to wait for submit while formats answer live
 
@@ -126,29 +129,28 @@ refresh defers to a live pass still in flight and re-arms rather than cancelling
 
 **Set:** on the server, `Validate<TModel>(profile?)` on a minimal-API handler or route group, or
 `[Validate]` on an MVC action or controller. On the client, deserialize the 400 body into
-`FormidableValidationProblem`, call `ToIssues()`, and pass the result to
-`_form!.ApplyServerIssues(...)` — the errors land on the same fields.
+`FormidableValidationProblem` and hand it to `_form!.ApplyServerIssues(...)` — every issue lands
+on the field it names.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
 if (!response.IsSuccessStatusCode)
 {
     var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-    _form!.ApplyServerIssues(problem!.ToIssues());
+    _form!.ApplyServerIssues(problem!);
 }
 ```
 
-Skip the intermediate `ToIssues()` call and pass `_form!.ApplyServerIssues(problem!)` directly
-when the page has no other use for the flattened issue list — the sample above keeps it only to
-pull its advisories back out of it for display, which
-[Server integration](server-integration.md) covers in full.
+Call `problem!.ToIssues()` first and pass the flattened list instead when the page wants the issues
+for something of its own; the two overloads are otherwise identical.
 
 Call `model.Normalize()` before posting when the model implements `INormalizableModel`: the
 filters normalize too, so cleaning first keeps the paths in the response lined up with the rows on
 screen (there is no automatic client-side hook). Each apply replaces the previous server verdict
-instead of accumulating, and only error-severity issues are applied — a rejection's `advisories`
-extension is the page's to present. Server-declared issues bypass the disclosure registry, since
-the server judged what was actually submitted.
+instead of accumulating, and the verdict applies at the severity it carries: a rejection's
+`advisories` extension lands on its fields as warnings and infos, blocking nothing. Server-declared
+errors bypass the disclosure registry, since the server judged what was actually submitted;
+advisories defer to it like the client's own, since a hidden advisory blocks nothing.
 
 **Read:** [Server integration](server-integration.md), [Severity](severity.md).
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor),
@@ -268,14 +270,20 @@ private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
 Reach for `FormidableFieldAnchor` instead when the control already notifies the `EditContext` itself, as
 every native `InputBase` descendant does, and only needs registering.
 
-A control that fires `change` mid-edit — a native date, time, or number input firing once per
-segment — doesn't need the full wrap above if it's still a plain `<input>` (or `<textarea>`):
-reach for `FormidableInputText`/`FormidableInputTextArea` with `UpdateOn="InputUpdateMode.OnBlur"`
-instead, splatting the type through (`type="date"`, `type="number"`) — see
-[Options](options.md#updateon-per-input-not-a-formidableoptions-property). Write the model in
-`@onchange` and call `NotifyChanged()` from `@onblur` by hand only for a control this seam exists
-for in the first place — one that isn't a plain `<input>`/`<textarea>` at all, or whose value
-doesn't bind through `value` (a plain checkbox binds through `checked`, so it needs the seam too).
+A native date or number input firing `change` mid-edit — once per typed segment, for a date —
+doesn't need the seam at all: reach for `FormidableInputDate`/`FormidableInputNumber` with
+`UpdateOn="InputUpdateMode.OnBlur"` instead, when the model is genuinely a `DateOnly`/`decimal`/
+etc. rather than a string holding one. Both convert through `CultureInfo.InvariantCulture`, so the
+model gets the typed value without the culture hazard a generic typed binder would otherwise
+have — see [Component kit](component-kit.md#formidableinputnumbertvalue) and
+[Options](options.md#updateon-per-input-not-a-formidableoptions-property). Splatting the type
+onto `FormidableInputText`/`FormidableInputTextArea` instead is still right for a field whose
+model type genuinely is a string: that binds a plain `string`, with no conversion and so no
+culture involved either way, the same pattern Workout's own date fields use, parsing the string
+by hand once it's in the model. Write the model in `@onchange` and call `NotifyChanged()` from
+`@onblur` by hand only for a control this seam exists for in the first place — one that isn't a
+plain `<input>`/`<textarea>` at all, or whose value doesn't bind through `value` (a plain
+checkbox binds through `checked`, so it needs the seam too).
 
 Native `InputBase` components inside a `FormidableForm` pick up the configured state classes
 automatically, pending included — the engine installs a `FieldCssClassProvider` on the shared
@@ -361,6 +369,7 @@ host runs.
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
+| The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give the rule error severity if it must block. [Advise without blocking](#i-want-to-advise-without-blocking). |
 | Submit is blocked but no field shows a message. | Every failing field is unrevealed, so the defensive gate blocks with one model-level explanation instead of a silent no-op. | Render a `FormidableSummary` (the gate's message shows there), check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | The summary names a field that is not on screen. | Visibility is decided at submit and the refresh only narrows that set, so hiding a field afterwards leaves its entry until the next submit. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Submit again to re-derive the visible set; keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
