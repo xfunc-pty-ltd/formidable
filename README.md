@@ -201,10 +201,13 @@ MVC controllers:
 
 <!-- Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs` -->
 
-Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand it
-to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names. Guard that
-deserialize: a 400 can come from a proxy or a gateway rather than from the endpoint, and what those
-send is no verdict, often not JSON at all. The wire contract the filters share and
+Both filters return `ValidationProblemDetails`. On the client, deserialize the response through
+`FormidableValidationProblemJsonContext` and hand it to the form's `ApplyServerIssues(...)`, which
+lands each issue on the field it names. Reading through that generated metadata is what a trimmed
+publish needs.
+
+Guard that deserialize: a 400 can come from a proxy or a gateway rather than from the endpoint, and
+what those send is no verdict, often not JSON at all. The wire contract the filters share and
 [that guard](docs/server-integration.md#what-if-the-400-is-not-formidables) are both in
 [Server integration](docs/server-integration.md).
 

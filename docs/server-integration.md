@@ -64,8 +64,9 @@ the two adapters part company on more than presentation:
 [A body bound to null](#a-body-bound-to-null) below.
 
 On the client side, closing the loop is two calls: deserialize the 400 body into
-`FormidableValidationProblem`, and hand it to `FormidableForm.ApplyServerIssues`. That is the whole
-authoring surface: pick an adapter, apply what it sends back.
+`FormidableValidationProblem` through `FormidableValidationProblemJsonContext`, and hand it to
+`FormidableForm.ApplyServerIssues`. That is the whole authoring surface: pick an adapter, apply what
+it sends back.
 
 ## What happens to a server error when I edit the field?
 
@@ -138,10 +139,10 @@ then the advisories. The engine's own method takes the sequence, and a sequence 
 exactly once.
 
 That first call names generated JSON metadata rather than the plain generic `ReadFromJsonAsync<T>()`
-because a trimmed publish, which is what a WebAssembly Release build produces, cannot deserialize
-the type by reflection and throws `NotSupportedException` when it tries. The metadata carries the
-same web JSON defaults the generic call applies, so the body reads the same way either side of a
-trim.
+because a WebAssembly Release publish runs the trimmer, and trimmed output cannot deserialize the
+type by reflection: it throws `NotSupportedException` when it tries. The metadata takes its options
+from `JsonSerializerDefaults.Web`, which is what the generic call applies, so the body reads the
+same way either side of a trim.
 
 The severity is the server's to set. An error lands on its field as an error, the one severity that
 blocks a submit: it marks the field `formidable-invalid` and reaches the `EditContext`'s message
@@ -216,10 +217,10 @@ private async Task Send()
     FormidableValidationProblem? problem;
     try
     {
-        // The generated metadata, not the plain generic overload: a trimmed publish (what a
-        // Release build of a WebAssembly app produces) cannot deserialize the type by
-        // reflection, and the guard below catches that refusal too rather than let it reach
-        // the visitor.
+        // The generated metadata, not the plain generic overload: publishing a WebAssembly
+        // app in Release runs the trimmer, and trimmed output cannot deserialize the type by
+        // reflection. The guard below catches that refusal too rather than let it reach the
+        // visitor.
         problem = await response.Content.ReadFromJsonAsync(
             FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
     }
@@ -500,8 +501,8 @@ extension beside it, carrying every non-error issue from the same report.
 The client-side shape of that body is one type in the core `Formidable` package,
 `FormidableValidationProblem`. Deserialize an HTTP 400 into it through
 `FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`, then hand the result
-to the form. That metadata applies the web JSON defaults and needs no reflection, so a trimmed
-publish reads the body too.
+to the form. That metadata takes its options from `JsonSerializerDefaults.Web` and needs no
+reflection, so a trimmed publish reads the body too.
 
 | Member | Type | What it holds |
 |---|---|---|

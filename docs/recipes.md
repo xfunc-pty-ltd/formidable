@@ -373,8 +373,8 @@ if (!response.IsSuccessStatusCode)
 }
 ```
 
-Name the generated metadata as the code above does. A WebAssembly Release build trims, and a
-trimmed build cannot read the type by reflection.
+Name the generated metadata as the code above does. A WebAssembly Release publish runs the trimmer,
+and trimmed output cannot read the type by reflection.
 
 The guard above is half of it. A 400 from a proxy or a gateway is no verdict, often not JSON at
 all, and the deserialize throws on such a body rather than returning `null`, so the parse itself

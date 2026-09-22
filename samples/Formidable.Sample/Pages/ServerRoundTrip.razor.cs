@@ -53,10 +53,10 @@ public partial class ServerRoundTrip
         FormidableValidationProblem? problem;
         try
         {
-            // The generated metadata, not the plain generic overload: a trimmed publish (what a
-            // Release build of a WebAssembly app produces) cannot deserialize the type by
-            // reflection, and the guard below catches that refusal too rather than let it reach
-            // the visitor.
+            // The generated metadata, not the plain generic overload: publishing a WebAssembly
+            // app in Release runs the trimmer, and trimmed output cannot deserialize the type by
+            // reflection. The guard below catches that refusal too rather than let it reach the
+            // visitor.
             problem = await response.Content.ReadFromJsonAsync(
                 FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
         }

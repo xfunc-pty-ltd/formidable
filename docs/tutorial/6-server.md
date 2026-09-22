@@ -98,7 +98,7 @@ cannot read as no verdict, and apply nothing:
 
 > [!NOTE]
 > The read names `FormidableValidationProblemJsonContext`, generated JSON metadata that needs no
-> reflection. Publishing a WebAssembly app trims it, and a trimmed build cannot read the type by
+> reflection. Publishing a WebAssembly app trims it, and trimmed output cannot read the type by
 > reflection at all.
 
 `ApplyServerIssues` puts each issue on the field it names, at the severity it carries. Errors block
