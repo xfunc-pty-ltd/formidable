@@ -74,10 +74,10 @@ else and the server has no validator to resolve.
 
 The full documentation, the runnable sample app, and every recipe live in the repository:
 
-- Repository: https://github.com/xfunc/formidable <!-- publish-day: verify -->
-- Documentation index: https://github.com/xfunc/formidable/tree/main/docs <!-- publish-day: verify -->
-- Recipes (behaviour to configuration): https://github.com/xfunc/formidable/blob/main/docs/recipes.md <!-- publish-day: verify -->
-- Live demo: https://xfunc.github.io/formidable/ <!-- publish-day: verify -->
-- Issues and contributions: https://github.com/xfunc/formidable/blob/main/CONTRIBUTING.md <!-- publish-day: verify -->
+- Repository: https://github.com/xfunc/formidable
+- Documentation index: https://github.com/xfunc/formidable/tree/main/docs
+- Recipes (behaviour to configuration): https://github.com/xfunc/formidable/blob/main/docs/recipes.md
+- Live demo: https://xfunc.github.io/formidable/
+- Issues and contributions: https://github.com/xfunc/formidable/blob/main/CONTRIBUTING.md
 
 Licensed under the MIT License.
