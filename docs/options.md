@@ -291,11 +291,15 @@ blocking ones first" toggle for instance, is not picked up until one of those tw
 | Property | Applied when | Default |
 |---|---|---|
 | `Invalid` | the field has error-severity issues | `formidable-invalid` |
-| `Valid` | the field is touched or modified and has no errors | `formidable-valid` |
+| `Warning` | touched or modified, no errors, and has a warning-severity issue | `formidable-warning` |
+| `Info` | touched or modified, no errors or warnings, and has an info-severity issue | `formidable-info` |
+| `Valid` | the field is touched or modified and has no issues at all | `formidable-valid` |
 | `Pending` | a validation pass involving the field is in flight | `formidable-pending` |
 
-`Pending` appends alongside `Invalid`/`Valid` rather than replacing it — see
-[CSS and accessibility](css-and-accessibility.md) for how the three compose.
+A field carrying only advisories earns `Warning`/`Info`, not `Valid` — deliberately, so it never
+reads as cleared while it still has something to say. `Pending` appends alongside whichever of
+the other four applies rather than replacing it — see
+[CSS and accessibility](css-and-accessibility.md) for how the five compose.
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 

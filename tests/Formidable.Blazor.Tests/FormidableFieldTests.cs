@@ -16,17 +16,6 @@ public class FormidableFieldTests : BunitContext
     }
 
     [Fact]
-    public void Css_rule_matrix()
-    {
-        var options = new FormidableCssClasses();
-
-        Assert.Equal(string.Empty, FormidableCss.Compute(new FieldState(false, false, false, false, false, false), options));
-        Assert.Equal("formidable-valid", FormidableCss.Compute(new FieldState(true, false, false, false, false, false), options));
-        Assert.Equal("formidable-invalid", FormidableCss.Compute(new FieldState(true, true, false, true, false, false), options));
-        Assert.Equal("formidable-invalid formidable-pending", FormidableCss.Compute(new FieldState(true, true, true, true, false, false), options));
-    }
-
-    [Fact]
     public void Field_context_exposes_state_issues_and_aria()
     {
         var order = new EngineOrder { Description = new string('x', 11) };

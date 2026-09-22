@@ -13,7 +13,9 @@ public partial class BootstrapFitting : IAsyncDisposable
     private string _status = string.Empty;
 
     // The whole UI-library integration: state class NAMES remapped onto Bootstrap's.
-    // Pending keeps its default - this validator has no async rules, and the name only
+    // Warning and Info keep their defaults - Bootstrap has no advisory tier to remap onto and
+    // this validator never raises either severity, so there is nothing for them to style.
+    // Pending also keeps its default - this validator has no async rules, and the name only
     // matters to whichever stylesheet targets it.
     private readonly FormidableOptions _options = new()
     {

@@ -179,9 +179,25 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <inheritdoc />
     public FieldState GetFieldState(FieldIdentifier field)
     {
-        // Every input, every field wrapper and the css class provider read this on every
-        // notification round, so it answers its two questions from one walk of the channels that
-        // hold anything for the field, and allocates nothing to do it.
+        var (hasErrors, hasWarnings, hasInfos) = ScanFieldSeverities(field);
+
+        return new FieldState(
+            IsTouched: _touched.Contains(field),
+            IsModified: EditContext.IsModified(field),
+            IsValidating: IsFieldValidating(field),
+            HasErrors: hasErrors,
+            HasWarnings: hasWarnings,
+            HasInfos: hasInfos);
+    }
+
+    /// <summary>
+    /// Walks every channel that can hold an issue for <paramref name="field"/> — live, submit
+    /// errors, submit advisories — stopping the moment an error, a warning, and an info have all
+    /// been seen. <see cref="GetFieldState"/> and <see cref="IValidatingFieldReader.FieldAdvisories"/>
+    /// both answer from this one walk rather than each re-reading the channels their own way.
+    /// </summary>
+    private (bool HasErrors, bool HasWarnings, bool HasInfos) ScanFieldSeverities(FieldIdentifier field)
+    {
         var hasErrors = false;
         var hasWarnings = false;
         var hasInfos = false;
@@ -201,13 +217,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             ScanSeverities(advisories, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
-        return new FieldState(
-            IsTouched: _touched.Contains(field),
-            IsModified: EditContext.IsModified(field),
-            IsValidating: IsFieldValidating(field),
-            HasErrors: hasErrors,
-            HasWarnings: hasWarnings,
-            HasInfos: hasInfos);
+        return (hasErrors, hasWarnings, hasInfos);
     }
 
     /// <summary>
@@ -217,7 +227,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// for a debounced one), scoped to the fields edited within the debounce window for a refresh
     /// pass. <see cref="GetFieldState"/> folds this into
     /// its own read; <see cref="IValidatingFieldReader"/> exposes it standalone for a caller (the
-    /// css class provider) that wants only this and not the severity scan the rest of
+    /// css class provider) that wants only this, without the rest of what building a full
     /// <see cref="FieldState"/> costs.
     /// </summary>
     private bool IsFieldValidating(FieldIdentifier field) =>
@@ -228,6 +238,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldTouched"/>
     bool IValidatingFieldReader.IsFieldTouched(FieldIdentifier field) => _touched.Contains(field);
+
+    /// <inheritdoc cref="IValidatingFieldReader.FieldAdvisories"/>
+    (bool HasWarnings, bool HasInfos) IValidatingFieldReader.FieldAdvisories(FieldIdentifier field)
+    {
+        var (_, hasWarnings, hasInfos) = ScanFieldSeverities(field);
+        return (hasWarnings, hasInfos);
+    }
 
     /// <inheritdoc cref="IValidatingFieldReader.InlineMessageRole"/>
     string? IValidatingFieldReader.InlineMessageRole => _options.InlineMessageRole;

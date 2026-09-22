@@ -488,8 +488,9 @@ for the shared call below:
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
 A consumer writing `class="form-control"` on a `FormidableInputText` keeps that class and still
-gets `formidable-invalid`/`formidable-valid`/`formidable-pending` appended — the two are merged,
-never one replacing the other.
+gets whichever state class applies — `formidable-invalid`, `formidable-warning`,
+`formidable-info`, or `formidable-valid`, plus `formidable-pending` while a pass is in flight —
+appended alongside it; the two are merged, never one replacing the other.
 
 **Aria.** `aria-invalid` appears while the field has error-severity issues, and `aria-describedby`
 — pointing at the message list's id — while it has any issues at all; a clean field renders

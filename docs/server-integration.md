@@ -34,8 +34,9 @@ adapters funnel into one wire format, defined once in the dependency-free core p
 whichever one rejects a request, the shape it sends back is identical. On the client side,
 closing the loop is two calls: deserialize the 400 body, and hand it to
 `FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
-it carries — errors block and mark their fields `formidable-invalid`, warnings and infos land as
-advisories on the fields they name — and it replaces what its own previous call applied rather
+it carries — errors block and mark their fields `formidable-invalid`, and warnings and infos land
+as advisories that paint `formidable-warning` or `formidable-info` once the field has been touched
+or modified — and it replaces what its own previous call applied rather
 than piling onto it, so resubmitting the same or a corrected payload never leaves a stale
 duplicate behind. That's the whole authoring surface: pick an adapter, apply what it sends back.
 What follows is the wire format underneath both of them, each adapter's own shape, and the

@@ -127,7 +127,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="AdditionalAttributes"/> first, then the computed state class (see
     /// <see cref="FormidableCss"/>). Merging rather than replacing mirrors the framework's own
     /// <c>InputBase.CssClass</c>, and means a consumer writing <c>class="form-control"</c> keeps
-    /// their styling without silently discarding the invalid/valid/pending state class. Render this
+    /// their styling without silently discarding the invalid/warning/info/valid/pending state
+    /// class. Render this
     /// <em>after</em> splatting <see cref="AdditionalAttributes"/> so it wins the duplicate-attribute
     /// race (Blazor applies last-write-wins) — or let <see cref="AddCommonAttributes"/> render both
     /// in that order for you.

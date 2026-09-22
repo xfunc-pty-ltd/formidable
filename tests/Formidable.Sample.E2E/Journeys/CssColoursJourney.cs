@@ -22,7 +22,7 @@ public sealed class CssColoursJourney(SampleAppFixture app)
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(MessagesFor(page, "title")).ToHaveTextAsync(["Title is required"]);
 
-        // The Error picker is the first of the three colour inputs (Error, Accent, Warning);
+        // The Error picker is the first of the four colour inputs (Error, Accent, Warning, Info);
         // colour inputs accept fill().
         await page.Locator("input[type=color]").First.FillAsync("#ff0000");
 
@@ -30,5 +30,17 @@ public sealed class CssColoursJourney(SampleAppFixture app)
         // colour onto its own --error custom property (and --error-text, the same value).
         var wrapper = page.Locator("div:has(> form)");
         await Expect(wrapper).ToHaveAttributeAsync("style", new Regex(@"--error:\s*#ff0000"));
+    }
+
+    [E2EFact]
+    public async Task An_exclamation_mark_in_description_earns_the_warning_class()
+    {
+        await using var session = await app.NewPageAsync("/css-colours");
+        var page = session.Page;
+
+        await TypeAsync(Field(page, "description"), "Great synth!");
+        await TabAsync(page);
+
+        await Expect(Field(page, "description")).ToHaveClassAsync(new Regex(@"\bformidable-warning\b"));
     }
 }

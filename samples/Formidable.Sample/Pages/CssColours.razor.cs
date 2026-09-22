@@ -11,6 +11,7 @@ public partial class CssColours
     private string _error = "#b91c1c";
     private string _accent = "#0774b8";
     private string _warn = "#a16207";
+    private string _info = "#516fca";
     private bool _touched;
 
     private string Error
@@ -31,8 +32,14 @@ public partial class CssColours
         set { _warn = value; _touched = true; }
     }
 
+    private string Info
+    {
+        get => _info;
+        set { _info = value; _touched = true; }
+    }
+
     private string? WrapperStyle => _touched
-        ? $"--error: {_error}; --error-text: {_error}; --accent: {_accent}; --ring: {_accent}26; --warn: {_warn};"
+        ? $"--error: {_error}; --error-text: {_error}; --accent: {_accent}; --ring: {_accent}26; --warn: {_warn}; --info: {_info};"
         : null;
 
     private readonly Listing _listing = new();

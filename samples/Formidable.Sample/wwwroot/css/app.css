@@ -126,6 +126,10 @@ small {
     color: var(--muted);
 }
 
+/* white-space: pre-wrap keeps a code span's literal spacing on screen — inline HTML collapses
+   runs of whitespace by default, and the Normalize walkthrough types spacing the reader needs
+   to see exactly as written. Site-wide is deliberate: every other code span in the sample is
+   single-spaced already, and pre-wrap still wraps a long span instead of overflowing it. */
 code {
     font-family: Consolas, monospace;
     font-size: .85em;
@@ -133,6 +137,7 @@ code {
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: .05em .3em;
+    white-space: pre-wrap;
 }
 
 /* ---------- app chrome ---------- */
@@ -348,6 +353,32 @@ form .formidable-valid {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
+form .formidable-warning {
+    border-color: var(--warn);
+}
+
+form .formidable-info {
+    border-color: var(--info);
+}
+
+/* The generic :focus rule above always draws the accent ring, so an invalid/warning/info field
+   would otherwise read as neutral accent while it's being edited. These override just the ring's
+   tint, not the border-color the generic rule also sets while focused, so the two stay
+   consistent with every other field until blur reveals the severity border underneath.
+   :focus-visible matches pointer and keyboard focus alike on a text-like input, so the
+   coverage matches the generic rule's plain :focus in practice. */
+form .formidable-invalid:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+form .formidable-warning:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+form .formidable-info:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 16%, transparent);
+}
+
 form .formidable-pending {
     padding-right: 2.3rem;
 }
@@ -502,6 +533,7 @@ button:focus-visible {
 .formidable-summary__group {
     list-style: none;
     margin: 0;
+    padding: 0;
 }
 
 .formidable-summary__item {
@@ -509,39 +541,24 @@ button:focus-visible {
 }
 
 /* display: block + width: 100% makes the whole row the hit target, not just the message text;
-   the chevron is what carries the "this is clickable" affordance. */
+   the hover/focus-visible tint below is what carries the "this is clickable" affordance. The
+   negative left margin plus a matching left padding extends that tint past the text's left edge
+   without moving the text itself, mirroring the existing right-side padding so the tint reads as
+   symmetric around the flush-aligned message. */
 button.formidable-summary__link {
     display: block;
     width: 100%;
-    position: relative;
     background: none;
     border: none;
     border-radius: var(--radius-button);
-    margin: 0;
-    padding: .35rem .55rem .35rem 1.2rem;
+    margin: 0 0 0 -.55rem;
+    padding: .35rem .55rem .35rem .55rem;
     font: inherit;
     font-size: .9rem;
     font-weight: 500;
     color: var(--error-text);
     cursor: pointer;
     text-align: left;
-}
-
-/* A border-drawn triangle, not a text glyph: Chromium and Firefox both fold ::before/::after
-   text content into the accessible name of the element they decorate, which would prefix every
-   summary entry's name (and every Playwright locator keyed on that name) with the chevron
-   character. An empty content string carries no text into that computation. */
-button.formidable-summary__link::before {
-    content: "";
-    position: absolute;
-    left: .5rem;
-    top: 50%;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: .3em 0 .3em .35em;
-    border-color: transparent transparent transparent currentColor;
-    transform: translateY(-50%);
 }
 
 button.formidable-summary__link:hover,

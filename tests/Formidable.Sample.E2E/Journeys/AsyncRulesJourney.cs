@@ -131,8 +131,9 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // What actually reds this test: reverting FormValidationEngine's delta computation ALONE
     // (forcing the refresh to always run the whole SubmitProfile, the same mutation
     // FormValidationEngineProfileSplitTests.A_post_submit_edit_runs_each_draft_rule_once uses)
-    // does NOT turn this red — HandleValidator's memo backstops it, since the refresh's redundant
-    // re-check is for the value the live pass just answered, well inside the memo's window, so it
+    // does NOT turn this red — MemoizedHandleValidator's memo backstops it, since the refresh's
+    // redundant re-check is for the value the live pass just answered, well inside the memo's
+    // window, so it
     // resolves instantly from the memo instead of re-running the delay. Only removing BOTH the
     // delta computation and the memo together reproduces the original symptom: two real, roughly
     // 900 ms windows instead of one. The engine-level mechanism (does the delta subtraction run

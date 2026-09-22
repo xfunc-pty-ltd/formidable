@@ -22,24 +22,44 @@ computes one:
 ```csharp
 namespace Formidable.Blazor;
 
-/// <summary>Shared field CSS class rule: errors win; touched/modified without errors is valid; pending appends while validating.</summary>
+/// <summary>
+/// Shared field CSS class rule: errors win, ungated; touched/modified without errors is warning,
+/// info, or valid by the field's remaining advisory issues; pending appends while validating.
+/// </summary>
 public static class FormidableCss
 {
     /// <summary>Computes the space-joined class string for a field state.</summary>
     public static string Compute(FieldState state, FormidableCssClasses classes) =>
-        Assemble(state.HasErrors, state.IsTouched || state.IsModified, state.IsValidating, classes);
+        Assemble(
+            state.HasErrors,
+            state.IsTouched || state.IsModified,
+            state.HasWarnings,
+            state.HasInfos,
+            state.IsValidating,
+            classes);
 
     /// <summary>
-    /// Joins the three already-decided booleans into a space-joined class string: invalid wins
-    /// outright, valid applies only when not invalid, and pending appends to whichever of those
-    /// (or neither) applies. Private to <see cref="Compute"/>, its one caller — a Formidable
-    /// input and <see cref="FormidableFieldCssClassProvider"/>'s native-input path both build a
-    /// <see cref="FieldState"/> from their own sources and hand it to <see cref="Compute"/>, so
-    /// this join happens in exactly one place for both.
+    /// Joins the already-decided booleans into a space-joined class string: invalid wins outright
+    /// and ungated; touched-or-modified gates every other tier, within which warning beats info
+    /// beats plain valid — a field the user must still fix never reads as merely advisory, and an
+    /// untouched, unmodified field earns no class at all regardless of what it carries. Pending
+    /// appends to whichever tier (or neither) applies. Private to <see cref="Compute"/>, its one
+    /// caller — a Formidable input and <see cref="FormidableFieldCssClassProvider"/>'s
+    /// native-input path both build a <see cref="FieldState"/> from their own sources and hand it
+    /// to <see cref="Compute"/>, so this join happens in exactly one place for both.
     /// </summary>
-    private static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
+    private static string Assemble(
+        bool invalid, bool touchedOrModified, bool hasWarnings, bool hasInfos, bool pending, FormidableCssClasses classes)
     {
-        var baseClass = invalid ? classes.Invalid : validWithoutError ? classes.Valid : string.Empty;
+        var baseClass = invalid
+            ? classes.Invalid
+            : !touchedOrModified
+                ? string.Empty
+                : hasWarnings
+                    ? classes.Warning
+                    : hasInfos
+                        ? classes.Info
+                        : classes.Valid;
 
         if (!pending)
         {
@@ -53,15 +73,17 @@ public static class FormidableCss
 *Source: `src/Formidable.Blazor/FormidableCss.cs`*
 
 In order: **errors win** — a field with error-severity issues is always `Invalid`, regardless of
-touched/modified state. Failing that, **touched or modified is valid** — a field the user has
-interacted with (or that the `EditContext` reports as modified) and that currently has no errors
-is `Valid`; an untouched, unmodified, error-free field gets neither class. Finally, **pending
-appends** — whichever of those two classes was chosen (or neither) gets `Pending` added onto it,
-space-joined, while a validation pass involving the field is in flight. `Pending` never replaces
-`Invalid`/`Valid`, and it can appear on its own if the field is validating before it's ever been
-touched.
+touched/modified state. Failing that, touched-or-modified gates everything else: an untouched,
+unmodified field earns no class at all, whatever it carries. A touched or modified, error-free
+field is `Warning` when it has a warning-severity issue, `Info` when its only issues are
+info-severity, and `Valid` only once it has no issues left to show. That last step is deliberate:
+a field still carrying an advisory does not read as `Valid`, because it still has something the
+user might act on. Finally, **pending appends** — whichever of those tiers applied (or none did)
+gets `Pending` added onto it, space-joined, while a validation pass involving the field is in
+flight. `Pending` never replaces the tier's own class, and it can appear on its own if the field
+is validating before it's ever been touched.
 
-The three class names themselves are configurable, each with a default:
+The five class names themselves are configurable, each with a default:
 
 ```csharp
 namespace Formidable.Blazor;
@@ -72,7 +94,26 @@ public sealed class FormidableCssClasses
     /// <summary>Applied when the field has error-severity issues. Defaults to <c>"formidable-invalid"</c>.</summary>
     public string Invalid { get; set; } = "formidable-invalid";
 
-    /// <summary>Applied when the field is touched or modified and has no errors. Defaults to <c>"formidable-valid"</c>.</summary>
+    /// <summary>
+    /// Applied when the field is touched or modified, has no error-severity issues, and has at
+    /// least one warning-severity issue. An error-severity issue on the same field wins
+    /// <see cref="Invalid"/> instead, deliberately: a field the user must still fix should never
+    /// read as merely advisory. Defaults to <c>"formidable-warning"</c>.
+    /// </summary>
+    public string Warning { get; set; } = "formidable-warning";
+
+    /// <summary>
+    /// Applied when the field is touched or modified, has no error- or warning-severity issues,
+    /// and has at least one info-severity issue. An error- or warning-severity issue on the same
+    /// field wins <see cref="Invalid"/> or <see cref="Warning"/> instead, deliberately: the more
+    /// urgent severity always takes the class. Defaults to <c>"formidable-info"</c>.
+    /// </summary>
+    public string Info { get; set; } = "formidable-info";
+
+    /// <summary>
+    /// Applied when the field is touched or modified and has no error-, warning-, or
+    /// info-severity issues. Defaults to <c>"formidable-valid"</c>.
+    /// </summary>
     public string Valid { get; set; } = "formidable-valid";
 
     /// <summary>Appended while a validation pass involving the field is in flight. Defaults to <c>"formidable-pending"</c>.</summary>
@@ -92,16 +133,17 @@ own for the messages they render — see [Severity](severity.md) for the
 [Component kit](component-kit.md#heading-each-band) for the `formidable-summary__band--{severity}`
 band each group sits inside.
 
-That's the entire class-name contract: rename the three strings, and the rule above still
+That's the entire class-name contract: rename the five strings, and the rule above still
 decides when each one applies. What follows is how to rename them, the rule a native `InputBase`
 picks up automatically, and the ids/aria/focus wiring built on top of the same field state.
 
 ## Configuring `FormidableCssClasses`
 
-`FormidableCssClasses` is a plain settings object — a mutable class with three `string`
-properties (`Invalid`, `Valid`, `Pending`, all shown with their defaults above). Construct one,
-set whichever properties you want to rename to match your own stylesheet or design system's
-naming convention, and assign it to `FormidableOptions.CssClasses`. That property lives on the
+`FormidableCssClasses` is a plain settings object — a mutable class with five `string`
+properties (`Invalid`, `Warning`, `Info`, `Valid`, `Pending`, all shown with their defaults
+above). Construct one, set whichever properties you want to rename to match your own stylesheet
+or design system's naming convention, and assign it to `FormidableOptions.CssClasses`. That
+property lives on the
 options object every `FormidableForm<TModel>`/`FormidableValidator<TModel>` takes (see
 [Options](options.md)). Formidable doesn't care what the strings are, only when each one
 applies. The rule above is the entire contract. As with every other `FormidableOptions`
@@ -124,11 +166,12 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Internal fast-path reads two engine-adjacent components need without growing the public
 /// <see cref="IFormValidationEngine"/> contract for what only they want:
-/// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/> and
-/// <see cref="IsFieldTouched"/> in place of the severity scan the rest of
-/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings it does not need;
-/// <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide whether
-/// its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
+/// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
+/// <see cref="IsFieldTouched"/>, and <see cref="FieldAdvisories"/> to build the same
+/// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
+/// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
+/// directly; <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide
+/// whether its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
 /// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
 /// does not, so each reader falls back to its own default for whichever member it needs.
 /// </summary>
@@ -140,6 +183,13 @@ internal interface IValidatingFieldReader
     /// <summary>Whether <paramref name="field"/> has been marked touched.</summary>
     bool IsFieldTouched(FieldIdentifier field);
 
+    /// <summary>
+    /// Whether <paramref name="field"/> currently has a warning-severity issue and whether it
+    /// currently has an info-severity issue, read together in one pass over its issues rather
+    /// than two separate ones.
+    /// </summary>
+    (bool HasWarnings, bool HasInfos) FieldAdvisories(FieldIdentifier field);
+
     /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
     string? InlineMessageRole { get; }
 }
@@ -148,8 +198,9 @@ internal interface IValidatingFieldReader
 /// Applies the configured class names to native InputBase components via the EditContext,
 /// including the Pending class while the engine reports the field as validating. Every engine
 /// installs one of these on its EditContext as it is built, so a form needs no wiring to get these
-/// classes. The Valid decision is the same one <see cref="FormidableCss.Compute"/> makes for a
-/// Formidable input: touched or modified, with no error, earns it.
+/// classes. Which tier a touched-or-modified, error-free field earns — Warning, Info, or Valid —
+/// is the same decision <see cref="FormidableCss.Compute"/> makes for a Formidable input, not a
+/// second one that happens to agree.
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
@@ -158,8 +209,8 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
-    /// Creates a provider using the given class names, reading touched/pending state from
-    /// <paramref name="engine"/>. Construction is a consumer's business only when their own
+    /// Creates a provider using the given class names, reading touched, pending, and advisory
+    /// state from <paramref name="engine"/>. Construction is a consumer's business only when their own
     /// <c>EditContext.SetFieldCssClassProvider</c> call has replaced the installed one and they
     /// want Formidable's classes back, or when their own provider wants to delegate to this one:
     /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
@@ -177,17 +228,20 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        bool touched, pending;
+        bool touched, pending, hasWarnings, hasInfos;
         if (_reader is not null)
         {
             touched = _reader.IsFieldTouched(fieldIdentifier);
             pending = _reader.IsFieldValidating(fieldIdentifier);
+            (hasWarnings, hasInfos) = _reader.FieldAdvisories(fieldIdentifier);
         }
         else
         {
             var fallback = _engine.GetFieldState(fieldIdentifier);
             touched = fallback.IsTouched;
             pending = fallback.IsValidating;
+            hasWarnings = fallback.HasWarnings;
+            hasInfos = fallback.HasInfos;
         }
 
         var state = new FieldState(
@@ -195,12 +249,8 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             IsModified: editContext.IsModified(fieldIdentifier),
             IsValidating: pending,
             HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
-            // Compute's rule never looks at HasWarnings/HasInfos (only HasErrors and
-            // IsTouched||IsModified decide Invalid/Valid), so these are placeholders, not reads --
-            // a future warning/info-only class would need its own source for these bits before
-            // this synthesis could feed it.
-            HasWarnings: false,
-            HasInfos: false);
+            HasWarnings: hasWarnings,
+            HasInfos: hasInfos);
 
         return FormidableCss.Compute(state, _classes);
     }
@@ -215,21 +265,20 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
 
-This is the same three class names as `FormidableCss.Compute`, and now genuinely the same rule:
-the provider builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the
-`EditContext`, `IsTouched` and `IsValidating` read from the engine — and hands it to
-`FormidableCss.Compute`, the one place the invalid/valid/pending decision is made. Concretely, a
-field the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`) earns `Valid`
-through this path exactly as it does on a Formidable input, even before the `EditContext` has
-ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s `IsTouched || IsModified` branch
-(see above) is the one decision both paths share, not two decisions that happen to agree. Reading
-the touched and pending bits costs less than the full `GetFieldState` a Formidable input reads for
-its own `CssClass`: the provider probes the engine for `IValidatingFieldReader`, an internal fast
-path `FormValidationEngine<TModel>` implements for both reads, and falls back to
-`GetFieldState(fieldIdentifier)` for both reads at once when an `IFormValidationEngine` doesn't
-implement it (a test double, say) — the probe is a single `as` check, not a per-member one, so
-there's no in-between case where one read has the fast path and the other doesn't. A native input
-inside a Formidable form shows the
+This is the same class names as `FormidableCss.Compute`, and genuinely the same rule: the provider
+builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the `EditContext`,
+`IsTouched`, `IsValidating`, `HasWarnings`, and `HasInfos` read from the engine — and hands it to
+`FormidableCss.Compute`, the one place the invalid/warning/info/valid/pending decision is made.
+Concretely, a field the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`)
+earns `Valid` through this path exactly as it does on a Formidable input, even before the
+`EditContext` has ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s
+`IsTouched || IsModified` branch (see above) is the one decision both paths share, not two
+decisions that happen to agree. The provider probes the engine for `IValidatingFieldReader`, an
+internal fast path `FormValidationEngine<TModel>` implements for all four engine-sourced reads,
+and falls back to `GetFieldState(fieldIdentifier)` for all four at once when an
+`IFormValidationEngine` doesn't implement it (a test double, say) — the probe is a single `as`
+check, not a per-member one, so there's no in-between case where some reads have the fast path and
+others don't. A native input inside a Formidable form shows the
 same "checking…" cue a Formidable input does, automatically; see the Vanilla interop section of
 [Component kit](component-kit.md) for the provider wired into a native `InputText` beside a
 Formidable one.
@@ -493,10 +542,12 @@ mark while a mouse click gets `scrollIntoView` alone.
 - The class rule and its interaction with the `Pending` state — every sample using
   `FormidableInputText` shows it implicitly; [Async validation](async-validation.md)'s
   pending-UI section is the most direct look at `Pending` specifically.
-- Renaming two of `FormidableCssClasses`' three class names to fit a UI library's own —
+- Renaming two of `FormidableCssClasses`' five class names to fit a UI library's own —
   [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor), which points
   `Invalid`/`Valid` at Bootstrap's `is-invalid`/`is-valid` and lets Bootstrap's own stylesheet do
-  the rest; `Pending` is left at its default there.
+  the rest; `Warning`, `Info`, and `Pending` are left at their defaults there. Bootstrap has no
+  advisory tier of its own to remap onto, so the page maps nothing for them rather than inventing
+  one — harmless on that page, since its validator never raises a warning or an info.
 - A consumer stylesheet keying off those same class names with CSS custom properties instead of
   fixed colours — [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor).
 - The `FieldCssClassProvider` bridge and a native `InputBase` picking up the same classes —

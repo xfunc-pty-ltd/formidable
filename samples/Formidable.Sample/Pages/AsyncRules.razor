@@ -4,7 +4,7 @@
 <h1>Async rules</h1>
 <p>Type "admin" and pause: each keystroke starts the check immediately (the delay simulates a server call — 600 ms by default, adjustable below), shows a pending state, and a new keystroke cancels the in-flight check.</p>
 
-<TeachingPanel CodeFiles="@(new[] { "Handle.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
+<TeachingPanel CodeFiles="@(new[] { "Handle.cs", "MemoizedHandleValidator.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
     <Rules>
         <ul>
             <li><strong>Username</strong> — checked for uniqueness asynchronously while you type (a delay stands in for the server — 600&nbsp;ms by default, adjustable below). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
@@ -13,6 +13,7 @@
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
             <li>Editing after a submit runs each check once: the refresh reruns only what the Submit profile adds beyond the live pass — here, just the required check — so the uniqueness check the live pass already answered does not run again.</li>
             <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
+            <li><strong>Validator override</strong> — <code>FormidableForm</code>'s <code>Validator</code> parameter resolves from DI when left unset, which is what every other page here does; this page supplies <code>MemoizedHandleValidator</code> directly instead, which is why the memoizing shows up here rather than on <code>/field-state</code>.</li>
             <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce and the refresh's own 300&nbsp;ms set when one starts.</li>
         </ul>
     </Rules>
@@ -40,7 +41,7 @@
     <label><input type="checkbox" @bind="LiveDebounceEnabled" /> Debounce live checks (batch fast typing into one pass)</label>
 </p>
 
-<FormidableForm Model="_handle" Options="_options" OnValidSubmit="HandleValid">
+<FormidableForm Model="_handle" Options="_options" Validator="_validator" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">

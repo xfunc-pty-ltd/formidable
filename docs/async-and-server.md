@@ -45,8 +45,9 @@ never quietly disagree about what "required" means.
 
 When the server rejects a submission, `FormidableForm.ApplyServerIssues` takes its answer and
 applies it to the same fields the client's own messages would occupy. The whole verdict lands, at
-the severity it carries: errors block and mark their fields `formidable-invalid`, warnings and
-infos show as advisories on the fields they name, without blocking anything. Each call replaces
+the severity it carries: errors block and mark their fields `formidable-invalid`, and warnings and
+infos land as advisories that paint `formidable-warning` or `formidable-info` once the field has
+been touched or modified, without blocking anything. Each call replaces
 the previous server verdict rather than piling onto it, so resubmitting never leaves a stale
 duplicate behind, and an advisory the client already showed for that field doesn't double up.
 `_form` below is the `FormidableForm` reference, captured on its element with `@ref="_form"`.

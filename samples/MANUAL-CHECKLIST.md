@@ -273,12 +273,12 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Normalize
 
-- [ ] `"  spaced   out  title  "` + *Normalize now*: the raw value line below snaps clean AND
+- [ ] `  spaced   out  title  ` + *Normalize now*: the raw value line below snaps clean AND
       the INPUT BOX itself loses its spaces — box and model can never show different text
 - [ ] Pad Title with spaces past 40 characters: "Title is 40 characters max" appears live;
       *Normalize now* trims under the limit and the message clears AT ONCE — no tab-through or
       submit needed
-- [ ] *Try it* step 3 verbatim — `"    Meeting notes about the Q3 rollout    "` (42 raw, 34
+- [ ] *Try it* step 3 verbatim — `    Meeting notes about the Q3 rollout    ` (42 raw, 34
       trimmed) + *Normalize + submit*: trimming runs BEFORE validation, the 40-char rule judges
       the cleaned value, and the submit SUCCEEDS (status line confirms)
 - [ ] All-spaces Title + *Normalize + submit*: trims to empty and ONLY "Title is required"
@@ -286,7 +286,7 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] All three buttons fire on the FIRST click every time — no mid-click layout shift
       swallowing the press
 - [ ] Body is a textarea; chrome and focus ring match the other fields, light + dark
-- [ ] Tick *Normalize automatically on submit*, type `"    Meeting notes about the Q3 rollout    "`
+- [ ] Tick *Normalize automatically on submit*, type `    Meeting notes about the Q3 rollout    `
       (42 raw, 34 trimmed) and click plain *Submit* (not *Normalize + submit*): it succeeds with
       no manual step — the option trimmed it first
 - [ ] Untick the box, type the same text, and click *Submit* again: BLOCKED — "Title is 40

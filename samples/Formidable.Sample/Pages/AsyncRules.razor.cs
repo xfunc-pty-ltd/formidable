@@ -1,3 +1,4 @@
+using Formidable;
 using Formidable.Blazor;
 using Formidable.Sample.Shared;
 
@@ -7,6 +8,13 @@ public partial class AsyncRules : IDisposable
 {
     private readonly Handle _handle = new();
     private readonly FormidableOptions _options = new();
+
+    // The DI-registered IValidator<Handle> behind SharedValidatorRegistration is the plain
+    // HandleValidator that /field-state also uses; this page supplies MemoizedHandleValidator
+    // explicitly instead, through the same Validator parameter every page could use, so its
+    // uniqueness checks memoize while the field-state page's keep answering in full each time.
+    private readonly IModelValidator<Handle> _validator = new FluentValidationModelValidator<Handle>(new MemoizedHandleValidator());
+
     private string _status = string.Empty;
 
     private static int DelayMs

@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -13,7 +14,10 @@ namespace Formidable.Blazor.Tests;
 /// the kit-input path rather than a fixed string, since that decision is deliberately shared
 /// (<see cref="FormidableCss.Compute"/>). Going through this surface rather than constructing the
 /// provider directly means these assertions hold regardless of how the provider is wired
-/// internally.
+/// internally. Three further tests cover the advisory tiers the provider synthesizes: a
+/// warning-only field earning <c>classes.Warning</c> through the fast path, the same advisory
+/// bits surviving the <c>GetFieldState</c> fallback when an engine doesn't implement the reader,
+/// and an error still winning outright over a warning on the same field.
 /// </summary>
 public class FormidableFieldCssClassProviderTests
 {
@@ -76,6 +80,55 @@ public class FormidableFieldCssClassProviderTests
 
         Assert.Equal("formidable-valid", providerClass);
         Assert.Equal(kitClass, providerClass);
+    }
+
+    // The provider's fast path (IValidatingFieldReader) answers the same HasWarnings/HasInfos
+    // question GetFieldState's severity scan does, so a warning-only field reaches
+    // classes.Warning through the native path exactly as it already does through a Formidable
+    // input.
+    [Fact]
+    public void A_warning_only_field_gets_the_warning_class()
+    {
+        var order = new EngineOrder { Description = "ab-" }; // <=3 chars: the error rule passes; the hyphen trips only the warning
+        using var engine = CreateEngine(order, new DraftErrorAndWarningValidator());
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        engine.EditContext.NotifyFieldChanged(field); // synchronous draft rules settle within this call
+
+        Assert.False(engine.EditContext.GetValidationMessages(field).Any());
+        Assert.Equal("formidable-warning", engine.EditContext.FieldCssClass(field));
+    }
+
+    // Constructs the provider directly with an engine double that answers GetFieldState with real
+    // advisory bits and does NOT implement the fast path, proving the fallback branch carries
+    // fallback.HasWarnings/HasInfos through to the returned class.
+    [Fact]
+    public void The_fallback_engine_still_answers()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: false, HasErrors: false, HasWarnings: true, HasInfos: false);
+        var engine = new FieldStateStubEngine(editContext, state);
+        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+
+        Assert.Equal("formidable-warning", provider.GetFieldCssClass(editContext, field));
+    }
+
+    // Same field, same pass: an error rule and a warning rule both fail, so the provider's
+    // HasErrors read (straight off the EditContext) and its HasWarnings read (through the reader)
+    // land on the same field at once -- Compute's error-wins-ungated ordering must still hold.
+    [Fact]
+    public void Errors_still_win_through_the_provider()
+    {
+        var order = new EngineOrder { Description = "abcd-" }; // >3 chars trips the error rule; the hyphen also trips the warning
+        using var engine = CreateEngine(order, new DraftErrorAndWarningValidator());
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        engine.EditContext.NotifyFieldChanged(field);
+
+        Assert.True(engine.EditContext.GetValidationMessages(field).Any());
+        Assert.Equal("formidable-invalid", engine.EditContext.FieldCssClass(field));
     }
 
     [Fact]
@@ -186,6 +239,28 @@ public class FormidableFieldCssClassProviderTests
             throw new NotSupportedException("Not exercised by this stub's test.");
 
         public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Draft validator whose one field carries both an error rule and a warning rule that can
+    /// fail independently: a description at most 3 characters long only ever trips the hyphen
+    /// warning, while one longer than that trips the length error too -- giving a single fixture
+    /// that produces a warning-only field for one test and an error-plus-warning field for another.
+    /// </summary>
+    private sealed class DraftErrorAndWarningValidator : DraftSubmitValidator<EngineOrder>
+    {
+        protected override void ConfigureDraftRules()
+        {
+            RuleFor(x => x.Description).MaximumLength(3).WithMessage("Description is too long");
+            RuleFor(x => x.Description)
+                .Must(d => !d.Contains('-'))
+                .WithSeverity(Severity.Warning)
+                .WithMessage("Avoid hyphens");
+        }
+
+        protected override void ConfigureSubmitRules()
         {
         }
     }
