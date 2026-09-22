@@ -15,16 +15,16 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a><!-- publish-day: verify -->
 </p>
 
-Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between decides
-which rules run while someone is still typing, which messages they have earned the right to
-see, and what to do when the server disagrees with the browser. That is the layer I kept
-rebuilding by hand, one client form at a time, slightly differently each time. Formidable is
-that layer, built once and covered by tests.
+Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between decides which
+rules run while someone is still typing, which messages they have earned the right to see, and what
+to do when the server disagrees with the browser. That is the layer I kept rebuilding by hand, one
+client form at a time, slightly differently each time. Formidable is that layer, built once and
+covered by tests.
 
-It runs one real client project's forms today. Exactly one: a number I'd rather give you
-straight than round up. What that buys you is a library that met a deadline before it met a
-README, so the awkward parts were found by shipping rather than by guessing. You can run two
-apps out of this repo: the [sample](#run-the-sample-locally) (22 pages, one feature each) and
+It runs one real client project's forms today. Exactly one: a number I'd rather give you straight
+than round up. What that buys you is a library that met a deadline before it met a README, so the
+awkward parts were found by shipping rather than by guessing. You can run two apps out of this repo:
+the [sample](#run-the-sample-locally) (22 pages, one feature each) and
 `samples/Formidable.Tutorial`, which grows a single signup form across six stages.
 
 If you'd rather see it than read about it, there is a [live demo](#live-demo) and a
@@ -32,20 +32,20 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 
 ## What it is
 
-- **Draft and Submit from one validator** — two lifecycles ship built in: a lenient Draft
-  profile for save-as-you-go, a strict Submit profile for the real thing, both defined once in
-  the same FluentValidation class. Wizard steps and approval stages are custom profiles over
-  that same definition.
-- **A headless component kit** — `FormidableForm`, `FormidableField`, `FormidableFieldMessage`,
-  and `FormidableSummary` own the `EditContext` and render whatever the validator reports. The
-  library ships no CSS, so the same kit fits a UI library, a design system, or plain HTML.
+- **Draft and Submit from one validator** — two lifecycles ship built in: a lenient Draft profile
+  for save-as-you-go, a strict Submit profile for the real thing, both defined once in the same
+  FluentValidation class. Wizard steps and approval stages are custom profiles over that same
+  definition.
+- **A headless component kit** — `FormidableForm`, `FormidableField`, `FormidableFieldMessage`, and
+  `FormidableSummary` own the `EditContext` and render the validator's verdict. The library ships no
+  CSS, so the same kit fits a UI library, a design system, or plain HTML.
 - **One validator, client and server** — the same FluentValidation rules run in the browser and
-  again on the server, and the server's `ValidationProblemDetails` response applies straight
-  into the engine, so a rejected save lights up the exact fields inline.
-- **Progressive disclosure** — a message waits until the visitor has earned it. A field nobody
-  has touched stays silent whatever its rules say; once they have engaged it, it tells them what
-  would actually block the save. At submit, errors follow what is on screen, and a defensive gate
-  catches the case where every failure would otherwise go unseen.
+  again on the server, and the server's `ValidationProblemDetails` response applies straight into
+  the engine, so a rejected save lights up the exact fields inline.
+- **Progressive disclosure** — a message waits until the visitor has earned it. A field nobody has
+  touched stays silent whatever its rules say; once they have engaged it, it tells them what would
+  actually block the save. At submit, which errors show is decided by what is on screen at that
+  moment, and a defensive gate catches the case where every failure would otherwise go unseen.
 - **Collections that keep their errors** — a message belongs to the row object, not to the row
   number, so adding, removing, and reordering rows can never move an error onto the wrong row.
 
@@ -57,15 +57,15 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 | `Formidable.Blazor` | `Formidable` + `Microsoft.AspNetCore.Components.Web` | The validation engine (EditContext integration, field registry, validation flows) and the headless component kit (`FormidableForm`, `FormidableField`, `FormidableFieldMessage`, `FormidableSummary`, …). |
 | `Formidable.AspNetCore` | `Formidable` + ASP.NET Core | Minimal-API endpoint filter and MVC `[Validate]` action filter, returning `ValidationProblemDetails` in the same path format the Blazor client consumes. |
 
-A shared contracts assembly (your models and validators) references `Formidable` only and
-stays free of Blazor and ASP.NET Core dependencies. A Blazor client adds `Formidable.Blazor`;
-an API adds `Formidable.AspNetCore`. Neither leaf package depends on the other: both depend
-only on `Formidable`.
+A shared contracts assembly (your models and validators) references `Formidable` only and stays free
+of Blazor and ASP.NET Core dependencies. A Blazor client adds `Formidable.Blazor`; an API adds
+`Formidable.AspNetCore`. Neither leaf package depends on the other: both depend only on
+`Formidable`.
 
 ## 5-minute quickstart
 
-Five minutes in an interactive project: `dotnet new blazorwasm`, or a Blazor Web App page
-carrying `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or
+Five minutes in an interactive project: `dotnet new blazorwasm`, or a Blazor Web App page carrying
+`@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or
 `@rendermode InteractiveAuto`.
 
 > [!NOTE]
@@ -84,9 +84,9 @@ One line in `_Imports.razor` brings every component below into scope:
 @using Formidable.Blazor
 ```
 
-Then one page file — `Pages/Signup.razor`, whose name is the `Signup` the registration below names
-its types through — holds the model, the validator, and the form. A plain `AbstractValidator<T>`,
-no profiles required:
+Then one page file (`Pages/Signup.razor`, whose name is the `Signup` the registration below names
+its types through) holds the model, the validator, and the form. A plain `AbstractValidator<T>`, no
+profiles required:
 
 ```razor
 @page "/signup"
@@ -147,8 +147,8 @@ The rest of the file holds the model, the validator, and the form together:
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage1.razor` -->
 
-Two registrations in `Program.cs` finish it, `using` directives included. The model and
-validator are nested in the page class, so they are named through it:
+Two registrations in `Program.cs` finish it, `using` directives included. The model and validator
+are nested in the page class, so they are named through it:
 
 ```csharp
 using FluentValidation;
@@ -169,18 +169,18 @@ App, and `YourApp.Client.Pages` in the `.Client` project of one created with
 > the form too whenever a page prerenders or runs on its circuit:
 > [Hosting models](docs/hosting-models.md#the-server-builds-the-form-too).
 
-That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
-registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
-`FormidableSummary` render whatever the validator reports — `Saved.` appears once a submit
-lands, and `OnInvalidSubmit` clears it the moment a later one is blocked.
+That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText` registers its
+field and applies the validation CSS classes, and `FormidableFieldMessage` and `FormidableSummary`
+render the validator's verdict. `Saved.` appears once a submit lands, and `OnInvalidSubmit` clears
+it the moment a later one is blocked.
 
 Two places take this form further:
 
-- **[Quickstart](docs/quickstart.md)** takes the same four pieces slowly, with each line
-  explained and a run at the end.
-- **[The sample's Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor)**, the
-  app's home page, is this same form grown up a little, with the model in a shared project and
-  the handler in a code-behind.
+- **[Quickstart](docs/quickstart.md)** takes the same four pieces slowly, with each line explained
+  and a run at the end.
+- **[The sample's Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor)**, the app's
+  home page, is this same form grown up a little, with the model in a shared project and the handler
+  in a code-behind.
 
 ## Server validation in two lines
 
@@ -201,17 +201,17 @@ MVC controllers:
 
 <!-- Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs` -->
 
-Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand
-it to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names. Guard
-that deserialize: a 400 can come from a proxy or a gateway rather than from the endpoint, and what
-those send is no verdict, often not JSON at all. The wire contract the filters share and
+Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand it
+to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names. Guard that
+deserialize: a 400 can come from a proxy or a gateway rather than from the endpoint, and what those
+send is no verdict, often not JSON at all. The wire contract the filters share and
 [that guard](docs/server-integration.md#reading-the-rejection-body) are both in
 [Server integration](docs/server-integration.md).
 
 ## Documentation
 
-The docs come in two tiers. The first is a path: read it in order and you will have built the
-thing. The second is the shelf you come back to afterwards.
+The docs come in two tiers. The first is a path: read it in order and you will have built the thing.
+The second is the shelf you come back to afterwards.
 
 ### Learn the library
 
@@ -252,8 +252,8 @@ The deep dives, grouped the way the concepts stack.
 
 ## Run the sample locally
 
-The sample app is a runnable tour: one page per feature, each carrying the real source that
-makes it work.
+The sample app is a runnable tour: one page per feature, each carrying the real source that makes it
+work.
 
 ```bash
 git clone https://github.com/xfunc/formidable.git
@@ -268,21 +268,19 @@ dotnet run --project samples/Formidable.Sample.Api
 dotnet run --project samples/Formidable.Sample
 ```
 
-The API listens on `http://localhost:5180`; open the Blazor app at
-`http://localhost:5181`.
+The API listens on `http://localhost:5180`; open the Blazor app at `http://localhost:5181`.
 
 ## Live demo
 
-The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. A
-simulated in-browser API stands in for the real server; every other page behaves exactly as it
-does locally.
+The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. A simulated
+in-browser API stands in for the real server; every other page behaves exactly as it does locally.
 
 **[xfunc.github.io/formidable](https://xfunc.github.io/formidable/)** <!-- publish-day: verify -->
 
 ## Contributing, security, and license
 
-Contributions are welcome, and [CONTRIBUTING.md](CONTRIBUTING.md) is where to start: project
-layout, dev setup, and what to do before opening a pull request. Found a security issue?
+Contributions are welcome, and [CONTRIBUTING.md](CONTRIBUTING.md) is where to start: project layout,
+dev setup, and what to do before opening a pull request. Found a security issue?
 [SECURITY.md](SECURITY.md) says how to report it privately.
 
 Formidable is licensed under the [MIT License](LICENSE).

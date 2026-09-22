@@ -5,22 +5,22 @@
 rules out of one validator and which profile runs when ([Profiles](profiles.md)).
 
 A validation rule looks binary until product wants a nudge instead of a wall. A listing with no
-title should block — there's nothing to sell without a name. A listing whose description has three
+title should block: there's nothing to sell without a name. A listing whose description has three
 exclamation marks probably shouldn't; it's shouty, not broken, and the person who typed it should
 hear about it without losing the ability to publish.
 
 Give a rule engine only pass and fail and both problems come out the same shape: a message on
-screen, and a submit button that won't fire. There is no way to tell "you must fix this" from
-"you might want to fix this."
+screen, and a submit button that won't fire. There is no way to tell "you must fix this" from "you
+might want to fix this."
 
-FluentValidation already has a third state built in. This page is about what Formidable does
-with it: which severities block, how they render, and how long a warning or an info stays on
-screen once it's been shown.
+FluentValidation already has a third state built in. This page is about what Formidable does with
+it: which severities block, how they render, and how long a warning or an info stays on screen once
+it's been shown.
 
 ## Need to know
 
-Severity comes from FluentValidation's own `.WithSeverity(...)`, and it attaches to the validator
-it follows rather than to the rule around it. On
+Severity comes from FluentValidation's own `.WithSeverity(...)`, and it attaches to the validator it
+follows rather than to the rule around it. On
 `NotEmpty().MaximumLength(2).WithSeverity(Severity.Warning)` the length failure is a warning while
 the empty one still blocks. Every component of a chain that should advise needs its own call.
 Leaving it off makes a failure an `Error`, exactly as it always was:
@@ -62,14 +62,14 @@ public enum ValidationSeverity
 <!-- Source: `src/Formidable/ValidationSeverity.cs` -->
 
 The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` one-to-one —
-`Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`,
-and everything else (including FluentValidation's own default) → `ValidationSeverity.Error`.
-That "everything else" leg includes an explicit `.WithSeverity(Severity.Error)`. Writing the
-default out by hand maps exactly the way leaving it off does, for teams that prefer every
-component to state its severity.
+`Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`, and
+everything else (including FluentValidation's own default) → `ValidationSeverity.Error`. That
+"everything else" leg includes an explicit `.WithSeverity(Severity.Error)`. Writing the default out
+by hand maps exactly the way leaving it off does, for teams that prefer every component to state its
+severity.
 
-Where the rule lives decides what a save and a submit enforce, same as any other rule. Put it in
-the common/draft bucket if a lenient draft save should answer the advisory too, in
+Where the rule lives decides what a save and a submit enforce, same as any other rule. Put it in the
+common/draft bucket if a lenient draft save should answer the advisory too, in
 `ConfigureSubmitRules()` if only a submit should:
 
 ```csharp
@@ -115,8 +115,8 @@ change, exactly like the required-title error above them: `FormidableOptions.Liv
 to the submit profile, and the field is one the visitor has engaged. Under the default `UpdateOn`,
 that commit lands as the field is left.
 
-None of that changes what a warning or an info does to the submit itself: nothing. `IsValid`
-counts only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
+None of that changes what a warning or an info does to the submit itself: nothing. `IsValid` counts
+only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
 `FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when `CanProceed`,
 `OnInvalidSubmit` otherwise. A model that's all warnings and infos, with no errors, submits
 successfully.
@@ -184,11 +184,10 @@ for). So a model that's all warnings and infos, with no errors, submits successf
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor` -->
-The page also carries a
-teaching panel above the form.
+The page also carries a teaching panel above the form.
 
-The submit handler in the code-behind routes purely on `CanProceed`, and reports what got
-through without blocking:
+The submit handler in the code-behind routes purely on `CanProceed`, and reports what got through
+without blocking:
 
 ```csharp
 private async Task Submit()
@@ -213,22 +212,22 @@ render from.
 `FormidableFieldMessage` renders every current issue for a field as a list item, whatever its
 severity, and its collection-level sibling `FormidableCollectionMessage` does the same for a
 collection. `FormidableSummary` groups the whole form's currently-visible issues by severity:
-errors, then warnings, then infos, one list per non-empty group. Each group sits inside its own
-band wrapper, `formidable-summary__band` plus `formidable-summary__band--{severity}`, and the
-band can carry a heading of its own (see [Component kit](component-kit.md#heading-each-band)).
+errors, then warnings, then infos, one list per non-empty group. Each group sits inside its own band
+wrapper, `formidable-summary__band` plus `formidable-summary__band--{severity}`, and the band can
+carry a heading of its own (see [Component kit](component-kit.md#heading-each-band)).
 
-What a stylesheet keys on is the severity in the class. A message item carries
-`formidable-message` and one of `formidable-message--error`, `formidable-message--warning` or
-`formidable-message--info`. A summary group carries `formidable-summary__group` and one of
-`formidable-summary__group--error`, `formidable-summary__group--warning` or
-`formidable-summary__group--info`. Style each in your own stylesheet; Formidable ships no CSS
-of its own (see [CSS and accessibility](css-and-accessibility.md)).
+What a stylesheet keys on is the severity in the class. A message item carries `formidable-message`
+and one of `formidable-message--error`, `formidable-message--warning` or `formidable-message--info`.
+A summary group carries `formidable-summary__group` and one of `formidable-summary__group--error`,
+`formidable-summary__group--warning` or `formidable-summary__group--info`. Style each in your own
+stylesheet; Formidable ships no CSS of its own (see
+[CSS and accessibility](css-and-accessibility.md)).
 
-Each entry in a group is a `formidable-summary__item` wrapping a `formidable-summary__link`
-button, which moves focus to the offending field. A group that
-[`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item, and only
-when the page supplied an `OverflowTemplate`. That item is `formidable-summary__overflow`,
-carrying what the template renders for the entries held back, and no button.
+Each entry in a group is a `formidable-summary__item` wrapping a `formidable-summary__link` button,
+which moves focus to the offending field. A group that
+[`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item, and only when
+the page supplied an `OverflowTemplate`. That item is `formidable-summary__overflow`, carrying what
+the template renders for the entries held back, and no button.
 
 One summary carries all three groups by default. A page that wants the blocking problems and the
 commentary in different places renders a summary per band instead, with
@@ -238,30 +237,30 @@ commentary in different places renders a summary per band instead, with
 ## The warning lifetime
 
 On a field the visitor has committed a change to, a warning or an info appears on the field's own
-row at that edit, exactly as an error would. What waits for the next submit is a warning on a
-field nobody has engaged, or one whose rule the form's `LiveProfile` narrows past.
+row at that edit, exactly as an error would. What waits for the next submit is a warning on a field
+nobody has engaged, or one whose rule the form's `LiveProfile` narrows past.
 
-A warning that was showing when the user last submitted keeps refreshing live as they keep
-editing. It clears the moment they fix it, and comes back if they break it again, since fixing
-it ends the message rather than the watch. Neither direction waits for a second submit.
+A warning that was showing when the user last submitted keeps refreshing live as they keep editing.
+It clears the moment they fix it, and comes back if they break it again, since fixing it ends the
+message rather than the watch. Neither direction waits for a second submit.
 
-The live channel answers as the user edits. It files a whole verdict, advisories and errors
-alike, for every field the visitor has *engaged*, and by default it evaluates the same rules a
-submit would (see [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)).
+The live channel answers as the user edits. It files a whole verdict, advisories and errors alike,
+for every field the visitor has *engaged*, and by default it evaluates the same rules a submit would
+(see [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)).
 
-On the submit channel, submit is the disclosure event for a warning or an info exactly as it is
-for an error. A submit names the currently-rendered fields carrying a visible issue of any
-severity, and each one joins a watched set: an error site on the error side, an advisory site on
-the advisory one. A field watched on either count keeps its advisories refreshed.
+On the submit channel, submit is the disclosure event for a warning or an info exactly as it is for
+an error. A submit names the currently-rendered fields carrying a visible issue of any severity, and
+each one joins a watched set: an error site on the error side, an advisory site on the advisory one.
+A field watched on either count keeps its advisories refreshed.
 
 The watched set only grows while the form stays short of a passing submit. A later blocked submit
 adds to it, a server apply adds to it, and nothing takes a field back out.
 
 Every further edit arms the debounced refresh (`RefreshDebounce`, see [Options](options.md)). It
 re-validates the whole model and re-answers the watched fields rather than deciding membership
-again. On the default `LiveProfile` that edit's own live pass rebuilds this channel's answer too,
-so with no `LiveDebounce` set neither direction waits out a debounce at all. The refresh never
-goes looking for newly warning-worthy fields outside the set.
+again. On the default `LiveProfile` that edit's own live pass rebuilds this channel's answer too, so
+with no `LiveDebounce` set neither direction waits out a debounce at all. The refresh never goes
+looking for newly warning-worthy fields outside the set.
 
 A field that was an error site at submit picks up a newly-appearing warning too, because it is
 already in the watched set. That holds whether or not it carried a warning at submit time. Only a
@@ -269,9 +268,9 @@ field with no visible issue of any severity at submit is left outside that refre
 failing a warning-severity rule — the same way a newly-failing error field is.
 
 A passing submit is where the two watched sets part company. It clears the error watches outright,
-so an error the visitor fixed stops being watched at all. It re-freezes the advisory watches to
-the sites that passing report could actually show: an advisory the form is showing as it passes
-keeps its site, and everything else starts over.
+so an error the visitor fixed stops being watched at all. It re-freezes the advisory watches to the
+sites that passing report could actually show: an advisory the form is showing as it passes keeps
+its site, and everything else starts over.
 
 ## Server-side
 
@@ -281,10 +280,10 @@ error-severity issue. A report that's all warnings and infos lets the request th
 still readable in the handler through `GetFormidableValidationReport` (see
 [Returning warnings beside a 200](server-integration.md#returning-warnings-beside-a-200)).
 
-When a request *is* blocked, any warnings or infos in that same report ride along on the
-response's `advisories` extension key. That key sits alongside the standard `errors` dictionary,
-not inside it. `ApplyServerIssues` applies the whole body at the severity each issue carries: the
-errors block, the advisories land on their own fields without blocking. See
+When a request *is* blocked, any warnings or infos in that same report ride along on the response's
+`advisories` extension key. That key sits alongside the standard `errors` dictionary, not inside it.
+`ApplyServerIssues` applies the whole body at the severity each issue carries: the errors block, the
+advisories land on their own fields without blocking. See
 [Server integration](server-integration.md) for the wire format and the round trip in full.
 
 **Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor)

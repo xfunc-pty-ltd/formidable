@@ -3,16 +3,16 @@ using Microsoft.Extensions.Logging;
 namespace Formidable.Blazor;
 
 /// <summary>
-/// The dual-channel write two of the library's own diagnostics share: a
+/// The dual-channel write the library's component-side diagnostics share: a
 /// <see cref="System.Diagnostics.Trace"/> line, always, plus a logged warning when the host
 /// resolved an <see cref="ILoggerFactory"/> — logging is additive, so a consumer who never
-/// registered one still gets the Trace line alone. <see cref="FirstErrorFocus"/>'s focus-miss
-/// diagnostic and <see cref="FormidableValidator{TModel}"/>'s missing-click-recovery-root
-/// diagnostic both write through here rather than each hand-rolling the same pair. Two overloads
-/// rather than one, because the two call sites format differently and neither shape should be
-/// bent to fit the other: one writes the same constant string to both channels, the other
-/// threads a sanitized value through a structured logging template whose placeholders read
-/// nothing like the Trace line's own interpolation.
+/// registered one still gets the Trace line alone. The diagnostics written from components, which
+/// resolve a logger at each write rather than holding one the way the engine does, write through
+/// here rather than each hand-rolling the same pair. Two overloads rather than one, because the
+/// call sites format two different ways and neither shape should be bent to fit the other: one
+/// writes the same constant string to both channels, the other threads a sanitized value through
+/// a structured logging template whose placeholders read nothing like the Trace line's own
+/// interpolation.
 /// </summary>
 internal static class FormidableDiagnostics
 {

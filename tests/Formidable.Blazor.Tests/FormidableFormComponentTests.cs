@@ -964,6 +964,45 @@ public class FormidableFormComponentTests : BunitContext
         Assert.Contains("requires an interactive render mode", cut.Markup);
     }
 
+    // The rendered paragraph is a channel of one: it reaches whoever is looking at the page, and
+    // the response carrying it is an ordinary 200, so nothing watching statuses sees the
+    // misconfiguration. The host gets the same message through the dual channel every other
+    // library diagnostic uses — once for the form, not once for each of its renders, which is what
+    // the second render here holds still.
+    [Fact]
+    public void A_form_the_render_mode_refused_reports_it_to_the_host_once()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+        var order = new EngineOrder();
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters.Add(p => p.Model, order));
+        cut.Render(parameters => parameters.Add(p => p.Model, order));
+
+        Assert.Equal(2, cut.RenderCount);
+        var reported = Assert.Single(
+            loggerProvider.Entries,
+            entry => entry.Message.Contains("requires an interactive render mode"));
+        Assert.Equal(LogLevel.Warning, reported.Level);
+    }
+
+    // The control that makes the pin above discriminate: a form the renderer lets through says
+    // nothing to the host, so a regression that simply always warned would not read as a pass.
+    [Fact]
+    public void A_form_the_renderer_lets_through_reports_nothing()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        SetRendererInfo(new RendererInfo("Server", isInteractive: true));
+
+        Render<FormidableForm<EngineOrder>>(parameters => parameters.Add(p => p.Model, new EngineOrder()));
+
+        Assert.DoesNotContain(
+            loggerProvider.Entries,
+            entry => entry.Message.Contains("requires an interactive render mode"));
+    }
+
     [Fact]
     public void Removing_a_row_after_a_submit_clears_its_summary_entry()
     {

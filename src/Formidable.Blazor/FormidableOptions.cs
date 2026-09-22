@@ -398,8 +398,8 @@ public sealed class FormidableOptions
     /// anything newly built registers the row it was handed, and every retained component keeps
     /// resolving its accessor to the row it already spoke for, so the comparison passes.
     /// Recommended in Development builds only. It costs an accessor resolution per bound component
-    /// per render, and a form that reaches production with the mistake should misfile a message
-    /// rather than take the page down.
+    /// per parameter set, and a form that reaches production with the mistake should misfile a
+    /// message rather than take the page down.
     /// Read once per bound component, as it binds to the form's context, so a change mid-form
     /// governs only components that bind afterwards — those already bound keep the answer they
     /// read.

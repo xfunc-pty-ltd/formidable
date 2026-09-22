@@ -14,16 +14,17 @@ tests, running a real project's forms today.
   FluentValidation class. Wizard steps and approval stages are custom profiles over that same
   definition.
 - A headless component kit — FormidableForm, FormidableField, FormidableFieldMessage, and
-  FormidableSummary own the EditContext and render exactly what the validator reports. The
-  library ships no CSS, so the kit drops into a UI library, a design system, or plain HTML.
+  FormidableSummary own the EditContext and render the validator's verdict. The library ships no
+  CSS, so the kit drops into a UI library, a design system, or plain HTML.
 - One validator, client and server — the same FluentValidation rules run in the browser and
   again on the server, and the server's ValidationProblemDetails response applies straight into
   the engine, so a rejected save lights up the exact fields inline.
 - Progressive disclosure — a message waits until the visitor has earned it. A field nobody has
   touched stays silent whatever its rules say; once they have engaged it, it tells them what
   would actually block the save. A form opened on a saved draft says what those loaded values
-  have already earned in one call. At submit, errors follow what is on screen, and a defensive
-  gate catches the case where every failure would otherwise go unseen.
+  have already earned in one call. At submit, which errors show is decided by what is on screen
+  at that moment, and a defensive gate catches the case where every failure would otherwise go
+  unseen.
 - Collections that keep their errors — a message belongs to the row object, not to the row
   number, so adding, removing, and reordering rows can never move an error onto the wrong line.
 
@@ -56,10 +57,10 @@ Add one line to _Imports.razor so the components resolve:
     @using Formidable.Blazor
 
 Then wrap a model in FormidableForm and let FormidableInputText, FormidableFieldMessage, and
-FormidableSummary render whatever the validator reports. That is a working form, on any page
-with an interactive render mode — every page of a standalone WebAssembly app, or a Blazor Web
+FormidableSummary render the validator's verdict. That is a working form, on any page
+with an interactive render mode (every page of a standalone WebAssembly app, or a Blazor Web
 App page carrying @rendermode InteractiveServer, @rendermode InteractiveWebAssembly or
-@rendermode InteractiveAuto.
+@rendermode InteractiveAuto).
 
 A Blazor Web App is two projects when it is created by dotnet new blazor -int Auto or by
 dotnet new blazor -int WebAssembly. It has a server project and a .Client project, each with its

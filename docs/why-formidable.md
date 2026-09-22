@@ -3,35 +3,34 @@
 Formidable exists because I got tired of building it badly, one workaround at a time.
 
 The forms belonged to a client project — the kind where the business logic lives in the form:
-sections that appear when you tick a box, rows you can add and delete, rules only the server
-can settle. Blazor's `EditForm` handled the binding, FluentValidation handled the rules, and
-the space between them was mine.
+sections that appear when you tick a box, rows you can add and delete, rules only the server can
+settle. Blazor's `EditForm` handled the binding, FluentValidation handled the rules, and the space
+between them was mine.
 
 I filled it the same way every time. A manager class, to hold the lifecycle state no single
-component owned. A second message store, then a dedup pass so the two stores would stop saying
-the same thing twice. A reflection helper nobody loved, resolving FluentValidation's string
-paths against the live object graph. Write that three times and you learn it isn't a
-workaround: it's a missing layer, and you're paying for its absence in instalments.
+component owned. A second message store, then a dedup pass so the two stores would stop saying the
+same thing twice. A reflection helper nobody loved, resolving FluentValidation's string paths
+against the live object graph. Write that three times and you learn it isn't a workaround: it's a
+missing layer, and you're paying for its absence in instalments.
 
-So I wrote the layer once, with tests, and Formidable is what came out. It was born from a
-deadline rather than a hobby afternoon, and it runs that client's forms today. Battle-tested on
-exactly one real project: that's one more than a demo, and I'd rather give you the number than
-imply a bigger one. The upside of a real project is that month three already happened, so the
-sharp edges you'd normally find then are already filed off.
+So I wrote the layer once, with tests, and Formidable is what came out. It was born from a deadline
+rather than a hobby afternoon, and it runs that client's forms today. Battle-tested on exactly one
+real project: that's one more than a demo, and I'd rather give you the number than imply a bigger
+one. The upside of a real project is that month three already happened, so the sharp edges you'd
+normally find then are already filed off.
 
 ## The receipts
 
 One row per workaround I stopped writing.
 
-Each row names a pattern that shows up when you wire FluentValidation into Blazor's `EditForm`
-by hand — the kind of integration code a form-heavy codebase accumulates one footgun at a time
-(a footgun being an API that invites you to hurt yourself). Beside it is the Formidable
-mechanism that answers that pattern natively. The patterns themselves are generic: they're what
-anyone hand-rolling this integration is likely to reach for, and most of them were in my own
-code first.
+Each row names a pattern that shows up when you wire FluentValidation into Blazor's `EditForm` by
+hand — the kind of integration code a form-heavy codebase accumulates one footgun at a time (a
+footgun being an API that invites you to hurt yourself). Beside it is the Formidable mechanism that
+answers that pattern natively. The patterns themselves are generic: they're what anyone hand-rolling
+this integration is likely to reach for, and most of them were in my own code first.
 
-**See it** links the sample page where you can watch the answer work. Every row is held still by
-a test in the suite; a pattern with no shipped sample or test is left out rather than padded in.
+**See it** links the sample page where you can watch the answer work. Every row is held still by a
+test in the suite; a pattern with no shipped sample or test is left out rather than padded in.
 
 | Workaround pattern | Formidable mechanism | See it |
 |---|---|---|

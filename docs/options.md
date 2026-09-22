@@ -21,18 +21,17 @@ falls back to the app-wide default, or to `new FormidableOptions()` where none i
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
-`Options` is the parameter this page is quoted for. Any attribute `FormidableForm<TModel>` does not
-recognise is splatted onto the `<form>` it renders — [Component
-kit](component-kit.md#formidableformtmodel) has the four positions the form's own attributes take
-against it.
+Any attribute `FormidableForm<TModel>` does not recognise is splatted onto the `<form>` it renders.
+[Component kit](component-kit.md#formidableformtmodel) has the four positions the form's own
+attributes take against the splat.
 
 One rule governs the rest: `FormidableForm<TModel>` builds its engine once per `Model` instance and
 passes `Options` into the constructor there. A whole new `FormidableOptions` instance without a new
 `Model` throws (see [`FormidableOptions` is read once](#formidableoptions-is-read-once)).
 
 The engine does keep re-reading that instance's *properties*. Mutating one takes effect at that
-property's next read — a pass selecting its profile, a timer arming, a render asking for a class
-name. A change notifies nothing by itself; it shows when something next validates or renders.
+property's next read (a pass selecting its profile, a timer arming, a render asking for a class
+name). A change notifies nothing by itself; it shows when something next validates or renders.
 
 Where an entry below states a coarser read it governs: [`ClickRecovery`](#clickrecovery) is read
 once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrowkeys) and
@@ -70,15 +69,15 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 
 `ValidationProfile?`, defaults to `null`. The profile every live pass validates against. `null`
 means `SubmitProfile`, so a live message says what a submit would actually complain about, presence
-rules included. The engine resolves it at each pass's beginning and follows
-the instance the options hold, a runtime swap included.
+rules included. The engine resolves it at each pass's beginning and follows the instance the options
+hold, a runtime swap included.
 
 Set it where a submit rule is genuinely too expensive to run per change; `ValidationProfile.Draft`
 is the usual answer. [Profiles](profiles.md) has why narrowing is the blunter of the two levers that
 keep a live channel from nagging, and why a save-progress flow is unaffected either way.
 
-**Recipe:** [narrow what the live channel
-validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates).
+**Recipe:**
+[narrow what the live channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates).
 
 ### `SubmitProfile`
 
@@ -98,23 +97,23 @@ one pass, since they share a single timer.
 
 [Async validation](async-validation.md#after-a-submit-an-edit-also-arms-a-refresh) has why the two
 arm sites are not symmetric. This timer and `LiveDebounce`'s both come from the DI container's
-`TimeProvider` where one is registered, so a test can land either window with `Advance` — see
-[Testing](testing.md#the-form-under-bunit).
+`TimeProvider` where one is registered, so a test can land either window with `Advance`. See
+[Testing](testing.md#faking-the-clock).
 
 ### `LiveDebounce`
 
 `TimeSpan?`, defaults to `null` — a live pass runs immediately on every field change. Set it and a
 change arms a single timer instead: another change inside the window re-arms it, and when the window
-elapses quietly one pass runs, scoped to every field it collected — one shared window, not one per
-field.
+elapses quietly one pass runs, scoped to every field it collected (one shared window, not one per
+field).
 
 Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. With
 `TrackFormValidity` on, the probe rides this window too, and after a submit the same edit arms the
 refresh as well.
 
-The two timers arm independently; [Async
-validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) has what setting
-one wider costs.
+The two timers arm independently;
+[Async validation](async-validation.md#livedebounce-after-a-submit) has what setting one wider
+costs.
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps the
 immediate default for a 400 ms window.
@@ -122,13 +121,13 @@ immediate default for a 400 ms window.
 ### `TrackFormValidity`
 
 `bool`, defaults to `false`. Turns on the whole-form validity probe behind
-`IFormidableEngine.IsFormValid` — the answer a disabled Submit button needs.
+`IFormidableEngine.IsFormValid` (the answer a disabled Submit button needs).
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work. On a
 validator the engine can take rule by rule, the probe shares the verdict store; on any other, each
-probe is one whole `SubmitProfile` validation on top of the live pass. [Async
-validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) has the sharing,
-the cadence and what overlapping probes do.
+probe is one whole `SubmitProfile` validation on top of the live pass.
+[Async validation](async-validation.md#the-trackformvalidity-probe) has the sharing, the cadence
+and what overlapping probes do.
 
 ```razor
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
@@ -158,27 +157,27 @@ Submit button that never calls `Normalize()` itself.
 ### `ClickRecovery`
 
 `DisplacedClickRecovery`, defaults to `DisplacedClickRecovery.Buttons`. Whether the root re-delivers
-a click the page moved out from under a still pointer between the press and the release — the
-submit a message appearing above the button swallows.
+a click the page moved out from under a still pointer between the press and the release (the submit
+a message appearing above the button swallows).
 
-Under the default the root recovers clicks on buttons inside it. [Component
-kit](component-kit.md#the-click-a-disclosure-displaces) has the shift itself, the three conditions
-recovery holds out for, what the recovered click is, and what a root that cannot scope a guard does
-instead.
+Under the default the root recovers clicks on buttons inside it.
+[Component kit](component-kit.md#the-click-a-disclosure-displaces) has the shift itself, the three
+conditions recovery holds out for, what the recovered click is, and what a root that cannot scope a
+guard does instead.
 
 `DisplacedClickRecovery.None` installs no guard at all, for a page that deliberately moves its own
 controls during a press.
 
-This option is read once per root, at its first interactive render. Recovery needs the library's
-own script, so a host that cannot load it recovers nothing.
+This option is read once per root, at its first interactive render. Recovery needs the library's own
+script, so a host that cannot load it recovers nothing.
 
 ### `DisclosureOverride`
 
-`Func<ValidationIssue, bool?>?`, defaults to `null`. Consulted wherever the engine decides whether an
-issue may be shown: return `true` to answer yes for an issue whose field nothing renders, `false` to
-answer no, or `null` to defer to the field registry. Model-level issues — an empty `Path` — resolve
-to the form's own element, which counts as rendered for as long as the form is on the page, so
-deferring leaves them visible.
+`Func<ValidationIssue, bool?>?`, defaults to `null`. Consulted wherever the engine decides whether
+an issue may be shown: return `true` to answer yes for an issue whose field nothing renders, `false`
+to answer no, or `null` to defer to the field registry. Model-level issues (an empty `Path`)
+resolve to the form's own element, which counts as rendered for as long as the form is on the page,
+so deferring leaves them visible.
 
 An answer is an input to the asking channel's own disclosure rule rather than a per-issue switch
 over what is on screen, and the live channel consults it only under
@@ -191,24 +190,23 @@ over what is on screen, and the live channel consults it only under
 own rules are read: return a `FieldRequirement` to declare a field's requiredness, or `null` to
 defer to the rules.
 
-It is not a nicety. Reading rules sees presence only as FluentValidation's own `NotEmpty()` or
-`NotNull()`, so presence written as a predicate answers `FieldRequirement.NotRequired`, as does
-every field of an uninspectable validator. `NotRequired` means "not known to be required", never
-"proven optional".
+Reading rules sees presence only as FluentValidation's own `NotEmpty()` or `NotNull()`, so presence
+written as a predicate answers `FieldRequirement.NotRequired`, as does every field of an
+uninspectable validator. `NotRequired` means "not known to be required", never "proven optional".
 
 It declares in both directions: `Required` marks a field the rules cannot be read to demand,
-`NotRequired` unmarks one they can. Invoked on every ask — once per bound component per render — so
+`NotRequired` unmarks one they can. Invoked on every ask (once per bound component per render) so
 keep it cheap and pure.
 
-**Recipe:** [mark fields required when the rules cannot say
-so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
+**Recipe:**
+[mark fields required when the rules cannot say so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
 
 ### `ShowRequiredIndicators`
 
 `bool`, defaults to `true`. Whether
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders at all.
-Set it to `false` to render no marker anywhere on the form — no element, not an empty one — the
-form-wide off switch for a design that marks the optional fields instead.
+Set it to `false` to render no marker anywhere on the form: no element, not an empty one. That is
+the form-wide off switch for a design that marks the optional fields instead.
 
 Off means off for everything the indicator might ever render. What it never suppresses is
 `aria-required`: whether a value is demanded is a fact about the input rather than a decoration. For
@@ -217,9 +215,9 @@ a marker drawn entirely in CSS, leave the switch on and empty the content instea
 ### `RequiredIndicatorContent`
 
 `string`, defaults to `"*"`. The content
-[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders inside its
-marker for a required field. It decides what a drawn marker holds, never whether one is drawn — that
-is `ShowRequiredIndicators`, above.
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders inside
+its marker for a required field. It decides what a drawn marker holds, never whether one is drawn.
+That is `ShowRequiredIndicators`, above.
 
 Set it to `""` for a marker drawn entirely in CSS: the marker element still renders, empty, which is
 what a stylesheet's `::before`/`::after` needs to land on. The library ships no styling, so this is
@@ -228,12 +226,12 @@ the text inside the marker's `formidable-required` element and nothing else.
 ### `LiveDisclosure`
 
 `LiveIssueDisclosure`, defaults to `LiveIssueDisclosure.Engaged`. Which of an engaged field's live
-issues the live channel discloses — the one lever over a channel registration never touches.
+issues the live channel discloses (the one lever over a channel registration never touches).
 
 Under the default, engagement alone discloses: a field a committed change has named, or one a draft
 load adopted, shows its live verdict on every surface, rendered or not.
-[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule) has why that default exists and
-what departure — the one thing registration decides here — means.
+[Disclosure](disclosure.md#why-isnt-my-message-showing-yet) has why that default exists and what
+departure means. Departure is the one thing registration decides here.
 
 `LiveIssueDisclosure.EngagedAndVisible` gates each live issue on the same override-aware visibility
 the submit channel consults, message store included. Reach for it when a page deliberately notifies
@@ -263,10 +261,10 @@ the narrower half of what it reports: a suppressed issue whose field has no regi
 all. It receives the same issue, response strings and all, so what that entry says about writing
 `Path` into a log applies here unchanged.
 
-That is the signature of a rule whose `.When(...)` fails to mirror the `@if` gating its field, so the
-rule can fail in a state the field never renders in. It is *also* the signature of a correct section
-the visitor has not opened yet, and this signal cannot tell the two apart, so treat it as a place to
-look rather than a verdict. A visited-then-collapsed section stays silent here.
+That is the signature of a rule whose `.When(...)` fails to mirror the `@if` gating its field, so
+the rule can fail in a state the field never renders in. It is *also* the signature of a correct
+section the visitor has not opened yet, and this signal cannot tell the two apart, so treat it as a
+place to look rather than a verdict. A visited-then-collapsed section stays silent here.
 
 ### `StaleRegistrationDiagnostic`
 
@@ -290,9 +288,9 @@ names and types come from the component's own accessor.
 field it registered: it re-reads its accessor on every parameter set, and a divergence throws an
 `InvalidOperationException` naming the field and the fix.
 
-Correctly keyed rows never trip it for anything done to the list itself; [Collections and row
-identity](collections-and-row-identity.md#need-to-know) has both ways a page produces the
-divergence.
+Correctly keyed rows never trip it for anything done to the list itself;
+[Collections and row identity](collections-and-row-identity.md#the-safety-net) has the ways a page
+produces the divergence.
 
 [Need to know](#need-to-know) names this a coarser read: the answer is captured once, per component,
 the moment it binds, so flipping it mid-life reaches only components that bind afterward.
@@ -309,9 +307,9 @@ through the channels [`StaleRegistrationDiagnostic`](#staleregistrationdiagnosti
 form renders on, misfiled messages and all; with `VerifyRowKeys` on, the exception replaces it.
 
 One divergence is one report, repeating only after the accessor names the registered field again or
-the component rebinds. Off by default because detection is not free — the same accessor resolution
+the component rebinds. Off by default because detection is not free (the same accessor resolution
 `VerifyRowKeys` pays, at a cost [Collections and row identity](collections-and-row-identity.md)
-sizes by shape.
+sizes by shape).
 
 ```csharp
 builder.Services.AddFormidableBlazor(options =>
@@ -328,13 +326,13 @@ components binding afterward.
 ### `InlineMessageLive`
 
 `string?`, defaults to `null`, which renders no `aria-live` attribute at all. Set it to `"polite"`
-and every message list — field-, collection- and model-level alike — is announced as its content
+and every message list (field-, collection- and model-level alike) is announced as its content
 changes; `"assertive"` interrupts whatever is being read instead. Recommended on forms that render
 no `FormidableSummary`, which already announces on its own.
 
-It is `aria-live` rather than a `role`, and the difference is not cosmetic: [Component
-kit](component-kit.md#formidablefieldmessagetvalue) has what a `role` on the list would cost, and
-why the list element renders even when empty.
+It is `aria-live` rather than a `role`:
+[Component kit](component-kit.md#formidablefieldmessagetvalue) has what a `role` on the list would
+cost, and why the list element renders even when empty.
 
 **Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the summary-less
 variant form under *Without a summary* sets it to `"polite"` on options of its own.
@@ -343,15 +341,15 @@ variant form under *Without a summary* sets it to `"polite"` on options of its o
 
 `string`, defaults to `"The form cannot be submitted because information that is not currently
 displayed is invalid."` — the sentence the all-suppressed defensive gate carries (see
-[Disclosure](disclosure.md)). It is English, which is why it is settable.
+[Disclosure](disclosure.md)).
 
-The gate's issue is built where this property is read, so the engine's own reads — `GetIssues`,
-`GetVisibleIssues` and the components on them — answer with a replacement from the next read, and
+The gate's issue is built where this property is read, so the engine's own reads (`GetIssues`,
+`GetVisibleIssues` and the components on them) answer with a replacement from the next read, and
 the `EditContext`'s message store from its next rebuild.
 
-No gate entry is filed that could hold the old sentence in between: the gate is a predicate over
-source state. It decides the gate's explanation and nothing else; `ModelLevelDisplayName`, next,
-names what it is listed under.
+No gate entry is filed that could hold the old sentence in between. The gate is a predicate over
+source state. This option decides the gate's explanation and nothing else; `ModelLevelDisplayName`,
+next, names what it is listed under.
 
 ### `ModelLevelDisplayName`
 
@@ -360,7 +358,7 @@ under when that error's issue names no field of its own: the defensive gate's ex
 model-level rule a blocked submit disclosed.
 
 That list holds names rather than messages. An entry is the issue's `DisplayName` where the issue
-carries one — what `WithName(...)` sets — and its `Path` otherwise, and this option stands in
+carries one (what `WithName(...)` sets) and its `Path` otherwise, and this option stands in
 wherever that pair leaves an empty string. It is read as each submit builds its outcome, so a
 `SubmitOutcome` already handed back holds the names it was built with.
 
@@ -370,10 +368,11 @@ instead.
 ### `ValidationFaultMessage`
 
 `string`, defaults to `"Validation could not run to completion; recent changes may not be fully
-validated."` — the sentence a faulted pass files against the form: the pass threw before finishing,
+validated."` — the sentence a faulted pass files against the form. The pass threw before finishing,
 so what the form shows is incomplete rather than wrong.
 
-Its read timing is not the gate's. The issue is filed when the fault is reported and then stored, so
+Its read timing is not `DefensiveGateMessage`'s. The issue is filed when the fault is reported and
+then stored, so
 a change reaches the *next* fault while one already on screen goes on saying what it said when it
 was written.
 
@@ -401,8 +400,8 @@ _options.OrderIssues = fields => fields
 
 It receives the fields in document order, and `OrderBy` is stable, so everything the key does not
 separate keeps the order it arrived in. The model-level field is in that list too, with an empty
-`FieldName`, so a delegate keying on names should place it rather than leave it to a default bucket
-— the empty-name arm above.
+`FieldName`, so a delegate keying on names should place it (the empty-name arm above) rather than
+leave it to a default bucket.
 
 [Component kit](component-kit.md#the-order-entries-appear-in) has the rest: what re-sorting cannot
 do, when the delegate runs, and where exceptions go.
@@ -422,25 +421,25 @@ do, when the delegate runs, and where exceptions go.
 
 This is read at each class computation, on every surface, so mutating this instance's properties and
 assigning a whole new `FormidableCssClasses` are the same lever, and nothing latches a class map at
-engine construction. The `FormidableOptions` object around it is still the one that cannot be swapped
-(see [`FormidableOptions` is read once](#formidableoptions-is-read-once)). [CSS and
-accessibility](css-and-accessibility.md#need-to-know) has why `Valid` asks for that third condition
-and how the five compose.
+engine construction. The `FormidableOptions` object around it is still the one that cannot be
+swapped (see [`FormidableOptions` is read once](#formidableoptions-is-read-once)).
+[CSS and accessibility](css-and-accessibility.md#need-to-know) has why `Valid` asks for that third
+condition and how the five compose.
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 
 `UpdateOn` tunes a single input rather than the engine: it is a parameter on
-`FormidableInputBase<TValue>` (see [Component
-kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member of
-`FormidableOptions`, so it is not set through `Options`. It earns a place here because it answers the
-other half of "when does a rule get to answer": `RefreshDebounce` governs the refresh's timing, and
-`UpdateOn` governs a live pass's.
+`FormidableInputBase<TValue>` (see
+[Component kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member
+of `FormidableOptions`, so it is not set through `Options`. It answers the other half of "when does
+a rule get to answer": `RefreshDebounce` governs the refresh's timing, and `UpdateOn` governs a live
+pass's.
 
 `InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the
-element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke instead.
-`InputUpdateMode.OnBlur` splits the pair across two events: the value commits on `change`, arming a
-notification the next `blur` delivers — one delivery however many commits accumulate before it, and
-none at all on a blur nothing was committed before.
+element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke
+instead. `InputUpdateMode.OnBlur` splits the pair across two events: the value commits on `change`,
+arming a notification the next `blur` delivers (one delivery however many commits accumulate before
+it, and none at all on a blur nothing was committed before).
 
 ```razor
 <FormidableInputDate @bind-Value="Model.EventDate"
@@ -451,34 +450,35 @@ That split exists for a native control whose `change` event fires more than once
 date input segment by segment being the clearest case.
 
 `OnBlur` is also the one mode that binds an event a page may already want for itself, so it chains
-rather than claims: an input carrying its own splatted `@onblur` runs that handler first, awaits it,
-then delivers what a commit left pending. A field that marks itself touched on blur keeps doing so
-after the mode is switched on.
+rather than claims. In that mode an input carrying its own splatted `@onblur` runs that handler
+first, awaits it, then delivers what a commit left pending. A field that marks itself touched on
+blur keeps doing so after the mode is switched on.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
-full behaviour table — all three modes, against a rule the live channel selects and one it does not —
+full behaviour table (all three modes, against a rule the live channel selects and one it does not)
 and [Component kit](component-kit.md#formidableinputdatetvalue) for why `FormidableInputDate` in
 particular prefers this mode.
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
-`Publish date` is the typed date input; [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
-shows the same mode on the string-modelled pattern instead.
+`Publish date` is the typed date input;
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows the same mode on the
+string-modelled pattern instead.
 
 ## `FormidableOptions` is read once
 
 A new `Options` instance takes effect only together with a new `Model` instance, and the form
-enforces that rather than leaving it to habit. Hand the `Options` parameter a different
-`FormidableOptions` reference on a render where `Model` did not also change, and
-`FormidableForm<TModel>` throws an `InvalidOperationException` naming the three ways out: build the
-options once, mutate the instance you have, or swap `Model` alongside them.
+enforces that. Hand the `Options` parameter a different `FormidableOptions` reference on a render
+where `Model` did not also change, and `FormidableForm<TModel>` throws an
+`InvalidOperationException` naming the three ways out: build the options once, mutate the instance
+you have, or swap `Model` alongside them.
 
 `FormidableValidator<TModel>` enforces the same rule against its own rebuild trigger, a new
 `EditContext` from the enclosing `EditForm`. Two shapes therefore never work: passing
 `Options="new FormidableOptions { … }"` inline hands the form a fresh instance on every render, and
-reassigning an options field hands it a different one on the next. Neither can reach an engine that
-already read its options, so both are errors on the render that introduces them.
+reassigning an options field hands it a different one on the next. Both are errors on the render
+that introduces them.
 
-Build the `FormidableOptions` once, up front, and hold it in a field for the life of the form —
-exactly what the sample below does:
+Build the `FormidableOptions` once, up front, and hold it in a field for the life of the form
+(exactly what the sample below does):
 
 ```csharp
 protected override void OnInitialized()
@@ -502,8 +502,8 @@ protected override void OnInitialized()
 
 Most settings on this page are a decision an app makes once, not per form: a design system's class
 names, a team's debounce, a profile pair. `AddFormidableBlazor` takes an `Action<FormidableOptions>`
-overload for exactly that, and registers the configured instance as the default every form falls back
-to:
+overload for exactly that, and registers the configured instance as the default every form falls
+back to:
 
 ```csharp
 builder.Services.AddFormidableBlazor(options =>
@@ -513,9 +513,10 @@ builder.Services.AddFormidableBlazor(options =>
 });
 ```
 
-A form with no `Options` parameter uses those. A form that passes one wins outright — resolution is
-parameter first, then the configured default, then `new FormidableOptions()`, with no merging between
-the steps. See [Component kit](component-kit.md#addformidableblazor) for the registration itself.
+A form with no `Options` parameter uses those. A form that passes one wins outright. Resolution is
+parameter first, then the configured default, then `new FormidableOptions()`, with no merging
+between the steps. See [Component kit](component-kit.md#addformidableblazor) for the registration
+itself.
 
 The copy constructor is how a form differs in one setting without restating the rest. It holds every
 property the instance it copies holds, leaving an object initializer to say what changes:
@@ -532,14 +533,14 @@ property the instance it copies holds, leaving an object initializer to say what
 ```
 
 That form narrows its live channel and keeps everything else the app-wide instance holds. The
-injection resolves the singleton registered above, so an app with no app-wide defaults has nothing to
-copy. `OnInitialized` is where the copy belongs, because a copy is an options instance like any other
-and [is read once](#formidableoptions-is-read-once).
+injection resolves the singleton registered above, so an app with no app-wide defaults has nothing
+to copy. `OnInitialized` is where the copy belongs, because a copy is an options instance like any
+other and [is read once](#formidableoptions-is-read-once).
 
-That singleton is shared by the whole app, which makes property mutation a wider lever than it looks:
-changing `RefreshDebounce` on it at runtime changes every live form that resolved it, not the one on
-screen. A copy takes each property's value as it stands when the copy is built, so a later change on
-the shared instance stops at the forms holding copies.
+That singleton is shared by the whole app, which makes property mutation a wider lever than it
+looks: changing `RefreshDebounce` on it at runtime changes every live form that resolved it, not the
+one on screen. A copy takes each property's value as it stands when the copy is built, so a later
+change on the shared instance stops at the forms holding copies.
 
 `CssClasses` is the exception, deliberately. The copy holds the same `FormidableCssClasses` instance
 rather than a clone, so mutating that map's properties goes on reaching every form, copies included.
@@ -556,8 +557,8 @@ A form that wants different class names assigns a new map to its own copy.
 - `LiveDebounce` — [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor), toggled against
   the immediate default.
 - `TrackFormValidity`, and `IsFormValid` with it —
-  [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor), driving a disabled
-  Submit button.
+  [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor), driving a
+  disabled Submit button.
 - `NormalizeOnSubmit` — [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor), beside
   the two buttons that call `Normalize()` by hand.
 - `SuppressedIssueDiagnostic` and `DisclosureOverride` —
@@ -571,8 +572,8 @@ A form that wants different class names assigns a new map to its own copy.
   unconditionally rather than gated to Development, since the page's whole point is the row-key
   discipline the guard enforces.
 - `ShowRequiredIndicators` and `RequiredIndicatorContent`, and the marker they feed —
-  [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field carries
-  its mark and stays silent at the same time.
+  [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
+  carries its mark and stays silent at the same time.
 - `InlineMessageLive` — [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)'s
   summary-less variant, which has no summary announcing for it, so the attribute is what the browser
   suite asserts on the model-level list there.
@@ -586,8 +587,8 @@ inspected; the recipe linked from its entry is its worked example.
 The rest have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`,
 `ReportStaleRegistrations` and `StaleRegistrationDiagnostic` report into your telemetry or the
 console rather than onto the screen, and the last two report a mistake every sample page is written
-not to make, since each keys its rows the way [Collections and row
-identity](collections-and-row-identity.md) teaches.
+not to make, since each keys its rows the way
+[Collections and row identity](collections-and-row-identity.md) teaches.
 
 `OrderIssues` re-sorts a reading order every sample page is already content with. `RefreshDebounce`
 would demonstrate nothing but a longer wait. `LiveDisclosure` changes what happens for a field that
@@ -596,14 +597,13 @@ is engaged but not rendered, and no page here notifies a change for a field it n
 samples are content to show as they ship. Each one's entry above is its worked example.
 
 Where the layout itself is what makes document order wrong, the delegate cannot help, because it
-cannot measure — see
-[Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-appear-on-screen). And two
-components carry behaviour these options don't reach:
-[`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) toggles
+cannot measure. [Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-appear-on-screen)
+replaces the order service with one that measures. And two components carry behaviour these options
+don't reach: [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) toggles
 `FormidableForm.FocusFirstErrorOnInvalidSubmit`, and
-[`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)'s Reset button calls `ResetAsync()`
-— both component surface rather than engine settings, so they live in [Component
-kit](component-kit.md#formidableformtmodel).
+[`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)'s Reset button calls
+`ResetAsync()`. Both are component surface rather than engine settings, so they live in
+[Component kit](component-kit.md#formidableformtmodel).
 
 **Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the page this one
 quotes for the shape of a well-behaved `Options` field.

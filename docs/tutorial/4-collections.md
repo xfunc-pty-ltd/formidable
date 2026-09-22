@@ -59,8 +59,8 @@ Two habits keep each row's messages on that row. Key the row's root element by t
 `@key="member"`, never the loop index. And write every `For` lambda as a closure over that same
 instance, the way `() => member.Name` does.
 
-`FormidableField` renders no markup of its own. It hands its content the list's field context,
-which the Add and Remove buttons pass along to their handlers:
+`FormidableField` renders no markup of its own. It hands its content the list's field context, which
+the Add and Remove buttons pass along to their handlers:
 
 ```razor
 private static void AddMember(List<Member> members, FormidableFieldContext field)
@@ -98,8 +98,8 @@ RuleForEach(c => c.Members).ChildRules(member =>
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
 That is the guarded idiom Email already uses, one level down. The `When` guard is why an empty
-member email says nothing. Without it, the empty string a new row starts with fails the format
-check straight away.
+member email says nothing. Without it, the empty string a new row starts with fails the format check
+straight away.
 
 Presence itself goes in the submit bucket:
 

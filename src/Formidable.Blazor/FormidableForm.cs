@@ -12,12 +12,13 @@ namespace Formidable.Blazor;
 /// consumers never manage EditContext lifecycles. Submit runs the engine pipeline and routes
 /// to <see cref="OnValidSubmit"/> / <see cref="OnInvalidSubmit"/>. The form needs an interactive
 /// render mode: where the renderer reports itself static with no interactivity coming, it renders
-/// a message asking for one in place of a form whose submit cannot run. Where interactivity is
-/// coming but has not arrived — a Blazor Web App's prerender pass — the rendered form carries
-/// <c>inert</c> until it does, so a visitor cannot operate it in the window: no click reaches
-/// it, no typing lands in it, and Tab passes it by. What that prevents is a submit the platform
-/// answers with its own 400, and typing the interactive render replaces from the model a moment
-/// later.
+/// a message asking for one in place of a form whose submit cannot run, and reports that same
+/// message once to the host's diagnostic channels, since the page carrying it answers 200 like any
+/// other. Where interactivity is coming but has not arrived — a Blazor Web App's prerender pass —
+/// the rendered form carries <c>inert</c> until it does, so a visitor cannot operate it in the
+/// window: no click reaches it, no typing lands in it, and Tab passes it by. What that prevents is
+/// a submit the platform answers with its own 400, and typing the interactive render replaces from
+/// the model a moment later.
 /// </summary>
 /// <typeparam name="TModel">The form model type.</typeparam>
 public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
@@ -1012,12 +1013,38 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// Stopping the parameter set is also what keeps the message the page's own: building the
     /// engine resolves the validator, and a page missing that registration would fail on it
     /// instead, naming the second thing wrong on a page whose first one is this.
+    /// Taking the answer is also what reports it to the host, so a refusal reaches the log once
+    /// however often the message renders — see <see cref="ReportRefusedRenderMode"/>.
     /// </summary>
     private bool RefusesToRender()
     {
-        _refusedRenderMode ??= Rendering is FormRendering.Refused;
+        if (_refusedRenderMode is null)
+        {
+            _refusedRenderMode = Rendering is FormRendering.Refused;
+
+            if (_refusedRenderMode.Value)
+            {
+                ReportRefusedRenderMode();
+            }
+        }
+
         return _refusedRenderMode.Value;
     }
+
+    /// <summary>
+    /// What a refusal says to the host, beside the message it renders in the form's place: a Trace
+    /// line for a debugger, and a logged warning when the host resolved an <c>ILoggerFactory</c> —
+    /// written through <see cref="FormidableDiagnostics"/>, the same dual channel an unwired
+    /// <see cref="FocusFallback"/>'s focus miss already uses. The rendered paragraph reaches
+    /// whoever is looking at the page and nobody else, and the response carrying it is an ordinary
+    /// 200, so a page misconfigured this way passes anything watching statuses. Both channels
+    /// carry <see cref="RenderModeMessage"/> itself, so a log and a page cannot come to describe
+    /// one refusal differently.
+    /// </summary>
+    private void ReportRefusedRenderMode() =>
+        FormidableDiagnostics.Warn(
+            FormidableEngineFactory.ResolveLogger(Services),
+            $"Formidable: {RenderModeMessage}");
 
     /// <summary>
     /// What a page with no render mode gets where its form would have been. Such a page renders a

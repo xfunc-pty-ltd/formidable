@@ -1,32 +1,45 @@
 # Collections and row-stable error identity
 
 **You should already know:** the draft/submit split
-([Draft and submit rules](tutorial/2-draft-and-submit.md)), and the row-stable habits —
-`@key` by instance, `For` closed over it — at a glance
-([A list of members](tutorial/4-collections.md)).
+([Draft and submit rules](tutorial/2-draft-and-submit.md)), and the row-stable habits, `@key` by
+instance, `For` closed over it, at a glance ([A list of members](tutorial/4-collections.md)).
 
 Delete row two from a list of three and, in a validator that keys errors by position, row three
-quietly inherits row two's error. FluentValidation reports collection failures as positional
-paths: `Items[0].Sku`, `Teams[1].Members[0].Alias`. Positions are the one thing about a list that
-never survives an edit. Add a row, remove one, or drag two into a different order, and every index
-below the change now names a different object than the one the validator meant.
+quietly inherits row two's error. FluentValidation reports collection failures as positional paths:
+`Items[0].Sku`, `Teams[1].Members[0].Alias`. Positions are the one thing about a list that never
+survives an edit. Add a row, remove one, or drag two into a different order, and every index below
+the change now names a different object than the one the validator meant.
 
-Key an error against that path string and the mistake above stops being hypothetical: an error
-meant for the row that's gone shows up on the row that inherited its position, a field the user
-already fixed looks broken again after a reorder, and the form ends up complaining about the wrong
-line.
+Key an error against that path string and the mistake above stops being hypothetical: an error meant
+for the row that's gone shows up on the row that inherited its position, a field the user already
+fixed looks broken again after a reorder, and the form ends up complaining about the wrong line.
 
-Formidable never keys by path. It resolves every failure down to the actual object sitting at
-that position and keys the error to the instance itself, so add, remove, and reorder can never
-separate an error from the row it belongs to. This page covers the three markup idioms that make
-that possible, how the engine's resolution works underneath them, and how both hold up once one
-collection nests inside another.
+Formidable never keys by path. It resolves every failure down to the actual object sitting at that
+position and keys the error to the instance itself, so add, remove, and reorder can never separate
+an error from the row it belongs to.
 
-## Need to know
+Here is one row of a list, from the moment the page adds it to the moment its messages leave with
+it:
 
-Three idioms turn that resolution into row-stable markup: `@key` by instance, a `For` lambda
-closing over the same instance, and a `FormidableCollectionMessage` for every collection-level
-rule.
+```mermaid
+flowchart TD
+    A["A row is added"] --> K{"Is each row keyed by the row object?"}
+    K -- "yes" --> STAY["Messages stay with their row through add, remove and reorder"]
+    K -- "no" --> DRIFT["Blazor reuses DOM by position, so a message can land on the wrong row"]
+    STAY --> RM["A removed row's messages leave with it"]
+    STAY --> RO["Reordered rows re-list in the new on-screen order"]
+    DRIFT --> NET["The safety net catches the drift"]
+```
+
+The sections below take that picture one branch at a time, each starting with what you see.
+
+## What does `@key` actually buy?
+
+Key a row by the row object and the row keeps what belongs to it. Remove the row above it, drag it
+up two places, add three more below: its message is still its own, and so is the half-typed value in
+its input.
+
+Two habits do that, and the sample's member list carries both:
 
 ```razor
 <ul class="member-list">
@@ -46,41 +59,90 @@ rule.
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
 
-`@key="member"` keys the `<li>` by the object itself, not its position in the list. Blazor's
-diffing then keeps that element attached to the row as it moves, instead of reusing DOM nodes by
-index, so its focus, scroll position, and any in-progress edit travel with the row.
+`@key="member"` keys the `<li>` by the object itself, not its position in the list. Blazor's diffing
+then keeps that element attached to the row as it moves, instead of reusing DOM nodes by index, so
+its focus, scroll position, and any in-progress edit travel with the row.
+
 `() => member.Alias` closes over the actual `Member` reference from this iteration of the loop, so
-`FieldIdentifier.Create(For)` on the client resolves to the exact identity the introspector
-resolves independently on the validator side. Both sides arrive at the same object without
-coordinating.
+`FieldIdentifier.Create(For)` on the client resolves to the exact identity the introspector resolves
+independently on the validator side. Both sides arrive at the same object without coordinating.
 
-Forget the `@key` and nothing here throws by default — the mistake just misfiles a message onto
-the wrong row, silently. A field is the object owning the value plus a member name, so a fresh
-owner is a different field, which is what makes the misfiling invisible and what
-[`VerifyRowKeys`](options.md#verifyrowkeys)'s exception explains first. Turned on, that
-development-time option throws the moment a field-bound component's accessor no longer names the
-field it registered.
+## What happens when a row leaves or the list reorders?
 
-Nothing about the misfiling shows on screen, which is what earns it an exception rather than a
-diagnostic where a developer is watching. Where a throw is the wrong severity — production, say —
-[`ReportStaleRegistrations`](options.md#reportstaleregistrations) reports the same divergence
-through the diagnostic channels rather than throwing, and the form renders on.
+Keep the rows keyed and the list is free to change. Remove a row and its messages go with it.
+Reorder the list and each row arrives in its new place still carrying whatever it was carrying.
 
-Either check costs an accessor resolution per bound component per parameter set, and the cost
-depends on the accessor's shape. One whose owner is a single step from the expression's root —
-`() => member.Alias` over a loop-captured row, as above, or `() => _order.Total` on the page —
-resolves in nanoseconds. One that navigates further, `() => Order.Customer.Name`, compiles its
-owner expression on every resolution, which costs microseconds and kilobytes each.
+A `FormidableSummary` re-lists too. Under `FormidableForm`, entries list in the document order of
+the fields that render them, and the form re-resolves that order when its own elements move, so the
+entries match the rows on screen ([Component kit](component-kit.md#the-order-entries-appear-in) has
+that seam).
 
-Budget for the deepest accessors the form renders. That is why the throwing check is a
-Development-build recommendation: a form that reaches production with the mistake should misfile a
-message rather than take the page down.
+The two buttons in the excerpt above are not part of the row-identity story on their own. They are
+what a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a
+wrapping `FormidableField` hands its content (the wrapper itself is in
+[Nested collections](#nested-collections) below), and `NotifyChanged()` on it tells the engine a
+page-driven edit happened.
 
-The reporting check is the guarded one. An accessor it cannot resolve at all — a navigated owner
-gone null, say — it skips rather than judges, and nothing the check itself does takes a rendering
-form down. A throwing [`StaleRegistrationDiagnostic`](options.md#staleregistrationdiagnostic) of
-your own still can: that callback is invoked unguarded. The throwing check resolves without the
-net around the accessor, one more reason it belongs in Development.
+Without that call the edit is silent. A live pass discloses only for the fields something has
+engaged, so an edit to a field nothing has engaged is one whose fresh answer nothing shows.
+
+The next pass to run still judges the new value. Putting that verdict on screen takes an engaged
+field, a submit, or a server apply naming it, and a silent page-driven edit supplies none of those.
+
+Removing the last member does more than shrink a list on screen. It can flip a collection rule from
+passing to failing, and no prune can invent a failure no pass produced.
+
+The engine does notice the row leave. It prunes that row's live issues rather than go on showing a
+verdict for a row that is gone, and arms a reconciling refresh. After a submit, or a server apply
+that put fields on watch, that refresh brings the disclosed verdict back into line with the shorter
+list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's promise current.
+
+## Why did my message move rows?
+
+A message is sitting on a row that did not earn it. A row the user fixed reads as broken again after
+a reorder, or a deleted row's error has moved down to the row that took its place. The markup looks
+right and, by default, nothing throws.
+
+The list is rendered without `@key`, or under a key that is not the row object. Blazor then reuses
+each row's components for the next item along.
+
+A field is the object owning the value plus a member name, so a fresh owner is a different field.
+The registration, the element id, the aria attributes and the messages all stay with the row that
+moved away, while the input shows the new row's value.
+
+Messages are not the only casualty. A renderless `FormidableField` wrapping a row needs the same key
+for the same reason: key it by the row, and its registration, its notify target and its container id
+all travel with the object.
+
+Skip the key and Blazor reuses that wrapper positionally. A moved row's own Remove and Move up
+buttons then notify the field belonging to whichever row first rendered in that screen slot, and its
+container wears that row's id.
+
+The misfiled message is a real message from a real rule. It is simply on the wrong row, and nothing
+on screen says so.
+
+## The safety net
+
+Two options make that silence loud, and both are off by default. Each watches one thing: a bound
+component whose accessor no longer names the field it registered.
+
+[`VerifyRowKeys`](options.md#verifyrowkeys) throws. Turned on, that divergence raises an
+`InvalidOperationException` from the component carrying it, and the message names both the field and
+the fix. Nothing about the misfiling shows on screen, which is what earns it an exception rather
+than a diagnostic where a developer is watching.
+
+[`ReportStaleRegistrations`](options.md#reportstaleregistrations) reports. It answers the same
+divergence through the diagnostic channels instead of throwing, and the form renders on, misfiled
+messages and all.
+
+Pair them: the throwing check in Development builds, the reporting one everywhere else. A form that
+reaches production with the mistake should misfile a message rather than take the page down.
+
+A row list rendered without `@key` is the common way to produce the divergence, and not the only
+one. Another shape needs no collection anywhere on the page: a page that replaces the object a
+component is bound to leaves the components under it speaking for the instance that left.
+[Replacing the object a component is bound to](#replacing-the-object-a-component-is-bound-to) has
+the ordering rule that avoids it.
 
 Keep the key and neither check fires for anything done to the list itself, because the three shapes
 a keyed diff takes all leave the comparison passing. Replacing a row retires its key and builds
@@ -89,55 +151,17 @@ Adding or reordering disposes nothing at all, since a keyed diff permutes the co
 has. In all three, anything newly built registers the row it was handed, and everything retained
 still resolves to the row it already spoke for.
 
-The two buttons in that excerpt aren't part of the row-identity story on their own — they're what
-a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a
-wrapping `FormidableField` hands its content (the wrapper itself is in
-[Nested collections](#nested-collections) below); `NotifyChanged()` tells the engine a page-driven
-edit happened: a live pass discloses only for the fields something has engaged, so an edit to a
-field nothing has engaged is one whose fresh answer nothing shows.
+Any component that speaks for a field is a candidate: an input, a message component, or the
+renderless `FormidableField` around a row. Each re-reads its own accessor and compares it against
+the field it registered. That is not free, and [what the checks cost](#what-the-checks-cost) sizes
+it by accessor shape.
 
-The next pass to run still judges the new value; putting that verdict on screen takes an engaged
-field, a submit, or a server apply naming it, and a silent page-driven edit supplies none of those.
-Removing the last member doesn't just shrink a list on screen — it can flip a collection rule from
-passing to failing, and no prune can invent a failure no pass produced.
+## Where does a collection-level rule's message go?
 
-The engine does notice the row leave. It prunes that row's live issues rather than go on showing
-a verdict for a row that is gone, and arms a reconciling refresh. After a submit, or a server
-apply that put fields on watch, that refresh brings the disclosed verdict back into line with the
-shorter list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's
-promise current.
-
-The wrapping `FormidableField` needs the same `@key` discipline as the `<li>` above, for the same
-reason: key it by the row, and its registration, notify target, and container id all travel with
-the object. Skip the key and Blazor reuses the component positionally instead — a reordered row's
-own Remove and Move up buttons end up notifying, and its container ends up wearing the id of
-whatever row first rendered in that screen slot.
-
-`VerifyRowKeys` catches this shape of the mistake too: the accessor a `FormidableField` resolved
-at registration is exactly what it compares against on every later render.
-
-A page-driven edit that replaces an owner adds an ordering rule: render before you notify. A
-fresh instance is a fresh field, so the engine publishes state synchronously inside the
-notification itself, and components observing the engine re-render before `NotifyFieldChanged`
-returns: a re-rendering wrapper re-supplies the bound components inside it, whose accessors now
-name the replacement while their registrations still name the old instance.
-
-With `VerifyRowKeys` on, that divergence is the row-key exception thrown from inside the page's
-own notify; with it off, those components keep speaking for the old instance until something
-rebuilds them — the silent misfiling `VerifyRowKeys` exists to catch.
-
-Render first, `row.Child = selected; await InvokeAsync(StateHasChanged);`, so the keyed diff
-rebuilds the bound components against the replacement, then notify with
-`EditContext.NotifyFieldChanged(...)`, its identifier built from the accessor at the call.
-`NotifyChanged()` on a captured field context is the wrong notify here: a context carries the
-`Field` it was handed out with, so one your handler captured before the replacement notifies the
-departed instance instead. The replacement then goes unengaged, and nothing rendered diverges for
-`VerifyRowKeys` to catch.
-
-Neither idiom helps a rule that has no field of its own. `Teams` and `Members` are both `List<T>`
-properties, so nothing renders an input for the list itself. A whole-collection rule like "Add at
-least one team" would have nowhere to register and nowhere to become visible.
-`FormidableCollectionMessage` closes that gap:
+The two habits above keep a message on its row. Neither helps a rule that has no field of its own.
+`Teams` and `Members` are both `List<T>` properties, so nothing renders an input for the list
+itself. A whole-collection rule like "Add at least one team" would have nowhere to register and
+nowhere to become visible. `FormidableCollectionMessage` closes that gap:
 
 ```razor
 <FormidableCollectionMessage For="() => _roster.Teams" />
@@ -145,67 +169,15 @@ least one team" would have nowhere to register and nowhere to become visible.
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
 
-It renders the collection-level issues and registers the field in the same component, used once
-per collection that carries its own rule — the roster's teams and each team's members both get
-one.
+It renders the collection-level issues and registers the field in the same component. Use one per
+collection that carries its own rule: the roster's teams and each team's members both get one.
 
-That's the whole authoring surface: key the row, close the lambda, register the collection. What
-the engine does with those three habits is the rest of this page.
-
-## How instance-keyed resolution works
-
-Reading a path string as an address would make the idioms above cosmetic. Key every `<li>` by
-instance and Blazor still shows the right DOM element, but the error handed to it is already
-wrong. A validator matching purely on `Teams[0].Members[1]` files that failure against whatever
-object next occupies that slot, once a remove or reorder changes what's there. That mis-filing
-happens before any markup gets involved.
-
-Formidable doesn't read it as an address. The model introspector parses each property path into
-segments — property names and indexer tokens — and walks the live object graph one segment at a
-time. For an indexed segment it looks up the actual item sitting in the list at that position; the
-terminal segment never navigates further, it just names the field on whatever object the walk has
-reached:
-
-```csharp
-public readonly record struct ResolvedField(object Owner, string PropertyName);
-```
-
-<!-- Source: `src/Formidable/Introspection/ResolvedField.cs` -->
-
-`Owner` is the deepest non-null object the walk actually reached — for `Teams[0].Members[1].Alias`,
-that's the real `Member` instance currently sitting at that position. The engine turns the result
-into a Blazor `FieldIdentifier` built from the instance itself, not the path string:
-
-```csharp
-public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
-{
-    ArgumentNullException.ThrowIfNull(rootModel);
-
-    if (field.Owner.GetType().IsValueType)
-    {
-        return new FieldIdentifier(rootModel, originalPath);
-    }
-
-    return new FieldIdentifier(field.Owner, field.PropertyName);
-}
-```
-
-<!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
-
-(The value-type branch is a fallback for owners `FieldIdentifier` structurally can't hold — a
-struct intermediate on the path — and isn't the path collection rows normally take: a row object
-is a reference type in any model these idioms can bind at all. A struct intermediate falls back
-to keying on the root model and the path string, the one shape that trades row stability away.)
-
-A `FieldIdentifier` built this way compares equal to another built from the same object instance
-and property name, no matter where that object currently sits in its list. The error the engine
-stores against `Member` "ace" therefore stays attached to that `Member`, however a reorder
-rearranges the list around it.
+That is the whole authoring surface: key the row, close the lambda, register the collection.
 
 ## Nested collections
 
-The sample nests two collections — teams, and each team's members — and exercises all three
-idioms at both levels:
+The sample nests two collections (teams, and each team's members) and exercises all three habits
+at both levels:
 
 ```razor
 <FormidableForm Model="_roster" OnValidSubmit="HandleValid" Options="_options">
@@ -269,13 +241,15 @@ idioms at both levels:
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
-The page also carries a
-teaching panel above the form; the `class` attributes belong to the sample app's own styling,
-since the library ships none. `Options="_options"` is how this page turns `VerifyRowKeys` on for
-itself, covered above in [Need to know](#need-to-know). The `id`/`tabindex` pair on each container
-is what gives a collection's summary entry somewhere to land. A collection rule fails against the
-list, not against any one input, so the element carrying the collection's `FormidableFieldId` is
-what takes the click (see [CSS and accessibility](css-and-accessibility.md)).
+
+The page also carries a teaching panel above the form; the `class` attributes belong to the sample
+app's own styling, since the library ships none. `Options="_options"` is how this page turns
+`VerifyRowKeys` on for itself, covered above in [The safety net](#the-safety-net).
+
+The `id`/`tabindex` pair on each container is what gives a collection's summary entry somewhere to
+land. A collection rule fails against the list, not against any one input, so the element carrying
+the collection's `FormidableFieldId` is what takes the click (see
+[CSS and accessibility](css-and-accessibility.md)).
 
 The validator behind it mirrors the nesting with `RuleForEach(...).ChildRules(...)`, one level for
 teams and a second, nested level for each team's members:
@@ -293,9 +267,104 @@ RuleForEach(r => r.Teams).ChildRules(team =>
 
 <!-- Source: `samples/Formidable.Sample.Shared/Roster.cs` -->
 
-Submit with gaps — an empty team name, an empty alias — then reorder or delete rows. Each error
-stays put on its row, because `@key="team"` / `@key="member"` keep the right DOM element attached
-to the right row. The `For` lambdas keep resolving to the same instances the engine validated
-against, regardless of the index either one currently occupies.
+Submit with gaps (an empty team name, an empty alias) then reorder or delete rows. Each error
+stays put on its row, because `@key="team"` / `@key="member"` keep the right DOM element attached to
+the right row. The `For` lambdas keep resolving to the same instances the engine validated against,
+regardless of the index either one currently occupies.
 
 **Sample:** [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor)
+
+## The fine print
+
+Everything below is precision a first reader can skip. It earns its place when a form behaves in a
+way the sections above do not quite account for.
+
+### How instance-keyed resolution works
+
+Reading a path string as an address would make the habits above cosmetic. Key every `<li>` by
+instance and Blazor still shows the right DOM element, but the error handed to it is already wrong.
+A validator matching purely on `Teams[0].Members[1]` files that failure against whatever object next
+occupies that slot, once a remove or reorder changes what's there. That mis-filing happens before
+any markup gets involved.
+
+Formidable doesn't read it as an address. The model introspector parses each property path into
+segments (property names and indexer tokens) and walks the live object graph one segment at a
+time. For an indexed segment it looks up the actual item sitting in the list at that position; the
+terminal segment never navigates further, it just names the field on whatever object the walk has
+reached:
+
+```csharp
+public readonly record struct ResolvedField(object Owner, string PropertyName);
+```
+
+<!-- Source: `src/Formidable/Introspection/ResolvedField.cs` -->
+
+`Owner` is the deepest non-null object the walk actually reached. For `Teams[0].Members[1].Alias`,
+that's the real `Member` instance currently sitting at that position. The engine turns the result
+into a Blazor `FieldIdentifier` built from the instance itself, not the path string:
+
+```csharp
+public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
+{
+    ArgumentNullException.ThrowIfNull(rootModel);
+
+    if (field.Owner.GetType().IsValueType)
+    {
+        return new FieldIdentifier(rootModel, originalPath);
+    }
+
+    return new FieldIdentifier(field.Owner, field.PropertyName);
+}
+```
+
+<!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
+
+(The value-type branch is a fallback for owners `FieldIdentifier` structurally can't hold, a struct
+intermediate on the path, and isn't the path collection rows normally take: a row object is a
+reference type in any model these habits can bind at all. A struct intermediate falls back to keying
+on the root model and the path string, the one shape that trades row stability away.)
+
+A `FieldIdentifier` built this way compares equal to another built from the same object instance and
+property name, no matter where that object currently sits in its list. The error the engine stores
+against `Member` "ace" therefore stays attached to that `Member`, however a reorder rearranges the
+list around it.
+
+### What the checks cost
+
+Either check costs an accessor resolution per bound component per parameter set, and the cost
+depends on the accessor's shape. One whose owner is a single step from the expression's root
+resolves in nanoseconds: `() => member.Alias` over a loop-captured row, as above, or
+`() => _order.Total` on the page. One that navigates further, `() => Order.Customer.Name`, compiles
+its owner expression on every resolution, which costs microseconds and kilobytes each.
+
+Budget for the deepest accessors the form renders. That cost is another reason the throwing check
+belongs in Development builds.
+
+### One check is guarded, the other is not
+
+The reporting check is the guarded one. An accessor it cannot resolve at all (a navigated owner gone
+null, say) it skips rather than judges, and nothing the check itself does takes a rendering form
+down. A throwing [`StaleRegistrationDiagnostic`](options.md#staleregistrationdiagnostic) of your own
+still can: that callback is invoked unguarded. The throwing check resolves without the net around
+the accessor, one more reason it belongs in Development.
+
+### Replacing the object a component is bound to
+
+A page-driven edit that replaces an owner adds an ordering rule: render before you notify. A fresh
+instance is a fresh field, and the engine publishes state synchronously inside the notification
+itself, so components observing the engine re-render before `NotifyFieldChanged` returns. A
+re-rendering wrapper re-supplies the bound components inside it, whose accessors now name the
+replacement while their registrations still name the old instance.
+
+With `VerifyRowKeys` on, that divergence is the row-key exception thrown from inside the page's own
+notify. With it off, those components keep speaking for the old instance until something rebuilds
+them, which is the silent misfiling `VerifyRowKeys` exists to catch.
+
+Render first, `row.Child = selected; await InvokeAsync(StateHasChanged);`, so the keyed diff
+rebuilds the bound components against the replacement, then notify with
+`EditContext.NotifyFieldChanged(...)`, its identifier built from the accessor at the call.
+
+`NotifyChanged()` on a captured field context is the wrong notify here: a context carries the
+`Field` it was handed out with, so one your handler captured before the replacement notifies the
+departed instance instead. The replacement then goes unengaged, and nothing rendered diverges for
+`VerifyRowKeys` to catch.

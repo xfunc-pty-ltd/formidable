@@ -1,12 +1,11 @@
 # Testing
 
-**You should already know:** how to wire up a form end to end
-([Quickstart](quickstart.md)) — this page assumes you already have something worth
-testing, not how to build it.
+**You should already know:** how to wire up a form end to end ([Quickstart](quickstart.md)). This
+page assumes you already have something worth testing, not how to build it.
 
 Formidable's suite draws a line between two tiers. One is unconditional and fast enough to run on
-every save. The other drives a real browser and runs only when asked, because a suite nobody can
-run in ten seconds is a suite that stops getting run.
+every save. The other drives a real browser and runs only when asked, because a suite nobody can run
+in ten seconds is a suite that stops getting run.
 
 Neither tier judges colour, contrast or native control chrome. Those want a human's eyes, which is
 what the checklist at the end of this page is for.
@@ -24,40 +23,34 @@ dotnet test                    # unconditional tier
 FORMIDABLE_E2E=1 dotnet test   # adds the browser tier
 ```
 
-The first is what CI and every PR run. The second is what a maintainer runs by hand before tagging
-a release — see [The release gate](#the-release-gate) below. Both should report zero failures
-before you trust a change.
+The first is what CI and every PR run. The second is what a maintainer runs by hand before tagging a
+release (see [The release gate](#the-release-gate) below). Both should report zero failures before
+you trust a change.
 
 A plain run also reports some tests as *skipped* rather than run, and that is expected. Skipped
-there means the browser tier, gated behind `FORMIDABLE_E2E`. A handful of docs-capture utilities
-sit further behind `FORMIDABLE_CAPTURE` (see [Browser tests](#browser-tests-env-gated)).
+there means the browser tier, gated behind `FORMIDABLE_E2E`. A handful of docs-capture utilities sit
+further behind `FORMIDABLE_CAPTURE` (see [Browser tests](#browser-tests-env-gated)).
 
 What is not expected is a run reporting fewer tests than usual. That is a signal an environment
 variable or a build step didn't do what it was supposed to, not that the suite shrank on its own.
 
-Testing a form you built rather than the library itself? [Testing your forms](#testing-your-forms)
-is the next section, and the only one written for that audience. Everything after it is this repo's
-own suite.
-
-A PR is expected to pin new behaviour with a test at the tier that would actually exercise it —
-unit or bUnit for engine and component logic, browser for anything only a real rendered page can
-show. It keeps the plain suite green, and it produces a clean Release build.
+A PR is expected to pin new behaviour with a test at the tier that would actually exercise it: unit
+or bUnit for engine and component logic, browser for anything only a real rendered page can show. A
+PR should also leave the plain suite green and the Release build clean.
 
 See the [contributing guide](../CONTRIBUTING.md) for dev setup and the full PR checklist, and
 [Recipes](recipes.md) for a task-oriented index of *behaviour* rather than tests.
 
 ## Testing your forms
 
-Everything else on this page is about Formidable's own suite. This section is the other audience:
-the tests you write over a form you built with it.
-
-Two layers cover almost all of it — the rules without a renderer, and the rendered form under
-bUnit. The third thing worth knowing is how to wait for an answer that arrives asynchronously.
+Two layers cover almost all of the tests you write over a form you built: the rules without a
+renderer, and the rendered form under bUnit. The third thing worth knowing is how to wait for an
+answer that arrives asynchronously.
 
 ### The rules, without Blazor
 
-A validator is a plain FluentValidation class and a profile is a value you pass, so the rules
-answer to a test with no renderer anywhere in it:
+A validator is a plain FluentValidation class and a profile is a value you pass, so the rules answer
+to a test with no renderer anywhere in it:
 
 ```csharp
 var validator = new FluentValidationModelValidator<Brief>(new BriefValidator());
@@ -75,19 +68,19 @@ exactly what a form runs. One profile at a time is the pairing worth pinning: a 
 quiet under `Draft` and blocks under `Submit`.
 
 `ValidationReport` splits the answer by severity: `Errors`, `Warnings`, `Infos`, and `Advisories`
-for every non-error issue — warnings, infos, and any severity outside those two. `IsValid` counts
+for every non-error issue (warnings, infos, and any severity outside those two). `IsValid` counts
 errors only, so a warning-only report is valid. `ValidationIssue.Path` is FluentValidation's own
 property path, indexes included (`Lines[0].Sku`).
 
-All of that lives in the core `Formidable` package, which has no Blazor dependency, so a plain
-xunit project referencing it is enough. Resolve `IModelValidator<T>` from a container if the test
-already has one; `new FluentValidationModelValidator<T>(...)` is the shortcut when it doesn't.
+All of that lives in the core `Formidable` package, which has no Blazor dependency, so a plain xunit
+project referencing it is enough. Resolve `IModelValidator<T>` from a container if the test already
+has one; `new FluentValidationModelValidator<T>(...)` is the shortcut when it doesn't.
 
 ### The form, under bUnit
 
-The kit renders under [bUnit](https://bunit.dev) like any other component set. Three of its
-services talk to JavaScript, so a component test supplies its own stand-ins for them: register the
-doubles *before* `AddFormidableBlazor()`, which respects registrations that are already there.
+The kit renders under [bUnit](https://bunit.dev) like any other component set. Three of its services
+talk to JavaScript, so a component test supplies its own stand-ins for them: register the doubles
+*before* `AddFormidableBlazor()`, which respects registrations that are already there.
 
 ```csharp
 public class SignupFormTests : BunitContext
@@ -138,12 +131,12 @@ public ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<Field
 
 Three details make a double behave like the real thing:
 
-- The request always carries the model-level field — a `FieldIdentifier` with an empty `FieldName`
-  — alongside the registered ones. So a form with no fields at all still asks, and the list a
-  double is handed can hold nothing else.
-- A returned `null` means "no order could be resolved" and the form retries it on a later render.
-  An empty list is the settled answer that none of these fields are on the page, so a double
-  exercising the retry has to be able to say the first without saying the second.
+- The request always carries the model-level field (a `FieldIdentifier` with an empty `FieldName`)
+  alongside the registered ones. So a form with no fields at all still asks, and the list a double
+  is handed can hold nothing else.
+- A returned `null` means "no order could be resolved" and the form retries it on a later render. An
+  empty list is the settled answer that none of these fields are on the page, so a double exercising
+  the retry has to be able to say the first without saying the second.
 - A field the double leaves out of its answer sorts after every field it names, which is the shape
   of an unrendered field.
 
@@ -156,20 +149,24 @@ answering, and a one-call no-order answer, so the retry after either is observab
 is the same shape again over `FocusAsync`.
 
 A double written today also keeps compiling as Formidable grows. A member added after v1 to any
-interface a consumer implements — these three seams and `IFormidableEngine` among them — carries a
+interface a consumer implements (these three seams and `IFormidableEngine` among them) carries a
 default implementation. Until a double overrides it, it answers the conservative default named in
 the interface's own remarks.
 
-The clock is a fourth stand-in, and it needs no Formidable interface because .NET already ships
-the seam. The engine creates its timers — the refresh window behind
-[`RefreshDebounce`](options.md#refreshdebounce), the live window behind
-[`LiveDebounce`](options.md#livedebounce) — from the `TimeProvider` registered in the container,
-falling back to `TimeProvider.System` when there is none.
+#### Faking the clock
+
+The clock is a fourth stand-in, beside the three seams above. It needs no Formidable interface,
+because .NET already ships the seam. The engine creates its timers from the `TimeProvider`
+registered in the container, falling back to `TimeProvider.System` when there is none. Those timers
+are the refresh window behind [`RefreshDebounce`](options.md#refreshdebounce) and the live window
+behind [`LiveDebounce`](options.md#livedebounce).
 
 Register `Microsoft.Extensions.Time.Testing.FakeTimeProvider` as `TimeProvider` and every debounced
 pass waits for the test: nothing a timer owes fires until `Advance(...)` crosses its window.
-Registration order doesn't matter for this one, since Formidable never registers a `TimeProvider`
-of its own and has nothing to get in ahead of.
+Registration order doesn't matter for this one, since Formidable never registers a `TimeProvider` of
+its own and has nothing to get in ahead of.
+
+#### Planning the JavaScript module
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
@@ -189,11 +186,11 @@ front of you reaches:
 Strict mode is bUnit's default, and an unplanned call throws
 `JSRuntimeUnhandledInvocationException`. That type derives from `Exception` rather than
 `JSException`, so the order resolve's own tolerance for a failed interop call never catches it.
-Render a `FormidableForm` at all with no plan for `orderFields`, fields or no fields, and the
-render itself throws.
+Render a `FormidableForm` at all with no plan for `orderFields`, fields or no fields, and the render
+itself throws.
 
-Formidable's own `FocusServiceTests` take that route, because there the service *is* the thing
-under test.
+Formidable's own `FocusServiceTests` take that route, because there the service *is* the thing under
+test.
 
 For a form test, the interface doubles are both less machinery and the sturdier bet. What separates
 the two routes is what each one couples the test to.
@@ -203,34 +200,36 @@ The interfaces are what Formidable holds still for consumers. A double written a
 the library promises.
 
 The module is how the library talks to the browser, and the names invoked on it move with the
-features that need them. A strict-mode plan naming today's set meets tomorrow's addition as a
-thrown `JSRuntimeUnhandledInvocationException`, in a test that was asserting something else
-entirely. Treat the table above as the calls to expect rather than the calls there are.
+features that need them. A strict-mode plan naming today's set meets tomorrow's addition as a thrown
+`JSRuntimeUnhandledInvocationException`, in a test that was asserting something else entirely. Treat
+the table above as the calls to expect rather than the calls there are.
 
-What a plan can lean on is the module path. `./_content/Formidable.Blazor/formidable.js` carries
-no version and no cache-busting query, by decision rather than by omission: cache policy over a
-static web asset belongs to the host serving it — fingerprinting, `ETag`, `Cache-Control` — rather
-than to the library shipping it.
+What a plan can lean on is the module path. `./_content/Formidable.Blazor/formidable.js` carries no
+version and no cache-busting query, by decision rather than by omission: cache policy over a static
+web asset belongs to the host serving it (fingerprinting, `ETag`, `Cache-Control`) rather than to
+the library shipping it.
 
 A `SetupModule` on that literal, written exactly as the call above writes it, plans the import the
 loader actually makes.
+
+#### What is reached either way
 
 Some of the module is reached whichever route you take. The displaced-click guard belongs to the
 form outright, so a `FormidableForm` imports `formidable.js` on its first render and asks for
 `registerClickRecovery`, order service or not. Only `ClickRecovery = None` leaves that call unmade.
 
 The layout observer belongs to the form rather than to the order service. Registering an
-`IFormidableFieldOrderService` at all — the interface double included — adds `observeLayout` to
-the calls that form reaches.
+`IFormidableFieldOrderService` at all (the interface double included) adds `observeLayout` to the
+calls that form reaches.
 
 The guard and the observer are both best-effort, which is the difference that matters here: a
 strict-mode refusal is absorbed exactly as a JavaScript-less host is, where an unplanned
-`orderFields` throws. So a test built on the doubles needs no module plan, and a test that does
-plan the module gets a form that genuinely observes and genuinely guards.
+`orderFields` throws. So a test built on the doubles needs no module plan, and a test that does plan
+the module gets a form that genuinely observes and genuinely guards.
 
-What an absorbed refusal costs is the re-resolve a page would otherwise get when it moves its
-fields around without registering or unregistering any, plus the recovery of a click the page moved
-out from under the pointer.
+What an absorbed refusal costs is the re-resolve a page would otherwise get when it moves its fields
+around without registering or unregistering any, plus the recovery of a click the page moved out
+from under the pointer.
 
 ### Waiting for the answer
 
@@ -248,11 +247,11 @@ still. Two habits cover it:
 
 Pinning a *pending* state needs one more thing, because "checking…" is by definition gone by the
 time the rule answers. Hold the rule open with a `TaskCompletionSource` the test controls: assert
-`IsValidating` (engine-wide) or `GetFieldState(field).IsValidating` (field-scoped) while the gate
-is closed, then complete it and wait for the verdict.
+`IsValidating` (engine-wide) or `GetFieldState(field).IsValidating` (field-scoped) while the gate is
+closed, then complete it and wait for the verdict.
 
-Formidable's own engine tests use exactly that gate, and
-[Async validation](async-validation.md) explains which scope each pass reports.
+Formidable's own engine tests use exactly that gate, and [Async validation](async-validation.md)
+explains which scope each pass reports.
 
 ## Unit and component tests
 
@@ -265,12 +264,8 @@ Three projects, unconditional — no environment variable, no running server, no
 | `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormidableEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
 The focus service implements both `IDisposable` and `IAsyncDisposable`, so a bUnit container built
-through `AddFormidableBlazor()` tears down on ordinary synchronous dispose — nothing extra to
-write.
-
+through `AddFormidableBlazor()` tears down on ordinary synchronous dispose (nothing extra to write).
 Awaiting `Services.DisposeAsync()` instead still works and stays the more thorough choice.
-Formidable's own suite does both: some of its module-planning test classes await it, and the rest
-lean on the synchronous teardown.
 
 Run the whole tier from the repo root:
 
@@ -278,57 +273,57 @@ Run the whole tier from the repo root:
 dotnet test
 ```
 
-A clean run also reports the browser tier below as skipped rather than failed — see
-[Need to know](#need-to-know) for why that's expected. To run just one project (useful while
+A clean run also reports the browser tier below as skipped rather than failed (see
+[Need to know](#need-to-know) for why that's expected). To run just one project (useful while
 iterating), point `dotnet test` at its `.csproj` or use `--filter`:
 
 ```bash
 dotnet test tests/Formidable.Blazor.Tests
 ```
 
-Both `dotnet build` and `dotnet test` should be clean before opening a PR — see
-the [contributing guide](../CONTRIBUTING.md) for the warnings-as-errors and XML-doc requirements
-that make a "clean" build stricter than it looks.
+Both `dotnet build` and `dotnet test` should be clean before opening a PR. The
+[contributing guide](../CONTRIBUTING.md) has the warnings-as-errors and XML-doc requirements that
+make a "clean" build stricter than it looks.
 
 ## Browser tests (env-gated)
 
-`tests/Formidable.Sample.E2E` drives real apps through headless Chromium
-(Microsoft.Playwright): real navigation, real form interaction, real focus and DOM assertions,
-nothing bUnit's simulated renderer can stand in for. Most of it drives the sample app. A small
-group drives a Blazor Web App host fixture instead, for hosting shapes a standalone WebAssembly
-app has none of.
+`tests/Formidable.Sample.E2E` drives real apps through headless Chromium (Microsoft.Playwright):
+real navigation, real form interaction, real focus and DOM assertions, nothing bUnit's simulated
+renderer can stand in for. Most of it drives the sample app. A small group drives a Blazor Web App
+host fixture instead, for hosting shapes a standalone WebAssembly app has none of.
 
 Every test in the project self-skips unless the `FORMIDABLE_E2E` environment variable is set, so an
-ordinary `dotnet test` never launches a browser or any of the servers. Its `SampleAppFixture` owns
-all three: it starts `Formidable.Sample.Api`, `Formidable.Sample` and `Formidable.WebApp.Fixture`
-itself (`--no-build`, so it needs a build already on disk), waits for each to answer, and tears
-down the whole process tree afterward.
+ordinary `dotnet test` never launches a browser or any of the servers. The project's
+`SampleAppFixture` owns all three: it starts `Formidable.Sample.Api`, `Formidable.Sample` and
+`Formidable.WebApp.Fixture` itself, waits for each to answer, and tears down the whole process tree
+afterward. The fixture launches them with `--no-build`, so it needs a build already on disk.
 
 Every context it opens asks for reduced motion, so the sample's own `prefers-reduced-motion` guard
-turns its smooth scrolling off. Nothing here asserts motion, and an animated scroll makes a
-gesture's measurements and a test's timing depend on how fast the machine running it is.
+turns its smooth scrolling off. Nothing here asserts motion. An animated scroll makes a gesture's
+measurements and a test's timing depend on how fast the machine running it is.
 
 The tests fall into a few groups:
 
 - A navigation smoke test that walks the sidebar itself.
-- A render smoke per sample page — the page loads, its heading renders, nothing throws.
-- A journey per behavior-bearing page, one file each under `Journeys/`, pinning that page's
-  central lesson with at least one real-typed, real-blurred path — a blocked submit, a live pass,
-  a suppression reveal, whatever the page teaches.
-  - `/workout`'s journeys go deepest: blocked submit and every summary-entry kind landing (native
-    input, collection fieldset, wrapped input, the disclosure gate), attendee add/remove and
-    per-item rules, async pending state, server-applied coupon apply/replace, and a regression pin
-    for a fixed engine race.
-- A handful of keystroke-level pins (`InputRegressions.cs`) for input mechanics no smoke or
-  journey drives deep enough to see — caret position mid-type, a date typed segment by segment, a
-  number field's blur-time value sync.
-- A hosting group (`Journeys/HostingModelsJourney.cs`) against the Web App host fixture. A form on
-  a server circuit; the prerender window's `inert` form crossing to a working one; a page with no
-  render mode, where the form renders its own refusal and the response is still a 200.
+- A render smoke per sample page: the page loads, its heading renders, nothing throws.
+- A journey per behavior-bearing page, one file each under `Journeys/`. Each pins that page's
+  central lesson with at least one real-typed, real-blurred path: a blocked submit, a live pass, a
+  suppression reveal, whatever the page teaches.
+  - `/workout`'s journeys go deepest. They pin a blocked submit and every summary-entry kind
+    landing: native input, collection fieldset, wrapped input, the disclosure gate. They also cover
+    attendee add/remove and per-item rules, async pending state and server-applied coupon
+    apply/replace, and they carry a regression pin for a fixed engine race.
+- A handful of keystroke-level pins (`InputRegressions.cs`) for input mechanics no smoke or journey
+  drives deep enough to see. They cover caret position mid-type, a date typed segment by segment,
+  and a number field's blur-time value sync.
+- A hosting group (`Journeys/HostingModelsJourney.cs`) against the Web App host fixture. It covers a
+  form on a server circuit, and the prerender window's `inert` form crossing to a working one. It
+  also covers a page with no render mode, where the form renders its own refusal and the response is
+  still a 200.
 
 `DocsCapture.cs` holds a further group: docs-capture utilities that regenerate the PNGs under
-`docs/assets`. They sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`,
-so an ordinary gated run never rewrites the shipped images as a side effect (see the note below).
+`docs/assets`. They sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`, so
+an ordinary gated run never rewrites the shipped images as a side effect (see the note below).
 
 Run it:
 
@@ -338,32 +333,30 @@ pwsh tests/Formidable.Sample.E2E/bin/Debug/net10.0/playwright.ps1 install chromi
 FORMIDABLE_E2E=1 dotnet test
 ```
 
-In PowerShell, set the variable first — `$env:FORMIDABLE_E2E = "1"; dotnet test` — and clear it
-afterward (`Remove-Item Env:FORMIDABLE_E2E`) so it doesn't linger into a later plain run in the
-same session. Stop any sample app you already have running first: the fixture owns ports 5180,
-5181 and 5183, and a port already in use fails the run with an actionable error rather than a
-hang.
+In PowerShell, set the variable first: `$env:FORMIDABLE_E2E = "1"; dotnet test`. Clear it afterward
+with `Remove-Item Env:FORMIDABLE_E2E`, so it doesn't linger into a later plain run in the same
+session. Stop any sample app you already have running first: the fixture owns ports 5180, 5181 and
+5183. A port already in use fails the run with an actionable error rather than a hang.
 
 > [!NOTE]
-> A gated run skips only the docs-capture utilities (`DocsCapture.cs`) — they stay behind their
-> own `FORMIDABLE_CAPTURE=1` gate on top of this one and sit out of this run on purpose: they
-> render the PNGs under `docs/assets`, not verify anything. Any other skip here means the
-> variable never reached the test host, not that the suite is somehow smaller.
+> A gated run skips only the docs-capture utilities (`DocsCapture.cs`), which sit out of it on
+> purpose: they render the PNGs under `docs/assets`, not verify anything. Any other skip here means
+> the variable never reached the test host, not that the suite is somehow smaller.
 
 ## The release gate
 
-[Releasing](releasing.md)'s **Pre-release verification** section is where the unconditional tier,
-the browser tier and a manual pass combine into the actual checklist a maintainer runs before
-tagging a release — build, gated `dotnet test`, and the walkthrough below, in that order. Run it on
-the commit you're about to tag, not just once at the start of a change.
+The checklist a maintainer runs before tagging a release lives in [Releasing](releasing.md)'s
+**Pre-release verification** section. It combines the unconditional tier, the browser tier and a
+manual pass: build, gated `dotnet test`, and the walkthrough below, in that order. Run it on the
+commit you're about to tag, not just once at the start of a change.
 
 ## The manual checklist
 
-Some things a browser driven by a test script can't judge: colour and contrast, spacing, focus
-outlines, and native control chrome (date pickers, `<select>` dropdowns) rendering correctly in
-both light and dark OS colour schemes.
+Some things a browser driven by a test script can't judge: colour and contrast, spacing, and focus
+outlines. Nor can it judge native control chrome (date pickers, `<select>` dropdowns) rendering
+correctly in both light and dark OS colour schemes.
 
-The [manual checklist](../samples/MANUAL-CHECKLIST.md) is the committed walkthrough for that
-eyes-on pass — one section per sample-page group, matching the sidebar, plus a navigation and a
+The [manual checklist](../samples/MANUAL-CHECKLIST.md) is the committed walkthrough for that eyes-on
+pass. It has one section per sample-page group, matching the sidebar, plus a navigation and a
 light/dark pass. It's the pre-release human gate the two automated tiers above can't replace, not a
 substitute for either of them.

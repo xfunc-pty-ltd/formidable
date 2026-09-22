@@ -25,9 +25,9 @@ RuleFor(c => c.Bio)
 `Severity` is FluentValidation's own enum, covered by the `@using FluentValidation` at the top of
 the page. Without the call, a failure is an error, which is what every rule so far has produced.
 
-`.WithSeverity` attaches to the validator it follows, not to the rule around it. It follows the
-200 check here, so that one advises. The 280 check has no call of its own, so it stays an error
-and still blocks. Each component of a chain that should advise needs its own call.
+`.WithSeverity` attaches to the validator it follows, not to the rule around it. It follows the 200
+check here, so that one advises. The 280 check has no call of its own, so it stays an error and
+still blocks. Each component of a chain that should advise needs its own call.
 
 ## Submit anyway
 
@@ -40,8 +40,8 @@ That lands near 250 characters: past the warning at 200, inside the cap at 280. 
 
 ![Bio outlined orange with its warning below it, the same warning in the summary, and Saved. under the buttons](../assets/tutorial/stage3-warning-passes.png)
 
-The warning is on screen and the submit went through anyway. That is the whole rule, and it runs
-one way only: errors block a submit, while warnings and infos say their piece and let it through.
+The warning is on screen and the submit went through anyway. That is the whole rule, and it runs one
+way only: errors block a submit, while warnings and infos say their piece and let it through.
 
 ## Style the tiers
 

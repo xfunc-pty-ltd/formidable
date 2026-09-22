@@ -114,9 +114,9 @@ private async Task SaveDraft()
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage2.razor` -->
 
-`ValidationProfile.Draft` selects the draft bucket alone. The overload taking it is Formidable's,
-on the validator you already registered, and what comes back is FluentValidation's ordinary result.
-So `Errors` lists everything the draft rules found.
+`ValidationProfile.Draft` selects the draft bucket alone. The overload taking it is Formidable's, on
+the validator you already registered, and what comes back is FluentValidation's ordinary result. So
+`Errors` lists everything the draft rules found.
 
 A draft save skips the form's submit pipeline. It is a plain call against the validator, so nothing
 on the form changes but the count.
@@ -124,14 +124,13 @@ on the form changes but the count.
 Run it. Click **Save draft** with the form empty, and the readout says `0 finding(s)`. Nothing is
 malformed yet, and presence is a submit question.
 
-Press **Submit** on that same empty form, and both presence messages appear. Now type
-`not-an-email` into Email and click **Save draft** again for one finding, this time from the draft
-rules.
+Press **Submit** on that same empty form, and both presence messages appear. Now type `not-an-email`
+into Email and click **Save draft** again for one finding, this time from the draft rules.
 
 ## See the state
 
-Formidable puts a class on each field as its state changes, and ships no CSS of its own. The look
-is yours. This stylesheet gives the form one and hangs the state classes off it. Put it in
+Formidable puts a class on each field as its state changes, and ships no CSS of its own. The look is
+yours. This stylesheet gives the form one and hangs the state classes off it. Put it in
 `wwwroot/css/app.css`:
 
 ```css
@@ -205,15 +204,15 @@ button:not(.formidable-summary__link) {
 ```
 
 The first rules are ordinary form styling: a narrow column, labels on their own line, controls that
-fill it. The rules naming `formidable-` classes are the ones Formidable drives. A summary entry is
-a button as well, so the button rule steps around it.
+fill it. The rules naming `formidable-` classes are the ones Formidable drives. A summary entry is a
+button as well, so the button rule steps around it.
 
 Two of the state classes matter this stage. A field carrying an error wears `formidable-invalid`,
 touched or not. A field the visitor has touched or changed wears `formidable-valid` once it has
 nothing wrong and would pass a submit. Warning, info and pending arrive in later stages.
 
-The message rules reach both places a message appears: under its own field, and in the summary.
-Each list drops its bullets, and each severity takes a colour of its own.
+The message rules reach both places a message appears: under its own field, and in the summary. Each
+list drops its bullets, and each severity takes a colour of its own.
 
 Submit again, with Email still holding `not-an-email` and Name still empty:
 
@@ -224,8 +223,8 @@ present and malformed, which is the draft rule's. Bio breaks nothing and still w
 border every field starts with, because the valid class waits for the visitor to touch the field.
 
 > [!NOTE]
-> A fresh form says nothing, and until a submit, neither does a field the visitor has not changed.
-> A message waits for a change to its own field, or for a submit — never for a rule to be switched
+> A fresh form says nothing, and until a submit, neither does a field the visitor has not changed. A
+> message waits for a change to its own field, or for a submit — never for a rule to be switched
 > off. The whole story is [Progressive disclosure](../disclosure.md).
 
 ## Recap

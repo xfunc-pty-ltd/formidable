@@ -1,7 +1,7 @@
 # Stage 6: the server round trip
 
-The client's verdict is a convenience. The server's is the one that counts, and it answers with
-the rules you have already written.
+The client's verdict is a convenience. The server's is the one that counts, and it answers with the
+rules you have already written.
 
 **You'll learn**
 
@@ -11,8 +11,8 @@ the rules you have already written.
 
 ## Turn it on at the endpoint
 
-Formidable's server-side filters run the Submit profile over the model the request carried.
-Minimal APIs take one call:
+Formidable's server-side filters run the Submit profile over the model the request carried. Minimal
+APIs take one call:
 
 ```csharp
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
@@ -49,8 +49,8 @@ private FormidableForm<Contact>? _form;
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage6.razor` -->
 
-`OnValidSubmit` runs only once the client's rules pass, so posting is the next question rather
-than the first one:
+`OnValidSubmit` runs only once the client's rules pass, so posting is the next question rather than
+the first one:
 
 ```razor
 private async Task HandleValid()
@@ -68,9 +68,9 @@ private async Task HandleValid()
 
 ## Apply the verdict
 
-Read the body inside a `try`. A 400 says the request was rejected, not that your endpoint
-rejected it: a proxy or a gateway in front of it sends its own body, often not JSON at all. Treat
-a body you cannot read as no verdict, and apply nothing:
+Read the body inside a `try`. A 400 says the request was rejected, not that your endpoint rejected
+it: a proxy or a gateway in front of it sends its own body, often not JSON at all. Treat a body you
+cannot read as no verdict, and apply nothing:
 
 ```razor
     FormidableValidationProblem? problem;
@@ -94,9 +94,9 @@ a body you cannot read as no verdict, and apply nothing:
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage6.razor` -->
 
-`ApplyServerIssues` puts each issue on the field it names, at the severity it carries. Errors
-block and mark their field invalid; warnings and infos land as advisories that block nothing.
-Each call replaces the last server verdict, so resubmitting leaves no stale duplicate behind.
+`ApplyServerIssues` puts each issue on the field it names, at the severity it carries. Errors block
+and mark their field invalid; warnings and infos land as advisories that block nothing. Each call
+replaces the last server verdict, so resubmitting leaves no stale duplicate behind.
 
 > [!NOTE]
 > The tutorial app under `samples/Formidable.Tutorial` fakes the wire, so its `/stage6` page runs

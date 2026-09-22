@@ -1,7 +1,7 @@
 # Stage 5: an async rule
 
-Some checks need an answer the browser does not have. Has someone already registered this
-address? Only a directory knows. Ask it, and show the visitor that you are asking.
+Some checks need an answer the browser does not have. Has someone already registered this address?
+Only a directory knows. Ask it, and show the visitor that you are asking.
 
 **You'll learn**
 
@@ -43,8 +43,8 @@ public sealed class InMemoryEmailDirectory : IEmailDirectory
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Services/EmailDirectory.cs` -->
 
-Register it in `Program.cs` beside the validator. A validator is a service like any other, so it
-can take one in its constructor:
+Register it in `Program.cs` beside the validator. A validator is a service like any other, so it can
+take one in its constructor:
 
 ```razor
 public class ContactValidator : DraftSubmitValidator<Contact>
@@ -75,8 +75,8 @@ changes because Formidable is running it.
 
 ## Show that you are checking
 
-While the rule is in flight, its field carries a pending state. Wrap Email in a
-`FormidableField` and read the flag off the context:
+While the rule is in flight, its field carries a pending state. Wrap Email in a `FormidableField`
+and read the flag off the context:
 
 ```razor
 <FormidableField For="() => _contact.Email" Context="field">
@@ -89,8 +89,8 @@ While the rule is in flight, its field carries a pending state. Wrap Email in a
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage5.razor` -->
 
-The `<span>` renders either way, and only its text comes and goes. A live region announces
-reliably when assistive technology was told about it before the content arrived.
+The `<span>` renders either way, and only its text comes and goes. A live region announces reliably
+when assistive technology was told about it before the content arrived.
 
 The same flag puts `formidable-pending` on the input, so a stylesheet can mark the field too. The
 tutorial's CSS gives it a dashed border.

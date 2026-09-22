@@ -61,9 +61,8 @@ public static class FormidableCss
 
     /// <summary>
     /// Picks one of three caller-supplied constant strings by severity — the shared shape behind
-    /// every per-issue class the kit renders (a message list item, a summary group), so a caller
-    /// declares its own three literals once and pays no allocation choosing among them at render
-    /// time.
+    /// every class the kit picks that way, wherever it renders one, so a caller declares its own
+    /// three literals once and pays no allocation choosing among them at render time.
     /// </summary>
     internal static string SelectBySeverity(ValidationSeverity severity, string errorClass, string warningClass, string infoClass) =>
         severity switch

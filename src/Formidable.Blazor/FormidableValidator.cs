@@ -293,8 +293,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         const string message =
             "Formidable: no element could be found to scope the displaced-click guard to, so a click the " +
             "page moves out from under the pointer is lost. Put the model-level FormidableFieldId on the " +
-            "EditForm this attaches to, or place it around a field this component registers, or set " +
-            "FormidableOptions.ClickRecovery to None to ask for no guard at all.";
+            "EditForm this attaches to, or place a <form> element around a field this component " +
+            "registers, or set FormidableOptions.ClickRecovery to None to ask for no guard at all.";
 
         FormidableDiagnostics.Warn(FormidableEngineFactory.ResolveLogger(Services), message);
     }
