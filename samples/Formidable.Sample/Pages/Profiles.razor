@@ -8,10 +8,10 @@
 <FormidableForm Model="_brief">
     <FormSummary />
 
-    <p><label>Title <FormidableInputText For="() => _brief.Title" @bind-Value="_brief.Title" /></label>
-        <FieldMessage For="() => _brief.Title" /></p>
-    <p><label>Summary <FormidableInputText For="() => _brief.Summary" @bind-Value="_brief.Summary" /></label>
-        <FieldMessage For="() => _brief.Summary" /></p>
+    <div class="field"><label>Title <FormidableInputText For="() => _brief.Title" @bind-Value="_brief.Title" /></label>
+        <FieldMessage For="() => _brief.Title" /></div>
+    <div class="field"><label>Summary <FormidableInputText For="() => _brief.Summary" @bind-Value="_brief.Summary" /></label>
+        <FieldMessage For="() => _brief.Summary" /></div>
 
     <button type="submit">Submit</button>
     <button type="button" @onclick="SaveDraft">Save draft</button>

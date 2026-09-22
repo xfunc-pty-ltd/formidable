@@ -8,7 +8,7 @@
     <FormSummary />
 
     <FormidableField For="() => _order.Colour" Context="field">
-        <p>
+        <div class="field">
             <label for="@field.ElementId">Colour</label>
             <select id="@field.ElementId" class="@field.CssClass"
                     aria-invalid="@(field.AriaInvalid ? "true" : null)"
@@ -19,7 +19,7 @@
                 <option>Green</option>
                 <option>Blue</option>
             </select>
-        </p>
+        </div>
         <FieldMessage For="() => _order.Colour" />
     </FormidableField>
 

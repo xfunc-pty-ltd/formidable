@@ -7,12 +7,12 @@
 <FormidableForm Model="_order">
     <FormSummary />
 
-    <p><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
         <ValidationMessage For="() => _order.Nickname" />
-        <FieldAnchor For="() => _order.Nickname" /></p>
+        <FieldAnchor For="() => _order.Nickname" /></div>
 
-    <p><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
-        <FieldMessage For="() => _order.Colour" /></p>
+    <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+        <FieldMessage For="() => _order.Colour" /></div>
 
     <button type="submit">Submit</button>
 </FormidableForm>

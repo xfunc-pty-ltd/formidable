@@ -8,24 +8,24 @@
     <FormSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">
-        <p>
+        <div class="field">
             <label>Username <FormidableInputText For="() => _handle.Username" @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>
             }
-        </p>
+        </div>
         <FieldMessage For="() => _handle.Username" />
     </FormidableField>
 
     <FormidableField For="() => _handle.DisplayName" Context="field">
-        <p>
+        <div class="field">
             <label>Display name <FormidableInputText For="() => _handle.DisplayName" @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>
             }
-        </p>
+        </div>
         <FieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
 

@@ -7,14 +7,14 @@
 <FormidableForm @ref="_form" Model="_listing">
     <FormSummary />
 
-    <p><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
-        <FieldMessage For="() => _listing.Title" /></p>
-    <p><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
-        <FieldMessage For="() => _listing.Description" /></p>
-    <p><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
-        <FieldMessage For="() => _listing.Tags" /></p>
+    <div class="field"><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
+        <FieldMessage For="() => _listing.Title" /></div>
+    <div class="field"><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
+        <FieldMessage For="() => _listing.Description" /></div>
+    <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
+        <FieldMessage For="() => _listing.Tags" /></div>
 
-    <button type="button" @onclick="Submit">Submit</button>
+    <button type="button" class="primary" @onclick="Submit">Submit</button>
 </FormidableForm>
 
 <p role="status">@_status</p>

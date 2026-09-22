@@ -1,0 +1,422 @@
+/* Formidable sample theme — "xfunc Soft".
+   The library ships no styling; this stylesheet is the consumer side of the
+   story: it targets the formidable-* hooks the kit emits. Tokens first, one
+   dark-mode override block, then chrome, forms, and the formidable surface. */
+
+:root {
+    /* palette — light */
+    --bg: #ffffff;
+    --field-bg: #f8f9fa;
+    --text: #1a1a2e;
+    --muted: #4a5565;
+    --border: #e5e7eb;
+    --accent: #0774b8;
+    --ring: rgba(7, 116, 184, .16);
+    --error: #b91c1c;
+    --error-text: #b91c1c;
+    --warn: #a16207;
+    --info: #516fca;
+    --summary-bg: #fdf1ef;
+    --cta: #f26a2b;
+    --cta-text: #ffffff;
+
+    /* chrome (same in both schemes) */
+    --nav-bg: #1a1a2e;
+    --nav-active: #f26a2b;
+    --nav-brand-sub: #81d2f8;
+
+    /* shape */
+    --radius-input: 12px;
+    --radius-button: 10px;
+    --radius-card: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1a1a2e;
+        --field-bg: #252547;
+        --text: #f3f4f6;
+        --muted: #99a1af;
+        --border: #3b3b63;
+        --accent: #81d2f8;
+        --ring: rgba(129, 210, 248, .2);
+        --error: #f87171;
+        --error-text: #fca5a5;
+        --warn: #fbbf24;
+        --info: #a5b4fc;
+        --summary-bg: rgba(248, 113, 113, .09);
+    }
+}
+
+/* ---------- base ---------- */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+h1 {
+    font-size: 1.45rem;
+    margin: 0 0 .5rem;
+}
+
+h2 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+}
+
+p {
+    margin: 0 0 .9rem;
+}
+
+small {
+    color: var(--muted);
+}
+
+code {
+    font-family: Consolas, monospace;
+    font-size: .85em;
+    background: var(--field-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .05em .3em;
+}
+
+/* ---------- app chrome ---------- */
+
+.shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    background: var(--nav-bg);
+    color: #ffffff;
+    padding: .65rem 1.25rem;
+    display: flex;
+    align-items: center;
+}
+
+.brand {
+    font-weight: 700;
+}
+
+.brand b {
+    color: var(--nav-active);
+    margin-right: .35rem;
+}
+
+.brand em {
+    font-style: normal;
+    font-weight: 500;
+    font-size: .8rem;
+    color: var(--nav-brand-sub);
+    margin-left: .4rem;
+}
+
+.shell-body {
+    display: flex;
+    flex: 1;
+}
+
+.sidebar {
+    width: 15rem;
+    flex-shrink: 0;
+    padding: 1.1rem .9rem;
+    border-right: 1px solid var(--border);
+}
+
+.sidebar ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.sidebar a {
+    display: block;
+    padding: .38rem .6rem;
+    border-radius: 8px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: .92rem;
+}
+
+.sidebar a:hover {
+    color: var(--text);
+    background: var(--field-bg);
+}
+
+.sidebar a.active {
+    color: var(--nav-active);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+}
+
+main {
+    flex: 1;
+    min-width: 0;
+    padding: 1.5rem 2rem 3rem;
+    max-width: 52rem;
+}
+
+@media (max-width: 760px) {
+    .shell-body {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+}
+
+/* ---------- fields and inputs ---------- */
+
+.field {
+    position: relative;
+    margin: 0 0 1rem;
+}
+
+.field > label {
+    position: relative;
+    display: block;
+    font-size: .9rem;
+    font-weight: 600;
+    margin-bottom: .1rem;
+}
+
+form input:where(:not([type=radio]):not([type=checkbox])),
+form select {
+    display: block;
+    width: 100%;
+    margin-top: .3rem;
+    font: inherit;
+    font-size: .95rem;
+    color: var(--text);
+    background: var(--field-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-input);
+    padding: .6rem .85rem;
+}
+
+form input:where(:not([type=radio]):not([type=checkbox])):focus,
+form select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--ring);
+    background: var(--bg);
+}
+
+/* ---------- validation states (FormidableCssOptions defaults) ---------- */
+
+form .formidable-invalid {
+    border-color: var(--error);
+}
+
+/* "confirmed" without semaphore green: the accent mixed toward the border */
+form .formidable-valid {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+form .formidable-pending {
+    padding-right: 2.3rem;
+}
+
+/* CSS-only pending spinner. Two anchors cover both field shapes:
+   label-wrapped inputs (most pages) anchor on the label; unwrapped controls
+   (ForeignControl's select is a direct child of .field) anchor on .field.
+   The child combinator keeps the two from ever both matching at once. */
+@keyframes formidable-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.field > label:has(> .formidable-pending)::after,
+.field:has(> .formidable-pending)::after {
+    content: "";
+    position: absolute;
+    right: 12px;
+    bottom: 14px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    animation: formidable-spin .8s linear infinite;
+}
+
+/* ---------- messages ---------- */
+
+.formidable-messages {
+    list-style: none;
+    margin: .3rem 0 0;
+    padding: 0;
+}
+
+.formidable-message {
+    font-size: .85rem;
+    margin-top: .15rem;
+}
+
+.formidable-message--error {
+    color: var(--error-text);
+}
+
+.formidable-message--warning {
+    color: var(--warn);
+}
+
+.formidable-message--info {
+    color: var(--info);
+}
+
+/* native Blazor ValidationMessage on the vanilla-interop page */
+.validation-message {
+    display: block;
+    font-size: .85rem;
+    margin-top: .3rem;
+    color: var(--error-text);
+}
+
+/* ---------- buttons ---------- */
+
+button {
+    font: inherit;
+    font-size: .95rem;
+    font-weight: 600;
+    border-radius: var(--radius-button);
+    padding: .55rem 1.3rem;
+    cursor: pointer;
+    margin-right: .4rem;
+}
+
+button[type=submit],
+button.primary {
+    background: var(--cta);
+    color: var(--cta-text);
+    border: 1px solid transparent;
+}
+
+button[type=submit]:hover,
+button.primary:hover {
+    filter: brightness(1.06);
+}
+
+button[type=button]:not(.primary):not(.formidable-summary__link) {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+}
+
+button[type=button]:not(.primary):not(.formidable-summary__link):hover {
+    border-color: var(--accent);
+}
+
+button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* ---------- summary (links excluded from the secondary-button rules above) ---------- */
+
+.formidable-summary {
+    background: var(--summary-bg);
+    border-left: 3px solid var(--error);
+    border-radius: var(--radius-card);
+    padding: .8rem 1rem;
+    margin-bottom: 1.1rem;
+}
+
+.formidable-summary__group {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.formidable-summary__group + .formidable-summary__group {
+    margin-top: .4rem;
+}
+
+.formidable-summary__item {
+    margin: .15rem 0;
+}
+
+button.formidable-summary__link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    font-size: .9rem;
+    font-weight: 500;
+    color: var(--error-text);
+    text-decoration: underline;
+    cursor: pointer;
+    text-align: left;
+}
+
+.formidable-summary__group--warning button.formidable-summary__link {
+    color: var(--warn);
+}
+
+.formidable-summary__group--info button.formidable-summary__link {
+    color: var(--info);
+}
+
+/* ---------- structure and status ---------- */
+
+fieldset {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: .9rem 1rem;
+    margin: 0 0 1rem;
+}
+
+legend {
+    font-weight: 600;
+    font-size: .9rem;
+    padding: 0 .4rem;
+}
+
+.scroll-panel {
+    height: 20rem;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: .5rem .75rem;
+    margin-bottom: 1rem;
+}
+
+p[role=status] {
+    color: var(--muted);
+    font-size: .9rem;
+}
+
+em[role=status] {
+    font-style: normal;
+    font-size: .85rem;
+    color: var(--accent);
+}
+
+.member-list {
+    list-style: none;
+    margin: 0 0 .6rem;
+    padding: 0;
+}
+
+.member-list li.field {
+    margin-bottom: .8rem;
+}

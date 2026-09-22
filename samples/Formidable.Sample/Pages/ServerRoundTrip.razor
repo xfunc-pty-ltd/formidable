@@ -8,17 +8,17 @@
 <FormidableForm @ref="_form" Model="_order">
     <FormSummary />
 
-    <p><label>Description <FormidableInputText For="() => _order.Description" @bind-Value="_order.Description" /></label>
-        <FieldMessage For="() => _order.Description" /></p>
+    <div class="field"><label>Description <FormidableInputText For="() => _order.Description" @bind-Value="_order.Description" /></label>
+        <FieldMessage For="() => _order.Description" /></div>
 
     @foreach (var line in _order.Lines)
     {
-        <p @key="line"><label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
-            <FieldMessage For="() => line.Sku" /></p>
+        <div class="field" @key="line"><label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
+            <FieldMessage For="() => line.Sku" /></div>
     }
     <button type="button" @onclick="() => _order.Lines.Add(new OrderLine())">Add line</button>
 
-    <button type="button" @onclick="Send">Send to server</button>
+    <button type="button" class="primary" @onclick="Send">Send to server</button>
 </FormidableForm>
 
 @if (_serverWarnings.Count > 0)

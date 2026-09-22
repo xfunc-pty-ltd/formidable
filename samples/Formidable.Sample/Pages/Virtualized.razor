@@ -7,14 +7,14 @@
 <FormidableForm Model="_order">
     <FormSummary />
 
-    <div style="height: 20rem; overflow-y: auto;">
+    <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" Context="gadget">
-            <p @key="gadget">
+            <div class="field" @key="gadget">
                 <label>Serial
                     <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FieldMessage For="() => gadget.Serial" />
-            </p>
+            </div>
         </Virtualize>
     </div>
 

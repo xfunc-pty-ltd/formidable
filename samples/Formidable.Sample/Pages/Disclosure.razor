@@ -7,14 +7,14 @@
 <FormidableForm Model="_request" Options="_options">
     <FormSummary />
 
-    <p><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
-        <FieldMessage For="() => _request.Destination" /></p>
+    <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
+        <FieldMessage For="() => _request.Destination" /></div>
 
     <p><button type="button" @onclick="() => _showDetails = !_showDetails">@(_showDetails ? "Hide" : "Show") traveler details</button></p>
     @if (_showDetails)
     {
-        <p><label>Traveler name <FormidableInputText For="() => _request.TravelerName" @bind-Value="_request.TravelerName" /></label>
-            <FieldMessage For="() => _request.TravelerName" /></p>
+        <div class="field"><label>Traveler name <FormidableInputText For="() => _request.TravelerName" @bind-Value="_request.TravelerName" /></label>
+            <FieldMessage For="() => _request.TravelerName" /></div>
     }
 
     <fieldset>
@@ -44,9 +44,9 @@
 
             @if (_request.AccommodationType == "Accessible")
             {
-                <p><label>Special requirements
+                <div class="field"><label>Special requirements
                     <FormidableInputText For="() => _request.SpecialRequirements" @bind-Value="_request.SpecialRequirements" /></label>
-                    <FieldMessage For="() => _request.SpecialRequirements" /></p>
+                    <FieldMessage For="() => _request.SpecialRequirements" /></div>
             }
         </fieldset>
     }

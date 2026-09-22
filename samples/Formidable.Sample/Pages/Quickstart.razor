@@ -7,10 +7,10 @@
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
     <FormSummary />
 
-    <p><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
-        <FieldMessage For="() => _contact.Name" /></p>
-    <p><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
-        <FieldMessage For="() => _contact.Email" /></p>
+    <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+        <FieldMessage For="() => _contact.Name" /></div>
+    <div class="field"><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
+        <FieldMessage For="() => _contact.Email" /></div>
 
     <button type="submit">Submit</button>
 </FormidableForm>

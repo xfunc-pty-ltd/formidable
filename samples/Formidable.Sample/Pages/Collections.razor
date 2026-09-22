@@ -12,14 +12,14 @@
     {
         <fieldset @key="team">
             <legend>Team</legend>
-            <p><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
-                <FieldMessage For="() => team.Name" /></p>
+            <div class="field"><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                <FieldMessage For="() => team.Name" /></div>
 
             <CollectionMessage For="() => team.Members" />
-            <ul>
+            <ul class="member-list">
                 @foreach (var member in team.Members)
                 {
-                    <li @key="member">
+                    <li class="field" @key="member">
                         <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
                         <FieldMessage For="() => member.Alias" />
                         <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
