@@ -186,6 +186,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private bool _coverageFresh;
     private HashSet<FieldIdentifier>? _coverageErrorFields;
 
+    // The submit profile's presence demands, resolved to fields (see Requirements). Null until
+    // first asked, and dropped whenever the profile instance or the rendered field set moves.
+    private Dictionary<FieldIdentifier, RuleRequirement>? _requirements;
+    private ValidationProfile? _requirementsProfile;
+
     // The last coverage answer that came out fresh, and the two coordinates it answers for. They
     // are the cache key above minus exactly one member — the coverage version — and ignoring that
     // one member is the whole of what holding an answer means. A rendered-field-set change empties
@@ -300,6 +305,83 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             HasWarnings: hasWarnings,
             HasInfos: hasInfos,
             WouldPassSubmit: WouldPassSubmit(field));
+    }
+
+    /// <inheritdoc />
+    public RuleRequirement GetFieldRequirement(FieldIdentifier field)
+    {
+        // The override is asked first and on every read: it is a declaration a consumer makes
+        // about their own form, so it outranks whatever the rules can be read to say, and it is
+        // the only part of this answer that can change without the validator or the profile
+        // changing — caching it would freeze whatever it happened to say on the first render.
+        if (_options.RequiredOverride?.Invoke(field) is { } declared)
+        {
+            return declared;
+        }
+
+        return Requirements().TryGetValue(field, out var requirement)
+            ? requirement
+            : RuleRequirement.NotRequired;
+    }
+
+    /// <summary>
+    /// The submit profile's presence demands, resolved to fields — built on first ask and kept
+    /// until the submit profile instance changes or the rendered field set moves. Asking the
+    /// validator for one field's answer costs a walk of its declared rules, and this is asked
+    /// once per bound component per render, so the walk happens once for the form instead of
+    /// once per field per render.
+    /// <para>
+    /// Keys are resolved through the same introspector that puts an ISSUE on a field, so a
+    /// demand lands on exactly the field the failure it describes would land on — which is the
+    /// whole point of resolving rather than comparing names. That resolution reads the model
+    /// graph, so it is dropped when the rendered field set moves, for the same reason the
+    /// verdict store is: a change to what is on the page can carry a change to the objects
+    /// behind it, with no field-changed notification anywhere. What that keeps current is this
+    /// map and nothing else — a component asks with the identifier it resolved when it last
+    /// bound, so a rebuild that re-files a nested member under a replaced owner leaves an
+    /// unmoved component asking under the old one. That divergence is the documented limit on
+    /// <see cref="IFormValidationEngine.GetFieldRequirement"/>, and it errs towards claiming
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// A selection that throws (a typo'd ruleset name) answers "nothing found" rather than
+    /// taking the render down — the same call <see cref="EnsureSubmitCoverageCurrent"/> makes
+    /// one screen up, and for the same reason: the next pass surfaces that exception through
+    /// its own fault policy, which is where a configuration error belongs. Only entries that
+    /// demand something are kept, so a lookup miss and
+    /// <see cref="RuleRequirement.NotRequired"/> are the same answer.
+    /// </para>
+    /// </summary>
+    private Dictionary<FieldIdentifier, RuleRequirement> Requirements()
+    {
+        var profile = _options.SubmitProfile;
+        if (_requirements is not null && ReferenceEquals(_requirementsProfile, profile))
+        {
+            return _requirements;
+        }
+
+        var map = new Dictionary<FieldIdentifier, RuleRequirement>();
+        if (_validator is IRuleInspectingValidator<TModel> inspector && inspector.CanInspectRules)
+        {
+            try
+            {
+                foreach (var path in inspector.GetFieldRuleCodes(profile).Keys)
+                {
+                    var requirement = inspector.GetFieldRequirement(path, profile);
+                    if (requirement != RuleRequirement.NotRequired)
+                    {
+                        map[_introspector.Resolve(_model, path).ToFieldIdentifier(_model, path)] = requirement;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                map.Clear(); // selection failed: nothing can be read, so nothing is claimed
+            }
+        }
+
+        _requirementsProfile = profile;
+        return _requirements = map;
     }
 
     /// <summary>
@@ -1164,6 +1246,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // The emptied store answers for nothing, so the coverage read re-derives — or, while the
         // edit stamp says the model it described still stands, holds the answer it last gave.
         _coverageVersion++;
+
+        // The presence demands are keyed by fields resolved against the model graph, and a move
+        // in what the page renders is the one signal the engine has that the graph behind it may
+        // have moved too — the same argument the store clear above rests on, since the edit
+        // counter cannot see either. Dropping it is all that happens here: the next ask rebuilds
+        // it — a walk of the declared rules, not a pass — against the graph that ask finds. Which
+        // is not the same as making every ASK current: a component holds the identifier it
+        // resolved at bind, so re-filing a nested member under a replaced owner is what strands
+        // one (see Requirements).
+        _requirements = null;
 
         // Unconditional, because what is owed here is owed by a form at any point in its life.
         // The submit channel needs reconciling only once it has disclosed something, but the

@@ -181,9 +181,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <summary>
     /// Adds the attributes every validated input shares, in the order that makes the kit's
     /// guarantees hold: <see cref="AdditionalAttributes"/> first, then <see cref="ElementId"/> as
-    /// <c>id</c>, then <see cref="CssClass"/>, then the aria pair — <c>aria-invalid="true"</c>
-    /// while the field has error-severity issues, and <c>aria-describedby</c> pointing at
-    /// <see cref="MessagesElementId"/> while it has issues of any severity. Because the computed
+    /// <c>id</c>, then <see cref="CssClass"/>, then the aria attributes —
+    /// <c>aria-invalid="true"</c> while the field has error-severity issues,
+    /// <c>aria-describedby</c> pointing at <see cref="MessagesElementId"/> while it has issues
+    /// of any severity, and <c>aria-required="true"</c> while
+    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> reports the submit profile
+    /// demands a value for it. Because the computed
     /// values enter the render tree after the splat, they win the duplicate-attribute race (Blazor
     /// applies last-write-wins): a consumer's <c>class</c> merges with the state class, and a
     /// consumer's <c>id</c> is ignored in favour of the id messages, <c>aria-describedby</c> and
@@ -194,11 +197,14 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// </summary>
     /// <remarks>
     /// The ordering is a guarantee, not a convention a derived control transcribes: writing these
-    /// four frames by hand is what a control does when it needs them somewhere this call cannot put
+    /// frames by hand is what a control does when it needs them somewhere this call cannot put
     /// them, and it takes the ordering — and a second engine read per property — on itself. This
-    /// call reads the field's state and issues once each, and both the class and the aria
-    /// attributes answer from that one read, so an element renders one consistent view of the
-    /// field.
+    /// call reads the field's state and issues once each, and the class, <c>aria-invalid</c> and
+    /// <c>aria-describedby</c> all answer from that one read, so an element renders one
+    /// consistent view of the field. <c>aria-required</c> is asked separately, because what the
+    /// rules demand of a field is not part of what the current values are doing — the engine
+    /// answers it from the submit profile's declared rules, cached, so the extra ask is a
+    /// dictionary lookup.
     /// </remarks>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first of the four sequence numbers this call consumes.</param>
@@ -211,7 +217,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         builder.AddAttribute(sequence + 1, "id", ElementId);
         builder.AddAttribute(sequence + 2, "class", ComputeCssClass(state));
 
-        // Both aria attributes share one sequence number: attribute frames diff by name rather than
+        // The aria attributes share one sequence number: attribute frames diff by name rather than
         // by sequence, and sharing it keeps this call's budget at four numbers for a control
         // numbering its own attributes around it.
         if (state.HasErrors)
@@ -222,6 +228,11 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         if (issues.Count > 0)
         {
             builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+        }
+
+        if (Context.Engine.GetFieldRequirement(Field) == RuleRequirement.Required)
+        {
+            builder.AddAttribute(sequence + 3, "aria-required", "true");
         }
     }
 

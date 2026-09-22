@@ -266,6 +266,8 @@ public class FormidableFieldCssClassProviderTests
 
         public FieldState GetFieldState(FieldIdentifier field) => state;
 
+        public RuleRequirement GetFieldRequirement(FieldIdentifier field) => RuleRequirement.NotRequired;
+
         public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field) => [];
 
         public IReadOnlyList<VisibleIssue> GetVisibleIssues() => [];

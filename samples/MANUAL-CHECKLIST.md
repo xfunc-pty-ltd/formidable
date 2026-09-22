@@ -66,6 +66,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Draft vs Submit
 
+- [ ] Each label's text is followed by a red asterisk — `Title *` and `Summary *` — in light and
+      dark alike, and nothing on the page declares one: the mark is read from the validator's
+      submit bucket
 - [ ] Panel states the 60-char Title rule; 61 chars shows it live
 - [ ] Save draft: blocked by format only. Shorten the title and save again: it saves with
       Summary still empty

@@ -502,10 +502,12 @@ appended alongside it; the two are merged, never one replacing the other.
 
 **Aria.** `aria-invalid` appears while the field has error-severity issues, and `aria-describedby`
 — pointing at the message list's id — while it has any issues at all; a clean field renders
-neither.
+neither. `aria-required` appears while the submit profile's rules demand a value for the field,
+which is a fact about the rules rather than about the current value, so it is there from the first
+render and stays through every state the field passes.
 
 **Rendering them.** `AddCommonAttributes` is the first of the two calls: it renders the splat,
-the id, the class and the aria pair, and the order it renders them in is what the kit's two
+the id, the class and the aria attributes, and the order it renders them in is what the kit's two
 consumer-facing guarantees rest on:
 
 ```csharp
@@ -518,7 +520,7 @@ consumer-facing guarantees rest on:
         builder.AddAttribute(sequence + 1, "id", ElementId);
         builder.AddAttribute(sequence + 2, "class", ComputeCssClass(state));
 
-        // Both aria attributes share one sequence number: attribute frames diff by name rather than
+        // The aria attributes share one sequence number: attribute frames diff by name rather than
         // by sequence, and sharing it keeps this call's budget at four numbers for a control
         // numbering its own attributes around it.
         if (state.HasErrors)
@@ -529,6 +531,11 @@ consumer-facing guarantees rest on:
         if (issues.Count > 0)
         {
             builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+        }
+
+        if (Context.Engine.GetFieldRequirement(Field) == RuleRequirement.Required)
+        {
+            builder.AddAttribute(sequence + 3, "aria-required", "true");
         }
     }
 ```
@@ -541,8 +548,8 @@ consumer's `class` with the state class and what drops a consumer's `id` in favo
 deterministic one. Because the order lives in this one call, a derived control gets it by calling
 rather than by transcribing. The call consumes four sequence numbers — `sequence` through
 `sequence + 3` — so the control's own attributes start at `sequence + 4`. It also reads the field's
-state and issues once each per render, and answers both the class and the aria attributes from that
-one read.
+state and issues once each per render, and answers the class, `aria-invalid` and `aria-describedby`
+from that one read; `aria-required` is a separate ask, of a cached answer.
 
 **Value binding.** `AddValueBinding` is the call a concrete input's `BuildRenderTree` makes,
 immediately before closing its element, to wire the attribute(s) that commit a value change —
@@ -1408,7 +1415,8 @@ Not every control belongs to Formidable's own kit: a UI library's own `<select>`
 group, a third-party date-picker widget. `FormidableField` is the any-UI-library integration
 point for those. It is a renderless component that registers its field and, on every render,
 hands its `ChildContent` a fresh `FormidableFieldContext` — state, issues, computed CSS class,
-and the aria ids — instead of rendering any markup of its own:
+the aria ids, and what the submit profile's rules demand of the field — instead of rendering any
+markup of its own:
 
 ```csharp
 public sealed class FormidableFieldContext
@@ -1431,8 +1439,9 @@ public sealed class FormidableFieldContext
         Issues = issues;
         AriaInvalid = state.HasErrors;
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
+        Requirement = engine.GetFieldRequirement(field);
 
-        var inputAttributes = new Dictionary<string, object>(4)
+        var inputAttributes = new Dictionary<string, object>(5)
         {
             ["id"] = elementId,
             ["class"] = cssClass,
@@ -1444,6 +1453,10 @@ public sealed class FormidableFieldContext
         if (AriaDescribedBy is not null)
         {
             inputAttributes["aria-describedby"] = AriaDescribedBy;
+        }
+        if (Requirement == RuleRequirement.Required)
+        {
+            inputAttributes["aria-required"] = "true";
         }
         InputAttributes = inputAttributes;
     }
@@ -1475,10 +1488,22 @@ public sealed class FormidableFieldContext
     public string? AriaDescribedBy { get; }
 
     /// <summary>
+    /// How firmly the submit profile's rules demand that the field carry a value — see
+    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
+    /// and what it cannot see. <see cref="RuleRequirement.Required"/> is what
+    /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
+    /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
+    /// here and decides for itself, which is the only way to draw anything for
+    /// <see cref="RuleRequirement.ConditionallyRequired"/>.
+    /// </summary>
+    public RuleRequirement Requirement { get; }
+
+    /// <summary>
     /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
-    /// applicable — <c>aria-invalid</c> and <c>aria-describedby</c>, bundled exactly as
-    /// <see cref="ElementId"/>, <see cref="CssClass"/>, <see cref="AriaInvalid"/>, and
-    /// <see cref="AriaDescribedBy"/> already report them. Splat it onto the control with
+    /// applicable — <c>aria-invalid</c>, <c>aria-describedby</c> and <c>aria-required</c>,
+    /// bundled exactly as <see cref="ElementId"/>, <see cref="CssClass"/>,
+    /// <see cref="AriaInvalid"/>, <see cref="AriaDescribedBy"/> and <see cref="Requirement"/>
+    /// already report them. Splat it onto the control with
     /// <c>@attributes="field.InputAttributes"</c>; <see cref="NotifyChanged"/> is still the
     /// consumer's own wiring, since only the consumer's markup knows which native event commits
     /// the control's value.
@@ -1503,7 +1528,8 @@ public sealed class FormidableFieldContext
 
 Everything a hand-rolled control needs is on that context: `ElementId` for the id to render,
 `CssClass` for the same state class a Formidable input would compute, `AriaInvalid`/
-`AriaDescribedBy` for the same aria pair, `InputAttributes` to splat all four in one go, and
+`AriaDescribedBy` for the same aria pair, `Requirement` for what the submit profile demands of
+the field, `InputAttributes` to splat every one of them in one go, and
 `NotifyChanged()`/`MarkTouched()` to drive the engine the way a Formidable input's own change
 handler does internally. The worked example — wrapping a plain `<select>`, including how to
 label it correctly — is one of the seams below, in

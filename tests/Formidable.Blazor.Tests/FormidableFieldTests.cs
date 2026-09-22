@@ -50,7 +50,7 @@ public class FormidableFieldTests : BunitContext
     }
 
     [Fact]
-    public void InputAttributes_bundles_id_class_and_both_aria_keys_when_invalid()
+    public void InputAttributes_bundles_id_class_and_every_applicable_aria_key_when_invalid()
     {
         var order = new EngineOrder { Description = new string('x', 11) };
         FormidableFieldContext? seen = null;
@@ -77,16 +77,20 @@ public class FormidableFieldTests : BunitContext
             Assert.NotNull(seen);
             Assert.True(seen!.State.HasErrors);
             var attributes = seen.InputAttributes;
-            Assert.Equal(4, attributes.Count);
+            Assert.Equal(5, attributes.Count);
             Assert.Equal(seen.ElementId, attributes["id"]);
             Assert.Equal(seen.CssClass, attributes["class"]);
             Assert.Equal("true", attributes["aria-invalid"]);
             Assert.Equal(seen.AriaDescribedBy, attributes["aria-describedby"]);
+            // Description carries the submit bucket's NotEmpty(), so the splat says so too — a
+            // control splatting this bundle announces the demand without wiring anything itself.
+            Assert.Equal("true", attributes["aria-required"]);
+            Assert.Equal(RuleRequirement.Required, seen.Requirement);
         });
     }
 
     [Fact]
-    public void InputAttributes_omits_aria_keys_when_field_is_valid_and_untouched()
+    public void InputAttributes_omits_the_issue_driven_aria_keys_when_field_is_valid_and_untouched()
     {
         var order = new EngineOrder();
         FormidableFieldContext? seen = null;
@@ -106,11 +110,14 @@ public class FormidableFieldTests : BunitContext
 
         Assert.NotNull(seen);
         var attributes = seen!.InputAttributes;
-        Assert.Equal(2, attributes.Count);
+        Assert.Equal(3, attributes.Count);
         Assert.Equal(seen.ElementId, attributes["id"]);
         Assert.Equal(seen.CssClass, attributes["class"]);
         Assert.False(attributes.ContainsKey("aria-invalid"));
         Assert.False(attributes.ContainsKey("aria-describedby"));
+        // aria-required is not one of the keys a clean field drops: it reports what the rules
+        // demand of the field, which is true of an untouched field and of a passing one alike.
+        Assert.Equal("true", attributes["aria-required"]);
     }
 
     [Fact]

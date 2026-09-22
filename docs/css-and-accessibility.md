@@ -397,8 +397,10 @@ convention. Call it when wiring a control by hand; the kit's inputs, the message
 
 ### `aria-invalid` and `aria-describedby`
 
-`FormidableInputBase<TValue>.AddCommonAttributes` renders both, following the same field state the
-CSS class rule reads:
+`FormidableInputBase<TValue>.AddCommonAttributes` renders both of these, following the same field
+state the CSS class rule reads. It renders one more attribute the excerpt leaves out —
+`aria-required`, which follows what the submit profile's rules demand of the field rather than
+anything the field's current state is doing:
 
 ```csharp
         if (state.HasErrors)
@@ -429,8 +431,8 @@ list:
 *Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
 
 `FormidableFieldContext` — the renderless path's equivalent — computes the identical pair from
-the same inputs, so a hand-rolled control driven by `FormidableField` gets the same wiring a
-`FormidableInputBase` descendant does:
+the same inputs, and reports the field's requirement beside them, so a hand-rolled control driven
+by `FormidableField` gets the same wiring a `FormidableInputBase` descendant does:
 
 ```csharp
         AriaInvalid = state.HasErrors;

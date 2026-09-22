@@ -10,8 +10,8 @@ namespace Formidable.Blazor;
 /// its value, and the base's two calls. The attribute ordering the kit's guarantees rest on —
 /// unmatched attributes splatted first, computed values after, so those win the
 /// duplicate-attribute race (Blazor applies last-write-wins) — belongs to
-/// <see cref="FormidableInputBase{TValue}.AddCommonAttributes"/> rather than to the four frames
-/// each input used to write out for itself.
+/// <see cref="FormidableInputBase{TValue}.AddCommonAttributes"/> rather than to the frames a
+/// control writes out for itself when it needs them somewhere that call cannot put them.
 /// </summary>
 /// <remarks>
 /// A consumer-supplied <c>id</c> is ignored: the rendered id is always the deterministic

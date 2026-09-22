@@ -116,6 +116,46 @@ public sealed class FormidableOptions
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
 
     /// <summary>
+    /// Optional requiredness override, consulted before the validator's own rules are read.
+    /// Return a <see cref="RuleRequirement"/> to declare a field's requiredness outright, or
+    /// null to defer to what the rules say. Defaults to <see langword="null"/>, which defers for
+    /// every field.
+    /// </summary>
+    /// <remarks>
+    /// Not a nicety: reading rules can only see presence expressed as FluentValidation's own
+    /// <c>NotEmpty()</c>/<c>NotNull()</c>, so presence written as a predicate —
+    /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> — is indistinguishable from any other
+    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>, as does a rule inside a
+    /// child validator, a field of a collection row, and every field of a validator that cannot
+    /// be inspected at all. This is what a form says instead, and it declares in both
+    /// directions: <see cref="RuleRequirement.Required"/> marks a field the rules cannot be read
+    /// to demand, and <see cref="RuleRequirement.NotRequired"/> unmarks one they can — a
+    /// <c>NotNull()</c> on a value the page fills in itself, say.
+    /// It decides both surfaces at once, so the marker a <c>FormidableRequiredIndicator</c>
+    /// renders and the <c>aria-required</c> the kit's inputs carry cannot disagree.
+    /// Invoked on every ask — once per bound component per render — rather than cached with the
+    /// rest of the answer, so a delegate reading state that changes is answered as it changes.
+    /// Keep it cheap and keep it a pure read: it runs inside a render.
+    /// </remarks>
+    public Func<FieldIdentifier, RuleRequirement?>? RequiredOverride { get; set; }
+
+    /// <summary>
+    /// The content <c>FormidableRequiredIndicator</c> renders for a required field. Defaults to
+    /// <c>"*"</c>. Set to <see langword="null"/> to render no marker at all, anywhere on the
+    /// form — the form-wide off switch for a design that marks optional fields instead, or one
+    /// whose marker is drawn entirely in CSS.
+    /// </summary>
+    /// <remarks>
+    /// The library ships no styling, so this is the text inside the marker's
+    /// <c>formidable-required</c> element and nothing else — colour, spacing and any glyph drawn
+    /// with <c>::before</c>/<c>::after</c> are the consumer's stylesheet's business. Suppressing
+    /// the marker does not suppress <c>aria-required</c>: whether a value is demanded is a fact
+    /// about the input, not a decoration, so assistive technology keeps being told even where
+    /// nothing is drawn.
+    /// </remarks>
+    public string? RequiredIndicator { get; set; } = "*";
+
+    /// <summary>
     /// How the live channel discloses an engaged field's issues. Defaults to
     /// <see cref="LiveIssueDisclosure.Engaged"/>: engagement alone discloses, on every surface —
     /// the engine's issue reads and the <c>ValidationMessageStore</c> alike — and registration

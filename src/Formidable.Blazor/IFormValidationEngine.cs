@@ -69,6 +69,47 @@ public interface IFormValidationEngine
     FieldState GetFieldState(FieldIdentifier field);
 
     /// <summary>
+    /// How firmly <see cref="FormidableOptions.SubmitProfile"/>'s rules demand that
+    /// <paramref name="field"/> carry a value — what a required-field marker renders from, and
+    /// what puts <c>aria-required</c> on the kit's inputs. The submit profile is the one that
+    /// decides, because "required" on a form means "required before this can be submitted"; a
+    /// narrowed <see cref="FormidableOptions.LiveProfile"/> changes when a message appears,
+    /// never whether the value is demanded.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FormidableOptions.RequiredOverride"/> answers first where it is set and
+    /// returns non-null. Otherwise the answer is read from the validator's declared rules
+    /// through <see cref="IRuleInspectingValidator{TModel}"/>, which sees presence written as
+    /// <c>NotEmpty()</c>/<c>NotNull()</c> and nothing else: presence written as a predicate, a
+    /// validator that cannot be inspected, a rule inside a child validator, and a field of a
+    /// collection row all report <see cref="RuleRequirement.NotRequired"/>, which means "not
+    /// known to be required" rather than "proven optional" — the override is how a form says
+    /// otherwise.
+    /// <para>
+    /// One further limit is about which field an answer is filed under rather than about what
+    /// the rules say, and it reaches only nested members. An answer is keyed exactly the way an
+    /// ISSUE is keyed — the declared path resolved against the model graph — so a demand lands
+    /// on the field the failure it describes would land on; and a component asks with the
+    /// identifier it resolved when it last bound to the cascaded form context. Both name the
+    /// same object, and go on naming it after a page replaces a nested object in place
+    /// (<c>model.Address = new Address()</c>): the swap alone disturbs nothing. What separates
+    /// them is the next derivation — a <see cref="FormidableOptions.SubmitProfile"/> swap, or a
+    /// move in the rendered field set — which files <c>Address.City</c> under the NEW owner
+    /// while a component that has not rebound still asks under the old one. From there the
+    /// field reports <see cref="RuleRequirement.NotRequired"/> — no marker and no
+    /// <c>aria-required</c> — and a further move does not repair it: only that component
+    /// rebinding does, which is its host rebuilding the engine and registry. It fails the way
+    /// every limit above fails, towards claiming nothing, and
+    /// <see cref="FormidableOptions.RequiredOverride"/> answers over it.
+    /// </para>
+    /// <para>
+    /// Because the derived answer is reused, asking per field per render is a dictionary lookup;
+    /// the override delegate, being the part that can change on its own, is invoked on every ask.
+    /// </para>
+    /// </remarks>
+    RuleRequirement GetFieldRequirement(FieldIdentifier field);
+
+    /// <summary>
     /// The field's current issues, any severity, computed from the engine's own state each time
     /// it is asked: the submit channel's view first (its errors, then its advisories), then the
     /// live channel's, then the engine's fault issue on the model-level field. Every channel

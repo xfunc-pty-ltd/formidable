@@ -27,8 +27,9 @@ public sealed class FormidableFieldContext
         Issues = issues;
         AriaInvalid = state.HasErrors;
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
+        Requirement = engine.GetFieldRequirement(field);
 
-        var inputAttributes = new Dictionary<string, object>(4)
+        var inputAttributes = new Dictionary<string, object>(5)
         {
             ["id"] = elementId,
             ["class"] = cssClass,
@@ -40,6 +41,10 @@ public sealed class FormidableFieldContext
         if (AriaDescribedBy is not null)
         {
             inputAttributes["aria-describedby"] = AriaDescribedBy;
+        }
+        if (Requirement == RuleRequirement.Required)
+        {
+            inputAttributes["aria-required"] = "true";
         }
         InputAttributes = inputAttributes;
     }
@@ -71,10 +76,22 @@ public sealed class FormidableFieldContext
     public string? AriaDescribedBy { get; }
 
     /// <summary>
+    /// How firmly the submit profile's rules demand that the field carry a value — see
+    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
+    /// and what it cannot see. <see cref="RuleRequirement.Required"/> is what
+    /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
+    /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
+    /// here and decides for itself, which is the only way to draw anything for
+    /// <see cref="RuleRequirement.ConditionallyRequired"/>.
+    /// </summary>
+    public RuleRequirement Requirement { get; }
+
+    /// <summary>
     /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
-    /// applicable — <c>aria-invalid</c> and <c>aria-describedby</c>, bundled exactly as
-    /// <see cref="ElementId"/>, <see cref="CssClass"/>, <see cref="AriaInvalid"/>, and
-    /// <see cref="AriaDescribedBy"/> already report them. Splat it onto the control with
+    /// applicable — <c>aria-invalid</c>, <c>aria-describedby</c> and <c>aria-required</c>,
+    /// bundled exactly as <see cref="ElementId"/>, <see cref="CssClass"/>,
+    /// <see cref="AriaInvalid"/>, <see cref="AriaDescribedBy"/> and <see cref="Requirement"/>
+    /// already report them. Splat it onto the control with
     /// <c>@attributes="field.InputAttributes"</c>; <see cref="NotifyChanged"/> is still the
     /// consumer's own wiring, since only the consumer's markup knows which native event commits
     /// the control's value.

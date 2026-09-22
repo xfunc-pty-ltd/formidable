@@ -257,6 +257,15 @@ main {
     margin-bottom: .1rem;
 }
 
+/* The required marker the kit emits: content and a class, no styling of its own. The error
+   colour is the convention readers already know an asterisk in, and the marker is aria-hidden,
+   so nothing here has to keep a screen reader in mind - the input's own aria-required carries
+   the fact. Left margin only: it trails the label's text and precedes the input below it. */
+.formidable-required {
+    color: var(--error);
+    margin-left: .15rem;
+}
+
 /* Padding does not margin-collapse the way the field's own bottom margin does, so a field
    showing a message keeps this room on top of its normal trailing margin. The 4.8px gap above
    the message (.formidable-messages' own margin-top) already groups it with its input; this is

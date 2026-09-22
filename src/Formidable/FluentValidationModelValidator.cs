@@ -1,15 +1,19 @@
+using System.Collections.ObjectModel;
 using FluentValidation;
 using FluentValidation.Internal;
 using FluentValidation.Results;
+using FluentValidation.Validators;
 
 namespace Formidable;
 
 /// <summary>
 /// Adapts a FluentValidation <see cref="IValidator{T}"/> to <see cref="IModelValidator{TModel}"/>,
 /// and exposes rule-level selection and execution through
-/// <see cref="IRuleLevelValidator{TModel}"/>.
+/// <see cref="IRuleLevelValidator{TModel}"/> and rule-level inspection through
+/// <see cref="IRuleInspectingValidator{TModel}"/>.
 /// </summary>
-public sealed class FluentValidationModelValidator<TModel> : IModelValidator<TModel>, IRuleLevelValidator<TModel>
+public sealed class FluentValidationModelValidator<TModel>
+    : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
     private readonly IValidator<TModel> _validator;
 
@@ -49,10 +53,7 @@ public sealed class FluentValidationModelValidator<TModel> : IModelValidator<TMo
     {
         ArgumentNullException.ThrowIfNull(profile);
         var abstractValidator = RequireRuleLevelCapability();
-        if (_validator is ProfiledValidator<TModel> profiledValidator)
-        {
-            profiledValidator.VerifyRuleSets(profile);
-        }
+        VerifyRuleSets(profile);
 
         var selected = new List<RuleIdentity>();
         foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
@@ -71,16 +72,170 @@ public sealed class FluentValidationModelValidator<TModel> : IModelValidator<TMo
     {
         ArgumentNullException.ThrowIfNull(profile);
         var abstractValidator = RequireRuleLevelCapability();
-        if (_validator is ProfiledValidator<TModel> profiledValidator)
-        {
-            profiledValidator.VerifyRuleSets(profile);
-        }
+        VerifyRuleSets(profile);
 
         var target = ResolveRule(abstractValidator, rule);
         var selector = new SingleRuleSelector(target, BuildWholeProfileSelector(profile));
         var context = new ValidationContext<TModel>(model, new PropertyChain(), selector);
         var report = ToReport(await _validator.ValidateAsync(context, cancellationToken).ConfigureAwait(false));
         return new RuleLevelResult(report, selector.SawProfileScopedDecision);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// True exactly when the wrapped validator is a FluentValidation
+    /// <c>AbstractValidator&lt;TModel&gt;</c>, whatever its cascade mode: reading a rule's
+    /// declared components asks nothing of execution order, so the class-level cascade stop
+    /// that bars <see cref="CanValidateByRule"/> does not bar inspection. A hand-rolled
+    /// <see cref="IValidator{T}"/> keeps its rules to itself and reports false.
+    /// </remarks>
+    public bool CanInspectRules => _validator is AbstractValidator<TModel>;
+
+    /// <inheritdoc />
+    public RuleRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(fieldPath);
+        ArgumentNullException.ThrowIfNull(profile);
+        if (_validator is not AbstractValidator<TModel> abstractValidator)
+        {
+            return RuleRequirement.NotRequired;
+        }
+
+        VerifyRuleSets(profile);
+
+        var conditional = false;
+        foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
+        {
+            if (!string.Equals(rule.PropertyName, fieldPath, StringComparison.Ordinal) || !IsSelected(rule, profile))
+            {
+                continue;
+            }
+
+            foreach (var component in rule.Components)
+            {
+                if (!IsPresenceComponent(component))
+                {
+                    continue;
+                }
+
+                if (!IsConditional(rule, component))
+                {
+                    return RuleRequirement.Required;
+                }
+
+                conditional = true;
+            }
+        }
+
+        return conditional ? RuleRequirement.ConditionallyRequired : RuleRequirement.NotRequired;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyDictionary<string, FieldRuleCodes> GetFieldRuleCodes(ValidationProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (_validator is not AbstractValidator<TModel> abstractValidator)
+        {
+            return ReadOnlyDictionary<string, FieldRuleCodes>.Empty;
+        }
+
+        VerifyRuleSets(profile);
+
+        var presence = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var other = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
+        {
+            var field = rule.PropertyName;
+            if (string.IsNullOrEmpty(field) || !IsSelected(rule, profile))
+            {
+                continue;
+            }
+
+            foreach (var component in rule.Components)
+            {
+                // A child or collection validator's failures carry the child's own path, so its
+                // codes belong to those fields rather than to the field carrying the rule.
+                if (component.Validator is IChildValidatorAdaptor)
+                {
+                    continue;
+                }
+
+                var bucket = IsPresenceComponent(component) ? presence : other;
+                if (!bucket.TryGetValue(field, out var codes))
+                {
+                    codes = new HashSet<string>(StringComparer.Ordinal);
+                    bucket[field] = codes;
+                }
+
+                codes.Add(ErrorCodeOf(component));
+            }
+        }
+
+        var map = new Dictionary<string, FieldRuleCodes>(StringComparer.Ordinal);
+        foreach (var field in presence.Keys.Concat(other.Keys).Distinct(StringComparer.Ordinal))
+        {
+            var presenceCodes = presence.TryGetValue(field, out var found) ? found : [];
+            var otherCodes = other.TryGetValue(field, out var rest) ? rest : [];
+
+            // A code both kinds of component can produce identifies neither, so it is reported
+            // as ambiguous and withheld from both sets rather than silently attributed to one.
+            var ambiguous = new HashSet<string>(presenceCodes, StringComparer.Ordinal);
+            ambiguous.IntersectWith(otherCodes);
+            if (ambiguous.Count > 0)
+            {
+                presenceCodes = new HashSet<string>(presenceCodes.Except(ambiguous, StringComparer.Ordinal), StringComparer.Ordinal);
+                otherCodes = new HashSet<string>(otherCodes.Except(ambiguous, StringComparer.Ordinal), StringComparer.Ordinal);
+            }
+
+            map[field] = new FieldRuleCodes(presenceCodes, otherCodes, ambiguous);
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Presence as FluentValidation itself declares it: the marker interfaces its
+    /// <c>NotEmpty()</c> and <c>NotNull()</c> validators carry. Matching on the marker rather
+    /// than on a validator's name keeps <c>Null()</c> — whose marker is the similarly spelled
+    /// <see cref="INullValidator"/>, and which demands the opposite — out of the answer.
+    /// </summary>
+    private static bool IsPresenceComponent(IRuleComponent component) =>
+        component.Validator is INotEmptyValidator or INotNullValidator;
+
+    /// <summary>
+    /// Whether the component is reached only through a condition. FluentValidation records a
+    /// condition in one of two places depending on how it was written: a <c>When</c> block
+    /// wrapping the rule declaration marks the rule, while a <c>When</c> chained after a
+    /// component marks the component — including the <c>ApplyConditionTo.CurrentValidator</c>
+    /// form, which marks that one component alone and leaves its siblings unconditional. Both
+    /// places carry a synchronous and an asynchronous flag, so all four are consulted.
+    /// </summary>
+    private static bool IsConditional(IValidationRule rule, IRuleComponent component) =>
+        rule.HasCondition || rule.HasAsyncCondition || component.HasCondition || component.HasAsyncCondition;
+
+    /// <summary>
+    /// The code FluentValidation puts on a failure this component produces: the configured
+    /// <c>WithErrorCode</c> where there is one, otherwise the global resolver's default for the
+    /// component's validator. Deriving it the way the failure does is what lets a caller match
+    /// a reported issue back to the component that reported it.
+    /// </summary>
+    private static string ErrorCodeOf(IRuleComponent component) =>
+        string.IsNullOrEmpty(component.ErrorCode)
+            ? ValidatorOptions.Global.ErrorCodeResolver(component.Validator)
+            : component.ErrorCode;
+
+    /// <summary>
+    /// Runs the wrapped validator's own ruleset-name verification where it has one, so a
+    /// profile naming a ruleset that was never registered fails the same way here as it does
+    /// when the profile is validated.
+    /// </summary>
+    private void VerifyRuleSets(ValidationProfile profile)
+    {
+        if (_validator is ProfiledValidator<TModel> profiledValidator)
+        {
+            profiledValidator.VerifyRuleSets(profile);
+        }
     }
 
     /// <summary>

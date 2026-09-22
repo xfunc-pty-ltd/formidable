@@ -10,14 +10,16 @@
             <li><strong>Title</strong>: 60 characters max. A format rule in the Draft profile: enforced always, including while drafting.</li>
             <li><strong>Title</strong>: required. A completeness rule in the Submit profile: a draft save ignores it, and engaging the field is what puts it on screen.</li>
             <li><strong>Summary</strong>: required. Its own completeness rule in the same profile, disclosed the same way: silent until you engage the field or press Submit.</li>
+            <li><strong>Required marks</strong>: the asterisk on each label is derived from the validator rather than written into the markup — <code>FormidableRequiredIndicator</code> asks what the Submit profile demands, so a rule moving between the two buckets moves the mark with it. The glyph is <code>aria-hidden</code> and the input carries <code>aria-required</code>, so a screen reader is told the field is required instead of being read a star.</li>
             <li><strong>Reset</strong>: calls <code>_form.ResetAsync()</code> — a named verb for returning the SAME model instance to pristine: touched/modified state, messages and <code>HasSubmitted</code> all clear, without swapping to a different object.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
+            <li>Before typing anything, read the two labels: both carry an asterisk, because both fields have a <code>NotEmpty()</code> rule in the Submit profile. Nothing on this page declares that — the mark is read from the validator.</li>
             <li>Type more than 60 characters into Title — the format error appears as you leave the field.</li>
             <li>Click <em>Save draft</em> — blocked: format rules run even for drafts.</li>
-            <li>Shorten the title and <em>Save draft</em> again — it saves, even though Summary is empty.</li>
+            <li>Shorten the title and <em>Save draft</em> again — it saves, even though Summary is empty and wearing a required mark. The mark reads the Submit profile; this button asks the Draft profile, which holds no presence rule at all.</li>
             <li>Now clear Title altogether and leave the field — "Title is required to submit" appears at once, with no submit anywhere: the live channel runs the submit profile's rules, and Title is a field you have engaged. Summary is failing its own required rule and says nothing, because you have never touched it.</li>
             <li>Click <em>Submit</em> — Summary speaks for the first time. Title's entry was already in the error summary from the step before, so the submit is what adds the second one.</li>
             <li>Click any entry in the error summary — it focuses the offending field.</li>
@@ -32,9 +34,9 @@
         <FormidableSummary />
     </div>
 
-    <div class="field"><label>Title <FormidableInputText @bind-Value="_brief.Title" /></label>
+    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _brief.Title" /> <FormidableInputText @bind-Value="_brief.Title" /></label>
         <FormidableFieldMessage For="() => _brief.Title" /></div>
-    <div class="field"><label>Summary <FormidableInputText @bind-Value="_brief.Summary" /></label>
+    <div class="field"><label>Summary <FormidableRequiredIndicator For="() => _brief.Summary" /> <FormidableInputText @bind-Value="_brief.Summary" /></label>
         <FormidableFieldMessage For="() => _brief.Summary" /></div>
 
     <div class="actions">
