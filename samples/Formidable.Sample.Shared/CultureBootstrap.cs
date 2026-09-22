@@ -22,11 +22,13 @@ public static class CultureBootstrap
         {
             try
             {
-                culture = CultureInfo.GetCultureInfo(stored);
+                culture = CultureInfo.GetCultureInfo(stored, predefinedOnly: true);
             }
             catch (CultureNotFoundException)
             {
                 // A corrupted or stale stored value must not stop the app from booting.
+                // predefinedOnly makes an unknown name throw under ICU too, where a plain parse
+                // would synthesise it.
                 culture = fallback;
             }
         }
