@@ -12,10 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     # A deployment environment, so a pushed tag is a request to publish rather than the act of
     # publishing: the job waits for the reviewers configured on the environment, and takes its
-    # nuget.org key from that environment rather than from a repository-wide secret. Until the
-    # environment exists in the repository settings the job cannot start at all, which is the
-    # intended posture for a project that must stay incapable of publishing by accident.
+    # nuget.org key from that environment rather than from a repository-wide secret: it now
+    # comes from the OIDC exchange, valid for one hour, requested after pack so it cannot
+    # expire mid-build. Until the environment exists in the repository settings the job cannot
+    # start at all, which is the intended posture for a project that must stay incapable of
+    # publishing by accident.
     environment: nuget-org
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,4 +33,9 @@ jobs:
       - run: dotnet pack src/Formidable -c Release --no-build -o artifacts
       - run: dotnet pack src/Formidable.Blazor -c Release --no-build -o artifacts
       - run: dotnet pack src/Formidable.AspNetCore -c Release --no-build -o artifacts
-      - run: dotnet nuget push "artifacts/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicates
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - run: dotnet nuget push "artifacts/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicates
