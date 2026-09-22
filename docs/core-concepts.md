@@ -60,10 +60,12 @@ all.
 
 That does not turn a fresh form into a nag, because rule selection is not what holds a message
 back. A live pass files a verdict only for the fields a committed change has notified the engine
-about, so `DisplayName` above says nothing until the visitor has typed in it — and once they
-have, clearing it again earns the message as soon as that edit commits, with no submit anywhere.
-Set `LiveProfile` to narrow the selection when a submit rule is too expensive to run per change;
-`ValidationProfile.Draft` leaves every submit-ruleset rule to the submit itself:
+about, so `DisplayName` above says nothing until the visitor has typed in it and left the
+field — and once they have, coming back, clearing it and leaving again earns the message the
+moment that second edit commits, with no submit anywhere. Set `LiveProfile` to narrow the
+selection when a submit rule is too expensive to run per change; `ValidationProfile.Draft`
+keeps every submit-ruleset rule out of the per-change pass, leaving them to the submit and
+to the debounced refresh that keeps its verdict current:
 
 ```csharp
 var options = new FormidableOptions
@@ -85,9 +87,13 @@ var result = await Validator.ValidateAsync(_profile, ValidationProfile.Draft);
 ```
 
 That overload is Formidable's, from `ValidatorProfileExtensions` in the core `Formidable`
-namespace, and the profile is the only thing it adds. What comes back is FluentValidation's own
-`ValidationResult` — `IsValid` and `Errors`, exactly as a direct call would return them — not a
-Formidable type of any kind.
+namespace, and it adds the profile plus one guard: on a validator derived from
+`ProfiledValidator<T>` it first verifies the profile's ruleset names, so a name the validator
+never registered throws loudly instead of silently selecting nothing (the `"*"` and
+`"default"` names FluentValidation itself defines always pass — its selector honours them
+without any validator declaring them). What comes back is FluentValidation's own
+`ValidationResult` — `IsValid` and `Errors`, exactly as a direct call would return them — not
+a Formidable type of any kind.
 
 ## Severity: not everything wrong should block
 
@@ -111,10 +117,17 @@ RuleFor(p => p.DisplayName)
     .WithMessage("Display names over 40 characters may be truncated in some views");
 ```
 
-Warnings and infos don't get a disclosure rule of their own — they surface precisely when an
-error would. A field the visitor has committed a change to shows its advisory as soon as that
-edit's live pass lands; everywhere else, a submit is what discloses one. From there, whatever's
-showing keeps refreshing live while the visitor edits: it clears the moment they fix it, returns
-if they break it again, and neither direction waits for a second submit.
+Warnings and infos don't get a disclosure rule of their own — the same moments that disclose
+an error disclose them. Where the severities part, they part one way: an advisory surfaces
+only where something can show it, while an error can reach the user with its field off screen
+entirely. A server-declared error surfaces whether or not anything renders its field, and an
+error site a blocked submit once revealed stays watched until the form passes or resets — off
+screen included, its error still surfacing while its advisories drop. A verdict that blocks
+the save must reach the user; an advisory blocks nothing. A field the visitor has committed a
+change to shows its advisory as soon as that edit's live pass lands; everywhere else, a
+submit is what discloses one. From there, whatever's showing keeps refreshing live while the
+visitor edits: it clears as soon as the fixing edit's pass lands (the edit's own live pass
+under the default profile, at latest the debounced refresh just behind it under a narrowed
+one), returns if they break it again, and neither direction waits for a second submit.
 
 **Next:** [Fields and collections](fields-and-collections.md)

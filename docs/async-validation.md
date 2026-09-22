@@ -95,12 +95,15 @@ public class HandleValidator : DraftSubmitValidator<Handle>
 
 The `CancellationToken` that `MustAsync` hands the rule is load-bearing, not decoration. A fast
 run of keystrokes cancels each prior pass the moment the next one starts, and a rule that
-ignores its token lets an abandoned pass keep running toward a result nobody will read. Worse,
-toward a result that can still land after a *later* pass has already resolved and updated the
-model's state.
+ignores its token lets every abandoned pass keep running toward a result nobody will read: the
+engine refuses a superseded pass's verdict, so what an ignored token burns is the work itself —
+each abandoned keystroke's check running to completion against a server that has already been
+asked again.
 
 `Username` and `DisplayName` are two unrelated async checks on the same model, which is worth
-keeping in mind for the pending UI: the two never light each other up.
+keeping in mind for the pending UI: a live pass's indicator is scoped to the fields whose edits
+started it, so the two never light each other up (a submit, by contrast, lights every field
+form-wide).
 
 Then render the pending flag. `FormidableField`'s cascaded `FormidableFieldContext` exposes it
 as `field.State.IsValidating`:
@@ -141,7 +144,7 @@ whatever is already running, and how a submit sits above all of it.
 flowchart TD
     A["Field edit commits"] --> B{"A submit or a draft load in flight?"}
     B -- "yes" --> C["Live pass does not start for this edit"]
-    B -- "no" --> D["Live pass starts for the changed field"]
+    B -- "no" --> D["Live pass starts, triggered by the changed field"]
     D --> E{"A newer live pass starts before this one finishes?"}
     E -- "yes" --> F["This pass is cancelled, superseded"]
     E -- "no" --> G["This pass wins: its verdict answers every engaged field, the superseded passes' fields included"]
@@ -185,9 +188,11 @@ they explicitly requested would lose to one they didn't.
 So it never starts. The live pass for an edit made while a submit is in flight does not begin:
 submit is the higher-intent operation, and a live or refresh pass never supersedes it. The same
 goes for the pass a page runs to say what its freshly loaded values have earned, on the same
-grounds: a caller asked for it and is waiting on it. The edit is not dropped, though. It still
-lands in the pending-refresh set and arms the debounced refresh, which defers to whichever of them
-is running for as long as it stays in flight, and runs once that pass lands.
+grounds: a caller asked for it and is waiting on it. The edit is not dropped, though. Landing
+mid-submit, it joins the pending-refresh set and arms the debounced refresh, which defers to the
+submit for as long as it stays in flight and runs once it lands. Landing mid-load, it arms that
+same refresh only if the form has submitted before — and either way the load's own follow-on
+live pass answers every engaged field, the fresh edit's included.
 
 ### The live pass starts
 
@@ -239,9 +244,10 @@ That is what the refresh is for: keeping already-visible submit errors and warni
 without re-validating the whole profile on every keystroke of a form the user is still
 correcting. Once `HasSubmitted` is true, or while a submit is in flight, every further field
 change adds that field to the pending-refresh set and reschedules a debounced re-run of
-`SubmitProfile`. Before the first submit an edit arms nothing: it starts a live pass and nothing
-else. The edit is not the refresh's only arm site, though — a move in the rendered field set arms
-one at any point in a form's life.
+`SubmitProfile`. Before the first submit an edit arms no refresh: it starts its live pass (or
+arms the `LiveDebounce` window, where one is set), the validity probe rides alongside under
+`TrackFormValidity`, and nothing else runs. The edit is not the refresh's only arm site, though —
+a move in the rendered field set arms one at any point in a form's life.
 
 ### The debounce quiets
 
@@ -341,17 +347,18 @@ re-answers everything against the page as it stands.
 
 Verdicts are facts about rules rather than about profiles, with one honest exception. A rule
 whose child scope the profile itself filters — an `Include()`'s internals, or a `SetValidator`
-child validator whose rules carry ruleset memberships of their own — can genuinely answer
-differently under two profiles, so execution notices such a consultation as it happens and the
-store remembers that verdict as answering only for the profile it ran under. A pass running any
-other profile runs the rule again: an honest re-run rather than a divergent reuse. Every other
-verdict is served to any pass that selects its rule, whichever profile that pass runs under.
+child validator whose rules ride rulesets of their own or the default bucket a ruleset-tagged
+parent's selection cannot vouch for — can genuinely answer differently under two profiles, so
+execution notices such a consultation as it happens and the store remembers that verdict as
+answering only for the profile it ran under. A pass running any other profile runs the rule
+again: an honest re-run rather than a divergent reuse. Every other verdict is served to any pass
+that selects its rule, whichever profile that pass runs under.
 Every rule on this page, and every shape the sample apps ship (plain rules, rules declared into
 rulesets, collection rules with `ChildRules` children), is in this class. It is also what lets
 `FormidableOptions.LiveProfile` be swapped at runtime (the documented way to change a setting,
 see [Engine options](options.md#formidableoptions-is-read-once)) with no special handling: the
-swapped profile re-selects, rules both profiles select keep their verdicts, and rules the store
-has never answered run.
+swapped profile re-selects, rules both profiles select keep their verdicts (the profile-scoped
+exception above re-runs, honestly), and rules the store has never answered run.
 
 The edit count moves on notifications rather than on mutations, and that distinction has teeth.
 Change a bound model's contents without telling the form — a handler patching a computed
@@ -605,7 +612,8 @@ concerns:
   mentions) before the form has said anything about what it loaded would be a spinner about
   nothing.
 
-The same per-field flag drives the `Pending` CSS class (see [Options](options.md))
-that ordinary `Validated*` inputs apply automatically.
+The same per-field flag drives the `Pending` CSS class (see [Options](options.md)) that
+`FormidableInput*` components — and, through the class provider every engine installs on its
+`EditContext`, native `InputBase` components — apply automatically.
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor)

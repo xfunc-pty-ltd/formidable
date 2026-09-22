@@ -28,8 +28,9 @@ protected override void ConfigureDraftRules() =>
 ```
 
 `OnInput` plus a draft-bucket rule validates on every keystroke; the default `OnChange` waits for
-blur. Either way, submit and the refresh are unaffected by `UpdateOn` — they run on their own
-triggers, not the input's commit event.
+blur. Either way, `UpdateOn` changes nothing about what submit and the refresh validate — it
+only decides when a commit reaches the engine, and post-submit each commit is also what re-arms
+the refresh.
 
 A third mode answers a different question: not *when* but *how many times before it matters*.
 `OnBlur` commits the value on `change`, same event as the default, but each commit only arms a
@@ -188,8 +189,8 @@ tags the guest-name rule with both. Each part registers for ruleset-name verific
 typo'd `LiveProfile` ruleset name throws loudly instead of silently selecting nothing. A
 `ValidationProfile` names one ruleset per entry, though: FluentValidation splits a joined name
 where a rule is *declared*, never where a selection is made, so
-`ValidationProfile.Named("Live", true, "Submit,Live")` would match neither ruleset — and `Named`
-rejects it rather than let it select nothing.
+`ValidationProfile.Named("Live", includeDefaultRules: true, "Submit,Live")` would match neither
+ruleset — and `Named` rejects it rather than let it select nothing.
 
 What the shape buys, and what it doesn't. The guest-name rule answers live on the field the
 visitor engages, exactly as it would on the defaults; every other rule in `ConfigureSubmitRules()`
@@ -202,18 +203,22 @@ minimal-API route with no profile argument both resolve to it. Naming the narrow
 server-side would be a trap rather than a redundancy: `"Live"` alone resolves to the default rules
 plus only the `"Live"` ruleset, so every Submit-only rule on the model would silently stop being
 enforced. Composite profiles exist for a genuinely separate live/submit split worth naming on
-purpose (`ValidationProfile.Named(name, true, "Submit", "SomeOtherRuleset")`, selecting several
-rulesets in one profile), but only the minimal-API route can take one: it accepts a
+purpose (`ValidationProfile.Named(name, includeDefaultRules: true, "Submit", "SomeOtherRuleset")`,
+selecting several rulesets in one profile), but only the minimal-API route can take one: it
+accepts a
 `ValidationProfile` instance directly, while `[Validate(Profile = "...")]` resolves a name through
 `ValidationProfile.FromName`, which can only build default rules plus one same-named ruleset.
 
 ```csharp
 app.MapGroup("/api/signups").Validate<Signup>(
-    ValidationProfile.Named("SubmitPlusExtra", true, ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
+    ValidationProfile.Named(
+        "SubmitPlusExtra", includeDefaultRules: true,
+        ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
 ```
 
-**The cost, honestly.** On a validator with a rule-level seam (the FluentValidation adapter,
-unless `ClassLevelCascadeMode.Stop` opts it out), sharing a rule between the two profiles does not
+**The cost, honestly.** On a validator with a rule-level seam (the FluentValidation adapter over
+an `AbstractValidator`, unless `ClassLevelCascadeMode.Stop` opts it out), sharing a rule between
+the two profiles does not
 execute it twice. The pair looks disjoint by *name* — `ValidationProfile.Submit`'s own
 ruleset list is just `["Submit"]`, with `"Live"` nowhere in it — but the engine reuses verdicts by
 *rule*, and a `Profile("Submit,Live", ...)` rule is one declared rule however many names reach it.
@@ -294,7 +299,8 @@ debounced refresh defers to a live pass still in flight and re-arms rather than 
 **Set:** on the server, `Validate<TModel>(profile?)` on a minimal-API handler or route group, or
 `[Validate]` on an MVC action or controller. On the client, deserialize the 400 body into
 `FormidableValidationProblem`, guarding the parse against a body that is not one, and hand the
-result to `_form!.ApplyServerIssues(...)` — every issue lands on the field it names.
+result to `_form!.ApplyServerIssues(...)` — every issue lands on the field it names: errors
+whether or not the field is rendered, advisories wherever that field can show them.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
@@ -477,7 +483,8 @@ and `formidable-summary__group--{severity}`; the `EditContext`'s message store r
 only, so a native `ValidationMessage` shows nothing for an advisory. Submit is the disclosure
 event for advisories exactly as for errors — a warning that was showing keeps refreshing as the
 user edits, a field that was an error site at submit picks up a newly-appearing warning too, and
-only a field with neither an error nor a warning at submit waits for the next submit.
+only a field with neither an error nor an advisory at submit (and that no server apply has named
+since) waits for the next submit.
 
 **Read:** [Severity](severity.md).
 **Samples:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor),
@@ -1168,7 +1175,7 @@ which render the kit exactly this way.
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The browser posted the form itself, so no Blazor component ever saw the submit, and there are two ways to arrive there. Either the page is statically server-rendered with no interactivity coming, or it carries a render mode and the submit landed inside the prerender window, before the circuit or the WebAssembly runtime had started. The advice can't be followed on either path: `FormidableForm` has no `FormName` parameter to pass. | Give a page that has no render mode one: `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or `@rendermode InteractiveAuto`. `FormidableForm` refuses to render where the renderer reports itself static, asking for a render mode in its own words; this 400 is what a host whose renderer says nothing answers instead. Where the page already has a render mode, the guard cannot help, because interactivity genuinely is coming: keep the submit button disabled until the page reports itself interactive (`RendererInfo.IsInteractive`), or take the window away with `@rendermode @(new InteractiveServerRenderMode(prerender: false))`. [Quickstart](quickstart.md#hosting-models). |
 | A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id and reports whether that element took focus. Either no rendered element carries the id — a control the page renders itself, or a field with no input of its own — or one does and will not take focus, which is what a container without `tabindex`, a disabled control, or a collapsed section around the field each produce. | Render the id and make the element focusable: `id="@field.ElementId"` on an input, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. Where the field cannot be made reachable up front, wire a `FocusFallback` to reach it on the retry. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
-| A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
+| A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no issues at all is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
 | Required markers and `aria-required` vanished, and a loaded draft stopped confirming the values its rules pass, after the form was given its own `Validator`. | The validator passed in wins whole. Rule inspection and rule-level execution are optional interfaces beside `IModelValidator<TModel>`, so a wrapper implementing only that seam presents neither, and the capability test a form makes reads the same for it as for a validator whose rules cannot be read at all. | Derive the wrapper from `DelegatingModelValidator<TModel>`, which forwards all three interfaces and answers each tester with the wrapped validator's own answer. [Wrap the validator without losing what it can do](#i-want-to-wrap-the-validator-without-losing-what-it-can-do). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |

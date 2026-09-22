@@ -156,9 +156,12 @@ front of you reaches: `orderFields` for the resolve itself, `observeLayout` and
 `disconnectLayoutObserver` for the browser-side layout observer the form establishes beside it,
 `registerClickRecovery` and `releaseClickRecovery` for the displaced-click guard, `focusField`
 once a blocked submit is going to move focus, and `syncValue` once a `FormidableInputNumber` or
-`FormidableInputDate` blurs. Of those, `registerClickRecovery` is the one that answers rather
-than returning nothing — it reports whether the script found an element to scope the guard to —
-so it is planned with `Setup<bool>` where the rest take `SetupVoid`. Strict mode is bUnit's
+`FormidableInputDate` blurs. Of those, three answer rather than returning nothing —
+`orderFields` hands back the ordered ids, and `focusField` (did the element take focus?) and
+`registerClickRecovery` (did the script find an element to scope the guard to?) each report a
+`bool` — so those three are planned with `Setup<IReadOnlyList<string>>` and `Setup<bool>`,
+while `syncValue`, `observeLayout`, `disconnectLayoutObserver` and `releaseClickRecovery` take
+`SetupVoid`. Strict mode is bUnit's
 default, and an unplanned call throws `JSRuntimeUnhandledInvocationException`, which derives
 from `Exception` rather than `JSException`, so the order resolve's own tolerance for a failed
 interop call never catches it. Render a `FormidableForm` at all with no plan for `orderFields`,
@@ -226,7 +229,8 @@ Three projects, unconditional — no environment variable, no running server, no
 The focus service implements both `IDisposable` and `IAsyncDisposable`, so a bUnit container
 built through `AddFormidableBlazor()` tears down on ordinary synchronous dispose — nothing extra
 to write. Awaiting `Services.DisposeAsync()` instead still works and stays the more thorough
-choice, which is what Formidable's own suite does throughout.
+choice; Formidable's own suite does both — some of its module-planning test classes await it,
+and the rest lean on the synchronous teardown.
 
 Run the whole tier from the repo root:
 

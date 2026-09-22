@@ -2,7 +2,7 @@
 
 <PageTitle>Custom profiles</PageTitle>
 <h1>Custom profiles</h1>
-<p><code>ProfiledValidator&lt;T&gt;</code> composes arbitrary named rulesets, not just the built-in draft/submit pair. This page picks a profile at runtime. The engine reads <code>Options</code> only when it binds a new <code>Model</code>, so the picker resets the form with a fresh model instance alongside the new options to make the change take effect.</p>
+<p><code>ProfiledValidator&lt;T&gt;</code> composes arbitrary named rulesets, not just the built-in draft/submit pair. This page picks a profile at runtime. The form adopts its <code>Options</code> instance when it binds a new <code>Model</code> — handing it a different instance without a model swap throws — so the picker resets the form with a fresh model instance alongside the new options.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "ReviewedPost.cs", "CustomProfiles.razor", "CustomProfiles.razor.cs" })">
     <Rules>
@@ -15,7 +15,7 @@
             <li><strong>Read minutes</strong>: a whole number from 1 to 180 under <code>Submit</code>. A <code>FormidableInputNumber</code>: an entry the box cannot parse (try <code>e3</code>) never reaches the model, never raises a message of its own, and clears from the box when you tab away, so FluentValidation's required and range messages stay the only word on the field.</li>
             <li><strong>Publish date</strong>: required under <code>Submit</code>. A <code>FormidableInputDate</code> with <code>UpdateOn="OnBlur"</code>, the recommended pairing for a date input.</li>
             <li><strong>Review note</strong>: required only under the <code>AdminReview</code> ruleset.</li>
-            <li>The picker rebuilds the form on change: <code>FormidableForm</code> only reads its <code>Options</code> parameter when the <code>Model</code> reference changes, so a profile swap needs a fresh model instance to take effect.</li>
+            <li>The picker rebuilds the form on change: <code>FormidableForm</code> adopts a new <code>Options</code> instance only when the <code>Model</code> reference changes — handing it one without a model swap throws — so a profile swap resets the form with a fresh model instance.</li>
         </ul>
     </Rules>
     <TryIt>

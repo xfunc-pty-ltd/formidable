@@ -121,9 +121,9 @@ it gets caught and renamed; the container's own exception is preserved as the in
 `Formidable.AspNetCore` reports the same state in the same words, from that one shared source file.
 Both strings are Formidable's, which is what keeps them readable in a trimmed WebAssembly build.
 
-None of the three resolutions is configurable beyond that — it's the one place the kit fails
-loudly instead of quietly doing nothing, and it's worth knowing about before an exception is the
-first time you meet it.
+None of the three resolutions is configurable beyond that — resolution fails loudly instead of
+quietly doing nothing, and that's worth knowing before an exception is the first time you meet
+it.
 
 That's the one contract worth holding onto before the reference proper starts. What follows
 introduces the rest of the kit in the order a growing form reaches for it: `FormidableForm` in
@@ -427,8 +427,10 @@ shape to [`FormidableSummary.FocusFallback`](#focusfallback) below, so a page wi
 passes the same callback to each. With no `FocusFallback` wired, the miss does not fall silent the
 way the summary's click-to-focus does. A blocked submit has nowhere else for the visitor to land,
 so it reports a diagnostic instead: a `Trace`-output line, plus a `LogWarning` naming
-`FocusFallback` by parameter name when the host resolved an `ILoggerFactory` — the same dual
-channel [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) writes to.
+`FocusFallback` by parameter name when the host resolved an `ILoggerFactory` — the same
+Trace-plus-logger pair the suppressed-issue report writes to (its third channel, the
+[`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) callback, has no analogue
+here).
 Which of the two seams a page needs turns on one question: can the element take focus at the
 moment the move is made? A field under a CSS overlay can, so the move lands and reports success,
 and the caret ends up in a box the visitor cannot see. Only
@@ -828,7 +830,9 @@ deterministic one. Because the order lives in this one call, a derived control g
 rather than by transcribing. The call consumes four sequence numbers — `sequence` through
 `sequence + 3` — so the control's own attributes start at `sequence + 4`. It also reads the field's
 state and issues once each per render, and answers the class, `aria-invalid` and `aria-describedby`
-from that one read; `aria-required` is a separate ask, of a cached answer.
+from that one read; `aria-required` is a separate ask, answered from a cached map of what the
+rules demand, except that a configured [`RequiredOverride`](options.md#requiredoverride) is
+invoked on every ask, ahead of the map.
 
 **Value binding.** `AddValueBinding` is the call a concrete input's `BuildRenderTree` makes,
 immediately before closing its element, to wire the attribute(s) that commit a value change —
@@ -1151,7 +1155,8 @@ distinct from `change`, the way there is for a text box, so `OnInput` behaves ex
 value committed. `OnBlur` still commits on that same `change` event, but the notification the
 commit arms defers to `blur` instead — the same commit/notify split every other kit input gives
 that mode, riding the same `onblur` chaining; a string that fails to parse commits nothing and
-arms nothing, so the blur that follows delivers nothing.
+arms nothing: a blur then delivers only what an earlier commit had already armed, and with
+nothing armed, nothing.
 
 Conversion mirrors native closely — the same
 `BindConverter.TryConvertTo<TValue>` native's own `InputSelect` calls internally, with the same
@@ -1346,8 +1351,9 @@ that needs invariant string conversion without losing `UpdateOn` is what this ov
 `FormidableInputDate` below is the kit's other case.
 
 A string that fails to parse — including an emptied box when `TValue` is not nullable — leaves
-the field uncommitted: the model stays what it was, and under `OnBlur` no notification is armed,
-so the blur that follows has nothing to deliver. The box itself is squared with the model on
+the field uncommitted: the model stays what it was, and under `OnBlur` it arms no
+notification; the blur that follows delivers only what an earlier commit had already armed,
+and with nothing armed, nothing. The box itself is squared with the model on
 `blur`. A native number input admits the characters of scientific notation, so it can hold text
 like `e3` that it *displays* while reporting an empty value to every event — and no render-tree
 diff can overwrite a difference it cannot see. Every time focus leaves the field, the control
@@ -1626,10 +1632,10 @@ with the index left open (`Attendees[].Name`) — the rule speaks about the shap
 is expanded against the rows the model actually holds, one entry per row under the row's own
 identifier, so each attendee's Name earns its own marker and its own `aria-required`, and a row
 added later is answered by the derivation that follows its arrival. A collection rule that
-filters its rows (`RuleForEach(...).Where(...)`) is conditional the same way a `When` is — which
-rows the filter admits cannot be answered without a model — so its demands answer
-`ConditionallyRequired` for every row, the answer being a property of the rules rather than of
-any one row's values.
+filters its rows (`RuleForEach(...).Where(...)` or `.WhereAsync(...)`) is conditional the same
+way a `When` is — which rows the filter admits cannot be answered without a model — so its
+demands answer `ConditionallyRequired` for every row, the answer being a property of the rules
+rather than of any one row's values.
 
 Detection has limits, and they cost a mark rather than producing a wrong one:
 
@@ -2300,7 +2306,8 @@ Everything a hand-rolled control needs is on that context: `ElementId` for the i
 `CssClass` for the same state class a Formidable input would compute, `AriaInvalid` and
 `AriaDescribedBy` for the same `aria-invalid` and `aria-describedby` an input renders,
 `Requirement` for what the submit profile demands of the field — the answer `aria-required`
-follows — `InputAttributes` to splat every one of them in one go, and
+follows — `InputAttributes` to splat the rendered forms of all of them in one go (`Requirement`
+rides only as `aria-required`, and only when it is `Required`), and
 `NotifyChanged()`/`MarkTouched()` to drive the engine the way a Formidable input's own change
 handler does internally. The worked example — wrapping a plain `<select>`, including how to
 label it correctly — is one of the seams below, in

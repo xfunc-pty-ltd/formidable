@@ -30,8 +30,8 @@ tests, running a real project's forms today.
 ## Packages
 
 - Formidable — validation profiles, ProfiledValidator/DraftSubmitValidator, the model
-  validator seam, ValidationIssue/ValidationReport, INormalizableModel. FluentValidation only,
-  no Blazor dependency.
+  validator seam, ValidationIssue/ValidationReport, INormalizableModel. FluentValidation plus
+  Microsoft.Extensions.DependencyInjection.Abstractions, no Blazor dependency.
 - Formidable.Blazor — the validation engine (EditContext integration, field registry,
   validation flows) and the headless component kit.
 - Formidable.AspNetCore — minimal-API endpoint filter and MVC action filter, returning

@@ -13,7 +13,7 @@
             <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
             <li>Client code has no automatic hook unless you ask for one — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
             <li>The engine listens for field-change notifications, not the model itself — code that mutates the model tells the engine which fields changed (<code>EditContext.NotifyFieldChanged</code>, one call per changed field), the same wiring a foreign control uses. <em>Normalize now</em> does exactly that, so a message already on screen re-judges the cleaned value immediately.</li>
-            <li><strong>NormalizeOnSubmit</strong> is the automatic hook the bullet above says client code lacks: tick the checkbox below and the plain <em>Submit</em> button (unlike the two above, it never calls <code>Normalize()</code> itself) trims the model before the profile judges it.</li>
+            <li><strong>NormalizeOnSubmit</strong> is the automatic hook the bullet above says client code lacks: tick the checkbox below and the plain <em>Submit</em> button (unlike <em>Normalize now</em> and <em>Normalize + submit</em>, it never calls <code>Normalize()</code> itself) trims the model before the profile judges it.</li>
         </ul>
     </Rules>
     <TryIt>

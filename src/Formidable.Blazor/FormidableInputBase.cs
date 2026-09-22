@@ -211,7 +211,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// consistent view of the field. <c>aria-required</c> is asked separately, because what the
     /// rules demand of a field is not part of what the current values are doing — the engine
     /// answers it from the submit profile's declared rules, cached, so the extra ask is a
-    /// dictionary lookup.
+    /// dictionary lookup. The exception is <see cref="FormidableOptions.RequiredOverride"/>:
+    /// where one is set it is invoked on every ask, ahead of the cached map, because its answer
+    /// can change without the validator or the profile changing.
     /// </remarks>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first of the four sequence numbers this call consumes.</param>
@@ -401,9 +403,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <paramref name="tryCommitAsync"/> reports a value was committed, notify the engine
     /// immediately. Under <see cref="InputUpdateMode.OnBlur"/> the same <c>change</c> event still
     /// commits the value, but the notification the commit arms defers to <c>blur</c> instead; a
-    /// string that fails to parse commits nothing and arms nothing, so the following blur
-    /// delivers nothing. Beyond the string projection and that coercion this overload settles
-    /// nothing of its own: the blur chaining, the <c>value</c> attribute marking and the sequence
+    /// string that fails to parse commits nothing and arms nothing: a blur then delivers only
+    /// what an earlier commit had already armed, and with nothing armed, nothing. Beyond the
+    /// string projection and that coercion this overload settles nothing of its own: the blur
+    /// chaining, the <c>value</c> attribute marking and the sequence
     /// budget — <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever
     /// <c>blur</c> is bound — are <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s
     /// description.

@@ -175,7 +175,9 @@ public IActionResult SaveDraft([FromBody] RoundTripOrder order) => Ok();
 `"Draft"` and `"Submit"` match case-insensitively to the two built-in singletons. Any other name
 becomes a custom profile shaped the same way `Submit` itself is built —
 `ValidationProfile.Named(name, includeDefaultRules: true, name)`, i.e. default rules plus one
-ruleset with the same name as the profile.
+ruleset with the same name as the profile. A blank name, or one joining several with `,` or `;`,
+is refused loudly instead — FluentValidation splits a joined name where a rule is *declared*,
+never where one is selected, so such a profile would silently select nothing.
 
 ## Localization and display names
 

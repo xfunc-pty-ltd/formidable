@@ -128,7 +128,7 @@ builder.Services.AddFormidableBlazor();
 builder.Services.AddScoped<IValidator<Signup.Contact>, Signup.ContactValidator>();
 ```
 
-The first line registers the engine and the services the kit resolves. The second makes your
+The first line registers the services the engine and the kit resolve. The second makes your
 validator resolvable as `IValidator<Contact>`, which is how Formidable finds it — one line per
 validator. The model and the validator are nested inside the page class here, so they are named
 through it (`Signup.Contact`, `Signup.ContactValidator`) and the `using` is the page's own
@@ -207,8 +207,8 @@ needs them: the registration loses its `Signup.` prefix, and nothing else about 
 Move the `@code` block into a `Signup.razor.cs` code-behind once it holds more than a field and a
 handler. Every page in the sample app is built that way. Its
 [Quickstart page](../samples/Formidable.Sample/Pages/Quickstart.razor), which is the app's home
-page, is this same form after exactly that split: the model and validator in a shared project, the
-handler in a code-behind.
+page, is this form's shape after exactly that split: a `QuickContact` model and validator in a
+shared project, the handler in a code-behind.
 
 What decides when a rule gets to speak — and how a form says what a submit needs without nagging
 about fields nobody has touched — is exactly what core concepts covers next.

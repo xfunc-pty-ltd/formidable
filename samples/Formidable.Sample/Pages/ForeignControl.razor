@@ -2,7 +2,7 @@
 
 <PageTitle>Wrapping a foreign control</PageTitle>
 <h1>Wrapping a foreign control</h1>
-<p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> instead of wrapping the control in a label — wrapping isn't possible because the label must target the foreign element's own id, which only the field context supplies; every other page in this sample wraps.</p>
+<p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> rather than wrapping the select in a label: a label wrapping a select would fold every option's text into the label's own, which defeats exact-match label lookup in test tooling, and the id the label targets is the field context's to supply. Most pages in this sample wrap their inputs instead.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "ForeignControl.razor", "ForeignControl.razor.cs", "GadgetOrder.cs" })">
     <Rules>

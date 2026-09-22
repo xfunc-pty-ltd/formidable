@@ -2,7 +2,7 @@
 
 <PageTitle>Progressive disclosure</PageTitle>
 <h1>Progressive disclosure</h1>
-<p>Two different disclosure mechanisms live on this page. The traveler details section below is collapsed by pure UI state while its rule is unconditional. Submit before expanding it and the error is suppressed until the field is actually rendered; it is logged to the diagnostic below rather than shown inline. The accommodation cascade further down instead pairs each rule's <code>When</code> with the same condition that reveals its field, so its rules never produce a suppressed issue in the first place; that is the pattern for ordinary data-dependent sections.</p>
+<p>Two different disclosure mechanisms live on this page. The traveler details section below is collapsed by pure UI state while its rule is unconditional. Submit before expanding it and the error is suppressed — logged to the diagnostic below rather than shown inline — and stays off the page until the field renders and can speak again: engage it and the live channel answers on that commit, or submit again with it showing, the step the walk below takes. The accommodation cascade further down instead pairs each rule's <code>When</code> with the same condition that reveals its field, so its rules never produce a suppressed issue in the first place; that is the pattern for ordinary data-dependent sections.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "TravelRequest.cs", "Disclosure.razor", "Disclosure.razor.cs" })">
     <Rules>

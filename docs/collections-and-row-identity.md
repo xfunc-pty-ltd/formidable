@@ -60,10 +60,12 @@ The two buttons in that excerpt aren't part of the row-identity story on their o
 a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a
 wrapping `FormidableField` hands its content (the wrapper itself is in
 [Nested collections](#nested-collections) below); `NotifyChanged()` tells the engine a page-driven
-edit happened — a live pass answers only the fields something has engaged, so an edit the engine
-never hears about is one it never re-judges. Removing the last member doesn't just shrink a list
-on screen — it can flip a collection rule from passing to failing, and no prune can invent a
-failure no pass produced.
+edit happened: a live pass discloses only for the fields something has engaged, so an edit to a
+field nothing has engaged is one whose fresh answer nothing shows. The next pass to run still
+judges the new value; putting that verdict on screen takes an engaged field, a submit, or a
+server apply naming it, and a silent page-driven edit supplies none of those. Removing the last
+member doesn't just shrink a list on screen — it can flip a collection rule from passing to
+failing, and no prune can invent a failure no pass produced.
 
 The wrapping `FormidableField` needs the same `@key` discipline as the `<li>` above, for the same
 reason: key it by the row, and its registration, notify target, and container id all travel with
@@ -132,8 +134,10 @@ into a Blazor `FieldIdentifier` built from the instance itself, not the path str
 *Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs`*
 
 (The value-type branch is a fallback for owners `FieldIdentifier` structurally can't hold — a
-struct intermediate — and isn't the path collection rows take, since collection items are
-reference types.) A `FieldIdentifier` built this way compares equal to another built from the same
+struct intermediate on the path — and isn't the path collection rows normally take: a row object
+is a reference type in any model these idioms can bind at all. A struct intermediate falls back
+to keying on the root model and the path string, the one shape that trades row stability away.)
+A `FieldIdentifier` built this way compares equal to another built from the same
 object instance and property name, no matter where that object currently sits in its list. The
 error the engine stores against `Member` "ace" therefore stays attached to that `Member`, however
 a reorder rearranges the list around it.

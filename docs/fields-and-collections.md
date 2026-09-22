@@ -57,14 +57,18 @@ the markup to become visible at all.
 Adding, removing or reordering a row is a mutation the object graph feels at once, but the engine
 only feels half of it on its own. It notices the rendered field set moving — a removed row's
 fields leaving the page — and prunes their live issues rather than go on showing a verdict for a
-row that's gone, and schedules a reconciling refresh. After a submit, that refresh brings the
-disclosed verdict back into line with the shorter list. Before one it answers in silence, since
-nothing has been disclosed for it to correct; what it does there is keep the `Valid` class's
-promise current.
-What it cannot notice is a rule whose verdict changes because of what the list now holds: "Add at
-least one line" doesn't start failing because a row left the page, it starts failing because the
-list is now empty, and no pass has asked that rule about the shorter list yet. That still needs
-`NotifyChanged()`, covered next for exactly this kind of page-driven edit.
+row that's gone, and schedules a reconciling refresh. After a submit, or a server apply that put
+fields on watch, that refresh brings the disclosed verdict back into line with the shorter list.
+With nothing disclosed yet, it answers in silence; what it does there is keep the `Valid`
+class's promise current.
+What it cannot do is disclose a rule whose verdict changes because of what the list now holds:
+"Add at least one line" doesn't start failing because a row left the page, it starts failing
+because the list is now empty. The reconciling refresh does ask that rule about the shorter
+list, but a fresh verdict reaches the screen only along a route the field has earned: the live
+channel for a field something has engaged, or the submit channel for one a submit or a server
+apply has put on watch. On a page driving the list itself, engagement is the route in reach, and
+engaging the collection is what `NotifyChanged()` is for, covered next for exactly this kind of
+page-driven edit.
 
 ## `FormidableField`, a first look
 

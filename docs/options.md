@@ -15,7 +15,8 @@ out of the box, and hands every one of them back through `FormidableOptions` —
 ## Need to know
 
 Every property on `FormidableOptions` has a default, so omitting `Options` entirely (the form
-falls back to `new FormidableOptions()`) is a fully working configuration:
+falls back to the app-wide default, or to `new FormidableOptions()` where none is registered —
+see [App-wide defaults](#app-wide-defaults)) is a fully working configuration:
 
 ```razor
 <FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
@@ -207,9 +208,11 @@ Calling it yourself outside the submit path takes one more step this option does
 mutation changes the model directly, and the engine starts a live pass only when it hears
 `EditContext.NotifyFieldChanged`. Call that per field the mutation actually changed (the
 `/normalize` sample's own "Normalize now" button does exactly this). Strictly, the live pass
-any one call starts re-judges every field a committed change has ever engaged, so an
-already-engaged field's message follows along however the pass was triggered — naming each
-mutated field is what engages the ones nothing has engaged yet, and it costs nothing. Skip the
+any one call starts re-judges every currently engaged field, so an already-engaged field's
+message follows along however the pass was triggered — naming each mutated field is what
+engages the ones nothing has engaged yet. Each call starts a live pass of its own on the
+immediate default, and joins the shared window under a `LiveDebounce`, so a burst of calls is a
+burst of passes: cheap for synchronous rules, worth a debounce where they are not. Skip the
 calls entirely and every message on screen keeps judging the stale values until the next edit
 or submit.
 
@@ -801,7 +804,10 @@ linked from its entry is its worked example.
 
 Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic` reports into
 your telemetry rather than onto the screen; `OrderIssues` re-sorts a reading order every
-sample page is already content with, since each lays its fields out top to bottom; and
+sample page is already content with, since each lays its fields out top to bottom;
+`RefreshDebounce` would demonstrate nothing but a longer wait, since every page runs the
+default cadence; `LiveDisclosure` changes what happens for a field that is engaged but not
+rendered, and no page here notifies a change for a field it never renders; and
 `DefensiveGateMessage`, `ModelLevelDisplayName` and `ValidationFaultMessage` replace strings the
 samples are content to show as they ship, in a corpus written in one language. Each one's entry
 above is its worked example.

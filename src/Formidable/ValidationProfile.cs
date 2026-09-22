@@ -103,7 +103,9 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
     /// Resolves a profile from a name string: <c>"Draft"</c>/<c>"Submit"</c> match
     /// case-insensitively to the canonical <see cref="Draft"/>/<see cref="Submit"/> singletons;
     /// any other name becomes a custom profile shaped the same way <see cref="Submit"/> itself
-    /// is built — default rules plus one ruleset with the same name as the profile.
+    /// is built — default rules plus one ruleset with the same name as the profile. A blank
+    /// name, or one joining several with <c>,</c> or <c>;</c>, is refused by
+    /// <see cref="Named"/> rather than resolved.
     /// </summary>
     /// <param name="name">The profile name to resolve.</param>
     /// <remarks>

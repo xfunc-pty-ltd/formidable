@@ -2101,6 +2101,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
+    /// <summary>
+    /// Whether <paramref name="issue"/> may be shown for <paramref name="field"/>: an explicit
+    /// <see cref="FormidableOptions.DisclosureOverride"/> answer wins in either direction —
+    /// asked per issue, at every read — and where none speaks, <see cref="IsRendered"/> decides.
+    /// </summary>
     private bool IsVisible(ValidationIssue issue, FieldIdentifier field)
     {
         var overridden = _options.DisclosureOverride?.Invoke(issue);
@@ -2945,6 +2950,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return RunLivePassAsync(fields);
     }
 
+    /// <summary>
+    /// The refresh timer's fire handler: defers to a submit, live or load pass in flight —
+    /// re-arming so the edit is still revalidated once that pass finishes — and otherwise runs
+    /// one whole-model pass under the submit profile, its pending indicator narrowed to the
+    /// fields edited within the window. Landing replaces the submit channel's client source
+    /// with the fresh answer and clears the server sources that answer supersedes.
+    /// </summary>
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)

@@ -346,12 +346,14 @@ public interface IFormidableEngine
     /// <remarks>
     /// Errors bypass the field registry: the server judged what was actually submitted, so an error
     /// shows whether or not the client rendered its field, and only a disclosure override returning
-    /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
-    /// own do — one with no rendered field is not shown — because an advisory blocks nothing, so
-    /// hiding one strands no verdict. Reporting is where the two part company: a suppressed
-    /// advisory here reaches the suppressed-issue diagnostic, where a submit's own reaches nothing
-    /// at all — no Trace line, no logged warning, no callback. A payload carrying the same message
-    /// twice for one field at one severity lands it once: a reader has no use for it twice.
+    /// <see langword="false"/> hides one. Advisories take the same override-aware visibility
+    /// answer the client's own do: a disclosure override settles it in either direction, and
+    /// where none speaks, one with no rendered field is not shown — because an advisory blocks
+    /// nothing, so hiding one strands no verdict. Reporting is where the two part company: a
+    /// suppressed advisory here reaches the suppressed-issue diagnostic, where a submit's own
+    /// reaches nothing at all — no Trace line, no logged warning, no callback. A payload
+    /// carrying the same message twice for one field at one severity lands it once: a reader
+    /// has no use for it twice.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 }

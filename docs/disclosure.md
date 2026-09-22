@@ -9,15 +9,16 @@ behind "ship to a different address," gate step two behind step one passing, and
 underneath never blinks — it still runs, still fails, against a field that isn't on screen. Show
 that failure anyway and the user hits a dead end with no field to fix. Suppress it by hand, per
 form, and you're one missed `@if` away from a submit button that quietly does nothing. Formidable
-exists because that failure needs an audience-aware home, not a per-form workaround: at submit, an
-issue surfaces because the markup that would show it is actually mounted, and a submit that can
-show nothing says so out loud.
+exists because that failure needs an audience-aware home, not a per-form workaround. At submit, an
+issue surfaces when something says it has an audience: mounted markup, a watch from an earlier
+disclosure, or an explicit override. A submit that can show nothing says so out loud.
 
 ## Need to know
 
 At submit, a field's issue reaches the screen if something is currently rendering that
 field — `FormidableInputText` and other `FormidableInputBase<TValue>` descendants, the renderless
-`FormidableField`, or the registration-only `FormidableFieldAnchor`. Each of those registers the
+`FormidableField`, the registration-only `FormidableFieldAnchor`, or `FormidableCollectionMessage`
+for the collection-level path it renders messages for. Each of those registers the
 field for as long as it stays mounted. Showing a field's error also starts watching that field,
 and the watch outlives the registration: until the form passes or is reset, that field's answer
 keeps surfacing whether or not anything still renders it. (The live pass that runs between submits
@@ -150,13 +151,19 @@ usable as a bridge for native components: a form built out of plain `InputBase` 
 nothing at all, and its live errors have to reach the store regardless (see
 [Server integration](server-integration.md#client-round-trip)).
 [`FormidableOptions.LiveDisclosure`](options.md#livedisclosure) is the one way to narrow that, and
-it narrows every surface at once rather than one of them. There's one bound on how long a live
-verdict stands either way: a live issue for a field that has since left the page goes with the
-next rendered-field-set change, along with everything else the departure invalidates. *Left* is
-the operative word there. A field something rendered once and nothing renders now has left; a
-field nothing has ever registered never arrived, and no amount of churn elsewhere on the page
-takes its live verdict away. That distinction is the whole of what registration decides on this
-channel.
+it narrows every surface at once rather than one of them. Two bounds cap how long a live verdict
+stands either way. The first is departure: a live issue for a field that has since left the page
+goes with the next rendered-field-set change, along with everything else the departure
+invalidates. *Left* is the operative word there. A field something rendered once and nothing
+renders now has left; a field nothing has ever registered never arrived, and no amount of churn
+elsewhere on the page takes its live verdict away. That distinction is the whole of what
+registration decides on this channel. The second bound is a submit, which takes the live channel
+over wholesale: every live verdict is dropped, and the submit's own report stands as the answer.
+On a registered field the handover shows as nothing at all, because the submit reveals the same
+message its report re-derives. On a field a submit cannot reveal — the anchor-free native field
+of [the anchor section below](#formidablefieldanchor-for-raw-and-foreign-controls) — a blocked
+submit takes the on-screen live error with it, and the message returns when the next edit's live
+pass re-answers the engaged set.
 
 What gates the live channel is a different question: not *is this field rendered*, but *has this
 field been engaged*. The engine keeps a first-class engaged-field set, and a field enters it the
@@ -321,7 +328,8 @@ it. It suits
 controls that already notify the `EditContext` of changes through the ordinary Blazor forms
 pipeline — a native `InputText` is itself an `InputBase<TValue>` descendant, so it calls
 `EditContext.NotifyFieldChanged` on its own without any help. The vanilla-interop sample's
-nickname field is the remaining genuine example:
+nickname field is one shipped example (`/workout`'s venue region and `/attach`'s submitter name
+are the same wiring):
 
 ```razor
     <div class="field">

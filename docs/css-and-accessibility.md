@@ -465,6 +465,10 @@ name together:
                 hash = (hash ^ (byte)c) * prime;
                 hash = (hash ^ (byte)(c >> 8)) * prime;
             }
+        }
+
+        return hash;
+    }
 ```
 
 *Excerpt from `src/Formidable.Blazor/FormidableFieldId.cs`*

@@ -103,15 +103,17 @@ internal sealed class SubmitCoverageTracker(
     // excluded, and every fresh hold clears the set whole anyway.
     private readonly HashSet<FieldIdentifier> _editedPastHold = [];
 
-    // How long a pass in flight counts as "a re-answer on its way". A backstop rather than a
-    // knob: it only ever decides anything on a form whose pass has hung — where the held field
-    // shows no pending indicator, since the indicator scopes to the edited fields — and a hung
-    // form should lose its confirmation borders rather than keep them for ever. Generous on
-    // purpose: a rule slower than this loses the held green early, the conservative direction.
-    // The bound is the current pass's age, never the held answer's: each edit against a
-    // validator that hangs again starts a fresh pass, so the same, ever-staler answer can be
-    // re-served for another bound per edit — broken-form territory by design, and the edited
-    // fields themselves are excluded throughout.
+    /// <summary>
+    /// How long a pass in flight counts as "a re-answer on its way". A backstop rather than a
+    /// knob: it only ever decides anything on a form whose pass has hung — where the held field
+    /// shows no pending indicator, since the indicator scopes to the edited fields — and a hung
+    /// form should lose its confirmation borders rather than keep them for ever. Generous on
+    /// purpose: a rule slower than this loses the held green early, the conservative direction.
+    /// The bound is the current pass's age, never the held answer's: each edit against a
+    /// validator that hangs again starts a fresh pass, so the same, ever-staler answer can be
+    /// re-served for another bound per edit — broken-form territory by design, and the edited
+    /// fields themselves are excluded throughout.
+    /// </summary>
     internal static readonly TimeSpan HeldVouchBound = TimeSpan.FromSeconds(30);
 
     // The capability-less coverage source: the edit stamp at which the last whole-model

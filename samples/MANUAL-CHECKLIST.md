@@ -249,8 +249,8 @@ Work top to bottom: the steps build on each other.
       beyond the row's own Remove button, and no more than a brief pause before the summary
       entry goes
 - [ ] Add a line and submit it blank, then tab out of the box the submit focused: the new row
-      takes the identical red border and message treatment as the seeded one, indistinguishable
-      from an original row (a focused box wears the accent border whatever its verdict)
+      takes the identical red border and message treatment the seeded line had at this
+      section's first step (a focused box wears the accent border whatever its verdict)
 - [ ] Clear "Submitted by" and tab out: its message appears through the native `ValidationMessage`
       beside the input, styled identically to a Formidable message — and the summary above gains
       an entry for it too, with no Submit press of its own — committing the change engages the
@@ -318,7 +318,8 @@ Work top to bottom: the steps build on each other.
       Remove the hyphen too, click away from the field, and it goes
 - [ ] A whitespace-only SKU line: dropped by the pre-send Normalize; no misattributed errors
 - [ ] Switch to *MVC controller* and repeat the empty send: identical messages land on the
-      identical fields — the hosting style makes no difference to the 400 shape
+      identical fields — the two filters share one mapper, so the 400's `errors` is identical,
+      and only the MVC body's extra `traceId` member differs
 
 ---
 
@@ -619,8 +620,9 @@ steps build on each other.
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
       attendees needs approval — submission is not blocked" appears below the list
 - [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
-      the page scrolls so the warning message itself lands in view near the top of the
-      viewport, not centred with the message off-screen above or below it
+      the page scrolls so the warning message itself lands in view, roughly centred in the
+      viewport, rather than aligning the tall fieldset's top and leaving the message off-screen
+      below
 - [ ] Contact email is still `nope@` and is the only thing left broken: put a real address back,
       check catering is still ticked with a note in it and **Venue region** still filled, then
       submit — the warning does NOT block, and the status line confirms the registration was

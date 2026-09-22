@@ -20,9 +20,9 @@ public partial class CustomProfiles
     // _post is a new instance after every profile switch.
     private string CategoryId => FormidableFieldId.For(_post, p => p.Category);
 
-    // A fresh model instance is what makes the new Options take effect - FormidableForm
-    // only re-reads Options when the Model reference changes, so a profile swap without a
-    // model swap would silently keep validating under the old profile.
+    // A fresh model instance is what makes the new Options take effect — FormidableForm adopts
+    // an Options instance only when it rebuilds the engine on a Model change, and a swapped
+    // Options reference without a model swap throws rather than silently applying nothing.
     private void SelectProfile(bool adminReview)
     {
         _adminReview = adminReview;

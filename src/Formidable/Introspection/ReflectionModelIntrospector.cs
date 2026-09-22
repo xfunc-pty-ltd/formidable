@@ -23,37 +23,43 @@ namespace Formidable.Introspection;
 [RequiresUnreferencedCode("Walks the object graph via reflection; model members must not be trimmed.")]
 public sealed class ReflectionModelIntrospector : IModelIntrospector
 {
-    // PropertyPath.TryParse is purely syntactic — it never touches the model — so neither a
-    // successful nor a failed parse is naturally bounded by anything the app itself controls:
-    // FormidableEngine.Resolve calls Resolve with a server response's issue paths
-    // verbatim, and almost any attacker-chosen string parses as a valid single-segment path.
-    // A few thousand entries comfortably covers even a large virtualized form (hundreds of
-    // rows, each legitimately producing its own path, e.g. "Sessions[437].Title"). Two caps
-    // bound the cost together, because an entry costs a copy of the key plus a PathSegment
-    // per segment — several bytes per byte of path — so a count alone bounds nothing: this
-    // one caps how MANY paths are remembered, MaxCachedPathLength below caps how LONG one may
-    // be to earn an entry, and their product is the ceiling on what is retained.
+    /// <summary>
+    /// PropertyPath.TryParse is purely syntactic — it never touches the model — so neither a
+    /// successful nor a failed parse is naturally bounded by anything the app itself controls:
+    /// FormidableEngine.Resolve calls Resolve with a server response's issue paths
+    /// verbatim, and almost any attacker-chosen string parses as a valid single-segment path.
+    /// A few thousand entries comfortably covers even a large virtualized form (hundreds of
+    /// rows, each legitimately producing its own path, e.g. "Sessions[437].Title"). Two caps
+    /// bound the cost together, because an entry costs a copy of the key plus a PathSegment
+    /// per segment — several bytes per byte of path — so a count alone bounds nothing: this
+    /// one caps how MANY paths are remembered, <see cref="MaxCachedPathLength"/> caps how LONG
+    /// one may be to earn an entry, and their product is the ceiling on what is retained.
+    /// </summary>
     private const int MaxCachedPaths = 4096;
 
-    // The longest path worth remembering. FluentValidation property paths are tens of
-    // characters — a deeply nested one with indexed rows is still well inside this — while the
-    // paths a server response can carry are whatever that response says they are. A longer one
-    // is parsed and answered exactly as any other, just never cached, so an unbounded key
-    // cannot buy an unbounded entry.
+    /// <summary>
+    /// The longest path worth remembering. FluentValidation property paths are tens of
+    /// characters — a deeply nested one with indexed rows is still well inside this — while the
+    /// paths a server response can carry are whatever that response says they are. A longer one
+    /// is parsed and answered exactly as any other, just never cached, so an unbounded key
+    /// cannot buy an unbounded entry.
+    /// </summary>
     private const int MaxCachedPathLength = 256;
 
-    // The (declaring type, member name) key here is only half app-controlled: the type comes
-    // from the real object graph, but the member name is read from a path segment, which (like
-    // MaxCachedPaths above) can arrive from a server response unfiltered — GetProperty simply
-    // returns null for a name that doesn't exist, so walking one real model type against many
-    // fabricated names would otherwise grow this cache without bound too. Modest on purpose:
-    // the legitimate space here — an app's own model types crossed with their own declared
-    // properties — is small and settles early, well under this cap, before any
-    // attacker-controlled traffic could push it over. An entry holds a copy of the name, so
-    // the name half of the key is capped at MaxCachedPathLength as well, for the reason the
-    // path cache pairs its two caps: a count alone bounds nothing when each entry can be as
-    // long as the sender likes. No type declares a member that long, and a path segment is
-    // never longer than the path it was cut from.
+    /// <summary>
+    /// The (declaring type, member name) key here is only half app-controlled: the type comes
+    /// from the real object graph, but the member name is read from a path segment, which (like
+    /// <see cref="MaxCachedPaths"/>) can arrive from a server response unfiltered — GetProperty
+    /// simply returns null for a name that doesn't exist, so walking one real model type against
+    /// many fabricated names would otherwise grow this cache without bound too. Modest on
+    /// purpose: the legitimate space here — an app's own model types crossed with their own
+    /// declared properties — is small and settles early, well under this cap, before any
+    /// attacker-controlled traffic could push it over. An entry holds a copy of the name, so
+    /// the name half of the key is capped at <see cref="MaxCachedPathLength"/> as well, for the
+    /// reason the path cache pairs its two caps: a count alone bounds nothing when each entry
+    /// can be as long as the sender likes. No type declares a member that long, and a path
+    /// segment is never longer than the path it was cut from.
+    /// </summary>
     private const int MaxCachedProperties = 1024;
 
     private readonly ConcurrentDictionary<(Type Type, string Property), PropertyInfo?> _propertyCache = new();

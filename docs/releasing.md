@@ -124,7 +124,9 @@ derives the package version from the nearest git tag reachable from the commit b
    - Checks out the repository with `fetch-depth: 0` — MinVer needs the full tag history, not a
      shallow clone, to find the tag and compute the commit height from it.
    - Installs the .NET 10 SDK.
-   - Runs `dotnet build -c Release` — a full Release build of the whole solution.
+   - Runs `dotnet build -c Release -p:ContinuousIntegrationBuild=true` — a full Release build
+     of the whole solution, with the property stamping it as a CI build so the packed
+     assemblies carry deterministic-build metadata.
    - Runs `dotnet test -c Release --no-build` — the full test suite against that same build (no
      rebuild, so what's tested is exactly what gets packed next).
    - Packs all three shipping projects into `artifacts/`, each with `--no-build` (reusing the
@@ -149,7 +151,9 @@ derives the package version from the nearest git tag reachable from the commit b
 ### What CI does NOT do
 
 `.github/workflows/ci.yml` runs `dotnet build -c Release` + `dotnet test -c Release --no-build`
-on every push to `main` and on every pull request. It never packs and never pushes to NuGet.
+on every push to `main` and on every pull request, plus a second job (`hosted-demo-smoke`) that
+publishes the sample with `-p:HostedDemo=true` on the same triggers — a build smoke whose
+output goes nowhere. It never packs and never pushes to NuGet.
 Publishing is tag-driven only, via the separate `Release` workflow above — merging to `main`
 never ships a package by itself, and neither does a tag, which only asks.
 
@@ -192,9 +196,12 @@ zip-aware listing works, for example:
 unzip -l /tmp/formidable-dry-run/Formidable.0.1.0-preview.1.nupkg
 ```
 
-Confirm `README.md` is present at the package root (packed via the `<None Include=
-"..\README.md" Pack="true" PackagePath="\" />` item in `src/Directory.Build.props`, shared by
-all three projects) and that the `.nuspec` inside reports the version you expected.
+Confirm `README.md` is present at the package root and that the `.nuspec` inside reports the
+version you expected. The packed `README.md` is `docs/nuget-readme.md` under a new name: the
+`<None Include="$(MSBuildThisFileDirectory)..\docs\nuget-readme.md" Pack="true"
+PackagePath="README.md" />` item in `src/Directory.Build.props`, shared by all three projects,
+renames it at pack time. The repo-root `README.md` is deliberately not packed — its raw HTML
+renders on GitHub but not on nuget.org's HTML-free markdown subset.
 
 ## Post-release checklist
 
@@ -207,9 +214,10 @@ After the workflow's push step succeeds:
       packages and new versions of existing packages can take a few minutes to finish indexing
       before they're visible in search — a listing page returning 404 immediately after the
       workflow finishes is not necessarily a failure.
-- [ ] Open each package's nuget.org page and confirm the README tab renders correctly — this is
-      the same `README.md` all three ship (see above); a rendering problem here is a packaging
-      bug worth fixing before the next release, not a nuget.org issue.
+- [ ] Open each package's nuget.org page and confirm the README tab renders correctly — the
+      tab shows `docs/nuget-readme.md`, the one file all three packages ship as their
+      `README.md` (see above); a rendering problem here is a packaging bug worth fixing before
+      the next release, not a nuget.org issue.
 - [ ] Install into a disposable scratch project and confirm it restores at the released version:
 
   ```bash

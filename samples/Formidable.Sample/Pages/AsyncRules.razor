@@ -2,7 +2,7 @@
 
 <PageTitle>Async rules</PageTitle>
 <h1>Async rules</h1>
-<p>Type "admin" and pause: each keystroke starts the check immediately (the delay simulates a server call — 600 ms by default, adjustable below), shows a pending state, and a new keystroke cancels the in-flight check.</p>
+<p>Type "admin" and pause: each keystroke starts the check immediately (the delay simulates a server call — 600 ms by default, adjustable below), shows a pending state, and a new keystroke supersedes the in-flight check — its verdict is discarded, and on this page's memoized validator the call itself runs on so a retyped value can reuse its answer.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Handle.cs", "MemoizedHandleValidator.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
     <Rules>
@@ -11,7 +11,7 @@
             <li><strong>Display name</strong>: checked for uniqueness the same way, independently of Username. Taken display names: <code>Administrator</code>, <code>Root User</code>, <code>Formidable</code>.</li>
             <li><strong>Username</strong>: also required to submit, and the live channel answers that rule too: clear a username you have already typed and "Username is required" lands with no submit anywhere.</li>
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
-            <li>Editing after a submit still runs each check once. The refresh executes only the rules still owed an answer at the current edit, so a live pass that has already landed leaves it nothing to run; and where the two overlap — a check still in flight when the refresh fires — the memo below joins the call in progress instead of starting a second.</li>
+            <li>Editing after a submit still runs each check once. The refresh executes only the rules still owed an answer at the current edit, so a live pass that has already landed leaves it nothing to run, and where the two would overlap, the refresh stands down for a pass in flight and assembles from its answer. What the memo below catches is the caller the store cannot help — a Submit pressed while a check is still in flight joins the call in progress instead of starting a second.</li>
             <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
             <li><strong>Validator override</strong>: <code>FormidableForm</code>'s <code>Validator</code> parameter resolves from DI when left unset, which is what every other page here does; this page supplies <code>MemoizedHandleValidator</code> directly instead, which is why the memoizing shows up here rather than on <code>/field-state</code>.</li>
             <li>Each field's <code>checking…</code> sits in an element that renders from the first paint with its <code>role="status"</code> already on it; only the text inside comes and goes. A live region announces reliably when assistive technology was told about it before the content arrived, and a role that arrives in the same render as its own first message is the shape assistive technology is inconsistent about — the same reason <code>FormidableSummary</code> holds two fixed-role regions of its own.</li>
@@ -22,7 +22,7 @@
     <TryIt>
         <ol>
             <li>Type <code>admin</code> and pause — a spinner and "checking…" appear on that field only, then the taken message lands.</li>
-            <li>Type quickly — each keystroke cancels the in-flight check; only the final value gets a verdict.</li>
+            <li>Type quickly — each keystroke supersedes the in-flight check; only the final value gets a verdict.</li>
             <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
             <li>Clear Username — "Username is required" appears as soon as that edit's live pass does, with no submit: you engaged the field, and the live channel runs the rules a submit would. The same pass answers Display name's rule as well, so if more than ten seconds have passed since you typed there, this edit waits on a fresh check of that value first. Submit anyway and the same rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the slider only changes how long the check itself takes, not when it starts or how often; watch the pending state hold for the full two seconds before the verdict lands.</li>

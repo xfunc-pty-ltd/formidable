@@ -27,10 +27,12 @@ public class MemoizedHandleValidator : DraftSubmitValidator<Handle>
     {
         // Async uniqueness sits in the always-on (Draft) bucket so a lenient draft save answers
         // it too; what runs it on each committed change is the live channel, which evaluates
-        // whatever would block a submit. The delay stands in for a server call and honours
-        // cancellation, so a superseded keystroke's check is abandoned. MustAsyncMemoized also
-        // lets a repeated value — typing "admin", clearing it, then typing "admin" again —
-        // answer from the memo instead of paying for the call twice.
+        // whatever would block a submit. The delay stands in for a server call. A superseded
+        // keystroke stops waiting, but the shared check runs on and its answer lands in the memo
+        // (the memo's contract: the answer belongs to every later caller), where the plain
+        // HandleValidator's check is simply cancelled. MustAsyncMemoized also lets a repeated
+        // value — typing "admin", clearing it, then typing "admin" again — answer from the memo
+        // instead of paying for the call twice.
         RuleFor(h => h.Username)
             .MustAsyncMemoized(_usernameMemo, async (username, cancellationToken) =>
             {

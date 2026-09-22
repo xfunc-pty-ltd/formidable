@@ -107,10 +107,10 @@ rule runs: these two answer live on each committed change (under the default `Up
 commit lands as the field is left), exactly like the required-title error above them, because
 `FormidableOptions.LiveProfile` defaults to the submit profile and the field is one the visitor
 has engaged. The scratch validator in
-`tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs` shows the other bucket: warnings
-and infos placed in `ConfigureSubmitRules()`, which a draft save leaves alone. Either way, the
-disclosure lifecycle described in "The warning lifetime" below applies once the issue has first
-been shown.
+`tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs` shows the other bucket: an
+info-severity advisory placed in `ConfigureSubmitRules()`, which a draft save leaves alone.
+Either way, the disclosure lifecycle described in "The warning lifetime" below applies once the
+issue has first been shown.
 
 None of that changes what a warning or an info does to the submit itself: nothing. `IsValid`
 counts only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
@@ -280,9 +280,9 @@ A warning that was showing when the user last submitted keeps refreshing live as
 editing: it clears the moment they fix it, and comes back if they break it again, since fixing it
 ends the message rather than the watch. A field that was an error site at submit picks up a
 newly-appearing warning too, because it is already in the watched set — whether or not it carried
-a warning at submit time. Only a field with neither an
-error nor a warning at submit is left outside that refresh when it starts failing a
-warning-severity rule — the same way a newly-failing error field is.
+a warning at submit time. Only a field with no visible issue of any severity at submit is left
+outside that refresh when it starts failing a warning-severity rule — the same way a
+newly-failing error field is.
 
 The live channel answers for it instead, on its own terms. It files a whole verdict, advisories
 and errors alike, for every field the visitor has *engaged*, and by default it evaluates the same

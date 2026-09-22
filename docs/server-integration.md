@@ -30,7 +30,8 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 *Source: `samples/Formidable.Sample.Api/Program.cs`*
 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
-adapters funnel into one wire format, defined once in the dependency-free core package, so
+adapters funnel into one wire format, defined once in the core package (no ASP.NET Core or
+Blazor dependency needed to read it), so
 whichever one rejects a request on its validators' verdict, the `errors` dictionary is the same
 one: the same paths in the same order (the report's), carrying the same messages, an empty message
 kept empty, and the `advisories` extension identical beside it. Each builds the ProblemDetails
@@ -666,10 +667,15 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 *Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
-`IsValid` gate runs once, after the loop. Nothing in the loop can throw over what a request bound
-or failed to bind: the one strictness check that runs per request is the line above it, and it
-reads the action's declared parameters rather than its arguments — both halves are described
-below. `BuildProblem`, just out
+`IsValid` gate runs once, after the loop. None of the filter's own checks in the loop can throw
+over what a request bound or failed to bind: the one strictness check that runs per request is
+the line above it, and it reads the action's declared parameters rather than its arguments — both
+halves are described below. What can still throw there is the consumer's own code: the loop
+runs each bound model's `Normalize()` and then hands it to `InvokeValidateAsync`, which
+deliberately dispatches without exception wrapping, so either hop's data-dependent throw
+surfaces its own exception type, exactly as it would through the endpoint filter's direct
+calls.
+`BuildProblem`, just out
 of view above, is where the errors become a response: it asks the app's own
 `ProblemDetailsFactory`, which is what `ControllerBase.ValidationProblem()` uses, for the envelope,
 handing it an empty `ModelStateDictionary`, and then puts the mapper's dictionary into `Errors`
@@ -811,8 +817,12 @@ string, shared by any other string-typed configuration surface too:
 
 *Source: `src/Formidable/ValidationProfile.cs`*
 
-`"Draft"` and `"Submit"` match case-insensitively; any other string becomes a custom profile
+`"Draft"` and `"Submit"` match case-insensitively; any other name becomes a custom profile
 shaped the same way `Submit` itself is built — default rules plus one ruleset with the same name.
+Two shapes are refused loudly instead, throwing on every request to the action: a blank name,
+and one joining several names with `,` or `;`. FluentValidation splits a joined name where a
+rule is *declared*, never where one is selected, so a profile naming one would silently select
+nothing ([Profiles](profiles.md#server-side-profile-selection)).
 The minimal-API filter takes a `ValidationProfile` value directly instead of a name string, since
 `Validate<TModel>(profile?)` is a compile-time call site, not a request-time attribute property.
 That is the whole reason the two entry points name the same thing in two types: an attribute
@@ -944,12 +954,14 @@ wire-deserialized one.
     /// <remarks>
     /// Errors bypass the field registry: the server judged what was actually submitted, so an error
     /// shows whether or not the client rendered its field, and only a disclosure override returning
-    /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
-    /// own do — one with no rendered field is not shown — because an advisory blocks nothing, so
-    /// hiding one strands no verdict. Reporting is where the two part company: a suppressed
-    /// advisory here reaches the suppressed-issue diagnostic, where a submit's own reaches nothing
-    /// at all — no Trace line, no logged warning, no callback. A payload carrying the same message
-    /// twice for one field at one severity lands it once: a reader has no use for it twice.
+    /// <see langword="false"/> hides one. Advisories take the same override-aware visibility
+    /// answer the client's own do: a disclosure override settles it in either direction, and
+    /// where none speaks, one with no rendered field is not shown — because an advisory blocks
+    /// nothing, so hiding one strands no verdict. Reporting is where the two part company: a
+    /// suppressed advisory here reaches the suppressed-issue diagnostic, where a submit's own
+    /// reaches nothing at all — no Trace line, no logged warning, no callback. A payload
+    /// carrying the same message twice for one field at one severity lands it once: a reader
+    /// has no use for it twice.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
@@ -1095,9 +1107,10 @@ Errors reach the form's fields the moment `ApplyServerIssues` runs, bypassing th
 disclosure check entirely (see [Disclosure](disclosure.md)). The server already validated the
 submitted data, so a field the client happens not to have rendered isn't a disclosure concern —
 and an error that blocks the save has to reach the user either way. Advisories in the same payload
-defer to the registry exactly as the client's own advisories do: one whose field is on screen shows
-there, and one whose field isn't is dropped. An advisory blocks nothing, so hiding one strands no
-verdict. Reporting is where the two part company: a dropped advisory here is named by a
+take the same override-aware visibility answer the client's own advisories do: a
+`DisclosureOverride` settles it in either direction, and where none speaks, one whose field is on
+screen shows there and one whose field isn't is dropped. An advisory blocks nothing, so hiding one
+strands no verdict. Reporting is where the two part company: a dropped advisory here is named by a
 suppressed-issue diagnostic, where one a submit drops reaches nothing at all — no Trace line, no
 logged warning, no `SuppressedIssueDiagnostic` callback.
 

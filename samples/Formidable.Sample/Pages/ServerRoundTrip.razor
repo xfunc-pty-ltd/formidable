@@ -17,8 +17,8 @@
             <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
             <li>The verdict applies at the severity it carries: the response's errors block and mark their fields <code>formidable-invalid</code>, while its advisories paint <code>formidable-warning</code> or <code>formidable-info</code> once the field has been touched or modified. One call carries both — the page writes no advisory plumbing of its own.</li>
             <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
-            <li>The same validation filter runs in both hosting styles — pick Minimal API or the MVC controller above and the 400 shape is identical.</li>
-            <li><code>OrdersController.cs</code> in the panel below is real server source — the MVC twin of the minimal-API mapping, behind the same filter. <code>requests.http</code> in the API project calls both endpoints without the UI.</li>
+            <li>Both hosting styles validate the same way: minimal APIs through an endpoint filter, MVC through an action filter, one shared mapper building the <code>errors</code> each 400 carries. Pick Minimal API or the MVC controller above and the response's <code>errors</code> — the fields, the messages, even their order — is identical; the MVC body additionally carries a <code>traceId</code>.</li>
+            <li><code>OrdersController.cs</code> in the panel below is real server source — the MVC twin of the minimal-API mapping, behind its own action filter. <code>requests.http</code> in the API project calls both endpoints without the UI.</li>
         </ul>
     </Rules>
     <TryIt>

@@ -51,7 +51,7 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 
 | Package | Depends on | Contents |
 |---|---|---|
-| `Formidable` | FluentValidation only | Validation profiles, `ProfiledValidator<T>` / `DraftSubmitValidator<T>`, the `IModelValidator` seam, `ValidationIssue` / `ValidationReport`, `INormalizableModel`, model introspection. No Blazor dependency. |
+| `Formidable` | FluentValidation + `Microsoft.Extensions.DependencyInjection.Abstractions` | Validation profiles, `ProfiledValidator<T>` / `DraftSubmitValidator<T>`, the `IModelValidator` seam, `ValidationIssue` / `ValidationReport`, `INormalizableModel`, model introspection. No Blazor dependency. |
 | `Formidable.Blazor` | `Formidable` + `Microsoft.AspNetCore.Components.Web` | The validation engine (EditContext integration, field registry, validation flows) and the headless component kit (`FormidableForm`, `FormidableField`, `FormidableFieldMessage`, `FormidableSummary`, …). |
 | `Formidable.AspNetCore` | `Formidable` + ASP.NET Core | Minimal-API endpoint filter and MVC `[Validate]` action filter, returning `ValidationProblemDetails` in the same path format the Blazor client consumes. |
 
@@ -244,8 +244,9 @@ The API listens on `http://localhost:5180`; open the Blazor app at
 
 ## Live demo
 
-The same sample runs on GitHub Pages, deployed from `main`. A simulated in-browser API stands
-in for the real server; every other page behaves exactly as it does locally.
+The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. A
+simulated in-browser API stands in for the real server; every other page behaves exactly as it
+does locally.
 
 **[xfunc.github.io/formidable](https://xfunc.github.io/formidable/)** <!-- publish-day: verify -->
 

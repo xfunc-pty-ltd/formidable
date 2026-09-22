@@ -105,6 +105,16 @@ public sealed class FieldRegistry
     /// </summary>
     internal bool HasEverRegistered(FieldIdentifier field) => _everRegistered.Contains(field);
 
+    /// <summary>
+    /// Removes one registration of <paramref name="field"/> — the reverse of one
+    /// <see cref="Register"/> call, and where the handle it returns routes its disposal.
+    /// Removing the last one takes the field out of the rendered set, with
+    /// <paramref name="keepRegistered"/> deciding whether a retained entry keeps
+    /// <see cref="IsRegistered"/> answering true or an earlier retention is dropped: the latest
+    /// disposal's intent wins. A field with no counted registration — never registered, or
+    /// retained only by keep-registered — is left untouched: <see cref="Version"/> does not
+    /// move and <see cref="Changed"/> does not fire.
+    /// </summary>
     internal void Unregister(FieldIdentifier field, bool keepRegistered)
     {
         if (!_counts.TryGetValue(field, out var count))
