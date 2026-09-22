@@ -81,7 +81,7 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole — see [Need to know](#need-to-know). |
 | `Options` | `FormidableOptions?` | `null` (app-wide default, then `new FormidableOptions()`) | The [engine options](options.md) this form is built with. A different instance arriving without a new `Model` throws, since the engine [reads `Options` once](options.md#formidableoptions-is-read-once). |
 | `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The form's content, handed the cascaded `FormidableFormContext` as `context`: the engine's members, plus `FocusFirstErrorAsync()`, which lives there because `PrepareFocus` and `FocusFallback` are the form's. `ResetAsync` stays out of reach, since it rebuilds the engine the context belongs to. Nesting another typed fragment that also leaves its parameter name implicit makes the Razor compiler ask for a `Context="..."` on one of the two, since what collides is the declaration rather than any use of it. |
-| `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#warnings-and-infos-never-block) it produced. A parameterless handler binds too. |
+| `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) it produced. A parameterless handler binds too. |
 | `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A parameterless handler binds too. |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. |
@@ -113,7 +113,7 @@ The members a page calls:
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move), and answers whether an element took focus. |
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
-| `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#client-round-trip) has the round trip. |
+| `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
 | `Engine` | The engine as the non-generic `IFormidableEngine`, where `IsValidating`, `HasSubmitted` and `IsFormValid` are read — the last meaning nothing until [`TrackFormValidity`](options.md#trackformvalidity) is on. |
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
@@ -125,7 +125,7 @@ can render:
 | Attribute | Against the splat | What it is |
 |---|---|---|
 | `id` and `tabindex="-1"` | win outright | The model-level field's deterministic `FormidableFieldId`, which the all-suppressed gate's summary entry and the focus service both address, so its value cannot be a consumer's to choose. |
-| `novalidate` | loses outright | Renders by default. Splat `novalidate="@false"` — the `bool`, since the string `"false"` would still render the attribute — to hand the submit back to the browser's own constraint UI ([CSS and accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby) has what a form without it does). |
+| `novalidate` | loses outright | Renders by default. Splat `novalidate="@false"` — the `bool`, since the string `"false"` would still render the attribute — to hand the submit back to the browser's own constraint UI ([CSS and accessibility](css-and-accessibility.md#why-aria-required-and-not-required) has what a form without it does). |
 | `aria-describedby` | merges | Splatted ids first, the model-level message list's id appended, so a `FormidableModelMessage` describes the form with nothing wired and a page's own hint stays where the page put it. |
 | `inert` | wins while it renders | Renders only [while a prerender window is open](hosting-models.md#what-happens-inside-the-prerender-window), and wins there the way `id` does. The form renders none at any other time, so a page that makes its own form inert keeps that everywhere else. |
 
@@ -147,8 +147,9 @@ carry nothing worse than a warning. [`FocusFallback`](#focusfallback) recovers a
 [`PrepareFocus`](#preparefocus) prevents one; with no `IFormidableFocusService` registered nothing
 moves and nothing throws.
 
-[CSS and accessibility](css-and-accessibility.md#focus-service) has the move, its fallback to the
-first visible issue where a submit blocks with no error on screen, and what a miss looks like.
+[CSS and accessibility](css-and-accessibility.md#where-does-focus-go-on-a-blocked-submit) has the move, its fallback to the
+first visible issue where a submit blocks with no error on screen, and
+[what a miss looks like](css-and-accessibility.md#why-did-nothing-take-focus).
 [Async validation](async-validation.md#what-happens-if-i-press-submit-while-a-check-is-running) has
 the overtaken submit that leaves a form in that state, and the validator throw that propagates
 instead of blocking.
@@ -316,7 +317,7 @@ Blazor applies last-write-wins. That settles every row below but `@onblur`, whic
 | The cascaded context is a new instance (first render; a host rebuilding its engine) | The field and its two ids resolve, and the input registers. |
 
 Which aria attributes render, and when, is
-[CSS and accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby)'s subject.
+[CSS and accessibility](css-and-accessibility.md#which-aria-attributes-does-an-input-get-and-when)'s subject.
 Registration is what lets the submit channel show a field's issues
 ([Disclosure](disclosure.md#why-did-it-appear-when-i-pressed-submit)); it happens when the cascaded
 context is a new instance (first render; a host rebuilding its engine).
@@ -332,7 +333,7 @@ The message it discloses is inserted above the button, the button leaves the poi
 browser dispatches the click on the nearest common ancestor of the press and the release (for a
 submit button, usually the `<form>`, where nothing is listening).
 
-[CSS and accessibility](css-and-accessibility.md#pointer-activation-and-a-button-that-moves) covers
+[CSS and accessibility](css-and-accessibility.md#what-stops-a-click-on-submit-vanishing-when-a-message-moves-the-button) covers
 the general case of a button that moves out from under a still pointer. Both roots close it with a
 guard, installed by default, that re-delivers the click to the button it began on;
 [`ClickRecovery`](options.md#clickrecovery) turns it off.
@@ -476,7 +477,7 @@ with `bool` as `"true"` or `"false"`), so the round trip lands back on the right
 
 The `for=` above sidesteps the label wrap: `CategoryId` is `FormidableFieldId.For(_post, p =>
 p.Category)`, the expression overload of the id the component computes
-([CSS and accessibility](css-and-accessibility.md#computing-an-id-by-hand)), so no `nameof` has
+([CSS and accessibility](css-and-accessibility.md#how-do-i-compute-an-id-by-hand)), so no `nameof` has
 to stay in sync. Everything else (`For`, `UpdateOn`, `KeepRegistered`, the splat) is
 [the base's](#formidableinputtext-and-formidableinputbasetvalue).
 
@@ -531,7 +532,7 @@ one never reaches an instance. Two attributes take fixed positions against the s
 | `step="any"` | Before the splat, so a consumer's own `step` wins | HTML's own default `step` is `1`, which makes any fractional value a native `stepMismatch`. The default retires that at the source, matching native `InputNumber<TValue>` for every type it supports. |
 | `type="number"` | After the splat, so the component wins | The same position `RatingInput`'s `type="range"` takes above. |
 
-[CSS and accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby) has what a form
+[CSS and accessibility](css-and-accessibility.md#why-aria-required-and-not-required) has what a form
 without `novalidate` does with a constraint the browser enforces, and why `novalidate` leaves
 `:invalid` standing.
 
@@ -680,7 +681,7 @@ narrowed `LiveProfile` changes when a message appears, never whether the value i
 It is `aria-hidden`, deliberately, and it is not the accessible half of this feature: that a value
 is demanded belongs on the input as `aria-required="true"`, which the kit's inputs and
 `FormidableFieldContext.InputAttributes` put there
-([CSS and accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby) has why the
+([CSS and accessibility](css-and-accessibility.md#why-is-the-required-mark-aria-hidden) has why the
 two are separate elements).
 
 **Placement is markup position.** The component needs the cascaded context and its `For`, and reads
@@ -774,7 +775,7 @@ fixed-role live regions that render from the first paint and stand empty while t
 to show. Errors band into `formidable-summary__region--errors`, which has carried `role="alert"`
 since it rendered; warnings and infos band into `formidable-summary__region--advisories` and its
 politer `role="status"`.
-[CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region) has why a live
+[CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why a live
 region announces reliably only when its role was there before the content.
 
 [`FocusFallback`](#focusfallback) is the escape hatch for a miss, and
@@ -855,7 +856,7 @@ apart from the commentary renders two:
 |---|---|
 | A filter matches nothing | Its region renders empty, as on a clean form, persisting so later arrivals announce from an element already holding its role. |
 | A paragraph above a quiet advisory summary | The page hides it keyed on the bands (`:has(.formidable-summary__band)`), present only while the summary has something to say. |
-| A default summary beside a filtered one | Each reads the same issues and filters alone, so those show twice, as two announcements ([CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region)). |
+| A default summary beside a filtered one | Each reads the same issues and filters alone, so those show twice, as two announcements ([CSS and accessibility](css-and-accessibility.md#what-changes-when-show-splits-the-summary)). |
 
 ### Heading each band
 
@@ -877,7 +878,7 @@ combinators: the chain is `.formidable-summary` > `__region` > `__band` > `ul`, 
 
 `ItemTemplate` receives the entry's `VisibleIssue`, the field and the issue together. The common
 reason to reach for it is the field's name rather than the rule's complaint: `Issue.DisplayName`
-([Profiles](profiles.md#localization-and-display-names) has where that name comes from).
+([Profiles](profiles.md#where-do-display-names-and-localized-messages-come-from) has where that name comes from).
 
 ```razor
 <FormidableSummary>
@@ -999,9 +1000,9 @@ The members a page calls:
 
 | Member | What it does |
 |---|---|
-| `ValidateForSubmitAsync()` | Runs the submit pipeline against this component's engine and hands back the [`SubmitOutcome`](severity.md#warnings-and-infos-never-block) untouched, for the page's own `EditForm` handler to route. |
+| `ValidateForSubmitAsync()` | Runs the submit pipeline against this component's engine and hands back the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) untouched, for the page's own `EditForm` handler to route. |
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move) (the same code that submit runs) and answers whether an element took focus. |
-| `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#client-round-trip) has the round trip. |
+| `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned), that contract whole. |
 | `NotifyFieldSetChanged()` | Reconciles the rendered field set now. Ordinary use never calls it: the component notices a field arriving or leaving on its own, shortly after the render that moved it, so removing a row prunes its live issues and [re-checks the whole form](collections-and-row-identity.md#what-happens-when-a-row-leaves-or-the-list-reorders) unasked ([`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) removes a line with `List.Remove` and nothing more). |
 | `Engine` | The engine as the non-generic `IFormidableEngine`. |
@@ -1045,7 +1046,7 @@ control anywhere in the form to register the path that rule reports against. Thi
 | It stands alone | Nothing to pair it with: it registers its own path, which no input could, so a submit can disclose the rule's message. |
 
 The rendering is identical to `FormidableFieldMessage`'s, down to the persistent `<ul>` and the
-splat policy. [Collections and row identity](collections-and-row-identity.md#nested-collections)
+splat policy. [Collections and row identity](collections-and-row-identity.md#how-do-i-nest-one-collection-inside-another)
 has the nested-collection pattern this exists for.
 
 ## `FormidableField<TValue>` and `FormidableFieldContext`
@@ -1203,7 +1204,7 @@ private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
 ## `FocusFallback`
 
 A focus move misses when nothing on the page carries the field's id, or when the element that does
-will not take focus ([CSS and accessibility](css-and-accessibility.md#focus-service) has both
+will not take focus ([CSS and accessibility](css-and-accessibility.md#why-did-nothing-take-focus) has both
 routes). `FocusFallback` is the escape hatch for both: it receives the field that could not be
 reached.
 
@@ -1354,7 +1355,7 @@ await host.RunAsync();
 
 Once the culture is set, FluentValidation's own message translations follow
 `CultureInfo.CurrentUICulture` with no further wiring
-([Profiles](profiles.md#localization-and-display-names) has the localization story and the
+([Profiles](profiles.md#where-do-display-names-and-localized-messages-come-from) has the localization story and the
 display-name half of it).
 
 ## Virtualize and `KeepRegistered`
@@ -1473,5 +1474,5 @@ take any of them from:
 | The addition | What it buys |
 |---|---|
 | `FormidableFieldAnchor` beside the control | A submit's disclosure: a plain `InputBase` registers nothing, so without the anchor no submit reveals `Nickname` ([Disclosure](disclosure.md#formidablefieldanchor-for-raw-and-foreign-controls)). Under [`LiveIssueDisclosure.EngagedAndVisible`](options.md#livedisclosure) the live channel needs the same registration. |
-| The field's own id | Focus: a Formidable input renders `FormidableFieldId.For(field)` as its element id, and here `NicknameId` computes it. An `<input>` carrying it takes a summary's click exactly like a wrapped one ([CSS and accessibility](css-and-accessibility.md#focus-service)). |
-| `aria-invalid` and `aria-describedby` | The assistive-technology half: `GetFieldState(field).HasErrors` answers the first, and `EditContext.GetValidationMessages(field)` decides whether the second names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. [CSS and accessibility](css-and-accessibility.md#an-input-the-page-renders-itself) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |
+| The field's own id | Focus: a Formidable input renders `FormidableFieldId.For(field)` as its element id, and here `NicknameId` computes it. An `<input>` carrying it takes a summary's click exactly like a wrapped one ([CSS and accessibility](css-and-accessibility.md#where-does-focus-go-on-a-blocked-submit)). |
+| `aria-invalid` and `aria-describedby` | The assistive-technology half: `GetFieldState(field).HasErrors` answers the first, and `EditContext.GetValidationMessages(field)` decides whether the second names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. [CSS and accessibility](css-and-accessibility.md#why-did-my-own-aria-invalid-vanish-from-a-native-inputtext) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |

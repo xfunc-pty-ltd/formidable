@@ -95,8 +95,9 @@ visit therefore constructs the engine twice and resolves the validator twice. Wh
 land follows the render mode: both on the server under `InteractiveServer`, and under
 `InteractiveAuto` on a first visit; one on each side under `InteractiveWebAssembly`.
 
-With `TrackFormValidity` on, the probe the engine runs at construction runs on the prerendered pass
-too. A validator with a slow async rule pays for that on a render that is about to be replaced.
+With `TrackFormValidity` on, the validity check the engine runs as it is built runs on the
+prerendered pass too. A validator with a slow async rule pays for that on a render that is about to
+be replaced.
 
 None of this is a fault to fix, but a team counting validator constructions should know why the
 number is two. Turning prerendering off takes it to one, built wherever the page's render mode runs.

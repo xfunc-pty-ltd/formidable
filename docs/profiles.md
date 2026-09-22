@@ -67,15 +67,15 @@ That's the whole decision most forms make: derive from `DraftSubmitValidator<T>`
 methods, done. What follows is for the forms that need a third moment, and how the client decides
 which profile runs when.
 
-## Custom profiles
+## How do I define a custom profile?
 
-A three-stage approval workflow, a wizard with its own rules per step — anything where "malformed
-vs. missing" isn't the axis that matters needs more than the draft/submit pair, and there's more
-than one way to get it. Staying on `DraftSubmitValidator<T>` and registering a further ruleset
-through `ConfigureAdditionalProfiles()` is the lighter touch. The `"Approve"` profile below is
-exactly that: `ApprovableOrderValidator` is a `DraftSubmitValidator<TestOrder>`, and its
-`ConfigureAdditionalProfiles()` override registers an `"Approve"` ruleset alongside the draft/submit
-pair it already gets for free.
+Register a further ruleset on the validator and name a profile that selects it; there's more than
+one way to register it. Staying on `DraftSubmitValidator<T>` and registering the ruleset through
+`ConfigureAdditionalProfiles()` is the lighter touch, and it covers a three-stage approval workflow,
+a wizard with its own rules per step, or anything else where "malformed vs. missing" isn't the axis
+that matters. The `"Approve"` profile below is exactly that: `ApprovableOrderValidator` is a
+`DraftSubmitValidator<TestOrder>`, and its `ConfigureAdditionalProfiles()` override registers an
+`"Approve"` ruleset alongside the draft/submit pair it already gets for free.
 
 ```csharp
 var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
@@ -107,6 +107,13 @@ public class MyValidator : ProfiledValidator<MyModel>
 }
 ```
 
+For a wizard, let Next submit the form under the current step's profile. As the visitor advances,
+reassign `SubmitProfile` on the `FormidableOptions` instance the form already holds
+(`ValidationProfile.Named("Step2", includeDefaultRules: true, "Step2")` once step 1 has passed).
+The final Submit takes a profile naming every step's ruleset. Leave `LiveProfile` unset and the
+live check follows the step ([profiles of my own](recipes.md#i-want-profiles-of-my-own) has the
+runtime switch).
+
 A rule that needs membership in two rulesets without existing twice takes a comma-separated name:
 `Profile("Step1,Step2", ...)` tags every rule inside with both, and either name composes into a
 profile on its own — see
@@ -123,10 +130,12 @@ is not covered.
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a third,
 custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
 
-## The client lifecycle
+## Which profile runs when?
 
-`FormidableForm<TModel>`'s engine reads two profiles off `FormidableOptions` (see
-[Options](options.md)):
+Submit runs `SubmitProfile`; live checking runs `LiveProfile`, which is `null` by default and then
+means the submit profile itself; a draft save is your own call against the validator and runs the
+profile you pass, `Draft` by convention. `FormidableForm<TModel>`'s engine reads the two profiles
+off `FormidableOptions` (see [Options](options.md)):
 
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
   `ValidationProfile.Submit`). After a submit, the whole-form re-check that follows each edit
@@ -149,6 +158,11 @@ when a submit rule is genuinely too expensive to run on every change, such as a 
 against a server. Narrowing cannot tell an untouched field from an engaged one, so it silences the
 field the visitor is working in along with the rest.
 
+A validator that declares no ruleset (a plain `AbstractValidator<T>`) has only default (unnamed)
+rules, which `Draft` selects, so `LiveProfile = ValidationProfile.Draft` holds nothing back until
+the rules that should wait sit in a ruleset
+([validate while typing, on blur, or only at submit](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)).
+
 Saving a draft doesn't go through the engine's submit pipeline at all, whatever the live channel is
 doing. The save is a separate, lenient validation call straight against the injected
 `IModelValidator<T>` with the `Draft` profile:
@@ -165,12 +179,15 @@ private async Task SaveDraft()
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs` -->
 
+Why: [how the engine works: which profile each check runs](how-the-engine-works.md#the-five-pass-kinds).
+
 **Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — draft-save next to an
 ordinary submit, both against the same `DraftSubmitValidator<T>`.
 
-## Server-side profile selection
+## How do I pick a profile on the server?
 
-Minimal APIs pass a `ValidationProfile` value directly:
+By value on a minimal API and by name on MVC. Minimal APIs pass a `ValidationProfile` value
+directly:
 
 ```csharp
 app.MapGroup("/api/orders").Validate<RoundTripOrder>(ValidationProfile.Draft);
@@ -191,11 +208,11 @@ ruleset with the same name as the profile). A blank name, or one joining several
 is refused loudly instead: FluentValidation splits a joined name where a rule is *declared*, never
 where one is selected, so such a profile would silently select nothing.
 
-## Localization and display names
+## Where do display names and localized messages come from?
 
-FluentValidation's localization and `WithName(...)` display names pass through unchanged:
-Formidable puts no translation or renaming layer between a rule and the message or name it produces.
-A rule's `WithName(...)` call lands on `ValidationIssue.DisplayName`, and from there in
+From FluentValidation, untouched. Its localization and `WithName(...)` display names pass through
+unchanged: Formidable puts no translation or renaming layer between a rule and the message or name
+it produces. A rule's `WithName(...)` call lands on `ValidationIssue.DisplayName`, and from there in
 `SubmitOutcome.VisibleErrorSummary` — ready for a dialog or summary without any extra mapping step
 on your end. A localized message from FluentValidation's own resource pipeline takes the same route.
 

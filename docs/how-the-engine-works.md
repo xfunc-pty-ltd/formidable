@@ -13,7 +13,8 @@ engine's internal workings.
 
 What follows renders the class-level documentation on `FormidableEngine<TModel>` (the doctrine),
 and the parts of it that live on `SetVerdictStore` and `SubmitCoverageTracker`, into prose. It is
-the one page in this corpus that speaks in the engine's own vocabulary.
+the one page in this corpus that speaks in the engine's own vocabulary. The later sections do the
+same for the mechanics the kit and the core hand here, each saying at its head which page sent you.
 
 ## Sources and views
 
@@ -314,6 +315,9 @@ resolves every error to its field and reveals each field whose visibility answer
 Reveal is field-granular: a revealed field's errors then disclose whole, an override's no on one
 sibling notwithstanding. The advisory ledger takes the visible advisories' fields the same way.
 
+The submit view's advisories for a field disclose where either ledger holds the field: an error
+site keeps a warning it also picked up, and an advisory site keeps its own.
+
 The ledgers merge by union. A field once revealed stays watched, so an error that returns after
 being fixed rediscloses at the next pass to answer the submit profile, with no further submit. A
 server apply is also a disclosure event: each issue it lands unions its field into the matching
@@ -343,10 +347,10 @@ sources, recomputed on every read: armed, no server error standing, the submit a
 errors that no revealed field discloses, and the live view carrying no error.
 
 While the predicate holds, the views synthesize one model-level issue from
-[`DefensiveGateMessage`](options.md#defensivegatemessage). There is no stored entry, so a refresh
-has nothing to delete. An error reaching the screen on either channel dissolves it, and so does
-an answer that comes back clean; a warning does not, because it does not say why a submit was
-refused.
+[`DefensiveGateMessage`](options.md#defensivegatemessage), built afresh from the option at each
+read. There is no stored entry, so a refresh has nothing to delete. An error reaching the screen on
+either channel dissolves it, and so does an answer that comes back clean; a warning does not,
+because it does not say why a submit was refused.
 
 ### The message-store projection
 
@@ -406,3 +410,341 @@ Probes are never cancelled short of disposal, so under a slow async rule and no 
 several can be in flight together, each answering for the model state it started at. A probe
 that throws raises `ValidationFaulted` and nothing else: a form-level fault issue would disclose
 something an invisible probe promises never to.
+
+## The state classes: how `FormidableCss` computes them
+
+This section documents the kit's wiring the reader pages leave to this page, beside the engine's
+passes: what a field's state class is computed from, on both surfaces that compute one.
+
+`FormidableCss.Compute` takes a `FieldState` and the configured `FormidableCssClasses` and hands
+six booleans to a private `Assemble`: `HasErrors`, `IsTouched || IsModified`, `HasWarnings`,
+`HasInfos`, `WouldPassSubmit` and `IsValidating`. `Assemble` is one ternary chain: invalid wins
+outright and ungated; a field neither touched nor modified gets the empty string whatever else it
+carries; then warning beats info beats valid, and valid alone also requires `WouldPassSubmit`.
+Pending appends to whatever that left, or stands alone.
+
+That join happens in exactly one place for every caller. A kit input builds its `FieldState` from
+`IFormidableEngine.GetFieldState` (`FormidableInputBase<TValue>.CssClass` through `ComputeCssClass`,
+and `FormidableFieldContext.CssClass` on the renderless path), and `FormidableFieldCssClassProvider`
+builds its own for a native input, so the two surfaces cannot disagree on a tier. A kit input then
+merges the result behind any consumer-splatted `class` through `FormidableCss.CombineClassNames`;
+the renderless context hands over the pure class, and a native input's merge is `InputBase`'s own.
+
+**The provider's reads.** `FormidableFieldCssClassProvider.GetFieldCssClass` reads `IsModified` and
+`HasErrors` off the `EditContext` it is handed (`IsModified(field)`;
+`GetValidationMessages(field).Any()`), and `IsTouched`, `IsValidating`, `HasWarnings`, `HasInfos`
+and `WouldPassSubmit` from the engine. The engine-sourced reads go through the internal
+`IValidatingFieldReader`, which `FormidableEngine<TModel>` implements explicitly.
+
+The provider probes for that interface once, at construction, with a single `as` check. Where the
+engine is any other `IFormidableEngine` (a test double), every engine-sourced read falls back to
+`GetFieldState(fieldIdentifier)` at once; no in-between case exists. `Options.CssClasses` is read
+at each computation rather than held from construction, so a renamed class reaches a native input
+at its next computation exactly as it reaches a kit input.
+
+`FieldState.WouldPassSubmit` is initialized to `true`, so a state built with `new FieldState { … }`
+and no engine behind it (a hand-rolled provider, a test double) keeps the `Valid` tier reachable.
+`default(FieldState)` bypasses the initializer and zeroes the member with the rest, so a defaulted
+state cannot vouch. [The submit-coverage vouch](#the-submit-coverage-vouch) has what the engine's
+own answer reads.
+
+**What else a kit input reads per render.** `AddCommonAttributes` reads the field's state and its
+issues once each and answers `class`, `aria-invalid` and `aria-describedby` from that one read.
+`aria-required` is asked separately, of `GetFieldRequirement`.
+
+The submit profile's presence demands are resolved to fields on the first ask and kept until the
+submit profile instance changes or the rendered field set moves, so the per-field, per-render ask
+is a dictionary lookup. `RequiredOverride` is invoked ahead of that map on every ask, because it is
+the one part of the answer that can change without the validator or the profile changing.
+
+## Ids, focus and the live region
+
+This section documents the kit's wiring the reader pages leave to this page, beside the engine's
+passes: how a field's DOM id is derived, what a focus move does on the JS side, and how
+`FormidableSummary` keeps its live regions and their entries stable across renders.
+
+### How an id is derived
+
+`FormidableFieldId.For(FieldIdentifier)` produces `formidable-{owner-hash}-{name-hash}-{sanitized-name}`.
+The owner hash is `RuntimeHelpers.GetHashCode(field.Model)`, the runtime's identity hash for the
+owning instance, printed as eight hex digits. The name enters twice because each copy does a
+different job.
+
+The sanitized copy lowercases letters and digits and replaces every other character with `-` (the
+model-level field's empty name becomes `form`). It is what makes the id legible and selectable by
+suffix, and it collapses names that differ only in case or punctuation (`Url` and `URL`;
+`Address.City` and `Address_City`).
+
+The hash of the original name, case and punctuation intact, is what separates those names again.
+It is FNV-1a over the name's UTF-16 code units, spelled out in `NameHash` rather than taken from
+`string.GetHashCode()`, which is randomized per process and would hand a test computing the
+expected id a different answer on every run.
+
+Thirty-two bits over the field names one object owns makes two ids overwhelmingly likely to differ
+rather than certain to; the sanitizer collision it replaces is structural and happens every time.
+The hash sits before the sanitized name so the name stays the id's suffix.
+
+`MessagesFor` appends `-messages` to that id and owns the suffix: the three message components
+render it on their lists, a kit input points `aria-describedby` at it while the field has issues,
+and `FormidableFieldContext.AriaDescribedBy` hands it to a hand-rolled control, so a control wired
+by hand and the list it describes cannot drift apart.
+
+### When two owners hash alike
+
+The owner segment is narrower than its eight digits. The runtime keeps an object's identity hash
+in part of the object header rather than in a full `int`: twenty-six bits of it on CoreCLR, the
+runtime under Blazor Server and every server-side render. Among enough owner objects rendered at
+once two can draw the same value, and their same-named fields then render the same id.
+
+The odds climb with the square of the count: negligible for the hundreds of rows a form usually
+shows, under one percent at a thousand rendered at once, about one in six at five thousand.
+
+The value is drawn from a sequence the runtime advances on each first identity-hash request, so
+anything the app asks about earlier moves it along, and nothing a consumer writes can name it. The
+engine tells fields apart by `FieldIdentifier` equality (the owner reference and the name), never
+by the hash, so validation is untouched.
+
+What a duplicate disturbs is every site keyed by the id. `focusField`, `syncValue` and
+`orderFields` each reach an element through `document.getElementById`, which answers the first in
+document order, and `FormidableFieldOrderService` keys its resolved order by id, so a shared id
+names one field there.
+
+### Focus: what the JS side does
+
+`FormidableFocusService.FocusAsync` is a thin wrapper over the module's `focusField(id, scrollId)`.
+It hands the JS side `FormidableFieldId.For(field)` as the focus target and
+`FormidableFieldId.MessagesFor(field)` as the scroll target, and returns whatever `focusField`
+reports. `document.getElementById` locates both. A miss on the focus id returns `false` at once; a
+miss on the scroll id alone is not a miss, because the scroll target falls back to the focus
+element itself.
+
+The scroll is `scrollIntoView({ behavior: "auto", block })`, with `block` `"start"` when the
+target's bounding height exceeds 60% of `window.innerHeight` and `"center"` otherwise, followed by
+`element.focus({ preventScroll: true })`. The answer is read back as
+`document.activeElement === element` rather than assumed from the call. That is why an element
+that is found and refuses focus reports `false` exactly as a missing one does, and why the two
+routes reach the caller as one answer.
+
+Which field a move aims at is chosen above this layer: [Read order](#read-order) has
+`FirstErrorFocus`. `TryFocusAsync` then awaits `PrepareFocus` once, tries the element, consults
+`FocusFallback` once after a miss, and retries once when the fallback answers `true`.
+
+### The summary's regions and entries
+
+`FormidableSummary` builds each fixed-role region inside its own sequence-number region
+(`OpenRegion(3)` for the errors region, `OpenRegion(4)` for the advisories region). Blazor's diff
+matches sibling frames by sequence number, so numbering the advisories region after the errors
+region's variable-length bands would make its number depend on that content, and a changed number
+diffs as remove-plus-insert, replacing the element whose stable identity is the contract.
+
+Isolated spaces pin every region frame to the same numbers on every render, so the element carrying
+the role is the same DOM node across renders.
+
+`status` and `alert` each carry an implicit `aria-atomic` of `true`, under which every change
+inside a region re-announces the whole of it, so each region spells out `aria-atomic="false"` and
+an announcement is the entries that changed. The entries come and go inside a region that stays,
+which is what gives `aria-atomic` a region and parts to distinguish.
+
+A bare `aria-live`, which is all [`InlineMessageLive`](options.md#inlinemessagelive) puts on a
+message list, carries no such implication, so the message lists spell out nothing.
+
+Entries are keyed. Without a key, sibling `<li>` elements match by position, so correcting the
+field the first entry names rewrites the text of every entry below it and drops the last one: a
+whole band's worth of churn where one node should have left.
+
+The key is `(entry, occurrence)`, the `VisibleIssue` paired with its ordinal among the entries
+equal to it. Two issues carrying the same field, message, severity, code and state are equal
+records (a validator declaring one rule twice reaches that shape), and Blazor rejects duplicate
+sibling keys at the first diff rather than the first render, so keying by value alone would paint
+a form and then throw.
+
+Every entry also restarts its own sequence numbering from zero inside the band's region, so a
+matched entry keeps its subtree rather than rebuilding it under a surviving `<li>`.
+
+## Row identity: how a path resolves to an object
+
+This section documents the resolution the reader pages leave to this page, beside the engine's
+passes: how a reported path becomes a field, what a component registers and re-reads, why a keyed
+list never trips the row-key checks, and what a field-changed notification publishes before it
+returns.
+
+### The walk
+
+Every path the engine turns into a field, a validator's reported `PropertyName` and a server
+reply's issue path alike, goes through the registered `IModelIntrospector`'s `Resolve`
+(`FormidableEngine<TModel>.ResolvePath` is where a path becomes an identifier). The seam is
+swappable: `AddFormidable()` registers `ReflectionModelIntrospector` only when nothing else is, and
+that default is what this section describes. `PropertyPath.TryParse` cuts the path into segments,
+property names and indexer tokens (`Teams[0].Members[1].Alias` is five: `Teams`, `[0]`, `Members`,
+`[1]`, `Alias`).
+
+A path the grammar rejects resolves to the root model with the whole path as the member name, and
+an empty path is the model-level field: the root model with an empty member name.
+
+The walk navigates every segment but the last across the live object graph. A property segment
+reads that member on the object reached so far.
+
+An indexer segment reads the item at that position: an `IList` directly under an int token, any
+other case through the indexer its token fits (an int token picks the int indexer, any other the
+string one, and a type with a single indexer answers with it whatever its key type).
+
+The terminal segment never navigates: it names the field on whatever object the walk reached.
+Nested and indexed segments mix freely: every non-terminal segment is one `Navigate` call,
+whichever kind it is, and nothing orders the kinds.
+
+A segment that cannot be navigated (a null value, an unknown member, an out-of-range index, a
+missing key, a throwing getter) ends the walk there, at the deepest non-null owner, with the rest of
+the path rejoined as the member name. The result is the public record:
+
+```csharp
+public readonly record struct ResolvedField(object Owner, string PropertyName);
+```
+
+<!-- Source: `src/Formidable/Introspection/ResolvedField.cs` -->
+
+`Owner` is the deepest non-null object the walk reached. For `Teams[0].Members[1].Alias` it is the
+`Member` instance at that position when the walk ran. The engine turns the result into a Blazor
+`FieldIdentifier` built from the instance, not the path string:
+
+```csharp
+public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
+{
+    ArgumentNullException.ThrowIfNull(rootModel);
+
+    if (field.Owner.GetType().IsValueType)
+    {
+        return new FieldIdentifier(rootModel, originalPath);
+    }
+
+    return new FieldIdentifier(field.Owner, field.PropertyName);
+}
+```
+
+<!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
+
+The value-type branch is a fallback for an owner `FieldIdentifier` cannot hold, the walk having
+ended on a struct just before the member: it keys on the root model and the path string, the one
+shape that trades row stability away. Only the owner is tested: a struct earlier on the path, with a
+class after it, keys on that class like any other owner.
+
+`FieldIdentifier` compares by the owner reference and the field name, so one built this way equals
+one built from the same instance and name wherever that object sits in its list. That equality is
+what keeps a stored error attached to its row through add, remove and reorder.
+
+### What a component registers and re-reads
+
+The component side reaches the same instance with no coordination. `FieldIdentifier.Create(For)`
+over a loop-captured closure (`() => member.Alias`) evaluates the accessor's object part, the
+`Member` the iteration captured; the walk above reaches that `Member` by index at the moment it
+runs. Both name the row object, so the two identifiers compare equal.
+
+A component resolves its field as it binds: `Register` calls `ResolveField()` and keeps the
+identifier it registers, and with either check on `OnParametersSet` calls it once more and keeps
+that answer as the copy the check compares against. The engine resolves every path afresh at every
+pass.
+
+Under [`VerifyRowKeys`](options.md#verifyrowkeys) or
+[`ReportStaleRegistrations`](options.md#reportstaleregistrations) the bound component re-runs
+`ResolveField()` on every later parameter set and compares the answer with that copy: the same
+expression evaluated at two times, which is the only thing the comparison assumes.
+
+The throwing check calls `ResolveField()` with no `try` around it and throws on a difference. The
+reporting check resolves inside a `try`, skips an accessor that throws, and hands a difference to
+`IStaleRegistrationReporter` once, until the accessor names the registered field again or the
+component rebinds.
+
+The engine's `Report` writes the Trace line itself, and a logger warning when the host resolved an
+`ILoggerFactory`, then invokes `StaleRegistrationDiagnostic` bare, so a throwing callback surfaces
+from the component's own parameter-set lifecycle.
+
+### Why a keyed list never trips the checks
+
+Correctly keyed rows pass the comparison whatever the edit, because the three shapes a keyed diff
+takes all leave it passing. Replacing a row keyed by the row object retires that row's key and
+introduces a different one, so its components are disposed and new ones built for the replacement.
+Removing a row disposes its components and builds nothing. Adding or reordering disposes nothing at
+all: a keyed diff permutes the components it already has.
+
+In all three, anything newly built registers the row it was handed, and every retained component
+keeps resolving its accessor to the row it already spoke for.
+
+### A notification publishes before it returns
+
+`EditContext.NotifyFieldChanged` reaches `HandleFieldChanged` on the calling thread. It moves the
+edit stamp, and `MarkTouched` raises `StateChanged` inline whenever the field was not already touched
+(a fresh owner is a fresh `FieldIdentifier`, so a replaced owner's field always publishes here).
+
+With no `LiveDebounce` the live pass starts inside the same call, and its pending publish rides the
+render dispatch (`InvokeAsync`), which runs inline when the caller is already on the renderer's
+context, as an event handler is. Every component observing the engine answers each publish with
+`InvokeAsync(StateHasChanged)`, so it re-renders before the notify returns.
+
+That is why replacing an owner and notifying before rendering trips the checks in the middle of the
+notify. The re-render re-supplies the parameters of the bound components inside the wrapper, each
+re-runs `ResolveField()` against an accessor that now names the replacement, and its kept identifier
+still names the instance that left.
+
+The throw does not climb the notify's frames: the renderer catches it from its own render batch and
+completes its unhandled-exception path, so the notify call returns normally while the app's
+unhandled-exception handling fires. Rendered first, the keyed diff disposes those components and
+builds fresh ones that register the replacement, and the notify that follows finds every comparison
+passing.
+
+## Server issues: how an apply lands
+
+This section documents the server-issue source the reader pages leave to this page, beside the
+engine's passes: what `ApplyServerIssues` writes, which issues it lands, and which pass replaces
+what it left. [Server integration](server-integration.md) has what a reader sees.
+
+### What an apply writes
+
+The server-issue store is a source of its own: two dictionaries keyed by field, one holding the
+server's errors and one its advisories, apart from the live verdicts and the submit channel's
+client answer ([Sources and views](#sources-and-views)). `ApplyServerIssues` writes it
+synchronously on the calling thread.
+
+It sets `HasSubmitted` first, which is one of the two conditions under which a field change arms
+the refresh timer ([the five pass kinds](#the-five-pass-kinds)). It clears the fault issue
+unconditionally, one of the two places that issue is cleared (a pass landing is the other). It then
+clears both dictionaries before it reads the payload, so a replace is a wholesale swap of that one
+source and the client's own verdict sources are untouched.
+
+Each issue is resolved to a field through the introspector ([the walk](#the-walk)) and, where it
+lands, added to the dictionary for its severity. Within one payload a second copy of a sentence for
+one field at the same severity folds into the first (`SameMessageAndSeverity`, the same test the
+views apply when they fold a server copy into a client one).
+
+The field of every landed issue is unioned into the matching reveal ledger, error sites or advisory
+sites ([the reveal ledgers](#the-reveal-ledgers)), which is what makes an apply a disclosure event.
+The store is rebuilt once, at the end of the apply
+([the message-store projection](#the-message-store-projection)).
+
+### Which issues an apply lands
+
+The apply branches per issue on severity. An error is skipped only when
+[`DisclosureOverride`](options.md#disclosureoverride) answers `false` for it; the registry is never
+consulted, so an error lands whether or not anything renders its field. A skipped server error
+reaches no diagnostic: the override's no is decided before `ReportSuppressed` and never reaches it.
+
+A non-error issue is dropped when the override-aware visibility answer is no: `IsVisible` asks the
+override first and, where it says nothing, `IsRendered` (the model-level field, or a field the
+registry holds).
+
+A dropped advisory goes through `ReportSuppressed` once per apply: a Trace line, a logged warning
+when the host resolved an `ILoggerFactory`, the `SuppressedIssueDiagnostic` callback, and
+`NeverRegisteredFieldDiagnostic` where one is set and nothing ever registered the field. It is
+never stored, so no later read reports it again, and the gate never stands in for it: the gate
+exists because a hidden error would otherwise fail a submit silently, and an advisory fails nothing.
+
+### What replaces the server's answer
+
+A live pass leaves the server store standing, whatever profile it ran: it is an edit's own answer,
+not the settling point the server's snapshot yields to. A refresh, a submit and a load each clear
+both dictionaries as they land ([the five pass kinds](#the-five-pass-kinds)), so a server-only
+issue goes with that landing and one a client rule agrees with continues through the client's own
+answer.
+
+At read time the submit view merges client-first: `MergeServer` drops a server issue whose message
+and severity both match one the client already shows, and `ExceptShadowed` is the separate,
+message-only filter on the reads ([Read order](#read-order)). While a server error stands the gate
+predicate is false, so the gate never shows beside one ([the gate latch](#the-gate-latch)).

@@ -11,6 +11,10 @@ page follows where one demonstrates it. Chasing a symptom instead of a goal?
 **Set:** `UpdateOn` on the input — `InputUpdateMode.OnChange` (the default),
 `InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`.
 
+This recipe sets which event delivers a change to the form (`UpdateOn`). Holding a rule back
+until Submit takes `LiveProfile`: see **Only at submit** below, and
+[presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live).
+
 ```razor
 <FormidableInputText @bind-Value="Model.Nickname"
                       UpdateOn="InputUpdateMode.OnInput" />
@@ -48,10 +52,19 @@ also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change, so a multi-segment control never starts a check mid-edit; a blur with no commit before it starts nothing. | Not before submit. At submit; then, after each blur-commit, in the whole-form re-check 300 ms later. |
 
 Which column a rule falls in is a configuration choice rather than a property of the bucket it was
-declared in: [`FormidableOptions.LiveProfile`](profiles.md#the-client-lifecycle) draws the line.
+declared in: [`FormidableOptions.LiveProfile`](profiles.md#which-profile-runs-when) draws the line.
 What keeps the left column from nagging is engagement rather than rule selection: a field you have
 not changed shows no live message, however loudly its rule fails (a load of values disclosed with
 `DiscloseLoadedValuesAsync` counts as a change for the fields it fills).
+
+**Only at submit** means the right-hand column for every rule. There is no switch that turns the
+live check off. `LiveProfile` draws the line by ruleset, so a rule the live profile does not select
+waits for Submit.
+
+`ValidationProfile.Draft` selects the default rules, so a validator whose rules are all default rules
+gives it nothing to leave out. To hold rules back, put them in a ruleset: derive from
+`DraftSubmitValidator<T>`, write the rules that should wait in `ConfigureSubmitRules()`, and set
+`Options.LiveProfile = ValidationProfile.Draft`. That changes the validator's shape, not its rules.
 
 **Read more:**
 
@@ -68,6 +81,8 @@ Samples:
   typed `FormidableInputDate`)
 - [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
   pattern, both date fields)
+- [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) (every rule in
+  `ConfigureSubmitRules()` and `LiveProfile` at `Draft`, so nothing answers before Submit)
 
 ### I want presence rules to wait for submit while formats answer live
 
@@ -117,6 +132,10 @@ Samples:
 
 **Set:** `FormidableOptions.LiveProfile`. It defaults to `null`, meaning the live channel evaluates
 whatever `SubmitProfile` selects; give it a profile and it evaluates that instead.
+
+This recipe narrows which rules run as you edit. Live messages gated on their field being on
+screen are [`LiveDisclosure`](options.md#livedisclosure); a form silent until Submit is
+[the first recipe's last case](#i-want-to-validate-while-typing-on-blur-or-only-at-submit).
 
 ```csharp
 Options.LiveProfile = ValidationProfile.Draft;
@@ -191,7 +210,7 @@ a narrowed check, because that class means a submit would pass.
 - [`TrackFormValidity`](options.md#trackformvalidity)
 - [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)
 - [why a rule runs once per edit](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
-- [what puts green on a field](css-and-accessibility.md#need-to-know)
+- [what puts green on a field](css-and-accessibility.md#what-puts-green-on-a-field)
 
 Sample:
 
@@ -205,6 +224,11 @@ and render the indicator from `field.State.IsValidating` inside a `FormidableFie
 append the `Pending` class on their own). The bucket is about meaning rather than timing: the live
 channel runs both buckets by default, and a uniqueness check belongs in the draft bucket if a draft
 save should answer it too.
+
+This recipe makes the check answer as the visitor types (`OnInput`). To have it answer less
+often, leave `UpdateOn` at its default or set [`LiveDebounce`](options.md#livedebounce);
+[Async validation](async-validation.md#how-do-i-stop-the-check-firing-on-every-keystroke)
+has both.
 
 ```csharp
 protected override void ConfigureDraftRules() =>
@@ -235,7 +259,7 @@ check cancels the older one, which is why the rule has to honour its token.
 - [Async validation](async-validation.md)
 - [which fields show "checking…"](async-validation.md#where-does-checking-show-and-where-doesnt-it)
 - [remember a slow check's answer](#i-want-a-slow-async-check-to-remember-its-answer)
-- [why the element renders empty](css-and-accessibility.md#formidablesummary-as-a-live-region)
+- [why the element renders empty](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong)
 - [Options](options.md) (`RefreshDebounce`)
 - [CSS and accessibility](css-and-accessibility.md) (`Pending`)
 
@@ -332,6 +356,10 @@ Sample:
 result to `_form!.ApplyServerIssues(...)`. Every issue lands on the field it names (errors whether
 or not the field is rendered, advisories wherever that field can show them).
 
+This recipe wires the round trip. For what a server error does once the visitor edits its
+field, see
+[Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field).
+
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
 if (!response.IsSuccessStatusCode)
@@ -358,7 +386,7 @@ before it validates.
 **Read more:**
 
 - [Server integration](server-integration.md)
-- [reading the rejection body](server-integration.md#reading-the-rejection-body)
+- [what if the 400 is not Formidable's](server-integration.md#what-if-the-400-is-not-formidables)
 - [Severity](severity.md)
 
 Samples:
@@ -372,6 +400,10 @@ Samples:
 **Set:** nothing. Fill the model the form is already bound to, then call
 `DiscloseLoadedValuesAsync()` on the component you captured with `@ref`. Call it once, after the
 values land, from the renderer's synchronization context.
+
+This recipe is for a form filled all at once (a saved draft, a record opened for editing). A
+single value your code changes wants `field.NotifyChanged()` instead
+([Async validation](async-validation.md#why-did-a-value-my-code-changed-keep-its-old-message)).
 
 ```csharp
 _proposal.Title = "Progressive disclosure in practice";
@@ -406,6 +438,10 @@ Sample:
 
 **Set:** `FormidableOptions.RequiredOverride`, returning a `FieldRequirement` for the fields you are
 declaring and `null` for everything else. Most forms need none of it.
+
+This recipe declares requiredness for particular fields. To render no marker anywhere,
+set [`ShowRequiredIndicators`](options.md#showrequiredindicators) to `false`; that switch
+leaves `aria-required` in place.
 
 ```csharp
     _options = new FormidableOptions
@@ -512,7 +548,7 @@ submits successfully, and the same rule holds on the server. `FormidableFieldMes
 **Read more:**
 
 - [Severity](severity.md)
-- [the warning lifetime](severity.md#the-warning-lifetime)
+- [the warning lifetime](severity.md#how-long-does-a-warning-stay-on-screen)
 
 Samples:
 
@@ -545,7 +581,7 @@ identical parameter for its own blocked-submit auto-focus, so wire the same call
 
 **Read more:**
 
-- [CSS and accessibility](css-and-accessibility.md#deterministic-ids)
+- [CSS and accessibility](css-and-accessibility.md#how-do-i-compute-an-id-by-hand)
 - [Component kit](component-kit.md#focusfallback)
 
 Samples:
@@ -630,6 +666,16 @@ Sample:
 **Set:** register your own `IFormidableFieldOrderService` ahead of `AddFormidableBlazor()`, which
 keeps a registration already there. Map each field to the id its element carries, ask the browser
 where those elements actually are, and map the answer back.
+
+Seeing the order the rules were written in, rather than the page's? That is not this recipe's case:
+under `FormidableForm`, page order is the default and needs no setting. A summary that stays in rule
+order means the page's order never reached it.
+
+Where no order was resolved (`FormidableValidator` in attach mode, or an app that registered no
+order service), the
+[migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)
+has it. Where no rendered element carries the fields' ids (`id="@field.ElementId"` on a control the
+page renders itself), none of them could be placed, and every one sorts last, in rule order.
 
 ```csharp
 using Formidable.Blazor;
@@ -815,7 +861,7 @@ What the shipped component knows, yours has to know too:
 
 - [`FormidableSummary`](component-kit.md#formidablesummary)
 - [the order entries appear in](component-kit.md#the-order-entries-appear-in)
-- [the summary as a live region](css-and-accessibility.md#formidablesummary-as-a-live-region)
+- [the summary as a live region](css-and-accessibility.md#how-does-the-summary-announce-to-a-screen-reader)
 - [`ModelLevelDisplayName`](options.md#modelleveldisplayname)
 
 Sample:
@@ -883,6 +929,10 @@ Samples:
 **Set:** derive from `ProfiledValidator<T>`. Shared rules go in `ConfigureCommonRules()` and run
 under every profile that includes the default rules. Each named ruleset goes in
 `ConfigureProfiles()`, through `Profile(name, ...)`.
+
+This recipe builds a validator without the draft/submit shape (`ProfiledValidator<T>`). For a
+third profile beside Draft and Submit, stay on `DraftSubmitValidator<T>` and register its
+ruleset in `ConfigureAdditionalProfiles()` ([Profiles](profiles.md#how-do-i-define-a-custom-profile)).
 
 ```csharp
 public class ReviewedPostValidator : ProfiledValidator<ReviewedPost>
@@ -989,7 +1039,7 @@ Pass nothing and the English default stands.
 
 **Read more:**
 
-- [localization and display names](profiles.md#localization-and-display-names)
+- [localization and display names](profiles.md#where-do-display-names-and-localized-messages-come-from)
 - [`DefensiveGateMessage`](options.md#defensivegatemessage)
 - [`ModelLevelDisplayName`](options.md#modelleveldisplayname)
 - [`ValidationFaultMessage`](options.md#validationfaultmessage)
@@ -1005,6 +1055,10 @@ Sample:
 
 **Set:** `SetValidator` on the parent property's rule, or `ChildRules` to write them inline. Name
 the nested field with its full path in `For` or `@bind-Value`.
+
+This recipe covers one nested object (`Order.ShippingAddress`). A list of rows is
+[Collections and row identity](collections-and-row-identity.md); a list inside a row is
+[its nesting section](collections-and-row-identity.md#how-do-i-nest-one-collection-inside-another).
 
 ```csharp
 public class OrderValidator : AbstractValidator<Order>
@@ -1032,9 +1086,9 @@ to the object it reaches, so `() => Model.ShippingAddress.Region.Code` is one fi
 it while rendering.
 
 **What goes wrong when the nested object is replaced.** A field is an owner object plus a member
-name. A component resolves its owner once, when it binds; the form resolves afresh at every check.
-So after `Model.ShippingAddress = new Address()` the next check answers for `ShippingAddress.Street`
-under the new instance, while the components rendering that field go on asking under the old.
+name. After `Model.ShippingAddress = new Address()` the next check answers for
+`ShippingAddress.Street` under the new instance, while the components rendering that field go on
+asking under the old.
 
 An ask under the old owner comes back clean. The field's messages go, and `aria-invalid` and
 `aria-describedby` go with them. A field the visitor had already touched can end up wearing the
@@ -1060,6 +1114,8 @@ rather than leaving it to be spotted on screen.
 - [`VerifyRowKeys`](options.md#verifyrowkeys)
 - [returning the form to pristine](component-kit.md#returning-the-form-to-pristine)
 - [the defensive gate](disclosure.md)
+
+Why: [how the engine works: what a component registers](how-the-engine-works.md#what-a-component-registers-and-re-reads).
 
 Sample:
 
@@ -1140,6 +1196,8 @@ the staged state belongs to whenever that state changes.
 - [opening a form on saved values](#i-want-to-open-a-form-on-values-the-visitor-did-not-type)
 - [marking fields required](#i-want-to-mark-fields-required-when-the-rules-cannot-say-so)
 - [a native or third-party control](#i-want-to-use-a-native-or-third-party-control)
+
+Why: [how the engine works: what a validator can be asked](how-the-engine-works.md#rule-level-versus-whole-profile-execution).
 
 Sample: no page. The worked examples are Formidable's own tests, `DelegatingModelValidatorTests.cs`.
 

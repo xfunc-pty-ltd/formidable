@@ -14,6 +14,11 @@ Every property has a default, so a form that passes no `Options` at all is fully
 falls back to the app-wide default, or to `new FormidableOptions()` where none is registered (see
 [App-wide defaults](#app-wide-defaults)).
 
+An option is set in one of two places: once for the whole app, in `Program.cs`, with
+`builder.Services.AddFormidableBlazor(options => …)`, or per form, on the `FormidableOptions`
+instance the `Options` parameter takes (`FormidableForm` and `FormidableValidator` alike). The
+two do not merge: a form's own instance wins outright.
+
 ```razor
 <FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
                 @ref="_form">
@@ -73,9 +78,18 @@ check validates against. `null` means `SubmitProfile`, so a live message says wh
 actually complain about, presence rules included. It is read as each live check begins and follows
 the instance the options hold, so a runtime swap takes effect at the next check.
 
-Set it where a submit rule is genuinely too expensive to run per change; `ValidationProfile.Draft`
-is the usual answer. [Profiles](profiles.md) has why narrowing is the blunter of the two levers that
-keep a live channel from nagging, and why a save-progress flow is unaffected either way. Why:
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.LiveProfile = ValidationProfile.Draft);`.
+
+Reach for it where a submit rule is genuinely too expensive to run per change;
+`ValidationProfile.Draft` is the usual answer. A validator that declares no ruleset (a plain
+`AbstractValidator<T>`) has only default rules, which `Draft` selects, so
+`LiveProfile = ValidationProfile.Draft` holds nothing back until the rules that should wait sit in
+a ruleset
+([validate while typing, on blur, or only at submit](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)).
+
+[Profiles](profiles.md) has why narrowing is the blunter of the two levers that keep a live channel
+from nagging, and why a save-progress flow is unaffected either way. Why:
 [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
 
 **Recipe:**
@@ -89,11 +103,17 @@ against, the profile the whole-form re-check runs, the profile
 check answers for. Unless `LiveProfile` narrows it, every live check validates against it too. See
 [Profiles](profiles.md).
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.SubmitProfile = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve"));`.
+
 ### `RefreshDebounce`
 
 `TimeSpan`, defaults to 300 ms. After a submit, how long after an edit before the whole form is
 re-checked, so what the submit showed stays truthful: the messages on screen follow your fixes, and
 the `Valid` class stays honest, with no second submit.
+
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.RefreshDebounce = TimeSpan.FromMilliseconds(500));`.
 
 Before the first submit or server reply, an edit gets one live check, which answers every field
 you have engaged, and no whole-form re-check follows it. A change to which fields are on screen (a
@@ -117,9 +137,20 @@ opens a wait instead. Another change inside the wait restarts it, and when it pa
 check runs for every field changed since it opened (one shared wait for the form, not one per
 field), with the "checking" cue on those fields alone.
 
-Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. With
-`TrackFormValidity` on, its validity check waits for the same window, and after a submit the same
-edit starts the whole-form re-check's own wait as well.
+Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. If
+one field's rule is the expensive one, leave `LiveDebounce` unset and let that input commit on
+`change` (the `UpdateOn` default) instead. A change to any other field then starts its check at
+once ([stop the check firing on every keystroke](async-validation.md#how-do-i-stop-the-check-firing-on-every-keystroke)),
+and a memo answers the expensive rule's repeat asks
+([remember its answer](recipes.md#i-want-a-slow-async-check-to-remember-its-answer)).
+
+With `TrackFormValidity` on, its validity check waits for the same window, and after a submit the
+same edit starts the whole-form re-check's own wait as well.
+
+Set it once for the whole app in `Program.cs`,
+`builder.Services.AddFormidableBlazor(options => options.LiveDebounce = TimeSpan.FromMilliseconds(400));`,
+or per form, on the `FormidableOptions` the form's `Options` parameter takes
+([App-wide defaults](#app-wide-defaults)).
 
 The two waits run independently;
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has what setting one wider
@@ -146,6 +177,12 @@ edit) and on any other validator, where each validity check is one whole `Submit
 validation on top of the live check.
 [Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the
 async-rule cost and what happens when several validity checks overlap.
+
+No option narrows the validity check the way `LiveProfile` narrows the live check. An async rule
+it reaches (a lookup against your API, say) wants a memo (`MustAsyncMemoized`,
+[remember its answer](recipes.md#i-want-a-slow-async-check-to-remember-its-answer)). The
+alternative is a button bound to nothing, with tracking off: it stays enabled and Submit blocks on
+an error.
 
 ```razor
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
@@ -183,6 +220,9 @@ Submit button that never calls `Normalize()` itself.
 a click the page moved out from under a still pointer between the press and the release (the submit
 a message appearing above the button swallows).
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.ClickRecovery = DisplacedClickRecovery.None);`.
+
 Under the default the root recovers clicks on buttons inside it.
 [Component kit](component-kit.md#the-click-a-disclosure-displaces) has the shift itself, the three
 conditions recovery holds out for, what the recovered click is, and what a root that cannot scope a
@@ -202,6 +242,9 @@ to answer no, or `null` to defer to the field registry. Model-level issues (an e
 resolve to the form's own element, which counts as rendered for as long as the form is on the page,
 so deferring leaves them visible.
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.DisclosureOverride = issue => issue.Path.StartsWith("Shipping.") ? true : null);`.
+
 An answer is an input to the asking channel's own disclosure rule rather than a per-issue switch
 over what is on screen, and the live channel consults it only under
 `LiveIssueDisclosure.EngagedAndVisible` (see [`LiveDisclosure`](#livedisclosure)). See
@@ -213,14 +256,26 @@ over what is on screen, and the live channel consults it only under
 own rules are read: return a `FieldRequirement` to declare a field's requiredness, or `null` to
 defer to the rules.
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.RequiredOverride = field => field.FieldName == "Reason" ? FieldRequirement.Required : null);`.
+
 Reading rules sees presence only as FluentValidation's own `NotEmpty()` or `NotNull()`, so presence
 written as a predicate answers `FieldRequirement.NotRequired`, as does every field of an
 uninspectable validator. `NotRequired` means "not known to be required", never "proven optional".
+A presence rule under a `When` or `Unless` answers `ConditionallyRequired`, which, like
+`NotRequired`, draws no mark; return `Required` here to mark the field anyway.
 
 It declares in both directions: `Required` marks a field the rules cannot be read to demand,
 `NotRequired` unmarks one they can. The marker and `aria-required` are read from that one answer
 rather than decided apart. Invoked on every ask (once per bound component per render) so keep it
 cheap and pure.
+
+The delegate receives the field's identifier alone, so a lambda that reads the condition off your
+model, `field => field.FieldName == nameof(Booking.Company) && _booking.WantsInvoice ?
+FieldRequirement.Required : null`, makes the mark follow a checkbox bound to that flag at the
+page's next render.
+Or render your own marker from `FormidableFieldContext.Requirement` inside a `FormidableField`,
+which can say something for the conditional case as well.
 
 **Recipe:**
 [mark fields required when the rules cannot say so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
@@ -228,9 +283,10 @@ cheap and pure.
 ### `ShowRequiredIndicators`
 
 `bool`, defaults to `true`. Whether
-[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders at all.
-Set it to `false` to render no marker anywhere on the form: no element, not an empty one. That is
-the form-wide off switch for a design that marks the optional fields instead.
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) (the asterisk
+beside a required field's label or legend in the samples) renders at all. Set it to `false` to
+render no marker anywhere on the form: no element, not an empty one. That is the form-wide off
+switch for a design that marks the optional fields instead.
 
 Off means off for everything the indicator might ever render. What it never suppresses is
 `aria-required`: whether a value is demanded is a fact about the input rather than a decoration. For
@@ -252,6 +308,9 @@ the text inside the marker's `formidable-required` element and nothing else.
 `LiveIssueDisclosure`, defaults to `LiveIssueDisclosure.Engaged`. Which of an engaged field's live
 issues the live channel discloses (the one lever over a channel registration never touches).
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.LiveDisclosure = LiveIssueDisclosure.EngagedAndVisible);`.
+
 Under the default, engagement alone discloses: a field a committed change has named, or one a draft
 load adopted, shows its live issues on every surface, rendered or not.
 [Disclosure](disclosure.md#why-isnt-my-message-showing-yet) has why that default exists and what
@@ -272,6 +331,9 @@ decided not to show: no rendered field registration matched it, or a `Disclosure
 `false`. Those sites are a submit, for its own error-severity issues on unwatched fields, and
 `ApplyServerIssues`, for the advisories a server response's visibility answer hides.
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.SuppressedIssueDiagnostic = issue => Console.WriteLine($"Suppressed: {issue.Path}"));`.
+
 Those two are the whole of what reaches this callback.
 [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) has what a visibility answer hides
 in silence, and the channels that record a suppression whether or not this callback is set.
@@ -287,6 +349,9 @@ the narrower half of what it reports: a suppressed issue whose field has no regi
 all. It receives the same issue, response strings and all, so what that entry says about writing
 `Path` into a log applies here unchanged.
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.NeverRegisteredFieldDiagnostic = issue => Console.WriteLine($"Never rendered: {issue.Path}"));`.
+
 That is the signature of a rule whose `.When(...)` fails to mirror the `@if` gating its field, so
 the rule can fail in a state the field never renders in. It is *also* the signature of a correct
 section the visitor has not opened yet, and this signal cannot tell the two apart, so treat it as a
@@ -297,6 +362,9 @@ place to look rather than a verdict. A visited-then-collapsed section stays sile
 `Action<StaleRegistrationReport>?`, defaults to `null`. Invoked once per stale registration
 [`ReportStaleRegistrations`](#reportstaleregistrations) detects. The report carries the component's
 type and both ends of the divergence: the field it registered, and the one its accessor names now.
+
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.StaleRegistrationDiagnostic = report => Console.WriteLine($"Stale: {report.RegisteredField.FieldName} is now {report.CurrentField.FieldName}"));`.
 
 Detection is `ReportStaleRegistrations`' to switch on; while that is off nothing reaches this
 callback, and with [`VerifyRowKeys`](#verifyrowkeys) on the exception replaces the report. A
@@ -315,8 +383,8 @@ field it registered: it re-reads its accessor on every parameter set, and a dive
 `InvalidOperationException` naming the field and the fix.
 
 Correctly keyed rows never trip it for anything done to the list itself;
-[Collections and row identity](collections-and-row-identity.md#the-safety-net) has the ways a page
-produces the divergence.
+[Collections and row identity](collections-and-row-identity.md#how-do-i-catch-a-message-on-the-wrong-row)
+has the ways a page produces the divergence.
 
 [Need to know](#need-to-know) names this a coarser read: the answer is captured once, per component,
 the moment it binds, so flipping it mid-life reaches only components that bind afterward.
@@ -369,12 +437,12 @@ variant form under *Without a summary* sets it to `"polite"` on options of its o
 displayed is invalid."` — the sentence the all-suppressed defensive gate carries (see
 [Disclosure](disclosure.md)).
 
-The gate's issue is built where this property is read, so the engine's own reads (`GetIssues`,
-`GetVisibleIssues` and the components on them) answer with a replacement from the next read, and
-the `EditContext`'s message store from its next rebuild.
+A replacement reaches the kit's components, and a direct `GetIssues` or `GetVisibleIssues` call,
+at their next read, and a native `ValidationSummary` at the next rebuild of the `EditContext`'s
+message store. Nothing keeps the old sentence beyond those points. This option decides the gate's
+explanation and nothing else; `ModelLevelDisplayName`, next, names what it is listed under.
 
-Nothing holds the old sentence in between. This option decides the gate's explanation and nothing
-else; `ModelLevelDisplayName`, next, names what it is listed under.
+Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 
 ### `ModelLevelDisplayName`
 
@@ -445,12 +513,15 @@ do, when the delegate runs, and where exceptions go.
 | `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
 | `Pending` | a check involving the field is still running | `formidable-pending` |
 
+Set it for the whole app with
+`builder.Services.AddFormidableBlazor(options => options.CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" });`.
+
 This is read at each class computation, on every surface, so mutating this instance's properties and
 assigning a whole new `FormidableCssClasses` are the same lever, and nothing latches a class map at
 engine construction. The `FormidableOptions` object around it is still the one that cannot be
 swapped (see [`FormidableOptions` is read once](#formidableoptions-is-read-once)).
-[CSS and accessibility](css-and-accessibility.md#need-to-know) has why `Valid` asks for that third
-condition and how the five compose.
+[CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field) has why `Valid` asks
+for that third condition and [how the five compose](css-and-accessibility.md#need-to-know).
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 

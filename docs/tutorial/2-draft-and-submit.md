@@ -225,7 +225,11 @@ border every field starts with, because the valid class waits for the visitor to
 > [!NOTE]
 > A fresh form says nothing, and until a submit, neither does a field the visitor has not changed. A
 > message waits for a change to its own field, or for a submit — never for a rule to be switched
-> off. The whole story is [Progressive disclosure](../disclosure.md).
+> off. Type a name and leave the field, then clear it and leave it again, and `Name is required`
+> shows before any submit, because you changed the field. To hold presence messages until the first
+> submit, set `FormidableOptions.LiveProfile = ValidationProfile.Draft`
+> ([Options](../options.md#liveprofile)). The whole story is
+> [Progressive disclosure](../disclosure.md).
 
 ## Recap
 

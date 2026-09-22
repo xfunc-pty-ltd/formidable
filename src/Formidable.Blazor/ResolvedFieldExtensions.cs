@@ -9,9 +9,9 @@ public static class ResolvedFieldExtensions
     /// <summary>
     /// Converts a resolved field to a <see cref="FieldIdentifier"/>. An empty property name on
     /// the root model produces the model-level identifier
-    /// (<c>new FieldIdentifier(rootModel, string.Empty)</c>). A value-type owner (a struct
-    /// intermediate, which <see cref="FieldIdentifier"/> cannot hold) falls back to the root
-    /// model with the original path as the field name.
+    /// (<c>new FieldIdentifier(rootModel, string.Empty)</c>). A value-type owner (the object
+    /// the path reaches just before the member is a struct, which <see cref="FieldIdentifier"/>
+    /// cannot hold) falls back to the root model with the original path as the field name.
     /// </summary>
     public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
     {

@@ -563,7 +563,14 @@ steps build on each other.
       check an address it has never seen — "checking…" sits on that field for ~300 ms, then
       "That email is already registered" lands. Clear the box and type the same address again:
       the other messages come and go as before, but NO "checking…" appears, since the memo
-      already holds an answer for every address you typed through
+      already holds an answer for every address you typed through (the page's memo keeps an
+      answer for five minutes; retype an address after that and "checking…" returns)
+- [ ] **A click that Submit's own blur displaces still lands.** Put the cursor in a field whose
+      message will appear ABOVE the button, leave it invalid, and click *Submit* without tabbing
+      out: the message appears, the button moves down under a still pointer, and the submit
+      still happens (the blocked-submit summary lists everything). The guard re-delivers a click
+      whose press and release drifted up to 6 px; a deliberate drag of more than that is left
+      alone, and `ClickRecovery = DisplacedClickRecovery.None` turns the guard off
 - [ ] **Dates commit on blur, not per keystroke.** In **Event date**, type the year segment
       SLOWLY (`2`, `0`, `2`, `6`): no message appears while you are mid-year. Tab out: only
       then does the field get a verdict, and a complete date passes cleanly

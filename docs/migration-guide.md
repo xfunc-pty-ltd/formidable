@@ -35,7 +35,7 @@ The rest of that layer is plumbing the library owns instead, so migrating it is 
 | A hand-written pass over a loaded record, marking its fields touched and running validation so the form does not open looking pristine | `DiscloseLoadedValuesAsync()` on either root. One call validates the whole model under the submit profile, then confirms the fields holding good values, discloses the ones holding wrong values, and leaves the empty ones silent. See [Component kit](component-kit.md#saying-what-loaded-values-have-earned) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure. Whether a submit shows a field's error is a side effect of something having registered it while mounted, not code you write per form. Live checking between submits answers to engagement instead. See [Disclosure](disclosure.md) |
 | A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. Both notice when the rendered field set changes, prune the departed row's live issues, and re-check the whole form after the `RefreshDebounce` wait, so removing the row is the whole edit. `NotifyFieldSetChanged()`, on `FormidableValidator` alone, runs that prune at once for a call site that reads `Engine` before the automatic prune has run; the whole-form re-check stays on its timer either way. See [Collections and row identity](collections-and-row-identity.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
-| A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine. There's no second store to keep synchronized. See [what the message store carries](server-integration.md#the-message-store-as-a-compatibility-bridge) |
+| A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine. There's no second store to keep synchronized. See [what the message store carries](server-integration.md#why-does-a-native-validationmessage-show-a-server-error-but-not-its-warning) |
 | Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a check is currently running | `<FormidableValidator>` exposes the engine as `Engine` and forwards both `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same engine pipeline in one line. The validator's apply is quiet, where `FormidableForm`'s own overloads treat an error-carrying apply like a blocked submit and move focus. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
 
 ### Two ways to attach
@@ -84,7 +84,7 @@ on the old one implicitly.
   submit-time check that also populates some other UI state, say).
 
   Formidable checks the form more than once: as you edit, at submit, and in the whole-form re-check
-  after a submit, among other moments (see [Profiles](profiles.md#the-client-lifecycle)). A rule
+  after a submit, among other moments (see [Profiles](profiles.md#which-profile-runs-when)). A rule
   that runs correctly on every check is unaffected. One that only makes sense once per form
   lifetime may need scoping to a profile fewer of those checks run.
 
@@ -127,6 +127,8 @@ still wrong.
 `OnValidSubmit` and `OnInvalidSubmit` are parameters run once its submit has been checked, so under
 that root the two names stay, handed a `SubmitOutcome` and a `FormidableInvalidSubmitContext` in
 place of the `EditContext`.
+
+Why: [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
 
 ### Attach mode leaves `novalidate` to you
 
@@ -174,16 +176,18 @@ Under `<FormidableForm>`, a summary reports issues in the document order of the 
 them, because the form resolves where those fields sit and hands its engine the answer.
 
 `<FormidableValidator>` renders no `<form>` of its own and resolves nothing. A summary inside your
-own `EditForm` still groups by severity, and within each band the entries keep the engine's channel
-order: the fault issue, then the submit channel's entries, then the live channel's. The submit
-channel's entries sit close to the order the validator declares its rules in; nothing in that order
-follows the page.
+own `EditForm` still groups by severity, and within each band the entries keep the order the engine
+lists them in; a form-level message for a check that threw heads the errors. The submit channel's
+entries sit close to the order the validator declares its rules in; nothing in that order follows
+the page.
 
 Nothing misbehaves; the reading order is simply the engine's. Move the page to `<FormidableForm>`
 if the reading order matters to it (see
 [Component kit](component-kit.md#the-order-entries-appear-in)).
 `FormidableOptions.OrderIssues` re-sorts an order only `FormidableForm` resolves, so under the
 validator it does nothing (see [`OrderIssues`](options.md#orderissues)).
+
+Why: [how the engine works: read order](how-the-engine-works.md#read-order).
 
 ### Attach mode moves focus on a blocked submit, as long as you submit through the component
 

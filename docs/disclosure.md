@@ -160,7 +160,7 @@ A page that renders none of those can read it itself, through
 `Engine.GetIssues(new FieldIdentifier(model, string.Empty))` or `GetVisibleIssues()`. Render the
 container always and let items come and go, as the shipped components do; otherwise the
 announcement the gate exists to make is the one most likely to be dropped
-([CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region) has why).
+([CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why).
 
 The gate gives way the moment there is a real message to give way to: an error the user can see, a
 server error arriving, or an answer that comes back clean. Nothing short of a reset removes it: an
@@ -189,6 +189,12 @@ happen on the edit itself rather than after `RefreshDebounce`. Otherwise the cle
 whole-form re-check that follows every post-submit edit (`RefreshDebounce`, 300 ms by default), or
 for your own live check where that runs the submit profile, whichever lands first. A return can be
 quicker: your live check shows the error again as soon as it runs the rule.
+
+A message a server reply put on screen follows a different rule. A live check for its field leaves
+it standing, and it goes at the whole-form re-check after your next committed edit (or after a
+change to which fields are on screen), at the next submit, or when a page discloses freshly loaded
+values. A client rule failing the same way keeps its message through the client's own answer
+([Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)).
 
 A field no submit has shown stays quiet on the submit side even while it is failing, and rendering
 it later does not change that: it surfaces at the *next* submit. Whether anything speaks for it
