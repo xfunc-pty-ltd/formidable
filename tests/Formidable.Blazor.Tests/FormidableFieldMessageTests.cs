@@ -199,7 +199,7 @@ public class FormidableFieldMessageTests : BunitContext
     }
 
     [Fact]
-    public void Model_level_message_component_shows_form_level_issues()
+    public void Collection_message_shows_only_its_own_fields_issues()
     {
         var order = new EngineOrder
         {
@@ -218,7 +218,15 @@ public class FormidableFieldMessageTests : BunitContext
 
         // The count rule is model-level (Path ""), so it does NOT land on Items — this
         // asserts the boundary: FormidableCollectionMessage shows only ITS field's issues.
-        form.WaitForAssertion(() => Assert.Empty(form.FindAll("li")));
+        // Reading the issue off the engine first is what keeps the empty list from standing for
+        // a submit that produced nothing at all, which would satisfy it for the wrong reason.
+        form.WaitForAssertion(() =>
+        {
+            Assert.Contains(
+                form.Instance.Engine!.GetVisibleIssues(),
+                v => v.Issue.Message == "No more than 3 items");
+            Assert.Empty(form.FindAll("li"));
+        });
     }
 
     [Fact]

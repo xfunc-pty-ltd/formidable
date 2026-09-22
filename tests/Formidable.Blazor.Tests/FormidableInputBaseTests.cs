@@ -194,6 +194,32 @@ public class FormidableInputBaseTests : BunitContext
         });
     }
 
+    // aria-invalid announces a genuine blocking error, never an advisory the visitor can still
+    // submit past. The hyphen rule fails at Warning severity while everything else about the
+    // value passes, so the field carries an issue (aria-describedby appears) without an error.
+    // Mutation that must break it: gating on "any issue" instead of error severity — the field
+    // below would then read aria-invalid="true" for a warning.
+    [Fact]
+    public void Aria_invalid_is_written_for_error_severity_only()
+    {
+        var order = new EngineOrder { Description = "abc-def" };
+        var form = RenderInput(order);
+
+        form.Find("input").Change(order.Description); // same value; still triggers validation
+
+        form.WaitForAssertion(() =>
+        {
+            var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+            var state = form.Instance.Engine!.GetFieldState(field);
+            Assert.False(state.HasErrors);
+            Assert.True(state.HasWarnings);
+
+            var input = form.Find("input");
+            Assert.Null(input.GetAttribute("aria-invalid"));
+            Assert.NotNull(input.GetAttribute("aria-describedby"));
+        });
+    }
+
     [Fact]
     public void Input_registers_for_disclosure()
     {

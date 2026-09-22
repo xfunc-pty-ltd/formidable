@@ -16,6 +16,9 @@ namespace Formidable.Tests;
 /// so instead of throwing, and the declared-path enumeration reports the validator's own shape
 /// — child validators and Include()d rules included, collection indexes left open.
 /// </summary>
+// One test here replaces FluentValidation's global selector factory and restores it, which is a
+// process-global write and puts this class in the collection - see ProcessGlobalStateCollection.
+[Collection(ProcessGlobalStateCollection.Name)]
 public class RuleInspectingValidatorTests
 {
     private sealed class InspectModel

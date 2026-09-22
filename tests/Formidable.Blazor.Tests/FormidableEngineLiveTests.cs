@@ -93,6 +93,36 @@ public class FormidableEngineLiveTests
         _editContext.NotifyFieldChanged(DescriptionField);
 
         Assert.Empty(_editContext.GetValidationMessages(DescriptionField));
+
+        // The same notification, the same failing value, over an engine still attached: the
+        // message it writes is what says the silence above belongs to the detach rather than to
+        // a value or a rule that would never have produced a message either way.
+        var order = new EngineOrder { Description = new string('x', 11) };
+        var editContext = new EditContext(order);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var attached = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            _time);
+
+        editContext.NotifyFieldChanged(description);
+
+        Assert.NotEmpty(editContext.GetValidationMessages(description));
+    }
+
+    [Fact]
+    public void Disposing_twice_after_a_pass_has_run_does_not_throw()
+    {
+        // A field change runs a live pass synchronously (no debounce, sync rules, inline
+        // dispatch), which is what leaves _passCts non-null for the second Dispose to reach.
+        _editContext.NotifyFieldChanged(DescriptionField);
+        _engine.Dispose();
+
+        var exception = Record.Exception(() => _engine.Dispose());
+
+        Assert.Null(exception);
     }
 
     [Fact]

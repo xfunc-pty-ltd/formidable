@@ -185,6 +185,52 @@ public class FormidableEngineFieldSetChangeTests
         Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
     }
 
+    // The read paths above cannot tell the intersect's own write-time skip from a departed
+    // field simply being filtered out again at read time, since every live read already gates on
+    // the engaged set -- the sibling test's own comment says as much. EngagedAndVisible's own
+    // field-set-change republish is keyed on _liveVerdicts.Count alone, with no engagement check
+    // of its own, so it is the one behaviour that answers differently depending on whether the
+    // pass actually restored the dropped entry: something left in the source is exactly what a
+    // later, unrelated field-set change would find and republish for.
+    [Fact]
+    public async Task A_mid_pass_departure_leaves_nothing_for_a_later_republish()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDisclosure = LiveIssueDisclosure.EngagedAndVisible },
+            new FakeTimeProvider());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        // Held open on the gate: this is the pass in flight when the field departs below.
+        editContext.NotifyFieldChanged(name);
+
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+
+        var republishes = 0;
+        engine.StateChanged += (_, _) => republishes++;
+
+        // Nothing has departed since the field-set change above, and no field has been edited --
+        // if the pass that just settled restored the dropped entry, this finds it and republishes
+        // for a page that has not actually changed.
+        engine.OnRenderedFieldsChanged();
+
+        Assert.Equal(0, republishes);
+    }
+
     [Fact]
     public async Task A_field_set_change_after_a_submit_schedules_a_refresh()
     {

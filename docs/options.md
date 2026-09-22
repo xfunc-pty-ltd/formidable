@@ -419,9 +419,10 @@ unregistered, a visited-then-collapsed section, stays silent here and reports on
 it registered. When `true`, every component bound to a field re-reads its accessor on each
 parameter set and compares the field it now names against the one it registered, throwing an
 `InvalidOperationException` that names the field and the fix when the two diverge with no teardown
-in between. An unkeyed row list is the common way to produce that divergence, and the exception
-leads with it; replacing a nested object under a field bound to it produces the same divergence
-and the same throw, with no collection anywhere on the page.
+in between. A field is the object owning the value plus a member name, so a fresh owner is a
+different field — which is what the exception leads with. An unkeyed row list is the common
+way to produce that divergence; replacing a nested object under a field bound to it produces
+the same divergence and the same throw, with no collection anywhere on the page.
 
 [Need to know](#need-to-know) names this as one of the coarser reads, and this is what that comes
 to: the answer is captured once, per component, the moment it binds. Flipping it on a

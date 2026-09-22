@@ -232,6 +232,37 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-pending", provider.GetFieldCssClass(editContext, field));
     }
 
+    // The gate every tier but Invalid sits behind is touched OR modified, and every test above
+    // reaches it through a real engine, where a committed edit sets both bits together (the
+    // engine's own OnFieldChanged handler marks touched from the very notification that leaves
+    // the EditContext modified). Modified alone can only be isolated with a stub engine that
+    // never wires that handler: IsModified is read straight off the EditContext at
+    // FormidableFieldCssClassProvider.cs's FieldState construction, independent of whichever
+    // reader answers Touched, so a field the framework knows is modified earns the same tier a
+    // touched field would even though nothing here ever marks it touched.
+    [Fact]
+    public void Modified_without_touched_still_clears_the_touched_or_modified_gate()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var state = new FieldState
+        {
+            IsTouched = false, IsModified = false, IsValidating = false,
+            HasErrors = false, HasWarnings = false, HasInfos = false, WouldPassSubmit = true
+        };
+        var engine = new FieldStateStubEngine(editContext, state);
+        var provider = new FormidableFieldCssClassProvider(engine);
+
+        // The stub never subscribes to OnFieldChanged, so this reaches only the EditContext's own
+        // modification tracking -- Touched, read from the stub's FieldState, stays false.
+        editContext.NotifyFieldChanged(field);
+
+        Assert.False(engine.GetFieldState(field).IsTouched);
+        Assert.True(editContext.IsModified(field));
+        Assert.Equal("formidable-valid", provider.GetFieldCssClass(editContext, field));
+    }
+
     private static FormidableEngine<EngineOrder> CreateEngine(
         EngineOrder order,
         FluentValidation.IValidator<EngineOrder> validator,

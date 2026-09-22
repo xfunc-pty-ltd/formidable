@@ -86,8 +86,11 @@ internal static class FormidableEngineFactory
         }
 
         return resolved ?? throw new InvalidOperationException(
-            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call " +
-            "services.AddFormidableBlazor() and register the FluentValidation validator.");
+            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered in the " +
+            "container this render is resolving from — call services.AddFormidableBlazor() and " +
+            "register the FluentValidation validator there. A two-project Blazor Web App has " +
+            "one container per project, and a page that prerenders or runs on the server's " +
+            "circuit resolves from the server's, so register there too.");
     }
 
     private static IModelIntrospector ResolveIntrospector(IServiceProvider services) =>

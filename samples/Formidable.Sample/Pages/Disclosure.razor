@@ -132,7 +132,8 @@
         collapsed and the gate's explanation appears through it; reveal the section and submit
         again, and the inline messages take over while the form-level list empties.</p>
 
-    <FormidableForm Model="_inlineRequest" OnValidSubmit="HandleInlineValid">
+    <FormidableForm Model="_inlineRequest" Options="_inlineOptions"
+                    OnValidSubmit="HandleInlineValid">
         <FormidableModelMessage />
 
         <p>

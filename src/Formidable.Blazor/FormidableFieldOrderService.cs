@@ -28,9 +28,15 @@ internal sealed class FormidableFieldOrderService : IFormidableFieldOrderService
         // Wrapped as the argument array itself: the ids are ONE argument — the list the JS side
         // iterates — and a string[] handed to a params object?[] IS that array, so the ids would
         // otherwise arrive spread across a separate parameter each.
+        //
+        // No ConfigureAwait(false) here — this is a component-layer service, and the accurate
+        // precedent is FormidableJsModule, whose own awaits all keep the renderer's context
+        // the same way (FormidableFocusService and FormidableDomValueSync have no awaits at
+        // all, so they demonstrate nothing about context capture). The result assembly below
+        // touches no component state, and keeping the context is what lets a later addition
+        // that does stay safe rather than becoming a Server-only race no test would catch.
         var ordered = await _module
-            .InvokeAsync<IReadOnlyList<string>>("orderFields", new object?[] { ids })
-            .ConfigureAwait(false);
+            .InvokeAsync<IReadOnlyList<string>>("orderFields", new object?[] { ids });
 
         // The answer crosses a deserialization boundary, so it can arrive as nothing at all
         // whatever the signature promises — and nothing at all is not an order.

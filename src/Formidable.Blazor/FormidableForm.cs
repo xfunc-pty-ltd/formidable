@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -96,9 +97,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// — which <see cref="FluentValidationModelValidator{TModel}"/> implements and a wrapper
     /// written against <see cref="IModelValidator{TModel}"/> alone does not. Such a wrapper
     /// compiles and validates correctly, and the capability test that goes looking reads the same
-    /// for it as for a validator that never had them, so nothing reports the loss. Derive a
-    /// wrapper from <see cref="DelegatingModelValidator{TModel}"/> instead: it forwards all three
-    /// interfaces, leaving only the members whose behaviour changes to write.
+    /// for it as for a validator that never had them. The inspection half of the loss is reported:
+    /// a form whose validator cannot report its rules writes one line when its engine is built,
+    /// naming what will not render. That line names the state rather than the mistake, since the
+    /// two read alike, and the rule-level half has no line at all. Derive a wrapper from
+    /// <see cref="DelegatingModelValidator{TModel}"/> instead: it forwards all three interfaces,
+    /// leaving only the members whose behaviour changes to write.
     /// </remarks>
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
@@ -273,7 +277,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <see cref="OnInvalidSubmit"/> could run, so no message would stay FluentValidation's — but
     /// it renders before the splat, so <c>novalidate="@false"</c> (a <see langword="bool"/>, not
     /// the string <c>"false"</c>, which as a rendered attribute would still mean on) removes it
-    /// and opts the form back into the browser's native constraint UI.
+    /// and opts the form back into the browser's native constraint UI. A consumer-supplied
+    /// <c>aria-describedby</c> takes a third position of its own: it neither loses outright, like
+    /// <c>id</c>/<c>tabindex</c>, nor wins outright, like <c>novalidate</c> — it MERGES with the
+    /// model-level message list's id, splatted value first and the computed id appended, the same
+    /// consumer-first shape a kit input applies to its own <c>aria-describedby</c>.
     /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
@@ -990,9 +998,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
                 $"{nameof(FormidableForm<TModel>)} requires an interactive render mode: this page is " +
                 "rendered statically and no interactivity is coming, so submitting the form would post " +
                 "back to the server instead of running the validation pipeline. Add a render mode to " +
-                "the page or component — @rendermode InteractiveServer or @rendermode " +
-                "InteractiveWebAssembly — or host the form in a standalone WebAssembly app, where " +
-                "every page is interactive already.");
+                "the page or component — @rendermode InteractiveServer, @rendermode " +
+                "InteractiveWebAssembly or @rendermode InteractiveAuto — or host the form in a " +
+                "standalone WebAssembly app, where every page is interactive already.");
         }
     }
 
@@ -1040,13 +1048,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             {
                 inner.AddMultipleAttributes(4, AdditionalAttributes!);
             }
-            // Rendered after the splat, so they win the duplicate-attribute race: the all-suppressed
-            // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
-            // consumer-supplied id or tabindex would break that the same way a consumer-supplied
-            // input id would — see FormidableInputBase<TValue>'s identical policy.
+            // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
+            // because the all-suppressed gate's summary entry addresses the form by this id (see
+            // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
+            // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
+            // policy. aria-describedby, added in this same position, does not win outright — see
+            // ComputeModelLevelAriaDescribedBy for why it merges instead.
             inner.AddAttribute(5, "id", _modelLevelFieldId);
             inner.AddAttribute(6, "tabindex", "-1");
-            inner.AddComponentParameter(7, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
+            inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
+            inner.AddComponentParameter(8, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();
@@ -1065,6 +1076,28 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // identity, so a swap destroys this component — not merely what renders below it — and a
         // fresh instance takes its place, whose subscribers are therefore all newly mounted and
         // read the swapped-in Value on their own first render, with no notification to miss.
+    }
+
+    /// <summary>
+    /// The form element's merged <c>aria-describedby</c> value: any consumer-splatted
+    /// <c>aria-describedby</c> first, then the model-level message list's id
+    /// (<see cref="FormidableFieldId.MessagesFor(string)"/> of <c>_modelLevelFieldId</c>) appended
+    /// — the same consumer-first, computed-appended shape a kit input applies to its own
+    /// <c>aria-describedby</c>. Splatted first because the splatted ids are the only ones present
+    /// while <see cref="FormidableModelMessage"/> is absent or has nothing to say; appending keeps
+    /// a consumer's own hint intact rather than reshuffling it once the model-level list joins it.
+    /// </summary>
+    private string ComputeModelLevelAriaDescribedBy()
+    {
+        var messagesId = FormidableFieldId.MessagesFor(_modelLevelFieldId);
+        if (AdditionalAttributes is null
+            || !AdditionalAttributes.TryGetValue("aria-describedby", out var splatted))
+        {
+            return messagesId;
+        }
+
+        var splattedIds = Convert.ToString(splatted, CultureInfo.InvariantCulture);
+        return string.IsNullOrEmpty(splattedIds) ? messagesId : $"{splattedIds} {messagesId}";
     }
 
     /// <inheritdoc />

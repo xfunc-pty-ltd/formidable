@@ -130,14 +130,15 @@ internal static class FirstErrorFocus
     /// error.</param>
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
+        var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
         System.Diagnostics.Trace.WriteLine(
-            $"Formidable: the field a focus move aimed at, '{issue.Path}', did not take focus: " +
+            $"Formidable: the field a focus move aimed at, '{path}', did not take focus: " +
             "either nothing renders its id or the element that does will not accept focus, and no " +
             $"{FallbackParameterName} is wired to make it reachable.");
         ((ILoggerFactory?)services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable").LogWarning(
             "Formidable: the field a focus move aimed at, '{Path}', did not take focus: either " +
             "nothing renders its id or the element that does will not accept focus, and no " +
             "{Parameter} is wired to make it reachable.",
-            issue.Path, FallbackParameterName);
+            path, FallbackParameterName);
     }
 }

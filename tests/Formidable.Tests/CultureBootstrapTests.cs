@@ -4,9 +4,12 @@ using Formidable.Sample.Shared;
 namespace Formidable.Tests;
 
 // CultureInfo.DefaultThreadCurrentCulture/UICulture are process-wide statics, so every test here
-// saves and restores both in a finally block regardless of outcome. xunit runs the [Fact]s within
-// this single class sequentially (only cross-class parallelism needs a shared [Collection]), so no
-// other coordination is needed to keep these mutations from interleaving with one another.
+// saves and restores both in a finally block regardless of outcome. The restore settles the
+// value, not the window it stood in: xunit runs one class's [Fact]s one at a time, so these three
+// cannot interleave with each other, and runs different classes in parallel, so any other class
+// in this assembly can read a culture set here. The collection is the coordination for that half
+// - see ProcessGlobalStateCollection for how far it reaches and who owes membership.
+[Collection(ProcessGlobalStateCollection.Name)]
 public class CultureBootstrapTests
 {
     [Fact]

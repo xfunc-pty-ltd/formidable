@@ -146,7 +146,9 @@ public sealed class DisclosureJourney(SampleAppFixture app)
     /// through <c>FormidableModelMessage</c>'s persistent list, and gives way once an inline
     /// error is on screen to explain the block instead. The list is addressed by the model-level
     /// id convention (the form id plus <c>-messages</c>); only the variant renders one, so the
-    /// tail-match is unambiguous even though the page holds two forms.
+    /// tail-match is unambiguous even though the page holds two forms. The variant's own
+    /// options set <c>InlineMessageLive</c>, since the list is the only surface the gate has on a
+    /// form with no summary — the persistent element itself must announce, not merely display.
     /// </summary>
     [E2EFact]
     public async Task The_gate_shows_through_the_model_message_on_the_summaryless_form()
@@ -154,7 +156,12 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await using var session = await app.NewPageAsync("/disclosure");
         var page = session.Page;
         var variant = page.Locator("#inline-only-variant");
-        var modelMessages = variant.Locator("ul[id$='-form-messages'] .formidable-message");
+        var modelMessageList = variant.Locator("ul[id$='-form-messages']");
+        var modelMessages = modelMessageList.Locator(".formidable-message");
+
+        // The persistent list carries its live region from first render, whether or not it has
+        // anything to say yet — the shape a live region needs, per InlineMessageLive's contract.
+        await Expect(modelMessageList).ToHaveAttributeAsync("aria-live", "polite");
 
         // Trip details collapsed: every failing field is hidden, so a blocked submit has nothing
         // inline to disclose and the gate's explanation lands in the form-level list.

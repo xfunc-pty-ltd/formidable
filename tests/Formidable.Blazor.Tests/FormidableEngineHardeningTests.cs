@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
@@ -190,8 +192,10 @@ public class FormidableEngineHardeningTests
     {
         var order = new EngineOrder();
         var suppressed = new List<ValidationIssue>();
+        var editContext = new EditContext(order);
+        var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
         using var engine = new FormidableEngine<EngineOrder>(
-            order, new EditContext(order),
+            order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
             new FormidableOptions { DisclosureOverride = _ => true, SuppressedIssueDiagnostic = suppressed.Add },
@@ -200,5 +204,238 @@ public class FormidableEngineHardeningTests
         await engine.ValidateForSubmitAsync();
 
         Assert.Empty(suppressed);
+
+        // Customer is registered nowhere, which is the exact issue the sibling above watches the
+        // diagnostic report. Its message reaching the store is what says the pass produced that
+        // issue and the override revealed it, rather than the pass producing nothing to suppress.
+        Assert.NotEmpty(editContext.GetValidationMessages(customer));
+    }
+
+    // Both ReportSuppressed (above) and FirstErrorFocus.ReportFallbackMiss echo a
+    // ValidationIssue.Path into a Trace line and a formatted log message. That Path is
+    // payload-supplied on the ApplyServerIssues route - nothing upstream constrains its shape -
+    // so a forged one carrying '\r'/'\n' would split either line, and an unbounded one costs the
+    // line whatever length the payload names. DiagnosticPathSanitizer.ForDiagnostic is the shared
+    // fix; these four pins cover both call sites for both contracts, so bypassing the sanitizer at
+    // either site fails that site's own pair on its own.
+
+    [Fact]
+    public void Suppressed_issue_diagnostic_neutralizes_a_forged_newline_in_the_path()
+    {
+        var order = new EngineOrder();
+        var logger = new CapturingLogger();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider(), logger: logger);
+
+        // Never registered and Warning severity, so ApplyServerIssues suppresses it - the
+        // ReportSuppressed call site this pins.
+        const string marker = "forged suppressed-issue log line";
+        var forgedPath = $"Description\r\nFormidable: {marker}";
+        var traceLines = CaptureTrace(() =>
+            engine.ApplyServerIssues(
+                [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
+
+        // Matched by content, not by count: the suite runs other test classes concurrently, and
+        // any of them can add its own unrelated Trace.WriteLine call to this same process-wide
+        // listener while it is attached - this line is the one this test's own call produced.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.DoesNotContain("\r", traceLine);
+        Assert.DoesNotContain("\n", traceLine);
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.DoesNotContain("\r", logged);
+        Assert.DoesNotContain("\n", logged);
+    }
+
+    [Fact]
+    public void Suppressed_issue_diagnostic_bounds_an_overlong_forged_path()
+    {
+        var order = new EngineOrder();
+        var logger = new CapturingLogger();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider(), logger: logger);
+
+        const string marker = "SuppressedForgedBound";
+        var forgedPath = marker + new string('x', 5000);
+        var traceLines = CaptureTrace(() =>
+            engine.ApplyServerIssues(
+                [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
+
+        // Matched by content, not by count - see the sibling CRLF pin above for why.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.DoesNotContain(forgedPath, traceLine);
+        Assert.Contains("more", traceLine); // the bound is a visible marker, not a silent cut
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.DoesNotContain(forgedPath, logged);
+        Assert.Contains("more", logged);
+    }
+
+    [Fact]
+    public async Task Fallback_miss_diagnostic_neutralizes_a_forged_newline_in_the_path()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider());
+
+        // Error severity bypasses the registry entirely, so this reaches GetVisibleIssues with no
+        // field ever registered - what MoveAsync then picks as the "first error" to focus.
+        const string marker = "forged fallback-miss log line";
+        var forgedPath = $"Description\r\nFormidable: {marker}";
+        engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
+
+        var focus = new RecordingFocusService { Lands = false }; // never takes focus -> the miss
+        var logger = new CapturingLogger();
+        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+
+        var traceLines = await CaptureTraceAsync(
+            () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
+
+        // Matched by content, not by count: the suite runs other test classes concurrently, and
+        // any of them can add its own unrelated Trace.WriteLine call to this same process-wide
+        // listener while it is attached - this line is the one this test's own call produced.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.DoesNotContain("\r", traceLine);
+        Assert.DoesNotContain("\n", traceLine);
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.DoesNotContain("\r", logged);
+        Assert.DoesNotContain("\n", logged);
+    }
+
+    [Fact]
+    public async Task Fallback_miss_diagnostic_bounds_an_overlong_forged_path()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider());
+
+        const string marker = "FallbackForgedBound";
+        var forgedPath = marker + new string('x', 5000);
+        engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
+
+        var focus = new RecordingFocusService { Lands = false };
+        var logger = new CapturingLogger();
+        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+
+        var traceLines = await CaptureTraceAsync(
+            () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
+
+        // Matched by content, not by count - see the sibling CRLF pin above for why.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.DoesNotContain(forgedPath, traceLine);
+        Assert.Contains("more", traceLine);
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.DoesNotContain(forgedPath, logged);
+        Assert.Contains("more", logged);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="act"/> with a listener attached only for its duration, so a forged
+    /// Trace.WriteLine call is captured without leaving a listener behind for any other test.
+    /// </summary>
+    private static List<string> CaptureTrace(Action act)
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            act();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        return listener.Lines;
+    }
+
+    /// <summary>Async sibling of <see cref="CaptureTrace"/>, for a call site reached only through
+    /// an awaited path.</summary>
+    private static async Task<List<string>> CaptureTraceAsync(Func<Task> act)
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            await act();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        return listener.Lines;
+    }
+
+    private sealed class CapturingTraceListener : TraceListener
+    {
+        public List<string> Lines { get; } = [];
+
+        public override void Write(string? message)
+        {
+        }
+
+        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
+
+    private sealed class CapturingLoggerFactory(CapturingLogger logger) : ILoggerFactory
+    {
+        public void AddProvider(ILoggerProvider provider)
+        {
+        }
+
+        public ILogger CreateLogger(string categoryName) => logger;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Resolves only the two services <c>FirstErrorFocus.MoveAsync</c> reaches for, so the pin
+    /// needs no full DI container.
+    /// </summary>
+    private sealed class FakeFocusServiceProvider(
+        IFormidableFocusService focus, ILoggerFactory loggerFactory) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(IFormidableFocusService) ? focus :
+            serviceType == typeof(ILoggerFactory) ? loggerFactory :
+            null;
     }
 }

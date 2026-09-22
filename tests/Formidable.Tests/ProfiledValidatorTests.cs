@@ -42,6 +42,15 @@ public class ProfiledValidatorTests
 
         Assert.Contains(result.Errors, e => e.PropertyName == "Customer");
         Assert.DoesNotContain(result.Errors, e => e.PropertyName == "Description");
+
+        // "Only its rulesets" has a second half the over-long description cannot show, because the
+        // sibling ruleset's rule is a presence rule an over-long value satisfies. An empty
+        // description is the value Step1 would fail on, so its silence is what pins that a named
+        // profile excludes the OTHER named rulesets and not merely the default ones.
+        var wouldFailStep1 = validator.Validate(new TestOrder(), profile);
+
+        Assert.Contains(wouldFailStep1.Errors, e => e.PropertyName == "Customer");
+        Assert.DoesNotContain(wouldFailStep1.Errors, e => e.PropertyName == "Description");
     }
 
     [Fact]

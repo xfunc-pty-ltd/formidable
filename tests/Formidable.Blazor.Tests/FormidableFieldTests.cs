@@ -1,4 +1,5 @@
 using Bunit;
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -13,6 +14,77 @@ public class FormidableFieldTests : BunitContext
     {
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
+    }
+
+    /// <summary>
+    /// Two fields whose draft rule reads both: A must not exceed B. Cross-field on purpose, the
+    /// same shape the engine-level engaged-set pin uses, because it is the only shape that can
+    /// tell "engaged" apart from "just ran a pass" — an edit to the OTHER field only reaches a
+    /// field's own verdict when that field is in the set a live pass answers.
+    /// </summary>
+    private sealed class CrossFieldPair
+    {
+        public int A { get; set; }
+        public int B { get; set; }
+    }
+
+    private sealed class CrossFieldPairValidator : DraftSubmitValidator<CrossFieldPair>
+    {
+        protected override void ConfigureDraftRules() =>
+            RuleFor(x => x.A).Must((pair, a) => a <= pair.B).WithMessage("A must not exceed B");
+
+        protected override void ConfigureSubmitRules()
+        {
+        }
+    }
+
+    // The context's own NotifyChanged() — not editContext called directly — must engage the
+    // field, so a LATER edit to an unrelated field keeps answering it. Mutation that must break
+    // it: swapping the delegated call for one that touches without engaging (MarkTouched) — the
+    // first WaitForAssertion below would then never see an error, because no live pass would
+    // ever run for A at all.
+    [Fact]
+    public void NotifyChanged_engages_the_field_for_a_later_edit_elsewhere()
+    {
+        var pair = new CrossFieldPair { A = 20, B = 10 };
+        Services.AddSingleton<FluentValidation.IValidator<CrossFieldPair>>(
+            new CrossFieldPairValidator());
+        FormidableFieldContext? seen = null;
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<CrossFieldPair>>(0);
+            builder.AddComponentParameter(1, "Model", pair);
+            builder.AddComponentParameter(2, "ChildContent",
+                (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableField<int>>(0);
+                inner.AddComponentParameter(1, "For",
+                    (System.Linq.Expressions.Expression<Func<int>>)(() => pair.A));
+                inner.AddComponentParameter(2, "ChildContent",
+                    (RenderFragment<FormidableFieldContext>)(ctx => b => { seen = ctx; }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        var form = cut.FindComponent<FormidableForm<CrossFieldPair>>();
+        var fieldB = new FieldIdentifier(pair, nameof(CrossFieldPair.B));
+
+        Assert.NotNull(seen);
+        Assert.False(seen!.State.HasErrors);
+
+        cut.InvokeAsync(() => seen!.NotifyChanged());
+
+        cut.WaitForAssertion(() => Assert.True(seen!.State.HasErrors));
+
+        // Fix the pair from B alone: A's own context is never notified again, and B is never
+        // wrapped in a FormidableField at all. If A's earlier NotifyChanged() call engaged it,
+        // this live pass — which validates the whole model — re-answers A's verdict as part of
+        // that; if it only touched A, nothing here ever revisits A again and the error stands.
+        pair.B = 30;
+        cut.InvokeAsync(() => form.Instance.Engine!.EditContext.NotifyFieldChanged(fieldB));
+
+        cut.WaitForAssertion(() => Assert.False(seen!.State.HasErrors));
     }
 
     [Fact]

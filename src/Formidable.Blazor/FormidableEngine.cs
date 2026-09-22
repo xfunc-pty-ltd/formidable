@@ -55,6 +55,18 @@ namespace Formidable.Blazor;
 /// rendered-field-set change, also on the
 /// dispatcher. A pass in flight across such a change can therefore neither read a store that is
 /// mutating under it nor write verdicts computed against a page that has since moved.
+/// One thread-discipline fact spans every mechanism above: an await calls
+/// ConfigureAwait(false) exactly when its own continuation is off the dispatcher, needing
+/// neither the renderer's context nor any of the state above back. Every await in this file
+/// and both of core's satisfies that except one, each re-entering the dispatcher explicitly
+/// through _renderDispatch wherever its continuation goes on to touch that state. The one
+/// exception sits inside a _renderDispatch delegate already, at the tail of
+/// <see cref="DiscloseLoadedValuesAsync"/> — that method is itself entered from component
+/// code already on the dispatcher, so the exception is not an await made off the dispatcher,
+/// only one whose continuation stays on the context _renderDispatch just re-entered, which is
+/// the point rather than an oversight. Blazor's kit components and its JS-backed services
+/// keep the renderer's context throughout their own awaits instead, since those continuations
+/// run in or beside component code that reads it.
 /// </remarks>
 public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -282,6 +294,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _timeProvider = timeProvider ?? TimeProvider.System;
         _renderDispatch = renderDispatch ?? (work => work());
         _logger = logger;
+
+        // Asked before the edit context is subscribed to or given a class provider, so a
+        // consumer capability tester that throws cannot leave this context wired to a
+        // half-built engine. The report reads nothing but the validator and the logger.
+        if (_validator is not IRuleInspectingValidator<TModel> { CanInspectRules: true })
+        {
+            ReportInspectionUnavailable();
+        }
+
         _store = new ValidationMessageStore(editContext);
         _fieldChangedHandler = HandleFieldChanged;
         editContext.OnFieldChanged += _fieldChangedHandler;
@@ -2118,6 +2139,44 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _introspector.Resolve(_model, path).ToFieldIdentifier(_model, path);
 
     /// <summary>
+    /// The one report a form whose validator cannot report its own rules gets: a Trace line for a
+    /// debugger, and a logged line when a logger was supplied — the same dual channel
+    /// <see cref="ReportSuppressed"/> uses, at Information rather than Warning, because a
+    /// validator that cannot be inspected is a supported configuration and the form goes on
+    /// validating correctly through it. What that costs is invisible on the page, which is the
+    /// whole reason for saying it somewhere: nothing is marked required from the rules, so a
+    /// required indicator and <c>aria-required</c> reach only the fields
+    /// <see cref="FormidableOptions.RequiredOverride"/> declares required, which is asked ahead
+    /// of the rules on every read, and a <c>DiscloseLoadedValuesAsync</c> load confirms nothing.
+    /// The line names the state rather than the mistake, because the capability test reads the
+    /// same for a wrapper that dropped the capability as for a validator that never had one.
+    /// </summary>
+    private void ReportInspectionUnavailable()
+    {
+        var model = FriendlyTypeName.Of(typeof(TModel));
+        var validator = FriendlyTypeName.Of(_validator.GetType());
+        System.Diagnostics.Trace.WriteLine(
+            $"Formidable: the validator for {model} ('{validator}') cannot report its own rules. " +
+            "Validation is unaffected, but nothing is marked required from the rules, so a " +
+            "required indicator and aria-required reach only the fields " +
+            "FormidableOptions.RequiredOverride declares required, and a " +
+            "DiscloseLoadedValuesAsync load confirms nothing. A validator that wraps another " +
+            "keeps all three by deriving from DelegatingModelValidator rather than implementing " +
+            "IModelValidator alone; one that is not a FluentValidation AbstractValidator has no " +
+            "rules Formidable can read.");
+        _logger?.LogInformation(
+            "Formidable: the validator for {Model} ('{Validator}') cannot report its own rules. " +
+            "Validation is unaffected, but nothing is marked required from the rules, so a " +
+            "required indicator and aria-required reach only the fields " +
+            "FormidableOptions.RequiredOverride declares required, and a " +
+            "DiscloseLoadedValuesAsync load confirms nothing. A validator that wraps another " +
+            "keeps all three by deriving from DelegatingModelValidator rather than implementing " +
+            "IModelValidator alone; one that is not a FluentValidation AbstractValidator has no " +
+            "rules Formidable can read.",
+            model, validator);
+    }
+
+    /// <summary>
     /// The report a suppressed issue gets where one is made at all: a Trace line for a debugger, a
     /// logged warning for the host (WebAssembly's default provider is the browser console, so that
     /// channel needs no wiring to be seen), and the options callback for a page that wants to show
@@ -2137,11 +2196,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// </summary>
     private void ReportSuppressed(ValidationIssue issue)
     {
+        var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
         System.Diagnostics.Trace.WriteLine(
-            $"Formidable: issue at '{issue.Path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
+            $"Formidable: issue at '{path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
         _logger?.LogWarning(
             "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
-            issue.Path);
+            path);
         _options.SuppressedIssueDiagnostic?.Invoke(issue);
 
         if (_options.NeverRegisteredFieldDiagnostic is not null && !Registry.HasEverRegistered(Resolve(issue)))
@@ -3060,6 +3120,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <inheritdoc />
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
         EditContext.OnFieldChanged -= _fieldChangedHandler;
         _refreshTimer?.Dispose();

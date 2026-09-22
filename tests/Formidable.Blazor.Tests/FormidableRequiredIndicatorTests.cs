@@ -80,6 +80,45 @@ public class FormidableRequiredIndicatorTests : BunitContext
             EngineOf(cut).GetFieldRequirement(new FieldIdentifier(model, nameof(MarkerModel.Nominee))));
     }
 
+    // FormidableField renders nothing of its own — every decision is the ChildContent's — but
+    // its InputAttributes bundle must gate aria-required by the same FieldRequirement a wrapped
+    // FormidableInputText answers from, pinned two tests up for the same three fields. Mutation
+    // that must break it: gating InputAttributes' aria-required on ConditionallyRequired too —
+    // the Nominee assertion below would then disagree with the wrapped input's own answer.
+    [Fact]
+    public void A_renderless_field_gates_aria_required_the_same_way_a_wrapped_input_does()
+    {
+        var model = new MarkerModel();
+        var contexts = new Dictionary<string, FormidableFieldContext>();
+        Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<MarkerModel>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(
+                2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                var sequence = 0;
+                RenderlessField(
+                    inner, ref sequence, nameof(MarkerModel.Name), () => model.Name, contexts);
+                RenderlessField(
+                    inner, ref sequence, nameof(MarkerModel.Nickname), () => model.Nickname,
+                    contexts);
+                RenderlessField(
+                    inner, ref sequence, nameof(MarkerModel.Nominee), () => model.Nominee,
+                    contexts);
+            }));
+            builder.CloseComponent();
+        });
+
+        var name = contexts[nameof(MarkerModel.Name)];
+        var nickname = contexts[nameof(MarkerModel.Nickname)];
+        var nominee = contexts[nameof(MarkerModel.Nominee)];
+        Assert.True(name.InputAttributes.ContainsKey("aria-required"));
+        Assert.False(nickname.InputAttributes.ContainsKey("aria-required"));
+        Assert.False(nominee.InputAttributes.ContainsKey("aria-required"));
+        Assert.Equal(FieldRequirement.ConditionallyRequired, nominee.Requirement);
+    }
+
     // Handle's presence is written as a predicate, which is indistinguishable from any other
     // predicate, so the rules report nothing and the field is unmarked until the form says
     // otherwise. Mutation that must break this: ignoring RequiredOverride, which leaves the
@@ -527,6 +566,26 @@ public class FormidableRequiredIndicatorTests : BunitContext
         builder.CloseComponent();
 
         builder.CloseElement();
+    }
+
+    /// <summary>
+    /// One renderless field, capturing the context its ChildContent is handed under
+    /// <paramref name="name"/> — no element of its own, unlike <see cref="Field"/>.
+    /// </summary>
+    private static void RenderlessField(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string name,
+        Expression<Func<string>> accessor,
+        Dictionary<string, FormidableFieldContext> contexts)
+    {
+        builder.OpenComponent<FormidableField<string>>(sequence++);
+        builder.AddComponentParameter(sequence++, "For", accessor);
+        builder.AddComponentParameter(
+            sequence++,
+            "ChildContent",
+            (RenderFragment<FormidableFieldContext>)(ctx => b => contexts[name] = ctx));
+        builder.CloseComponent();
     }
 }
 

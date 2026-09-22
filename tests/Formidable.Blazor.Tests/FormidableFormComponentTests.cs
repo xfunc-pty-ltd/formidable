@@ -768,6 +768,49 @@ public class FormidableFormComponentTests : BunitContext
         Assert.Equal("-1", form.GetAttribute("tabindex"));
     }
 
+    [Fact]
+    public void Form_element_carries_aria_describedby_for_its_model_level_message_list()
+    {
+        // RenderForm's ChildContent renders no FormidableModelMessage — this is the measured inert
+        // case: nothing here resolves the reference to an element, and per WAI-ARIA 1.2 §8.6.1 a
+        // dangling aria-describedby is inert rather than announced as an empty or raw-id hint. The
+        // second assertion is the one that actually holds this test to that claim: without it, a
+        // future FormidableModelMessage added to RenderForm's shared ChildContent would still
+        // satisfy the first assertion while silently ceasing to be the inert case at all.
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+
+        var form = cut.Find("form");
+        var messagesId = FormidableFieldId.MessagesFor(new FieldIdentifier(order, string.Empty));
+        Assert.Equal(messagesId, form.GetAttribute("aria-describedby"));
+        Assert.Empty(cut.FindAll($"#{messagesId}"));
+    }
+
+    [Fact]
+    public void A_splatted_aria_describedby_merges_ahead_of_the_model_level_messages_id()
+    {
+        // Unlike id/tabindex, which lose the duplicate-attribute race outright, aria-describedby
+        // MERGES: the consumer's own hint stays announced, first, with the computed messages id
+        // appended — the same consumer-first, computed-appended shape a kit input applies to its
+        // own aria-describedby.
+        var order = new EngineOrder();
+        var container = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), order);
+            builder.AddAttribute(2, "aria-describedby", "consumer-hint");
+            builder.AddComponentParameter(
+                3,
+                nameof(FormidableForm<EngineOrder>.ChildContent),
+                (RenderFragment<FormidableFormContext>)(_ => inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+            builder.CloseComponent();
+        });
+
+        var form = container.Find("form");
+        var messagesId = FormidableFieldId.MessagesFor(new FieldIdentifier(order, string.Empty));
+        Assert.Equal($"consumer-hint {messagesId}", form.GetAttribute("aria-describedby"));
+    }
+
     // The typed fragment must receive the SAME context instance the form cascades — not a copy,
     // not a fresh wrapper — so inline reads and the cascade agree about which engine they speak
     // for. Handing the fragment anything else would let context.Engine and a nested component's

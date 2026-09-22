@@ -16,16 +16,22 @@ namespace Formidable;
 /// both of which <see cref="FluentValidationModelValidator{TModel}"/> implements. A wrapper
 /// written against <see cref="IModelValidator{TModel}"/> alone compiles, validates correctly and
 /// presents neither capability; a caller's capability test then reads exactly what it reads for a
-/// validator that genuinely cannot read its own rules or run a chosen set of them on its own, so
-/// nothing reports the difference. Three things go missing with those two capabilities: the
-/// per-field requirement a form draws its marker and its announcement from, which falls to
-/// <see cref="FieldRequirement.NotRequired"/> everywhere; the half of a draft load that confirms
-/// values the rules pass, which needs the declared-path list and has no other source, leaving a
-/// loaded form silent about the values it holds while still disclosing the wrong ones; and the
-/// per-rule verdicts a live pass, a refresh and a form-validity probe otherwise share, which is
-/// both a cost — each of those passes evaluates the whole profile for itself — and, where nothing
-/// but a live pass has yet answered under the submit profile, the difference between a field a
-/// form can vouch for and one it cannot.
+/// validator that genuinely cannot read its own rules or run a chosen set of them on its own.
+/// Reporting the difference falls to the caller, and Formidable's own form engine does it for one
+/// half: a form whose validator cannot report its rules writes one line when its engine is built,
+/// naming what will not render. That line names the state rather than the mistake, since the two
+/// read alike, and nothing reports the rule-level half.
+/// </para>
+/// <para>
+/// Three things go missing with those two capabilities: the per-field requirement a form draws its
+/// marker and its announcement from, which the rules cannot be read to answer, so it reads
+/// <see cref="FieldRequirement.NotRequired"/> wherever nothing else declares it; the half of a
+/// draft load that confirms values the rules pass, which needs the declared-path list and has no
+/// other source, leaving a loaded form silent about the values it holds while still disclosing the
+/// wrong ones; and the per-rule verdicts a live pass, a refresh and a form-validity probe otherwise
+/// share, which is both a cost — each of those passes evaluates the whole profile for itself —
+/// and, where nothing but a live pass has yet answered under the submit profile, the difference
+/// between a field a form can vouch for and one it cannot.
 /// </para>
 /// <para>
 /// A capability member forwards only where the wrapped validator implements the interface

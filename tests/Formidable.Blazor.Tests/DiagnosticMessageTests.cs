@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Bunit;
 using Bunit.Rendering;
 using Formidable.Blazor.Tests.Fixtures;
@@ -5,6 +6,8 @@ using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -50,6 +53,20 @@ public class DiagnosticMessageTests : BunitContext
 
         Assert.Contains("services.AddFormidableBlazor()", exception.Message);
         Assert.DoesNotContain("services.AddFormidable()", exception.Message);
+    }
+
+    // The message above names the registration call, but on a two-project Blazor Web App calling
+    // it is not enough by itself — each project has its own container, and a page that prerenders
+    // or runs on the server's circuit resolves from the server's. Nothing this factory sees can
+    // tell which of those a given failure is, so the message states the rule instead of guessing
+    // at the cause.
+    [Fact]
+    public void Missing_validator_message_names_the_container_and_the_two_project_shape()
+    {
+        var exception = Assert.ThrowsAny<Exception>(() => RenderFormFor(new EngineOrder()));
+
+        Assert.Contains("container this render is resolving from", exception.Message);
+        Assert.Contains("two-project Blazor Web App", exception.Message);
     }
 
     [Fact]
@@ -229,13 +246,14 @@ public class DiagnosticMessageTests : BunitContext
     [Fact]
     public void Static_rendering_names_the_render_mode_the_page_is_missing()
     {
-        var exception = Assert.IsType<InvalidOperationException>(
-            Assert.ThrowsAny<Exception>(() => RenderFormOn(new RendererInfo("Static", isInteractive: false))));
+        var exception = Assert.IsType<InvalidOperationException>(Assert.ThrowsAny<Exception>(
+            () => { _ = RenderFormOn(new RendererInfo("Static", isInteractive: false)); }));
 
         Assert.Contains("FormidableForm", exception.Message);
         Assert.Contains("@rendermode", exception.Message);
         Assert.Contains("InteractiveServer", exception.Message);
         Assert.Contains("InteractiveWebAssembly", exception.Message);
+        Assert.Contains("InteractiveAuto", exception.Message);
     }
 
     // The other half of the same signal, and the one that decides whether the guard is usable at
@@ -248,15 +266,19 @@ public class DiagnosticMessageTests : BunitContext
         using var context = WiredContext();
         context.SetRendererInfo(new RendererInfo("Static", isInteractive: false));
 
-        context.Render<FormidableForm<EngineOrder>>(parameters => parameters
+        var cut = context.Render<FormidableForm<EngineOrder>>(parameters => parameters
             .Add(p => p.Model, new EngineOrder())
             .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.Contains("<form", cut.Markup);
     }
 
     [Fact]
     public void An_interactive_renderer_is_left_alone()
     {
-        RenderFormOn(new RendererInfo("WebAssembly", isInteractive: true));
+        var markup = RenderFormOn(new RendererInfo("WebAssembly", isInteractive: true));
+
+        Assert.Contains("<form", markup);
     }
 
     // A renderer that declines to describe itself has said nothing, and nothing is not proof of a
@@ -266,10 +288,18 @@ public class DiagnosticMessageTests : BunitContext
     [Fact]
     public void A_renderer_that_does_not_describe_itself_is_left_alone()
     {
-        RenderFormOn(rendererInfo: null);
+        var markup = RenderFormOn(rendererInfo: null);
+
+        Assert.Contains("<form", markup);
     }
 
-    private static void RenderFormOn(RendererInfo? rendererInfo)
+    /// <summary>
+    /// Renders the form under <paramref name="rendererInfo"/> and hands back its markup, which is
+    /// what "left alone" has to be read against: a render that merely declines to throw would also
+    /// describe a guard that returned early and rendered nothing, and the form reaching the DOM is
+    /// the half that tells those apart.
+    /// </summary>
+    private static string RenderFormOn(RendererInfo? rendererInfo)
     {
         using var context = WiredContext();
         if (rendererInfo is { } info)
@@ -277,12 +307,12 @@ public class DiagnosticMessageTests : BunitContext
             context.SetRendererInfo(info);
         }
 
-        context.Render(builder =>
+        return context.Render(builder =>
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", new EngineOrder());
             builder.CloseComponent();
-        });
+        }).Markup;
     }
 
     /// <summary>
@@ -315,4 +345,202 @@ public class DiagnosticMessageTests : BunitContext
         }));
         builder.CloseComponent();
     });
+
+    // What a form loses when its validator cannot report its own rules is invisible on the page:
+    // no marker and no aria-required can come from the rules, and a draft load confirms nothing.
+    // The engine is where that gets named, because it is the one place that sees the validator a
+    // form actually validates through, the Validator parameter as well as the container's.
+    // Information rather than Warning, because a validator that cannot be inspected is a
+    // supported configuration and the form goes on validating correctly through it.
+    [Fact]
+    public void A_validator_that_cannot_report_its_rules_is_named_once_when_the_engine_is_built()
+    {
+        var logger = new CapturingLogger();
+
+        var traceLines = CaptureTrace(() =>
+        {
+            using var engine = BuildEngine(new EngineOrder(), CapabilityHidden(), logger);
+        });
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains(nameof(EngineOrder), entry.Message);
+        Assert.Contains(nameof(CapabilityHidingModelValidator<EngineOrder>), entry.Message);
+        Assert.Contains("aria-required", entry.Message);
+        Assert.Contains(nameof(DelegatingModelValidator<EngineOrder>), entry.Message);
+
+        // Both channels carry the same sentence, and matching the whole of it is what pins that:
+        // a Trace line that drifted from the logged one would leave a debugger and a console
+        // reader reading different advice. Matched by content rather than by count, because the
+        // suite runs other test classes concurrently against this same process-wide listener.
+        Assert.Contains(traceLines, line => line == entry.Message);
+    }
+
+    // The negative case, and the one that makes the diagnostic worth having: a form wired the
+    // ordinary way, on the FluentValidation adapter AddFormidableBlazor registers, reports
+    // nothing at all. A diagnostic that fires for every form is noise nobody reads.
+    [Fact]
+    public void A_validator_that_can_report_its_rules_says_nothing()
+    {
+        var logger = new CapturingLogger();
+
+        using var engine = BuildEngine(new EngineOrder(), Adapter(), logger);
+
+        Assert.Empty(logger.Entries);
+    }
+
+    // The second negative case, and the reason DelegatingModelValidator answers each capability
+    // tester with the wrapped validator's own answer rather than with a type test: a wrapper
+    // derived from it presents the inspection capability of the validator underneath, so a
+    // correctly written wrapper is exactly as quiet as no wrapper at all.
+    [Fact]
+    public void A_delegating_wrapper_over_a_capable_validator_says_nothing()
+    {
+        var logger = new CapturingLogger();
+
+        using var engine = BuildEngine(
+            new EngineOrder(), new DelegatingWrapperValidator<EngineOrder>(Adapter()), logger);
+
+        Assert.Empty(logger.Entries);
+    }
+
+    // The gate is the capability TESTER and never the type test, and this is the case that tells
+    // them apart: DelegatingModelValidator presents IRuleInspectingValidator whatever it wraps,
+    // and answers the wrapped validator's own answer through it. A correctly derived wrapper over
+    // an inner validator whose rules cannot be read loses the same three things as a bare wrapper
+    // does, so it has to be reported for the same reason.
+    [Fact]
+    public void A_delegating_wrapper_over_a_validator_that_cannot_report_its_rules_reports()
+    {
+        var logger = new CapturingLogger();
+        var validator = new DelegatingWrapperValidator<EngineOrder>(CapabilityHidden());
+
+        using var engine = BuildEngine(new EngineOrder(), validator, logger);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains(nameof(DelegatingWrapperValidator<EngineOrder>), entry.Message);
+    }
+
+    // Once per engine, and deliberately not once per process. A Model swap and ResetAsync each
+    // build a fresh engine, so a form that swaps models reports again; a process-wide latch would
+    // buy that quiet by silencing whichever form was built second, which on an app holding
+    // several is as likely to be the miswired one.
+    [Fact]
+    public void A_second_engine_over_the_same_validator_reports_again()
+    {
+        var logger = new CapturingLogger();
+        var validator = CapabilityHidden();
+
+        BuildEngine(new EngineOrder(), validator, logger).Dispose();
+        BuildEngine(new EngineOrder(), validator, logger).Dispose();
+
+        Assert.Equal(2, logger.Entries.Count);
+    }
+
+    // The gate is asked before the edit context is subscribed to or given a class provider, so a
+    // consumer capability tester that throws leaves nothing of the half-built engine attached to
+    // a context the caller still holds. Asking the touched context for a class is what reads that:
+    // it must answer exactly as a context this construction never saw, which it stops doing the
+    // moment the provider install runs first.
+    [Fact]
+    public void A_capability_tester_that_throws_leaves_the_edit_context_unattached()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        Assert.Throws<NotSupportedException>(() => BuildEngine(
+            order, editContext, new ThrowingInspectionValidator(Adapter()), new CapturingLogger()));
+
+        var untouched = new EditContext(order);
+        Assert.Equal(untouched.FieldCssClass(field), editContext.FieldCssClass(field));
+    }
+
+    /// <summary>
+    /// A validator whose capability tester throws rather than answering. Broken, and deliberately
+    /// left to throw rather than caught: what it pins is where the constructor asks, not that the
+    /// ask is defended.
+    /// </summary>
+    private sealed class ThrowingInspectionValidator(IModelValidator<EngineOrder> inner)
+        : DelegatingModelValidator<EngineOrder>(inner)
+    {
+        public override bool CanInspectRules => throw new NotSupportedException();
+    }
+
+    private static IModelValidator<EngineOrder> Adapter() =>
+        new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator());
+
+    /// <summary>
+    /// The same rules behind a wrapper that presents the bare validation seam alone, which is the
+    /// miswiring the diagnostic exists for: it validates identically and reports no capability.
+    /// </summary>
+    private static IModelValidator<EngineOrder> CapabilityHidden() =>
+        new CapabilityHidingModelValidator<EngineOrder>(Adapter());
+
+    private static FormidableEngine<EngineOrder> BuildEngine(
+        EngineOrder order, IModelValidator<EngineOrder> validator, ILogger logger) =>
+        BuildEngine(order, new EditContext(order), validator, logger);
+
+    private static FormidableEngine<EngineOrder> BuildEngine(
+        EngineOrder order,
+        EditContext editContext,
+        IModelValidator<EngineOrder> validator,
+        ILogger logger) =>
+        new(
+            order,
+            editContext,
+            validator,
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider(),
+            logger: logger);
+
+    /// <summary>
+    /// Runs <paramref name="act"/> with a listener attached only for its duration, so the
+    /// diagnostic's Trace channel is read without leaving a listener behind for any other test.
+    /// </summary>
+    private static List<string> CaptureTrace(Action act)
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            act();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        return listener.Lines;
+    }
+
+    private sealed class CapturingTraceListener : TraceListener
+    {
+        public List<string> Lines { get; } = [];
+
+        public override void Write(string? message)
+        {
+        }
+
+        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
+    }
 }

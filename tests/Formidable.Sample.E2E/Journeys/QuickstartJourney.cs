@@ -182,7 +182,8 @@ public sealed class QuickstartJourney(SampleAppFixture app)
         await page.WaitForTimeoutAsync(300);
 
         Assert.Equal(0, await SubmitCountAsync(page));
-        await Expect(page.Locator("p[role='status']")).ToHaveCountAsync(0);
+        await Expect(page.Locator("p[role='status']")).ToHaveCountAsync(1);
+        await Expect(page.Locator("p[role='status']")).ToHaveTextAsync("");
     }
 
     // The other direction, and the reason the guard's listeners sit on the document rather than on

@@ -105,6 +105,10 @@ public class FormidableEngineSubmitTests
 
         Assert.True(outcome.CanProceed);
         Assert.Empty(_editContext.GetValidationMessages());
+
+        // The store is the native surface; the engine's own visible view is the one the kit reads,
+        // and a submit that cleared one without the other would leave the message on screen.
+        Assert.Empty(_engine.GetVisibleIssues());
     }
 
     [Fact]
@@ -128,10 +132,24 @@ public class FormidableEngineSubmitTests
         using var descReg = _engine.Registry.Register(Field(_order, nameof(EngineOrder.Description)));
         await _engine.ValidateForSubmitAsync(); // Customer unrevealed at submit
 
+        // A server issue is the one thing the refresh clears that the live pass behind the same
+        // edit leaves standing, so its departure is what says a refresh ran at all. Without it
+        // Customer's silence would equally describe a refresh that never happened.
+        var serverIssue = new ValidationIssue(
+            nameof(EngineOrder.Description), "Server rejected this description");
+        _engine.ApplyServerIssues([serverIssue]);
+        Assert.Contains(
+            serverIssue.Message,
+            _editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
+
         using var custReg = _engine.Registry.Register(Field(_order, nameof(EngineOrder.Customer))); // revealed AFTER submit
         _order.Description = "ok";
         _editContext.NotifyFieldChanged(Field(_order, nameof(EngineOrder.Description)));
         _time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.DoesNotContain(
+            serverIssue.Message,
+            _editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
 
         // Customer stays quiet until the next submit even though it is now revealed and failing.
         Assert.Empty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Customer))));

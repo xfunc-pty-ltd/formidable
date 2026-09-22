@@ -11,3 +11,13 @@ indent_size = 2
 
 [*.cs]
 csharp_style_namespace_declarations = file_scoped:warning
+
+# Core does not lack a synchronization context — a Blazor Server consumer's own event
+# handler runs with the renderer's context in force, and a direct ValidateAsync call for a
+# draft save runs inside it. What core lacks is any need to keep that context: nothing in
+# its own continuations touches component state or a dispatcher, so every await here can and
+# should drop whatever context its caller happened to supply. Scoped to core alone, since the
+# engine and the kit sometimes do need to keep or re-enter that context, where the same rule
+# would be false.
+[src/Formidable/**.cs]
+dotnet_diagnostic.CA2007.severity = warning

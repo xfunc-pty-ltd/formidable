@@ -9,6 +9,12 @@ public partial class Disclosure
     private readonly TravelRequest _request = new();
     private readonly TravelRequest _inlineRequest = new();
     private readonly List<string> _suppressed = [];
+    // The inline-only form's own options: it has no summary, so the gate's explanation needs
+    // InlineMessageLive to be announced at all. A separate instance from _options, built here
+    // rather than in OnInitialized, so it neither shares the first form's SuppressedIssueDiagnostic
+    // (which would mix the two forms' suppressed issues into one list) nor forces a re-splice of
+    // OnInitialized's own body for a setting that has nothing to do with it.
+    private readonly FormidableOptions _inlineOptions = new() { InlineMessageLive = "polite" };
     private FormidableOptions? _options;
     private FormidableForm<TravelRequest>? _form;
     private bool _showDetails;

@@ -117,14 +117,21 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         }
 
         throw new InvalidOperationException(
-            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, without having been " +
-            "rebuilt in between. A list rendered without @key does exactly that: remove or reorder a row, and Blazor " +
-            "reuses each row's components for the next item along — the field registration, the element id, the aria " +
-            "attributes and the messages stay with the row that moved away, while the input shows the new row's " +
-            "value. Key each row by the row object — @key=\"item\" on the element the loop renders — so a row's " +
-            "components travel with it. If the list is already keyed that way, something else re-pointed the " +
-            "accessor: a key taken from the row's id while the row object itself was replaced, or a For that now " +
-            $"names another field. (Reported by {nameof(FormidableOptions)}.{nameof(FormidableOptions.VerifyRowKeys)}.)");
+            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, " +
+            "without having been rebuilt in between. A field is the object owning the " +
+            "value plus a member name, so this happens whenever something replaces that " +
+            "object without rebuilding the components bound to it. A row list rendered " +
+            "without @key is the common way to do it: remove or reorder a row, and Blazor " +
+            "reuses each row's components for the next item along — the field " +
+            "registration, the element id, the aria attributes and the messages stay with " +
+            "the row that moved away, while the input shows the new row's value. Key each " +
+            "row by the row object — @key=\"item\" on the element the loop renders " +
+            "— so a row's components travel with it. If the list is already keyed " +
+            "that way, or there is no list to key at all, something else re-pointed the " +
+            "accessor: a key taken from the row's id while the row object itself was " +
+            "replaced, or a For that now names another field. " +
+            $"(Reported by {nameof(FormidableOptions)}." +
+            $"{nameof(FormidableOptions.VerifyRowKeys)}.)");
     }
 
     /// <summary>

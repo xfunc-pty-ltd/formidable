@@ -157,6 +157,29 @@ public class FocusServiceTests : BunitContext
         Assert.Null(exception);
     }
 
+    // A container disposing while the import is still in flight must not hang container teardown
+    // - on Blazor Server that is circuit teardown - by awaiting an import that may never complete.
+    // The timeout below is the test's own bound: an implementation that awaits such an import
+    // indefinitely times out here rather than hanging the whole test run.
+    [Fact]
+    public async Task Disposing_the_scope_completes_while_the_module_import_is_in_flight()
+    {
+        var jsRuntime = new HangingImportJSRuntime();
+        await using var provider = new ServiceCollection()
+            .AddFormidableBlazor()
+            .AddSingleton<IJSRuntime>(jsRuntime)
+            .BuildServiceProvider();
+        var scope = provider.CreateAsyncScope();
+        var service = scope.ServiceProvider.GetRequiredService<IFormidableFocusService>();
+        var field = new FieldIdentifier(new EngineOrder(), nameof(EngineOrder.Description));
+
+        // Started, deliberately not awaited: the import it triggers never completes, so the
+        // scope's own teardown below races it.
+        _ = service.FocusAsync(field).AsTask();
+
+        await scope.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     /// <summary>Test-only runtime whose first <paramref name="failures"/> "import" calls fault, and whose later ones return <see cref="Module"/>.</summary>
     private sealed class FlakyImportJSRuntime(int failures) : IJSRuntime
     {
@@ -174,6 +197,19 @@ public class FocusServiceTests : BunitContext
             return ImportCount <= failures
                 ? ValueTask.FromException<TValue>(new JSException("could not load the module"))
                 : ValueTask.FromResult((TValue)(object)Module);
+        }
+    }
+
+    /// <summary>Test-only runtime whose "import" call never completes.</summary>
+    private sealed class HangingImportJSRuntime : IJSRuntime
+    {
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
+            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
+        {
+            Assert.Equal("import", identifier);
+            return new ValueTask<TValue>(new TaskCompletionSource<TValue>().Task);
         }
     }
 

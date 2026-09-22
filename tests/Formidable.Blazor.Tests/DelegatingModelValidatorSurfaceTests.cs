@@ -14,7 +14,7 @@ namespace Formidable.Blazor.Tests;
 
 /// <summary>
 /// What <see cref="DelegatingModelValidator{TModel}"/> restores, at the three surfaces a wrapper
-/// written against <see cref="IModelValidator{TModel}"/> alone silently costs a form.
+/// written against <see cref="IModelValidator{TModel}"/> alone costs a form.
 /// <para>
 /// Every test here is a PAIR over one inner validator: the same form, the same rules, the same
 /// model, wrapped once by <see cref="CapabilityHidingModelValidator{TModel}"/> and once by

@@ -100,6 +100,34 @@ public class FormidableEngineEngagedSetTests
     }
 
     [Fact]
+    public void MarkTouched_does_not_engage_the_field_for_a_later_live_pass()
+    {
+        // This test's mirror image: MarkTouched marks a field touched — CSS disclosure a
+        // component may grant on a bare blur — without adding it to the set the live channel
+        // answers. Mutation that must break it: engaging inside MarkTouched — the pass below,
+        // started from EventDay alone, would then land Deadline's still-violating verdict on a
+        // field nothing ever notified a change for.
+        var model = new CrossFieldSchedule { EventDay = 10, Deadline = 20 };
+        var editContext = new EditContext(model);
+        using var engine = Build(
+            model, editContext, new CrossFieldScheduleValidator(), new FormidableOptions());
+
+        var deadline = new FieldIdentifier(model, nameof(CrossFieldSchedule.Deadline));
+        var eventDay = new FieldIdentifier(model, nameof(CrossFieldSchedule.EventDay));
+
+        engine.MarkTouched(deadline);
+        Assert.True(engine.GetFieldState(deadline).IsTouched);
+
+        // A live pass from the OTHER field validates the whole model — the pair still
+        // violates — but Deadline was only touched a moment ago, never engaged.
+        editContext.NotifyFieldChanged(eventDay);
+
+        Assert.Empty(engine.GetIssues(deadline));
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == DeadlineMessage);
+        Assert.Empty(editContext.GetValidationMessages(deadline));
+    }
+
+    [Fact]
     public async Task A_post_submit_edit_re_answers_every_engaged_field()
     {
         // The E7 sequence with HasSubmitted true, plus the appear-on-break half. Mutation that

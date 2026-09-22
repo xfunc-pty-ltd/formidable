@@ -345,15 +345,16 @@ public sealed class FormidableOptions
     /// re-reads its accessor on each parameter set and compares the field it now names against the
     /// one it registered, throwing an <see cref="InvalidOperationException"/> that names the field
     /// and the fix when the two diverge without the component having been torn down in between.
-    /// A row list rendered without a <c>@key</c> is the common way to produce that divergence, and
-    /// the exception leads with it: removing or reordering a row leaves Blazor reusing each row's
-    /// components for the next item along, and since a field is resolved once at registration, the
-    /// registration, the element id, the aria attributes and the messages all stay with the row
-    /// that moved away while the input displays the new row's value. Nothing about that misfiling
-    /// is visible on screen, which is what makes it worth an exception rather than a diagnostic.
-    /// Replacing a nested object under a field bound to it produces the same divergence and the
-    /// same throw with no collection anywhere on the page: a field is the object owning the value
-    /// plus a member name, so a fresh owner is a different field.
+    /// A field is the object owning the value plus a member name, so a fresh owner is a
+    /// different field — which is what the exception leads with. A row list rendered without
+    /// a <c>@key</c> is the common way to produce that divergence: removing or reordering a
+    /// row leaves Blazor reusing each row's components for the next item along, and since a
+    /// field is resolved once at registration, the registration, the element id, the aria
+    /// attributes and the messages all stay with the row that moved away while the input
+    /// displays the new row's value. Nothing about that misfiling is visible on screen, which
+    /// is what makes it worth an exception rather than a diagnostic. Replacing a nested object
+    /// under a field bound to it produces the same divergence and the same throw with no
+    /// collection anywhere on the page.
     /// Correctly keyed rows never trip it, whatever the edit — the three shapes differ only in what
     /// the keyed diff does with the components. Replacing a row keyed by the row object retires
     /// that row's key and introduces a different one, so its components are disposed and new ones

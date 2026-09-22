@@ -5,7 +5,7 @@ namespace Formidable.Sample.Pages;
 public partial class Quickstart
 {
     private readonly QuickContact _contact = new();
-    private bool _submitted;
+    private string _status = string.Empty;
 
-    private void HandleValid() => _submitted = true;
+    private void HandleValid() => _status = $"Submitted — thanks, {_contact.Name}!";
 }

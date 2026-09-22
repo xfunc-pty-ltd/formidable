@@ -82,22 +82,30 @@ internal sealed class FormidableJsModule
         }
     }
 
+    /// <summary>
+    /// Releases the module — best-effort, and only for an import that already finished
+    /// successfully. An import still in flight is skipped rather than awaited: it may never
+    /// complete, and awaiting it here would risk hanging whatever disposed this instance —
+    /// container teardown, circuit teardown on Blazor Server — on an interop call that answers
+    /// after nothing is listening. A faulted import already dropped itself from the cache (see
+    /// <see cref="ImportAsync"/>) and has nothing loaded to release either, so neither case
+    /// throws or blocks; only a successful import's own release can still fail, and that failure
+    /// is swallowed under the same <see cref="IsInteropFailure"/> line every other caller draws.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_moduleTask is null)
+        if (_moduleTask is not { IsCompletedSuccessfully: true } moduleTask)
         {
             return;
         }
 
         try
         {
-            var module = await _moduleTask;
-            await module.DisposeAsync();
+            await moduleTask.Result.DisposeAsync();
         }
-        catch (JSDisconnectedException)
+        catch (Exception exception) when (IsInteropFailure(exception))
         {
-            // Circuit already gone - nothing to release, whether the import itself
-            // never completed or the module was already torn down with the circuit.
+            // Circuit already gone - nothing to release.
         }
     }
 

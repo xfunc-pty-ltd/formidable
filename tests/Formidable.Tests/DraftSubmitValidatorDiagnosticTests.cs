@@ -51,10 +51,18 @@ public class DraftSubmitValidatorDiagnosticTests
         Assert.Empty(validator.Reported);
     }
 
+    // The overlap scan runs from the base constructor over every rule the validator declares, so
+    // the shipped fixture — display names, error codes, severities and collection child rules —
+    // is what puts a realistic shape through its enumeration. Whether the scan REPORTS is pinned
+    // by the two tests above, which can observe it because they override the hook; the default
+    // hook writes to Debug output, whose call site a release build removes outright, so a test
+    // asserting silence through it would be vacuous in exactly the configuration that ships.
     [Fact]
-    public void Existing_fixture_validator_reports_nothing()
+    public void Existing_fixture_validator_constructs_through_the_overlap_scan()
     {
-        _ = new TestOrderValidator(); // must not throw; orthogonal axes stay silent
+        var exception = Record.Exception(() => new TestOrderValidator());
+
+        Assert.Null(exception);
     }
 
     private sealed class CollectionRulesValidator : DraftSubmitValidator<TestOrder>

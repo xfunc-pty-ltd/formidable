@@ -634,6 +634,21 @@ the question to ask is the one that component itself answers —
 native `ValidationMessage` does it that way: `/workout`'s venue input, `/attach`'s "Submitted
 by", and `/vanilla`'s nickname.
 
+The attribute renders whether or not its target actually exists. A kit input points
+`aria-describedby` at the field's messages id only while the field carries issues;
+`FormidableForm` points its `<form>` element's `aria-describedby` at the model-level messages id
+unconditionally, whether or not the model has anything to say. Either id resolves only where the
+matching component is actually placed — a field's `FormidableFieldMessage` or
+`FormidableCollectionMessage`, or, for the form, a `FormidableModelMessage`. Leave the component
+out and the attribute still renders, naming an id nothing on the page carries. That is not a bug
+to chase down: WAI-ARIA 1.2 §8.6.1 tells user agents to ignore a reference that resolves to
+nothing, and ARIA 1.3 permits an author to leave one dangling too, on the general ground that a
+modern page's DOM can be populated when necessary, not because it names this exact case. The real
+cost sits elsewhere — a scanner cannot tell whether the reference was meant to resolve, so
+axe-core reports it as `needs review` at `impact: critical`, once per element carrying the
+attribute per run, rather than as a violation. Add the matching component and the finding
+disappears with it.
+
 ### `FormidableSummary` as a live region
 
 A live region announces reliably only when the element carrying the role was in the DOM before

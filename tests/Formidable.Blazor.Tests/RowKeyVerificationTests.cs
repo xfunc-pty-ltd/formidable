@@ -48,6 +48,26 @@ public class RowKeyVerificationTests : BunitContext
     }
 
     [Fact]
+    public void The_thrown_message_leads_with_the_general_cause_before_the_row_list_case()
+    {
+        var order = Rows("a", "b", "c");
+        var cut = RenderRows(order, keyed: false, Verifying());
+
+        order.Items.RemoveAt(0);
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => ReRender(cut, order));
+
+        var generalCause = thrown.Message.IndexOf(
+            "A field is the object owning the value plus a member name", StringComparison.Ordinal);
+        var rowListCase = thrown.Message.IndexOf(
+            "A row list rendered without @key", StringComparison.Ordinal);
+
+        Assert.True(generalCause >= 0);
+        Assert.True(rowListCase >= 0);
+        Assert.True(generalCause < rowListCase);
+    }
+
+    [Fact]
     public void Replacing_a_keyed_row_in_place_is_not_a_missing_key()
     {
         var order = Rows("a", "b", "c");

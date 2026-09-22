@@ -40,11 +40,25 @@ public class FormidableEngineServerIssueTests
     }
 
     [Fact]
-    public void Warning_severity_server_issues_do_not_block_or_write_messages()
+    public async Task Warning_severity_server_issues_do_not_block_or_write_messages()
     {
+        var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        // Registered, because a server advisory for a field nothing renders is dropped before it
+        // reaches any bucket - the empty store below would then be true for the wrong reason.
+        using var reg = _engine.Registry.Register(description);
+
         _engine.ApplyServerIssues([new ValidationIssue("Description", "advisory", ValidationSeverity.Warning)]);
 
         Assert.Empty(_editContext.GetValidationMessages());
+
+        // The advisory did arrive, and the field's own state is where it lands: an empty store
+        // beside a field carrying no warning would equally describe an apply that dropped the
+        // issue outright, which is the reading this rules out.
+        Assert.True(_engine.GetFieldState(description).HasWarnings);
+
+        // The blocking half of the name: a submit over the same model proceeds, so the advisory
+        // is carried without ever standing in a visitor's way.
+        Assert.True((await _engine.ValidateForSubmitAsync()).CanProceed);
     }
 
     [Fact]

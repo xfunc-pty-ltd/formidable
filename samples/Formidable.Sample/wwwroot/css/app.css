@@ -23,6 +23,26 @@
     /* the custom select chevron, stroked in the muted colour — a data URI cannot read a
        token, so each scheme carries its own */
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%234a5565' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    /* the severity and confirmed-field glyphs, stroked to match their message colour so shape
+       and colour say the same thing — colour alone is exactly what a stylesheet must
+       not rely on for severity. Baked per scheme like the chevron above, for the same reason. */
+    --message-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23b91c1c' \
+stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23b91c1c' \
+stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+    --message-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23a16207' \
+stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23a16207' \
+stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='15' r='1' \
+fill='%23a16207'/%3E%3C/svg%3E");
+    --message-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23516fca' \
+stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23516fca' stroke-width='2' \
+stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23516fca'/%3E%3C/svg%3E");
+    --valid-badge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \
+20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%2315803d' \
+stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%2315803d' \
+stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     /* chrome (same in both schemes) */
     --nav-bg: #1a1a2e;
@@ -59,6 +79,23 @@
         --valid: #4ade80;
         --summary-bg: rgba(248, 113, 113, .09);
         --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2399a1af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        --message-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23fca5a5' \
+stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23fca5a5' \
+stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+        --message-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23fbbf24' \
+stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23fbbf24' \
+stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='15' r='1' \
+fill='%23fbbf24'/%3E%3C/svg%3E");
+        --message-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23a5b4fc' \
+stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23a5b4fc' stroke-width='2' \
+stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23a5b4fc'/%3E%3C/svg%3E");
+        --valid-badge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%234ade80' \
+stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%234ade80' \
+stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
 
     /* Native picker/spinner chrome (calendar glyphs, the number input's up/down arrows) follows
@@ -459,9 +496,9 @@ form .formidable-pending {
     padding-right: 2.3rem;
 }
 
-/* CSS-only pending spinner. Two anchors cover both field shapes:
-   label-wrapped inputs (most pages) anchor on the label; unwrapped controls
-   (ForeignControl's select is a direct child of .field) anchor on .field.
+/* CSS-only field-corner state icon: the pending spinner or the confirmed check. Two anchors per
+   state cover both field shapes: label-wrapped inputs (most pages) anchor on the label;
+   unwrapped controls (ForeignControl's select is a direct child of .field) anchor on .field.
    The child combinator keeps the two from ever both matching at once. */
 @keyframes formidable-spin {
     to {
@@ -470,17 +507,35 @@ form .formidable-pending {
 }
 
 .field > label:has(> .formidable-pending)::after,
-.field:has(> .formidable-pending)::after {
+.field:has(> .formidable-pending)::after,
+.field > label:has(> .formidable-valid)::after,
+.field:has(> .formidable-valid)::after {
     content: "";
     position: absolute;
     right: 12px;
     bottom: 14px;
     width: 14px;
     height: 14px;
+}
+
+.field > label:has(> .formidable-pending)::after,
+.field:has(> .formidable-pending)::after {
     border-radius: 50%;
     border: 2px solid var(--accent);
     border-top-color: transparent;
     animation: formidable-spin .8s linear infinite;
+}
+
+/* Pending appends to whichever state tier already applies (FormidableCss.Assemble), so a field
+   that was clean when a submit pass began can carry both classes for the whole in-flight pass
+   — its cached WouldPassSubmit answer has not yet been retested. The badge is scoped out of
+   that case so the spinner alone shows: a pass in flight is re-testing the very thing the
+   check claims, so "checking" is the honest cue, not the stale "passed". */
+.field > label:has(> .formidable-valid):not(:has(> .formidable-pending))::after,
+.field:has(> .formidable-valid):not(:has(> .formidable-pending))::after {
+    background-image: var(--valid-badge);
+    background-repeat: no-repeat;
+    background-size: contain;
 }
 
 /* ---------- messages ---------- */
@@ -519,6 +574,9 @@ form .formidable-pending {
 
 .formidable-message {
     font-size: .85rem;
+    display: flex;
+    align-items: flex-start;
+    gap: .4rem;
 }
 
 /* Only the gap BETWEEN messages needs its own margin - the list's own margin-top above already
@@ -529,16 +587,40 @@ form .formidable-pending {
     margin-top: .15rem;
 }
 
+/* The severity glyph. Colour is not the only thing telling error, warning and info apart: each
+   modifier below points this at its own shape, stroked to match the text colour beside it. */
+.formidable-message::before {
+    content: "";
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin-top: .1rem;
+    background-repeat: no-repeat;
+    background-size: contain;
+}
+
 .formidable-message--error {
     color: var(--error-text);
+}
+
+.formidable-message--error::before {
+    background-image: var(--message-icon-error);
 }
 
 .formidable-message--warning {
     color: var(--warn);
 }
 
+.formidable-message--warning::before {
+    background-image: var(--message-icon-warning);
+}
+
 .formidable-message--info {
     color: var(--info);
+}
+
+.formidable-message--info::before {
+    background-image: var(--message-icon-info);
 }
 
 /* native Blazor ValidationMessage on the vanilla-interop page */

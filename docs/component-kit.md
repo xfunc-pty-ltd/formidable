@@ -74,16 +74,23 @@ Three things get resolved, under one rule: what you passed wins.
   [`AddFormidableBlazor(...)`](#addformidableblazor), then `new FormidableOptions()`.
 
 A fourth thing is resolved too, on a simpler rule that has no parameter to win: the engine's
-logger comes from `ILoggerFactory` when one is registered, or stays `null` otherwise — see
-[`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) for what it's for.
+logger comes from `ILoggerFactory` when one is registered, or stays `null` otherwise. It carries
+the suppressed-issue diagnostic described under
+[`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic), and an Information line
+naming a validator that cannot report its own rules, which
+[wrapping a validator](recipes.md#i-want-to-wrap-the-validator-without-losing-what-it-can-do)
+explains.
 
 The validator's two failures are worth reading in full, because between them they are how a first
 form fails to start:
 
 ```csharp
         return resolved ?? throw new InvalidOperationException(
-            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call " +
-            "services.AddFormidableBlazor() and register the FluentValidation validator.");
+            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered in the " +
+            "container this render is resolving from — call services.AddFormidableBlazor() and " +
+            "register the FluentValidation validator there. A two-project Blazor Web App has " +
+            "one container per project, and a page that prerenders or runs on the server's " +
+            "circuit resolves from the server's, so register there too.");
 ```
 
 *Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
@@ -102,13 +109,16 @@ form fails to start:
 
 *Source: `src/Shared/MissingFluentValidatorMessage.cs`*
 
-The first fires when nothing is registered — no `AddFormidableBlazor()` call anywhere. The second
-is the far commoner one: Formidable is registered, so the open-generic adapter exists, but the
-FluentValidation validator it wraps does not. That state makes the container throw while
-*building* the adapter rather than return null, so it gets caught and renamed; the container's own
-exception is preserved as the inner one. `Formidable.AspNetCore` reports the same state in the same
-words, from that one shared source file. Both strings are Formidable's, which is what keeps them
-readable in a trimmed WebAssembly build.
+The first fires when the container this render is resolving from has no `IModelValidator<T>`. A
+single-project app has one container, so that means no `AddFormidableBlazor()` call anywhere; a
+two-project Blazor Web App has one container per project, and a page that prerenders or runs on the
+server's circuit resolves from the server's — [Hosting models](quickstart.md#hosting-models) has
+the one page shape the server never builds. The second is the far commoner one: Formidable is
+registered, so the open-generic adapter exists, but the FluentValidation validator it wraps does
+not. That state makes the container throw while *building* the adapter rather than return null, so
+it gets caught and renamed; the container's own exception is preserved as the inner one.
+`Formidable.AspNetCore` reports the same state in the same words, from that one shared source file.
+Both strings are Formidable's, which is what keeps them readable in a trimmed WebAssembly build.
 
 None of the three resolutions is configurable beyond that — it's the one place the kit fails
 loudly instead of quietly doing nothing, and it's worth knowing about before an exception is the
@@ -154,13 +164,16 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
             {
                 inner.AddMultipleAttributes(4, AdditionalAttributes!);
             }
-            // Rendered after the splat, so they win the duplicate-attribute race: the all-suppressed
-            // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
-            // consumer-supplied id or tabindex would break that the same way a consumer-supplied
-            // input id would — see FormidableInputBase<TValue>'s identical policy.
+            // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
+            // because the all-suppressed gate's summary entry addresses the form by this id (see
+            // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
+            // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
+            // policy. aria-describedby, added in this same position, does not win outright — see
+            // ComputeModelLevelAriaDescribedBy for why it merges instead.
             inner.AddAttribute(5, "id", _modelLevelFieldId);
             inner.AddAttribute(6, "tabindex", "-1");
-            inner.AddComponentParameter(7, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
+            inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
+            inner.AddComponentParameter(8, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();
@@ -1454,7 +1467,8 @@ therefore show the gate, the one message whose whole purpose is being seen, nowh
 fixed:
 
 ```razor
-    <FormidableForm Model="_inlineRequest" OnValidSubmit="HandleInlineValid">
+    <FormidableForm Model="_inlineRequest" Options="_inlineOptions"
+                    OnValidSubmit="HandleInlineValid">
         <FormidableModelMessage />
 ```
 
