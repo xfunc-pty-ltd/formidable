@@ -46,5 +46,19 @@ public interface IFormidableFieldOrderService
     /// tag — an implementation need not special-case it, since <see cref="FormidableFieldId.For"/>
     /// derives an id for it the same way it does for any other field.
     /// </param>
+    /// <remarks>
+    /// "Present in the DOM" is what the shipped implementation can see, and it locates each
+    /// field by the id <see cref="FormidableFieldId.For(FieldIdentifier)"/> mints, through
+    /// <c>document.getElementById</c>. That call has two blind spots. An element inside a shadow
+    /// root — an open one included — is not found, so its field is reported absent, the same
+    /// answer a field that renders nothing gets, and the shipped host sorts an absent field last.
+    /// Where two elements carry the same id, the call answers with the first in document order,
+    /// so that is the position the field takes and the other element is never consulted. Three
+    /// things reach that: one field rendered in two places, a consumer id that collides with a
+    /// minted one, and two different fields whose minted ids collide — an id is a pair of 32-bit
+    /// hashes, and <see cref="FormidableFieldId.For(FieldIdentifier)"/> promises only that two of
+    /// them are overwhelmingly likely to differ. Both blind spots are stated for the same reason:
+    /// an element can be on the page without this answer accounting for it.
+    /// </remarks>
     ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields);
 }

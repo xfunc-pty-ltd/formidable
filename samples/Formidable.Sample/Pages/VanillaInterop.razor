@@ -10,7 +10,7 @@
             <li><strong>Nickname</strong> (a native <code>InputText</code>): required. A committed change to the field discloses it, no submit needed.</li>
             <li><strong>Colour</strong> (a Formidable input): required. A committed change to the field discloses it, no submit needed.</li>
             <li>The css provider gives native InputBase components the same state classes, so both inputs style identically with zero extra wiring.</li>
-            <li>The rest is rendered by hand, one concern at a time: <code>FormidableFieldAnchor</code> registers it so its submit issues disclose, the field's own id on the input is what the summary's click-to-focus looks for, and <code>aria-describedby</code> plus <code>aria-invalid</code> give a screen reader the same message pairing and error state a Formidable input emits — the page reads that state off the engine, so it appears and clears with the message beside it.</li>
+            <li>The rest is rendered by hand, one concern at a time: <code>FormidableFieldAnchor</code> registers it so its submit issues disclose, the field's own id on the input is what the summary's click-to-focus looks for, and <code>aria-describedby</code> plus <code>aria-invalid</code> give a screen reader the same message pairing and error state a Formidable input emits — the page reads both off the engine, so each appears and clears with the message beside it. <code>aria-describedby</code> carries one condition of its own: the native <code>ValidationMessage</code> renders nothing at all when there is no message, and an id naming an element that is not there describes nothing. <code>aria-invalid</code> is the one a native <code>InputText</code> sees to as well, from the field's messages, and its answer is the same <code>true</code> or nothing this page reads off the engine.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -33,7 +33,7 @@
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@NicknameMessagesId" /></label>
+                       aria-describedby="@NicknameAriaDescribedBy" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>

@@ -1,10 +1,11 @@
+using Formidable;
 using Formidable.Blazor;
 using Formidable.Sample.Shared;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Sample.Pages;
 
-public partial class AttachMode
+public partial class AttachMode : IDisposable
 {
     private readonly ExpenseReport _report = new()
     {
@@ -13,6 +14,7 @@ public partial class AttachMode
     };
 
     private FormidableValidator<ExpenseReport>? _validator;
+    private IFormidableEngine? _subscribedEngine;
     private string _status = string.Empty;
 
     // FormidableValidator renders no <form> of its own, so the all-suppressed defensive gate's
@@ -29,6 +31,29 @@ public partial class AttachMode
     // rendering it up front, the way the native input on Vanilla interop does, is the other way to
     // close the same gap.
     private string? _submitterElementId;
+
+    // The id of the element listing this field's messages: the native ValidationMessage carries it
+    // so that aria-describedby has something to name, exactly as a wrapped input's own message
+    // list carries it. Unlike the element id above, this one is not the focus service's business
+    // and is rendered from the first paint.
+    private string SubmitterMessagesId => FormidableFieldId.MessagesFor(SubmitterField);
+
+    // A native ValidationMessage renders one <div> per message and nothing at all when there are
+    // none, so the id above names something only while the field has a message to show. The
+    // EditContext is what that component reads, so asking it is asking the same question the
+    // component answers. FormidableFieldMessage, on the rows below, renders its list empty and
+    // leaves it there, which is why nothing beside those inputs has to ask.
+    private string? SubmitterAriaDescribedBy =>
+        _validator?.Engine?.EditContext.GetValidationMessages(SubmitterField).Any() == true
+            ? SubmitterMessagesId
+            : null;
+
+    // Requiredness is a fact about the rules rather than about the current value, so this stands
+    // whatever the visitor types. A wrapped input takes it from its field context; a plain
+    // InputText has no context to ask, so the page reads what the submit profile demands off the
+    // engine. Blazor's own InputText already writes aria-invalid, so that one is not the page's.
+    private string? SubmitterAriaRequired =>
+        _validator?.Engine?.GetFieldRequirement(SubmitterField) == FieldRequirement.Required ? "true" : null;
 
     // EditForm's own OnValidSubmit funnels through EditContext.Validate(), which nothing here
     // subscribes to — attach mode leaves the page owning its submit handler. Calling the
@@ -73,4 +98,28 @@ public partial class AttachMode
     // there is no live verdict to refresh, and FormidableValidator notices the field the removed
     // line's own input unregisters without being told.
     private void RemoveLine(ExpenseLine line) => _report.Lines.Remove(line);
+
+    // The two aria attributes above are read off engine state, and the engine notifies the
+    // components bound to it rather than the page — so without this subscription they would lag a
+    // keystroke behind the message beside them. The kit's own components subscribe for the same
+    // reason; this page's model never swaps, so the first engine it sees is the only one.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_subscribedEngine is null && _validator?.Engine is { } engine)
+        {
+            _subscribedEngine = engine;
+            engine.StateChanged += OnEngineStateChanged;
+        }
+    }
+
+    private void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribedEngine is not null)
+        {
+            _subscribedEngine.StateChanged -= OnEngineStateChanged;
+        }
+    }
 }

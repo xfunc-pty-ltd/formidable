@@ -17,6 +17,9 @@ public partial class AsyncRules : IDisposable
 
     private string _status = string.Empty;
 
+    private FormidableForm<Handle>? _form;
+    private IFormidableEngine? _subscribedEngine;
+
     private static int DelayMs
     {
         get => HandleValidator.SimulatedDelayMs;
@@ -34,8 +37,33 @@ public partial class AsyncRules : IDisposable
 
     private void HandleValid() => _status = "Submitted — username checks passed.";
 
+    // The line under the Submit button reads Engine.IsValidating out of the cascaded context as
+    // the form's body renders, and the engine notifies the components bound to it rather than the
+    // page — so without this subscription that read would only refresh when something else made
+    // the page render, and would sit at whatever it said then. The kit's own inputs subscribe for
+    // the same reason; this page's model never swaps, so the first engine it sees is the only one.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_subscribedEngine is null && _form?.Engine is { } engine)
+        {
+            _subscribedEngine = engine;
+            engine.StateChanged += OnEngineStateChanged;
+        }
+    }
+
+    private void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
+
     // SimulatedDelayMs is a static shared by every page that runs Handle's async rules (e.g.
     // field-state); restore the default on leaving so this page's slider doesn't strand
     // other pages' async timing at whatever value was last dragged here.
-    public void Dispose() => HandleValidator.SimulatedDelayMs = 600;
+    public void Dispose()
+    {
+        HandleValidator.SimulatedDelayMs = 600;
+
+        if (_subscribedEngine is not null)
+        {
+            _subscribedEngine.StateChanged -= OnEngineStateChanged;
+        }
+    }
 }

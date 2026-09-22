@@ -234,8 +234,12 @@ Work top to bottom: the steps build on each other.
 - [ ] **Nickname entry lands:** submit empty and click the summary's Nickname entry — focus
       moves INTO the native `InputText` (the page renders it the field's id). Keyboard-reached,
       the input shows its normal focus ring; nothing else on the page moves
-- [ ] While the Nickname error stands, inspect the input: `aria-invalid="true"` and an
-      `aria-describedby` naming the `ValidationMessage` below it. Fill it and blur: both go
+- [ ] RELOAD first: the rows above leave Nickname's error standing, and this one starts from an
+      input nothing has been asked of. Inspect it before pressing anything — it carries neither
+      `aria-invalid` nor `aria-describedby`, since the `ValidationMessage` the second would name is
+      not on the page until there is a message to put in it. Submit empty and both arrive:
+      `aria-invalid="true"`, and an `aria-describedby` naming the message below. Fill it and blur:
+      both go
 
 ### Attaching to your own EditForm
 
@@ -651,9 +655,10 @@ steps build on each other.
       what the focus service looks for. No console error, no lost scroll position
 - [ ] While that error stands, inspect the native input: `aria-invalid="true"`, an
       `aria-describedby` naming the message below it, and `aria-required="true"` beside them.
-      Fill the region and blur: `aria-invalid` disappears (it is conditional, and it stays
-      current without a resubmit) while `aria-required` stays — the rules demand the value
-      whether the box is full or empty
+      Fill the region and blur: `aria-invalid` and `aria-describedby` both disappear (each is
+      conditional, and both stay current without a resubmit — the second names the message
+      element, which is not on the page while there is no message) while `aria-required`
+      stays: the rules demand the value whether the box is full or empty
 - [ ] **Message-bearing fields separate from the next field — both shapes.** With several
       errors showing at once, check the two idioms side by side: a message rendered INSIDE its
       field box (Event name, both dates, Description, Coupon code) and one rendered as the

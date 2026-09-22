@@ -37,7 +37,11 @@ The same resolution walks plain nesting, which is why depth needs no special han
 `() => _invoice.BillTo.Street` is one field owned by the `BillTo` object, exactly as a row's field
 is owned by its row. Compose the validators with `SetValidator` (or `ChildRules`) and the paths
 line up on their own — see
-[Recipes](recipes.md#i-want-to-validate-a-nested-object) for the worked pair.
+[Recipes](recipes.md#i-want-to-validate-a-nested-object) for the worked pair. That ownership is
+also why replacing a nested object mid-form takes the same `@key` habit a row does: the
+components rendering `BillTo.Street` stay bound to the `BillTo` instance they registered until
+something rebinds them, so key the markup around a nested object by that object, or swap the
+whole `Model` rather than a member of it. The recipe linked above says what skipping that costs.
 
 `FormidableFieldMessage` and `FormidableCollectionMessage` split one job.
 `FormidableFieldMessage` renders a field's own issues but registers nothing itself — it needs a

@@ -7,6 +7,18 @@ namespace Formidable;
 /// e.g. <c>ReadFromJsonAsync</c>) and pass <see cref="ToIssues"/> to the Blazor engine's
 /// server-issue application.
 /// </summary>
+/// <remarks>
+/// Deserialize inside a guard, and treat a <see langword="null"/> result as no verdict. A 400 says
+/// the request was rejected, not that the endpoint is what rejected it: a reverse proxy, a gateway
+/// or a WAF in front of it answers with its own body, and <c>ReadFromJsonAsync</c> throws
+/// <see cref="System.Text.Json.JsonException"/> on one it cannot read into this type — an HTML
+/// page, a line of plain text, an empty body — and <see cref="InvalidOperationException"/> when the
+/// response's character set is one the runtime does not have. The JSON literal <c>null</c> throws
+/// nothing and deserializes to <see langword="null"/>, which the engine's server-issue application
+/// rejects. Inside a Blazor event handler each of those is an unhandled exception rather than a
+/// message on screen. <see cref="ToIssues"/>'s own tolerance covers the shapes that survive the
+/// parse, not the ones that fail it.
+/// </remarks>
 public sealed class FormidableValidationProblem
 {
     /// <summary>Error messages keyed by property path (standard ValidationProblemDetails shape).</summary>

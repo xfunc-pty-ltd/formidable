@@ -51,7 +51,9 @@ it carries — errors block and mark their fields `formidable-invalid`, and warn
 as advisories that paint `formidable-warning` or `formidable-info` once the field has been touched
 or modified — and it replaces what its own previous call applied rather
 than piling onto it, so resubmitting the same or a corrected payload never leaves a stale
-duplicate behind. That's the whole authoring surface: pick an adapter, apply what it sends back.
+duplicate behind. The deserialize half wants a guard around it, because a 400 body is not
+necessarily one of Formidable's: [Reading the rejection body](#reading-the-rejection-body) below.
+That's the whole authoring surface: pick an adapter, apply what it sends back.
 What follows is the wire format underneath both of them, each adapter's own shape, what a
 handler can read back from a passing report, and the normalize step both run before
 they validate anything.
@@ -75,6 +77,18 @@ namespace Formidable;
 /// e.g. <c>ReadFromJsonAsync</c>) and pass <see cref="ToIssues"/> to the Blazor engine's
 /// server-issue application.
 /// </summary>
+/// <remarks>
+/// Deserialize inside a guard, and treat a <see langword="null"/> result as no verdict. A 400 says
+/// the request was rejected, not that the endpoint is what rejected it: a reverse proxy, a gateway
+/// or a WAF in front of it answers with its own body, and <c>ReadFromJsonAsync</c> throws
+/// <see cref="System.Text.Json.JsonException"/> on one it cannot read into this type — an HTML
+/// page, a line of plain text, an empty body — and <see cref="InvalidOperationException"/> when the
+/// response's character set is one the runtime does not have. The JSON literal <c>null</c> throws
+/// nothing and deserializes to <see langword="null"/>, which the engine's server-issue application
+/// rejects. Inside a Blazor event handler each of those is an unhandled exception rather than a
+/// message on screen. <see cref="ToIssues"/>'s own tolerance covers the shapes that survive the
+/// parse, not the ones that fail it.
+/// </remarks>
 public sealed class FormidableValidationProblem
 {
     /// <summary>Error messages keyed by property path (standard ValidationProblemDetails shape).</summary>
@@ -260,6 +274,16 @@ every message as text — `FormidableFieldMessage`, `FormidableCollectionMessage
 consumer reading the same `errors`/`advisories` payload outside Formidable's components needs to
 do the same: render each message as text, never interpolate it into HTML.
 
+**Codes name the validator that failed.** Each advisory carries its issue's `Code`, which behind
+the FluentValidation adapter is that failure's `ErrorCode`, and the code FluentValidation supplies
+by default is the name of the validator underneath: `EmailValidator`, `MaximumLengthValidator`,
+`PredicateValidator` for a `Must`, and whatever a `PropertyValidator<T, TProperty>` of your own
+returns from its required `Name`. Those describe the implementation rather than the problem. The
+`errors` dictionary is paths to messages and nothing else, so this body carries a code only on an
+advisory — and carries it to whoever holds the response. `WithErrorCode("...")` replaces one, and
+it attaches to the validator it follows rather than to the rule: on a chain, each component needs
+its own, and the ones nothing names keep the default.
+
 ## Minimal APIs
 
 `Validate<TModel>(profile?)` is an endpoint-filter extension with two overloads — one route
@@ -311,16 +335,7 @@ public static class FormidableEndpointFilterExtensions
         });
     }
 
-    /// <summary>
-    /// Normalizes (when <typeparamref name="TModel"/> implements
-    /// <see cref="INormalizableModel"/>) and validates the endpoint's
-    /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
-    /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format and whose <c>advisories</c> extension carries the report's
-    /// non-error issues. Warnings and infos never block on their own: a report carrying only
-    /// them passes through to the handler, which can read it via
-    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-    /// </summary>
+    /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile)"/>
     /// <param name="builder">The route group to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
     /// <remarks>
@@ -917,10 +932,11 @@ wire-deserialized one.
     /// Errors bypass the field registry: the server judged what was actually submitted, so an error
     /// shows whether or not the client rendered its field, and only a disclosure override returning
     /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
-    /// own do — one with no rendered field is not shown, and the suppressed-issue diagnostic reports
-    /// it — because an advisory blocks nothing, so hiding one strands no verdict. A payload
-    /// carrying the same message twice for one field at one severity lands it once: a reader has
-    /// no use for it twice.
+    /// own do — one with no rendered field is not shown — because an advisory blocks nothing, so
+    /// hiding one strands no verdict. Reporting is where the two part company: a suppressed
+    /// advisory here reaches the suppressed-issue diagnostic, where a submit's own reaches nothing
+    /// at all — no Trace line, no logged warning, no callback. A payload carrying the same message
+    /// twice for one field at one severity lands it once: a reader has no use for it twice.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
@@ -975,8 +991,38 @@ narrower reason: attach mode does focus a blocked submit's first error, through 
 rejection is the page's to choose. `FocusFirstErrorAsync()` on the validator is how it chooses the
 same move, once the applied verdict is on screen.
 
-The sample deliberately skips client-side submit validation so the round-trip is visible end to
-end — press Send and the server's 400 lands on the exact fields:
+### Reading the rejection body
+
+A 400 says the request was rejected, not who rejected it. A reverse proxy, an API gateway or a WAF
+in front of the endpoint answers with its own HTML page or its own JSON, and neither is the verdict
+the page is waiting for. Deserializing is where it finds out, and the response's `Content-Type` will
+not tell it first: `ReadFromJsonAsync` reads the body whatever media type the header names, so an
+HTML page labelled `application/json` throws exactly as an unlabelled one does. It throws
+`JsonException` when the body will not deserialize into the type at all, for example an HTML page, a
+line of plain text, an empty body, or JSON whose members conflict with it. It throws
+`InvalidOperationException` when the header names a character set the runtime does not have, and
+that is not an exotic case: `windows-1252` and `Shift_JIS` both throw, where `utf-8` and
+`iso-8859-1` are read. And the JSON literal `null` throws nothing: it deserializes to `null`, which
+`ApplyServerIssues` rejects with `ArgumentNullException`. Inside a Blazor event handler each of
+those is an unhandled exception, which is the page's error UI on WebAssembly and a faulted circuit
+on Server.
+
+Deserializing is a shape check, not a verdict check. A gateway's own JSON deserializes happily into
+a problem carrying no errors and no advisories, and applying that replaces whatever the last
+response left on screen with nothing, which reads as a rejection with no reason given. The sample
+below posts to its own API, so it stops at the shape; a page in front of infrastructure it does not
+control has the emptier case to weigh too.
+
+So the parse belongs inside a `try`, a `null` result counts as no verdict, and the page says so in
+its own words rather than through the framework's. What it does not do is clear the last verdict,
+and that cuts both ways: an unreadable response is no evidence the previous one stopped being true,
+so wiping the messages a visitor is working through would cost them their only reasons, while a
+corrected resubmission that comes back unreadable leaves those same reasons standing under a status
+line that reads as current. A page that would rather show nothing than risk showing something stale
+hands `ApplyServerIssues` an empty sequence, which swaps the server source for nothing.
+
+The sample deliberately skips client-side submit validation so the round trip is visible end to end:
+press Send and the server's 400 lands on the exact fields.
 
 ```csharp
     private async Task Send()
@@ -992,26 +1038,55 @@ end — press Send and the server's 400 lands on the exact fields:
             return;
         }
 
+        // A 400 says the request was rejected, not that the endpoint is what rejected it. A
+        // reverse proxy, a gateway or a WAF in front of it answers with its own HTML page or its
+        // own JSON, and the parse reads the Content-Type header's character set as well as the
+        // body, so either can be something it cannot make sense of. The JSON literal null throws
+        // nothing and deserializes to nothing at all. A rejection the page cannot read is still a
+        // rejection, and none of these is an exception the visitor should meet.
+        FormidableValidationProblem? problem;
+        try
+        {
+            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            problem = null;
+        }
+
+        if (problem is null)
+        {
+            // The last verdict stays on screen. An unreadable response is no evidence that it
+            // stopped being true, and the reverse case is real too: a corrected resubmission that
+            // comes back unreadable leaves the old reasons standing under the new status line. A
+            // page that would rather show nothing hands ApplyServerIssues an empty sequence here.
+            _status = "Rejected — but the response is not a verdict this page can read.";
+            return;
+        }
+
         // One call for the whole verdict: every issue lands on the field it names, at the
         // severity it carries, so the page needs no advisory plumbing of its own. Each call
         // replaces the previous server verdict — pressing Send again with new input swaps the
         // old messages for the new ones, rather than accumulating them, so a corrected
         // resubmission cannot leave a stale one behind.
-        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        _form!.ApplyServerIssues(problem!);
+        _form!.ApplyServerIssues(problem);
         _status = "Server rejected the order — its verdict is now inline.";
     }
 ```
 
 *Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs`*
 
+### What the applied verdict does
+
 Errors reach the form's fields the moment `ApplyServerIssues` runs, bypassing the field-registry
 disclosure check entirely (see [Disclosure](disclosure.md)). The server already validated the
 submitted data, so a field the client happens not to have rendered isn't a disclosure concern —
 and an error that blocks the save has to reach the user either way. Advisories in the same payload
 defer to the registry exactly as the client's own advisories do: one whose field is on screen shows
-there, and one whose field isn't is dropped with a suppressed-issue diagnostic naming it. An
-advisory blocks nothing, so hiding one strands no verdict.
+there, and one whose field isn't is dropped. An advisory blocks nothing, so hiding one strands no
+verdict. Reporting is where the two part company: a dropped advisory here is named by a
+suppressed-issue diagnostic, where one a submit drops reaches nothing at all — no Trace line, no
+logged warning, no `SuppressedIssueDiagnostic` callback.
 
 Both sides usually run the same validator, so the same advisory often arrives twice — once from the
 client's own submit and once from the response. It shows once, as the client's copy, because the
@@ -1029,6 +1104,17 @@ advisories attached, because there is no wire contract for a successful response
 A handler that wants its 200 to say "saved, but note…" builds that response itself, from the
 report the adapter already computed — see
 [Returning warnings beside a 200](#returning-warnings-beside-a-200).
+
+**A response's paths are read against the live model.** Applying a verdict resolves each issue's
+path against the object graph the form is bound to, and every segment but the last is navigated:
+a member lookup on whatever the walk has reached so far, invoking that member's getter or its
+indexer where one matches. The last segment names the field rather than navigating into it, and a
+segment that resolves to nothing ends the walk there. Formidable's own adapters send the
+validator's own paths, but the apply assumes nothing about where a body came from, so an invented
+path is read segment by segment for as long as the model has members to match. Those reads happen
+wherever the component runs: in a WebAssembly app, the visitor's own machine; in a Blazor Server
+circuit, the server, where a segment landing on a getter with a side effect — an EF navigation
+property that lazy-loads — is a database query.
 
 **Collection sizes are the host's job, not the validator's.** Both sample endpoints validate
 whatever collection a client sends without capping how large it can get — the request body's size

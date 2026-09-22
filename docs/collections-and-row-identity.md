@@ -54,7 +54,7 @@ coordinating.
 Forget the `@key` and nothing here throws by default — the mistake just misfiles a message onto
 the wrong row, silently. [`VerifyRowKeys`](options.md#verifyrowkeys) is the development-time
 option that catches it: turned on, it throws the moment a field-bound component's accessor no
-longer names the row it registered.
+longer names the field it registered.
 
 The two buttons in that excerpt aren't part of the row-identity story on their own — they're what
 a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a

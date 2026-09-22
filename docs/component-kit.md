@@ -233,8 +233,12 @@ background apply rather than the form's own overload, which also moves focus to 
 An inline *read* of engine state refreshes when the form itself re-renders (a submit is one
 cause), not on every validation pass — ongoing state travels through `Engine.StateChanged`, which
 observing components subscribe to individually — so a live spinner or a disabled submit button
-still wants a small component subscribed to that event, the shape the `/field-state` page's
-visualizer ships.
+wants something subscribed to that event to re-render the markup holding the read. Where the read
+sits on the page, that something is the page: `/field-state` reads `IsFormValid` inline for its
+readout and its disabled Submit and subscribes from its code-behind, as `/async` does for the
+`IsValidating` line under its own button. Where a component owns the read, it subscribes for
+itself — what the kit's own components do, and what a [hand-rolled
+summary](recipes.md#i-want-my-own-summary-markup) has to do.
 
 And nesting another typed fragment that also leaves its parameter name implicit (a
 `FormidableField`, a `Virtualize`) makes the Razor compiler ask for a `Context="..."` on one of
@@ -242,7 +246,10 @@ the two: both declare the implicit `context` name, so the rename is owed whether
 body ever reads it. It is a compile-time rename, the same one `EditForm` has always charged, and
 either fragment can take it. The form's own can:
 `<FormidableForm Model="_order" Context="formidable">` names the form's body and leaves the
-nested fragment on `context`. Every shipped sample happens to name the inner one instead.
+nested fragment on `context`. The one sample that names the form's body is
+[`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor), whose line under the Submit
+button reads `formidable.Engine.IsValidating` inline; everywhere else the rename, where one is
+owed at all, goes on the nested fragment.
 
 Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset —
 rebuilds the `EditContext` and engine; a component consuming `FormidableForm` never manages that
@@ -2007,6 +2014,16 @@ beside the gate id above. An attribute `EditForm` does not recognise lands on th
 renders, which is how the id gets there too. Leaving it off is a real choice rather than an
 oversight: a page that wants the browser's own constraint UI keeps it by saying nothing.
 
+A field left as a plain `InputText` — the shape a migrating page has most of — owes the same
+hand-wiring here as under `FormidableForm`, and attach mode changes none of it: a
+`FormidableFieldAnchor` for submit-time disclosure, the field's id for focus, and
+`aria-required` and `aria-describedby` for the screen reader, none of which a control with no
+field context can ask for. [CSS and
+accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby) says what each is
+read from, and why the last one is conditional on the message element existing.
+[`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) wires the set around one field
+and holds the id back until a focus misses, so its `FocusFallback` has a miss to recover.
+
 Attach mode gives up nothing on noticing the page change. `FormidableValidator` reconciles
 the rendered field set the same way `FormidableForm` does: removing a row prunes its live issues
 and arms a reconciling refresh, through a registry signal the component defers past the render
@@ -2023,11 +2040,19 @@ HTTP 400 arrives in:
 
 ```csharp
 var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-_validator!.ApplyServerIssues(problem!);
+if (problem is not null)
+{
+    _validator!.ApplyServerIssues(problem);
+}
 ```
 
-So the server round trip is the same one line here as under `FormidableForm`, with no reaching
-through `Engine` to reach it, and the same contract applies either way: each apply replaces the
+Reading that body is the same job here as anywhere, and it wants the same guard: a 400 can come
+from a proxy or a gateway rather than from the endpoint, and what those send is no verdict, often
+not JSON at all. [Server integration](server-integration.md#reading-the-rejection-body) has it in
+full.
+
+So the applying is the same single call here as under `FormidableForm`, with no reaching
+through `Engine` to get at it, and the same contract applies either way: each apply replaces the
 previous server verdict, every issue lands at the severity it carries, and applying any of them
 sets `HasSubmitted`, since a server response is treated as a submit result (see
 [Server integration](server-integration.md)). `DiscloseLoadedValuesAsync` is forwarded on the same
@@ -2561,9 +2586,13 @@ app-wide default, which every form that omits its own `Options` parameter then u
     /// Existing registrations are respected.
     /// </summary>
     /// <remarks>
-    /// The configured instance is a singleton the whole app shares, and the engine re-reads its
-    /// properties on every pass — so mutating it at runtime changes behaviour in every live form,
-    /// not just the one being looked at.
+    /// The configured instance is a singleton the whole app shares, and an engine reads each of
+    /// its properties at each use — a pass selecting its profile, a timer arming, a render asking
+    /// for a class name — so mutating it at runtime changes behaviour in every live form, not just
+    /// the one being looked at. Where a property's own remarks state a coarser read, that
+    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root and
+    /// <see cref="FormidableOptions.VerifyRowKeys"/> once per bound component, so a change to
+    /// either reaches nothing that has already read it.
     /// </remarks>
     public static IServiceCollection AddFormidableBlazor(
         this IServiceCollection services, Action<FormidableOptions> configureDefaults)
@@ -2723,7 +2752,7 @@ form:
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@NicknameMessagesId" /></label>
+                       aria-describedby="@NicknameAriaDescribedBy" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
@@ -2767,18 +2796,22 @@ registration, and is the other thing the anchor buys.
 
 The three attributes on that same line finish the crossing. A Formidable input renders
 `FormidableFieldId.For(field)` as its element id, points `aria-describedby` at the matching
-`-messages` id, and emits `aria-invalid="true"` while the field has errors. A native input
-renders none of them, so the page derives them from the same sources the kit uses: a small
-`NicknameId` property in the code-behind, and the engine's `GetFieldState(field).HasErrors` for
-`aria-invalid` (a `null` value renders no attribute at all). Looking the target up is the id's
-whole job, and an `<input>` takes focus without further help, so with the id the native field takes
-the summary's click exactly like a wrapped one (see
-[CSS and accessibility](css-and-accessibility.md)). One
-addition per concern: `FormidableFieldAnchor` for submit-time disclosure, the id for focus,
-`aria-describedby` and `aria-invalid` for the assistive-technology story. Attributes derived from
-engine state need
-the page to re-render when that state changes, so the sample subscribes to `Engine.StateChanged` —
-the same subscription every kit component makes for itself.
+`-messages` id, and emits `aria-invalid="true"` while the field has errors. A native input has
+no field context to take any of that from, so the page supplies all of it from the code-behind:
+`NicknameId` and `NicknameMessagesId` compute the two ids, `GetFieldState(field).HasErrors`
+answers `aria-invalid`, and `EditContext.GetValidationMessages(field)` decides whether
+`aria-describedby` names that messages id at all — a `null` value renders no attribute, and the
+native `ValidationMessage` renders no element to be described by while the field is clean. Naming
+`aria-invalid` in the markup also settles who answers for it, which is its own question: [CSS and
+accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby) has what a Blazor
+`InputText` does with a named attribute and with an absent one. Looking the target up is the
+id's whole job, and an `<input>` takes focus without further help, so with the id the native
+field takes the summary's click exactly like a wrapped one
+(see [CSS and accessibility](css-and-accessibility.md)). One addition per concern:
+`FormidableFieldAnchor` for submit-time disclosure, the id for focus, `aria-describedby` and
+`aria-invalid` for the assistive-technology story. Attributes derived from engine state need
+the page to re-render when that state changes, so the sample subscribes to
+`Engine.StateChanged` — the same subscription every kit component makes for itself.
 
 **Samples:** [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor),
 [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor),

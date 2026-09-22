@@ -30,7 +30,11 @@ namespace Formidable.Sample.E2E;
 /// valid and nothing fails there until the user edits. That second test also carries the page's
 /// only real-runtime pin on the blocked submit's own auto-focus, which attach mode gets by
 /// calling FormidableValidator's submit entry point instead of the engine beneath it, and on the
-/// page's FocusFallback, without which that focus has no element to reach.
+/// page's FocusFallback, without which that focus has no element to reach. It pins one thing the
+/// page does not write at all: aria-invalid on "Submitted by" comes from Blazor's own InputText,
+/// reading the same EditContext store the message beside it reads, so a framework that stopped
+/// emitting it would strip an accessibility attribute off a shipped sample with nothing else here
+/// to notice.
 /// </summary>
 [Collection("e2e")]
 public sealed class AttachModeJourney(SampleAppFixture app)
@@ -68,11 +72,12 @@ public sealed class AttachModeJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/attach");
         var page = session.Page;
+        var submitter = page.GetByLabel("Submitted by", new() { Exact = true });
 
         // The seeded value is non-empty, so this alone is what puts the field in a failing
         // state — no line needs touching for this test's own claim. The blur commits the change,
         // which is what engages the field.
-        await page.GetByLabel("Submitted by", new() { Exact = true }).FillAsync(string.Empty);
+        await submitter.FillAsync(string.Empty);
         await TabAsync(page);
 
         // Before any submit, and this is the load-bearing pair: no submit has run, so the submit
@@ -82,6 +87,16 @@ public sealed class AttachModeJourney(SampleAppFixture app)
         // the summary reads that same view.
         await Expect(page.Locator(".validation-message")).ToHaveTextAsync("Submitter name is required");
         await Expect(SummaryEntry(page, "Submitter name is required")).ToBeVisibleAsync();
+
+        // aria-invalid is the one attribute on this input that the page does not write: it
+        // hands the InputText an aria-describedby and an aria-required and stops there, so
+        // Blazor's own InputText is the only thing that can have put this here, derived from the
+        // same EditContext store the message above reads. A screen reader on this page learns
+        // the field is invalid from nobody else, and the corpus states that framework behaviour
+        // in prose at several sites, so it is pinned where nothing can be covering for it —
+        // /vanilla asserts the same attribute on an input whose page writes its own copy, and
+        // would pass on that copy alone.
+        await Expect(submitter).ToHaveAttributeAsync("aria-invalid", "true");
 
         // The submit lays its own answer over the top. The seeded blank line's error comes only
         // from this submit's report and lands in the exact same render as "Submitted by"'s — both
@@ -97,7 +112,7 @@ public sealed class AttachModeJourney(SampleAppFixture app)
         // to land: the validator's auto-focus, and the page's FocusFallback — the plain InputText
         // renders none of the id the focus service addresses a field by, so the first attempt
         // misses and only the fallback's supplied id lets the retry find it.
-        await Expect(page.GetByLabel("Submitted by", new() { Exact = true })).ToBeFocusedAsync();
+        await Expect(submitter).ToBeFocusedAsync();
 
         // Neither surface loses the message across the submit: the anchor is what reveals the
         // field to the submit channel, and the two channels agree about it rather than one

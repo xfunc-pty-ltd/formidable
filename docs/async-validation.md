@@ -109,10 +109,7 @@ as `field.State.IsValidating`:
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">
             <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.Username" />
     </FormidableField>
@@ -120,10 +117,7 @@ as `field.State.IsValidating`:
     <FormidableField For="() => _handle.DisplayName" Context="field">
         <div class="field">
             <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
@@ -499,6 +493,18 @@ silently.
   the plain `HandleValidator` shown above) sizes its memo to ten seconds for exactly that pause.
   It still isn't a data cache with its own invalidation story: long enough to outlast the pause,
   not so long that a value's answer goes stale while the memo keeps serving it.
+
+The key and the window both depend on how far the validator instance reaches, and the registration
+decides that. A field on the validator lives exactly as long as the validator instance does, and
+which lifetime that is comes from the container: `AddValidatorsFromAssembly` registers validators
+scoped unless a `ServiceLifetime` argument says otherwise, and `Singleton` is that one argument.
+Where the process serves one visitor the choice barely shows. Where it serves everybody — a Blazor
+Server app, or an API running the same validator behind the filters in
+[Server integration](server-integration.md) — scoped keeps a memo inside the circuit or request
+that built it, while a singleton hands every visitor the same held answers for the rest of the
+window. The coupon above stops being a wrong answer and becomes somebody else's, and a check keyed
+perfectly well fares no better: "is this username taken" comes back as whatever the last person to
+ask was told.
 
 `Invalidate(key)` and `Clear()` are the escape hatch for the rare case the window alone isn't
 enough: `Invalidate` drops one key's held answer, `Clear` drops all of them, and either way the

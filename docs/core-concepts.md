@@ -92,14 +92,17 @@ Formidable type of any kind.
 ## Severity: not everything wrong should block
 
 A rule doesn't have to block submission just because the model doesn't match it perfectly.
-FluentValidation rules carry a severity: `.WithSeverity(Severity.Warning)` or
-`.WithSeverity(Severity.Info)` marks a rule as advisory, and leaving it off makes the rule
-an `Error`, exactly as it always was. Formidable maps that straight onto its own severity
-— `Error` blocks submit, `Warning` and `Info` are shown to the user but never block it, so
-a model that's all warnings and infos, with no errors, still submits successfully. That
-mapping's `Error` leg includes an explicit `.WithSeverity(Severity.Error)` too: writing it
-out by hand maps exactly the way leaving it off does — worth doing if your team would
-rather every rule said its severity out loud.
+`.WithSeverity(Severity.Warning)` or `.WithSeverity(Severity.Info)` marks a failure as
+advisory, and leaving it off makes it an `Error`, exactly as it always was. It attaches to
+the validator it follows rather than to the rule around it, so on
+`NotEmpty().MaximumLength(40).WithSeverity(Severity.Warning)` the length check advises while
+the empty check still blocks: each component of a chain that should advise needs its own
+call. Formidable maps that straight onto its own severity — `Error` blocks submit, `Warning`
+and `Info` are shown to the user but never block it, so a model that's all warnings and
+infos, with no errors, still submits successfully. That mapping's `Error` leg includes an
+explicit `.WithSeverity(Severity.Error)` too: writing it out by hand maps exactly the way
+leaving it off does, worth doing if your team would rather every component said its severity
+out loud.
 
 ```csharp
 RuleFor(p => p.DisplayName)

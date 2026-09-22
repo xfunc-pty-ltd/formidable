@@ -17,8 +17,11 @@ screen once it's been shown.
 
 ## Need to know
 
-A rule declares its severity with FluentValidation's own `.WithSeverity(...)`; leaving it off
-makes the rule an `Error`, exactly as it always was:
+Severity comes from FluentValidation's own `.WithSeverity(...)`, and it attaches to the validator
+it follows rather than to the rule around it: on
+`NotEmpty().MaximumLength(2).WithSeverity(Severity.Warning)` the length failure is a warning while
+the empty one still blocks, so every component of a chain that should advise needs its own call.
+Leaving it off makes a failure an `Error`, exactly as it always was:
 
 ```csharp
 /// <summary>Severity of a <see cref="ValidationIssue"/>.</summary>
@@ -29,6 +32,17 @@ makes the rule an `Error`, exactly as it always was:
 /// <see cref="FormidableValidationProblem.ToIssues"/> parses the name back, reading one it does
 /// not recognize as <see cref="Warning"/> — so renaming a member is a silent wire break, not
 /// just an API break.
+/// <para>
+/// The set is closed. It mirrors <see cref="FluentValidation.Severity"/>, which is what a rule
+/// can declare and so all there is to map, and a fourth member would be absorbed by the reads
+/// already written rather than refused by any of them. The reads that test for
+/// <see cref="Error"/> and take the rest together put it in the advisory tier. The three-arm
+/// switches behind a message's own class and a summary band's heading fall through to
+/// <see cref="Info"/>'s. The field-state scan names all three members and falls through to
+/// nothing, so a field carrying only an issue of the new severity reports as carrying none at
+/// all and is free to wear the valid class. Three destinations and no refusal: growing this
+/// enum is a behaviour change nothing would report.
+/// </para>
 /// </remarks>
 public enum ValidationSeverity
 {
@@ -49,10 +63,10 @@ The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` on
 `Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`,
 and everything else (including FluentValidation's own default) → `ValidationSeverity.Error`.
 That "everything else" leg includes an explicit `.WithSeverity(Severity.Error)`: writing the
-default out by hand maps exactly the way leaving it off does, for teams that prefer every rule
-to state its severity. Where the rule lives decides what a save and a submit enforce, same as any
-other rule — the common/draft bucket if a lenient draft save should answer the advisory too,
-`ConfigureSubmitRules()` if only a submit should:
+default out by hand maps exactly the way leaving it off does, for teams that prefer every
+component to state its severity. Where the rule lives decides what a save and a submit enforce,
+same as any other rule — the common/draft bucket if a lenient draft save should answer the
+advisory too, `ConfigureSubmitRules()` if only a submit should:
 
 ```csharp
 public class Listing

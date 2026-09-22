@@ -14,6 +14,8 @@
             <li>Editing after a submit still runs each check once. The refresh executes only the rules still owed an answer at the current edit, so a live pass that has already landed leaves it nothing to run; and where the two overlap — a check still in flight when the refresh fires — the memo below joins the call in progress instead of starting a second.</li>
             <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
             <li><strong>Validator override</strong>: <code>FormidableForm</code>'s <code>Validator</code> parameter resolves from DI when left unset, which is what every other page here does; this page supplies <code>MemoizedHandleValidator</code> directly instead, which is why the memoizing shows up here rather than on <code>/field-state</code>.</li>
+            <li>Each field's <code>checking…</code> sits in an element that renders from the first paint with its <code>role="status"</code> already on it; only the text inside comes and goes. A live region announces reliably when assistive technology was told about it before the content arrived, and a role that arrives in the same render as its own first message is the shape assistive technology is inconsistent about — the same reason <code>FormidableSummary</code> holds two fixed-role regions of its own.</li>
+            <li><strong>Reading the form inline</strong>: <code>Context="formidable"</code> names the form's body, so markup inside it reads <code>formidable.Engine</code> directly, with nothing captured or injected to reach it — the line under the Submit button does exactly that. Reaching the engine and keeping the read current are separate jobs, though: an inline read is only as fresh as the form's last render, so this page also holds an <code>@@ref</code> to the form and subscribes to <code>Engine.StateChanged</code> through it. Keeping that subscription fed is the <code>@@ref</code>'s only job here; the read itself never touches it.</li>
             <li><strong>LiveDebounce</strong>: batches keystrokes. Tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce sets when one starts. After a submit, the same edit also arms the refresh; whichever of the two runs first pays for the check, and the other reuses its answer instead of running it again — ticking the box costs nothing extra there either.</li>
         </ul>
     </Rules>
@@ -41,7 +43,7 @@
     <label><input type="checkbox" @bind="LiveDebounceEnabled" /> Debounce live checks (batch fast typing into one pass)</label>
 </p>
 
-<FormidableForm Model="_handle" Options="_options" Validator="_validator" OnValidSubmit="HandleValid">
+<FormidableForm Model="_handle" Options="_options" Validator="_validator" OnValidSubmit="HandleValid" @ref="_form" Context="formidable">
     <div class="summary-slot">
         <FormidableSummary />
     </div>
@@ -49,10 +51,7 @@
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">
             <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.Username" />
     </FormidableField>
@@ -60,10 +59,7 @@
     <FormidableField For="() => _handle.DisplayName" Context="field">
         <div class="field">
             <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
@@ -71,6 +67,8 @@
     <div class="actions">
         <button type="submit">Submit</button>
     </div>
+
+    <p><small><code>Context="formidable"</code> names the form's own body, so this line reads <code>formidable.Engine.IsValidating</code> inline, with nothing captured or injected to reach it: <strong>@(formidable.Engine.IsValidating ? "a pass is in flight" : "no pass is in flight")</strong>. It answers for the whole form, where each field's own indicator above answers for that field alone.</small></p>
 </FormidableForm>
 
 <p role="status">@_status</p>

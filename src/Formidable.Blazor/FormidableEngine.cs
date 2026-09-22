@@ -2118,13 +2118,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _introspector.Resolve(_model, path).ToFieldIdentifier(_model, path);
 
     /// <summary>
-    /// The one report an issue with nowhere to render gets: a Trace line for a debugger, a logged
-    /// warning for the host (WebAssembly's default provider is the browser console, so that channel
-    /// needs no wiring to be seen), and the options callback for a page that wants to show its own
-    /// list. Every site that decides an issue is suppressed ends here, so the three channels can
-    /// never drift apart between them. A never-registered field additionally reaches
-    /// <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> — the general channels above
-    /// fire either way, unchanged.
+    /// The report a suppressed issue gets where one is made at all: a Trace line for a debugger, a
+    /// logged warning for the host (WebAssembly's default provider is the browser console, so that
+    /// channel needs no wiring to be seen), and the options callback for a page that wants to show
+    /// its own list. Two sites route here — a submit, for the errors its reveal ledger leaves
+    /// undisclosed, and <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>, for a
+    /// response advisory its visibility answer hides, whether nothing renders its field or an
+    /// explicit <see cref="FormidableOptions.DisclosureOverride"/> says no — and routing both
+    /// through one place is what keeps the three channels from drifting apart between them. An
+    /// issue dropped for want of somewhere to render it anywhere ELSE is dropped in silence, among
+    /// them a submit's own non-visible advisories (filtered out of the advisory projection), a live
+    /// verdict's issues under <see cref="LiveIssueDisclosure.EngagedAndVisible"/> (filtered by
+    /// <see cref="LiveViewOf"/>, a read-time view), and a server ERROR an explicit
+    /// <see cref="FormidableOptions.DisclosureOverride"/> hides — the one severity for which an
+    /// override answer of no is decided before this and never reaches it. A never-registered field
+    /// additionally reaches <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> — the
+    /// general channels above fire either way, unchanged.
     /// </summary>
     private void ReportSuppressed(ValidationIssue issue)
     {

@@ -1,0 +1,45 @@
+# A pinned action SHA is only a security measure while something keeps proposing the next one.
+# Left alone, a pin is a permanently stale action nobody has a reason to look at.
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # The three library projects under src/ declare their versions as contract rather than as
+      # a record of what happens to be current, so each is a decision to take by hand.
+      #
+      # The two framework entries are floors: the lowest patch whose API the library actually
+      # uses, so a consumer on an earlier patch still restores. Raising either one re-creates
+      # the NU1605 that a Razor class library pulls a Blazor WebAssembly consumer into, and
+      # nothing here can see it happen - the sample consumes the libraries through a project
+      # reference, which bypasses NuGet's dependency-graph resolution entirely, and an
+      # ASP.NET Core host prunes the framework-provided references that make the conflict
+      # visible. The failure only appears from the direction nothing in this repository tests
+      # from.
+      #
+      # The FluentValidation entry is a range capped below the next major, because the
+      # inspection seam reads FluentValidation's own rule objects. Crossing that cap is a
+      # deliberate upgrade guarded by the member-existence checks in
+      # FluentValidationInspectionSurface, not a version bump.
+      #
+      # What the exclusion costs, so that a reader deciding whether to keep it has both
+      # halves: ignoring a dependency also stops Dependabot opening a pull request for a
+      # security advisory against it, so these three are the ones that will never arrive
+      # with the fix already written. Dependabot alerts are a separate feature this file
+      # does not configure, so an advisory still surfaces; what is lost is the branch.
+      # And a floor being a minimum rather than a lock only absolves the consumer, not
+      # this repository: restore takes the lowest applicable version, so CI and the Pages
+      # demo build against the floor itself until someone raises it by hand.
+      - dependency-name: "Microsoft.Extensions.DependencyInjection.Abstractions"
+      - dependency-name: "Microsoft.AspNetCore.Components.Web"
+      - dependency-name: "FluentValidation"

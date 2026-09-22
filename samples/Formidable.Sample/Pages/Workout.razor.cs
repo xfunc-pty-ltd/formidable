@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Formidable;
 using Formidable.Blazor;
 using Formidable.Sample.Shared;
@@ -63,6 +64,18 @@ public partial class Workout : IDisposable
     // native ValidationMessage's own id so a wrapped input's contract holds for a hand-rolled one.
     private string VenueRegionMessagesId => FormidableFieldId.MessagesFor(VenueRegionField);
 
+    // The attribute that names it is conditional where the id itself is not. A native
+    // ValidationMessage renders one <div> per message and nothing at all when there are none, so
+    // the id above names something only while the field has a message; describing by it any
+    // earlier points the screen reader at an element that is not there. A wrapped input is never
+    // asked the question, because FormidableFieldMessage renders its list whether or not it holds
+    // anything. The EditContext is what that component reads, so asking it is asking the same
+    // question the component answers.
+    private string? VenueRegionAriaDescribedBy =>
+        _form?.Engine?.EditContext.GetValidationMessages(VenueRegionField).Any() == true
+            ? VenueRegionMessagesId
+            : null;
+
     // A wrapped input takes aria-invalid from its field context; a native one has no context, so
     // the page reads the same state off the engine. Null renders no attribute at all, which is
     // what a field with nothing to complain about must have.
@@ -120,11 +133,34 @@ public partial class Workout : IDisposable
             return;
         }
 
-        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        // A 400 is not a promise that the body came from the endpoint: a proxy or gateway in
+        // front of it answers with its own HTML page or its own JSON, the parse reads the
+        // Content-Type header's character set as well as the body, and the JSON literal null
+        // deserializes to nothing at all. A rejection the page cannot read is still a rejection,
+        // not an exception the visitor should meet.
+        FormidableValidationProblem? problem;
+        try
+        {
+            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            problem = null;
+        }
+
+        if (problem is null)
+        {
+            // The last verdict stays on screen, since an unreadable response is no evidence that
+            // it stopped being true - at the cost of leaving an old reason standing when a
+            // corrected resubmission is what came back unreadable. Clearing it instead is
+            // ApplyServerIssues with an empty sequence.
+            _status = "Rejected — but the response is not a verdict this page can read.";
+            return;
+        }
 
         // Each call replaces the previous server verdict rather than adding to it, so correcting
         // the coupon and resubmitting cannot leave the old rejection behind.
-        _form!.ApplyServerIssues(problem!);
+        _form!.ApplyServerIssues(problem);
         _status = "The server rejected the registration — see the messages above.";
     }
 

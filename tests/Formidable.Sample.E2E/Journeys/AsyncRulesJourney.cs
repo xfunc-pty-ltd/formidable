@@ -12,14 +12,29 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class AsyncRulesJourney(SampleAppFixture app)
 {
+    /// <summary>
+    /// A field whose check is in flight. The page renders both fields' status elements from the
+    /// first paint and toggles only the text inside them — a live region has to be in the DOM
+    /// before the content it announces arrives — so the element's presence says nothing about
+    /// what the engine is doing, and the text is what discriminates. Nothing here reads a bare
+    /// <c>em[role='status']</c> count: every check for an in-flight pass goes through this
+    /// selector or through the text filter below.
+    /// </summary>
+    private const string CheckingIndicator = "em[role='status']:has-text(\"checking\")";
+
+    // The JS half of the same idea: the status elements that currently carry text.
+    private const string OpenIndicators = """
+        [...document.querySelectorAll("em[role='status']")].filter(e => e.textContent.trim().length > 0)
+        """;
+
     // The pending window has to be caught while it is open, and pinning the delay low (see the
     // test) shortens that window, so the wait is armed before the triggering keystrokes rather
     // than raced against afterward — the same idiom WorkoutFocusAndAsync uses for its own
     // field-scoped async check.
-    private const string PendingScopedToUsername = """
+    private const string PendingScopedToUsername = $$"""
         () => {
             const username = document.querySelector("[id$='-username']");
-            const indicators = document.querySelectorAll("em[role='status']");
+            const indicators = {{OpenIndicators}};
             const pending = document.querySelectorAll(".formidable-pending");
             return username !== null
                 && indicators.length === 1
@@ -65,7 +80,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         await pendingScopedAgain;
         await TabAsync(page);
 
-        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await Expect(MessagesFor(page, "username")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
     }
 
@@ -76,32 +91,32 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // open/close COUNT cannot tell a real second round trip apart from that harmless flash.
     // Timestamped pairs can: a real check spans roughly the simulated delay, the flash spans
     // essentially nothing.
+    //
+    // What opens and closes is the TEXT inside a status element the page never unrenders, so the
+    // observer watches for character data as well as child nodes and reads the field's own
+    // indicator back on each batch rather than trying to classify individual mutation records.
+    // The cost of reading per batch: an open and a close landing inside one batch are invisible
+    // here, which the assertions below survive because a real round trip spans the simulated
+    // delay and cannot share a batch with its own close.
     private const string InstallCheckWindowProbe = """
         () => {
             window.__checkWindows = [];
             let openedAt = null;
-            const observer = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    if (mutation.type !== "childList") continue;
-                    const container = mutation.target;
-                    if (!(container instanceof Element) || !container.classList.contains("field")) continue;
-                    const username = document.querySelector("[id$='-username']");
-                    if (username === null || !container.contains(username)) continue;
-                    for (const node of mutation.addedNodes) {
-                        if (node instanceof Element && node.tagName === "EM" && node.getAttribute("role") === "status") {
-                            openedAt = performance.now();
-                        }
-                    }
-                    for (const node of mutation.removedNodes) {
-                        if (node instanceof Element && node.tagName === "EM" && node.getAttribute("role") === "status") {
-                            const closedAt = performance.now();
-                            window.__checkWindows.push([openedAt ?? closedAt, closedAt]);
-                            openedAt = null;
-                        }
-                    }
+            const isOpen = () => {
+                const username = document.querySelector("[id$='-username']");
+                const indicator = username?.closest(".field")?.querySelector("em[role='status']");
+                return (indicator?.textContent?.trim().length ?? 0) > 0;
+            };
+            const observer = new MutationObserver(() => {
+                const open = isOpen();
+                if (open && openedAt === null) {
+                    openedAt = performance.now();
+                } else if (!open && openedAt !== null) {
+                    window.__checkWindows.push([openedAt, performance.now()]);
+                    openedAt = null;
                 }
             });
-            observer.observe(document.body, { childList: true, subtree: true });
+            observer.observe(document.body, { childList: true, subtree: true, characterData: true });
             return true;
         }
         """;
@@ -111,9 +126,9 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // now AND at least 600 ms has passed since the last recorded close. A delayed reopen (the
     // double check returning) keeps this predicate false and the wait open, instead of racing a
     // guessed clock the way a fixed WaitForTimeoutAsync would.
-    private const string SettledAfterLastClose = """
+    private const string SettledAfterLastClose = $$"""
         () => {
-            if (document.querySelectorAll("em[role='status']").length > 0) return false;
+            if ({{OpenIndicators}}.length > 0) return false;
             const windows = window.__checkWindows;
             if (!windows || windows.length === 0) return false;
             return performance.now() - windows[windows.length - 1][1] >= 600;
@@ -156,7 +171,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // An available username, checked and settled once, then submitted — the ordinary path to
         // a submitted form, not yet the edit under test.
         await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
-        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Submitted — username checks passed.", new() { Timeout = AsyncTimeoutMs });
@@ -236,8 +251,8 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // ever closed — without it, Submit lands mid-window and the submit pass itself, not the
         // live path, ends up being what answers "ada".
         await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
-        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
-        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Submitted — username checks passed.", new() { Timeout = AsyncTimeoutMs });

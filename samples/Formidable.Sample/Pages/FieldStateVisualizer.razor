@@ -38,10 +38,7 @@
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">
             <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.Username" />
     </FormidableField>
@@ -49,10 +46,7 @@
     <FormidableField For="() => _handle.DisplayName" Context="field">
         <div class="field">
             <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
-            @if (field.State.IsValidating)
-            {
-                <em role="status">checking…</em>
-            }
+            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
         </div>
         <FormidableFieldMessage For="() => _handle.DisplayName" />
     </FormidableField>

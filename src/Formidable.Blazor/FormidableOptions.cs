@@ -340,17 +340,20 @@ public sealed class FormidableOptions
     public Action<ValidationIssue>? NeverRegisteredFieldDiagnostic { get; set; }
 
     /// <summary>
-    /// Development-time check that a collection's rows carry a <c>@key</c>. Defaults to
-    /// <see langword="false"/>. When <see langword="true"/>, every component bound to a field
+    /// Development-time check that a component still speaks for the field it registered. Defaults
+    /// to <see langword="false"/>. When <see langword="true"/>, every component bound to a field
     /// re-reads its accessor on each parameter set and compares the field it now names against the
     /// one it registered, throwing an <see cref="InvalidOperationException"/> that names the field
     /// and the fix when the two diverge without the component having been torn down in between.
-    /// That divergence is the signature of a row list rendered without a <c>@key</c>: removing or
-    /// reordering a row leaves Blazor reusing each row's components for the next item along, and
-    /// since a field is resolved once at registration, the registration, the element id, the aria
-    /// attributes and the messages all stay with the row that moved away while the input displays
-    /// the new row's value. Nothing about that misfiling is visible on screen, which is what makes
-    /// it worth an exception rather than a diagnostic.
+    /// A row list rendered without a <c>@key</c> is the common way to produce that divergence, and
+    /// the exception leads with it: removing or reordering a row leaves Blazor reusing each row's
+    /// components for the next item along, and since a field is resolved once at registration, the
+    /// registration, the element id, the aria attributes and the messages all stay with the row
+    /// that moved away while the input displays the new row's value. Nothing about that misfiling
+    /// is visible on screen, which is what makes it worth an exception rather than a diagnostic.
+    /// Replacing a nested object under a field bound to it produces the same divergence and the
+    /// same throw with no collection anywhere on the page: a field is the object owning the value
+    /// plus a member name, so a fresh owner is a different field.
     /// Correctly keyed rows never trip it, whatever the edit — the three shapes differ only in what
     /// the keyed diff does with the components. Replacing a row keyed by the row object retires
     /// that row's key and introduces a different one, so its components are disposed and new ones

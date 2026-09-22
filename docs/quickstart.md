@@ -8,9 +8,19 @@ The project underneath them has to be interactive. `dotnet new blazorwasm` is th
 snippets make, since every page in a standalone WebAssembly app is interactive already. On a
 Blazor Web App (`dotnet new blazor`, the default template) pages are statically server-rendered
 until one says otherwise, so the page holding the form needs a render mode of its own:
-`@rendermode InteractiveServer` or `@rendermode InteractiveWebAssembly` at the top. Leave it off
-and `FormidableForm` refuses to render, naming that same fix: a form on such a page could be
-filled in, but its submit would never reach the validation pipeline.
+`@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or
+`@rendermode InteractiveAuto` at the top. Leave it off and `FormidableForm` refuses to render,
+asking for a render mode in its own message: a form on such a page could be filled in, but its
+submit would never reach the validation pipeline.
+
+Prerendering is on by default under all three of those modes, so the page is rendered on the server
+and sent as HTML a moment before it becomes interactive. A submit that lands inside that window
+posts natively, and the server answers it with the platform's own 400: *"The POST request does not
+specify which form is being submitted."* The render-mode guard cannot help there, because
+interactivity genuinely is coming, and the fix that message proposes (a `FormName` on `EditForm`)
+is not a parameter `FormidableForm` carries. The ordinary answer is a submit button that stays
+disabled until the page reports itself interactive. [Hosting models](#hosting-models) covers what
+else prerendering changes.
 
 ## Install
 
@@ -122,7 +132,21 @@ The first line registers the engine and the services the kit resolves. The secon
 validator resolvable as `IValidator<Contact>`, which is how Formidable finds it — one line per
 validator. The model and the validator are nested inside the page class here, so they are named
 through it (`Signup.Contact`, `Signup.ContactValidator`) and the `using` is the page's own
-namespace — `YourApp.Pages` under the default template.
+namespace, which each template decides by where it puts the page file:
+
+- `YourApp.Pages` for a standalone WebAssembly app (`dotnet new blazorwasm`), whose pages sit in
+  `Pages/`.
+- `YourApp.Components.Pages` for a Blazor Web App (`dotnet new blazor`), whose pages sit in
+  `Components/Pages/`.
+- `YourApp.Client.Pages` for a page in the `.Client` project a Blazor Web App gets from
+  `dotnet new blazor -int Auto` or `-int WebAssembly`.
+
+In those two-project Web Apps the server builds the form as well, whenever the page prerenders (on
+by default) or runs on the server's circuit, which `InteractiveServer` does every visit and
+`InteractiveAuto` does on the first one. So both registrations go in **both** `Program.cs` files.
+Register on the client alone and the server has no validator to resolve, so building the form
+throws `No IModelValidator<Contact> is registered` — naming a call the client project already
+makes. [Hosting models](#hosting-models) has the one page shape the server never builds.
 
 ## Run it
 
@@ -132,6 +156,48 @@ summary lists "Name is required" and "Email is required", and each field's own
 and move to the next field, and its message disappears immediately — no second submit needed.
 Leave the email blank a moment longer and its message just sits there, waiting for you to fix it.
 That instant fix on the name field, with no second submit needed, is a live validation pass.
+
+## Hosting models
+
+A standalone WebAssembly app runs one way: every page is interactive from the moment it loads, and
+the single `Program.cs` you registered in is the container every form resolves from. A Blazor Web
+App has more moving parts, and four of them are better met here than in a stack trace.
+
+**The server builds the form whenever a page prerenders or runs on a circuit.** A Web App created
+with `dotnet new blazor -int Auto` or `-int WebAssembly` has a server project and a `.Client`
+project, each with a `Program.cs` of its own, and two routes take the form through the server's
+container. Prerendering builds it there before any runtime has started, and it is on unless a page
+turns it off; a render mode that runs on the server's circuit builds it there too, which
+`InteractiveServer` does on every visit and `InteractiveAuto` does on a first visit while the
+WebAssembly runtime downloads. So the server project needs `AddFormidableBlazor()` and the same
+validator registrations the client project makes. One page shape escapes both routes and only one
+— `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))`, which has no prerender
+pass and no circuit to fall back to, so the browser builds the form alone. A Web App created with
+`-int Server` has one project and one container, so the question never comes up.
+
+**The form is built twice per visit.** Prerendering renders the page once on the server and again
+when interactivity starts, so a single visit constructs the engine twice and resolves the validator
+twice. With `TrackFormValidity` on, the probe the engine runs at construction runs on the
+prerendered pass too, so a validator with a slow async rule pays for it on a render that is about to
+be replaced. None of this is a fault to fix, but a team counting validator constructions should know
+why the number is two. Writing the render mode the long way
+(`@rendermode @(new InteractiveServerRenderMode(prerender: false))`) is what turns prerendering off,
+and the count goes to one.
+
+**Nothing reaches the browser until interactivity does.** `OnAfterRenderAsync` does not run on the
+prerendered pass, and a JavaScript call issued earlier throws, in the platform's own words:
+*"JavaScript interop calls cannot be issued at this time. This is because the component is being
+statically rendered."* The library's browser-side work waits accordingly — the displaced-click guard
+installs on the first interactive render, and a summary lists issues in validator order until the
+first field-order resolve lands. Interop of your own belongs in `OnAfterRenderAsync` for the same
+reason.
+
+**Culture is a WebAssembly step, and it belongs to the app.** A WebAssembly app fixes its culture
+before `RunAsync()` and downloads its satellite resource assemblies for that one, so an app offering
+a language choice has to apply the stored choice there rather than from a page afterwards.
+Formidable ships nothing for it, deliberately, and the sample writes the few lines in the open. A
+Blazor Server host takes its culture from the request and needs no boot-time step at all. See
+[Culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot).
 
 ## As the form grows
 

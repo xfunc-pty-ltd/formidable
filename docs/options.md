@@ -35,9 +35,14 @@ engine once per `Model` instance and passes `Options` straight into the engine's
 that point. The engine never re-reads the `Options` *parameter* on a later render, so handing the
 form a whole new `FormidableOptions` instance without also swapping `Model` throws — the form
 will not accept an instance it has no way to honour.
-The engine does keep re-reading that instance's *properties* on every pass, though: mutating
-`LiveProfile`, `RefreshDebounce`, `DisclosureOverride`, or any other property on the same object
-takes effect starting with the next validation pass. See
+The engine does keep re-reading that instance's *properties*, though: mutating `LiveProfile`,
+`RefreshDebounce`, `DisclosureOverride` or another property on the same object takes effect at
+that property's next read, where a read is a pass selecting its profile, a timer arming, or a
+render asking for a class name or a marker. Where an entry below states a coarser read than that,
+it governs: [`ClickRecovery`](#clickrecovery) is read once per root, on its first interactive
+render, and [`VerifyRowKeys`](#verifyrowkeys) once per bound component as it binds, so a change to
+either reaches nothing that has already read it. A change notifies nothing by itself in any case:
+it shows when something next validates or renders. See
 [Recipes](recipes.md#i-want-profiles-of-my-own) for a worked case. Building the
 `FormidableOptions` once, up front, and leaving it alone for the life of the rendered form — as
 the sample further below does — is what the rule asks for.
@@ -274,13 +279,21 @@ two ways a page removes the shift itself instead.
 
 ### `DisclosureOverride`
 
-`Func<ValidationIssue, bool?>?`, defaults to `null`. A tri-state override consulted per issue:
-return `true` to force it visible, `false` to force it suppressed, or `null` to defer to the
-field registry (whether a rendered field claimed that path). Model-level issues — an empty
-`Path` — are always visible unless the override returns `false`.
+`Func<ValidationIssue, bool?>?`, defaults to `null`. Consulted wherever the engine decides whether
+an issue may be shown: return `true` to answer yes for an issue whose field nothing renders,
+`false` to answer no, or `null` to defer to the field registry (whether a rendered field claimed
+that path). Model-level issues — an empty `Path` — resolve to the form's own element, which
+counts as rendered for as long as the form is on the page, so deferring leaves them visible.
 
-At submit the answer decides whether that issue puts its field under watch, and watching is per
-field: an issue forced suppressed still shows once another issue on the same field is disclosed.
+What an answer decides belongs to the channel that asked it, so this is an input to each channel's
+own disclosure rule rather than a per-issue switch over what is on screen. At submit the answer
+decides whether an error puts its *field* under watch, and the watch is per field and only ever
+unions: a `false` withholds that one issue's contribution and no more, so a field a sibling issue,
+an earlier blocked submit or a server apply has revealed discloses its current submit-selected
+errors whole. The live channel consults this only where [`LiveDisclosure`](#livedisclosure) is set
+to `LiveIssueDisclosure.EngagedAndVisible`; under the default `Engaged` policy no answer here
+reaches a live issue in either direction.
+
 See [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for that boundary and for what
 the override does to a server-applied issue.
 
@@ -370,14 +383,21 @@ notifies nothing by itself.
 
 ### `SuppressedIssueDiagnostic`
 
-`Action<ValidationIssue>?`, defaults to `null`. Invoked once per error-severity issue that
-submit suppresses because no rendered field registration matches it and `DisclosureOverride`
-didn't force it visible. A `Trace`-output warning is written for every suppression regardless of
-whether this callback is set — the callback is for surfacing suppressions in your own UI or
-telemetry, not the only place they get recorded. When the host resolved an `ILoggerFactory`
-(both Blazor components do so automatically when one is registered), the same suppression also
-logs a `LogWarning` — WASM's default logging provider is the browser console, so this is the
-channel that needs no consumer wiring at all to be seen.
+`Action<ValidationIssue>?`, defaults to `null`. Invoked once per issue one of two reporting sites
+decided not to show, whichever way that decision went: no rendered field registration matched it
+(usually a missing wrapper or `FormidableFieldAnchor`), or a `DisclosureOverride` answered `false`
+for it. Those two sites are a submit, for its own error-severity issues on fields it leaves
+unwatched, and `ApplyServerIssues`, for the advisories in a server response its visibility answer
+hides. They are the whole of what reaches this callback: anything else a visibility answer hides
+is dropped in silence — a submit's own advisories, every live issue under
+`LiveIssueDisclosure.EngagedAndVisible`, and a server-declared *error*, which bypasses the
+registry rather than deferring to it and is dropped before this callback is reached at all. Both
+of those sites write a `Trace`-output warning regardless of whether this
+callback is set — the callback is for surfacing suppressions in your own UI or telemetry, not the
+only place they get recorded. When the host resolved an `ILoggerFactory` (both Blazor components do
+so automatically when one is registered), the same suppression also logs a `LogWarning`; WASM's
+default logging provider is the browser console, so this is the channel that needs no consumer
+wiring at all to be seen.
 
 ### `NeverRegisteredFieldDiagnostic`
 
@@ -395,21 +415,24 @@ unregistered, a visited-then-collapsed section, stays silent here and reports on
 
 ### `VerifyRowKeys`
 
-`bool`, defaults to `false`. A development-time check that a collection's rows carry a `@key`. When
-`true`, every component bound to a field re-reads its accessor on each parameter set and compares
-the field it now names against the one it registered, throwing an `InvalidOperationException` that
-names the field and the fix when the two diverge with no teardown in between.
+`bool`, defaults to `false`. A development-time check that a component still speaks for the field
+it registered. When `true`, every component bound to a field re-reads its accessor on each
+parameter set and compares the field it now names against the one it registered, throwing an
+`InvalidOperationException` that names the field and the fix when the two diverge with no teardown
+in between. An unkeyed row list is the common way to produce that divergence, and the exception
+leads with it; replacing a nested object under a field bound to it produces the same divergence
+and the same throw, with no collection anywhere on the page.
 
-Unlike the properties [Need to know](#need-to-know) says the engine re-reads on every pass, this
-one is captured once, per component, the moment it binds — flipping it on a `FormidableOptions`
-instance already in use does nothing for a component already bound, only for one that binds
-afterward. Treat it as a startup switch decided at app configuration time, not something a running
-form's own page can toggle mid-session.
+[Need to know](#need-to-know) names this as one of the coarser reads, and this is what that comes
+to: the answer is captured once, per component, the moment it binds. Flipping it on a
+`FormidableOptions` instance already in use does nothing for a component already bound, only for
+one that binds afterward. Treat it as a startup switch decided at app configuration time, not
+something a running form's own page can toggle mid-session.
 
-That divergence is what an unkeyed row list produces: remove or reorder a row and Blazor reuses
-each row's components for the next item along, while the registration, element id, aria attributes
-and messages stay with the row that moved away. Nothing about the misfiling shows on screen, which
-is what earns it an exception rather than a diagnostic. Correctly keyed rows never trip it, whatever
+The unkeyed-row case in full: remove or reorder a row and Blazor reuses each row's components for
+the next item along, while the registration, element id, aria attributes and messages stay with the
+row that moved away. Nothing about the misfiling shows on screen, which is what earns it an
+exception rather than a diagnostic. Correctly keyed rows never trip it, whatever
 the edit: replacing a row retires its key and builds fresh components for the replacement, removing
 one disposes its components and builds nothing, and adding or reordering disposes nothing at all —
 a keyed diff permutes the components it already has. In all three, anything newly built registers

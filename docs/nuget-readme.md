@@ -58,7 +58,16 @@ Add one line to _Imports.razor so the components resolve:
 Then wrap a model in FormidableForm and let FormidableInputText, FormidableFieldMessage, and
 FormidableSummary render whatever the validator reports. That is a working form, on any page
 with an interactive render mode — every page of a standalone WebAssembly app, or a Blazor Web
-App page carrying @rendermode InteractiveServer or @rendermode InteractiveWebAssembly.
+App page carrying @rendermode InteractiveServer, @rendermode InteractiveWebAssembly or
+@rendermode InteractiveAuto.
+
+A Blazor Web App is two projects when it is created by dotnet new blazor -int Auto or by
+dotnet new blazor -int WebAssembly. It has a server project and a .Client project, each with its
+own Program.cs, and both of them need the same two lines: the server builds the form whenever the
+page prerenders (on by default) or runs on the server's circuit, as InteractiveServer does on
+every visit and InteractiveAuto does on the first one. Only a page written InteractiveWebAssembly
+with prerendering turned off skips the server entirely. Register on the client alone anywhere
+else and the server has no validator to resolve.
 
 ## Links
 

@@ -2,9 +2,9 @@
 
 Formidable's behaviour comes out of a handful of orthogonal switches: which bucket a rule sits
 in, which profile a pass runs, when an input commits its value, whether a field is currently
-rendered, what severity a rule carries, and what the server says. This page maps the behaviours
-people actually want onto those switches. Each recipe answers with code first, then links to the
-doc that explains it in full and the sample page that demonstrates it.
+rendered, what severity a rule's components carry, and what the server says. This page maps the
+behaviours people actually want onto those switches. Each recipe answers with code first, then
+links to the doc that explains it in full and the sample page that demonstrates it.
 
 ## Part 1 — I want to…
 
@@ -223,6 +223,10 @@ whichever lands first executes it, and the other serves the stored verdict.
 pins exactly this, on this exact shape. Where the seam is absent, every pass validates its whole
 profile instead, so the shared rule does run in both — correct, and priced exactly as it reads.
 
+That granularity does not get finer for a collection. `RuleForEach` declares one rule however many
+rows it covers, so one verdict covers every row, and whichever pass owes that rule an answer runs
+it whole. That is what puts "walks a long collection" on the list above.
+
 What narrowing does change is who pays for the rules it dropped. Two things behind the live
 channel go on wanting a submit-profile answer, and neither of them gets one from a narrowed live
 pass. `FormidableOptions.TrackFormValidity`'s probe evaluates `SubmitProfile` whatever
@@ -260,9 +264,15 @@ protected override void ConfigureDraftRules() =>
 <FormidableField For="() => Model.Username" Context="field">
     <FormidableInputText @bind-Value="Model.Username"
                           UpdateOn="InputUpdateMode.OnInput" />
-    @if (field.State.IsValidating) { <em role="status">checking…</em> }
+    <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
 </FormidableField>
 ```
+
+The element renders whether or not a check is in flight, and only the text inside it comes and
+goes: a live region announces reliably when assistive technology was told about it before the
+content arrived, and a role entering the DOM together with its own first message is the shape it
+is inconsistent about. The same reasoning builds `FormidableSummary`'s own regions, argued in
+full under [CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region).
 
 Add `UpdateOn="InputUpdateMode.OnInput"` for a check that answers as the user types.
 `IFormidableEngine.IsValidating` is the form-wide flag; the per-field one is scoped — to the
@@ -283,19 +293,27 @@ debounced refresh defers to a live pass still in flight and re-arms rather than 
 
 **Set:** on the server, `Validate<TModel>(profile?)` on a minimal-API handler or route group, or
 `[Validate]` on an MVC action or controller. On the client, deserialize the 400 body into
-`FormidableValidationProblem` and hand it to `_form!.ApplyServerIssues(...)` — every issue lands
-on the field it names.
+`FormidableValidationProblem`, guarding the parse against a body that is not one, and hand the
+result to `_form!.ApplyServerIssues(...)` — every issue lands on the field it names.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
 if (!response.IsSuccessStatusCode)
 {
     var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-    _form!.ApplyServerIssues(problem!);
+    if (problem is not null)
+    {
+        _form!.ApplyServerIssues(problem);
+    }
 }
 ```
 
-Call `problem!.ToIssues()` first and pass the flattened list instead when the page wants the issues
+Guard the read itself as well: a 400 can come from a proxy or a gateway rather than from the
+endpoint, and what those send is no verdict, often not JSON at all, in which case the deserialize
+throws rather than returning one.
+[Server integration](server-integration.md#reading-the-rejection-body) has the guard in full.
+
+Call `problem.ToIssues()` first and pass the flattened list instead when the page wants the issues
 for something of its own; the two overloads are otherwise identical.
 
 Clean the model before posting when it implements `INormalizableModel`: the filters normalize too,
@@ -426,8 +444,9 @@ If relevance is decided by *UI state* alone, leave the rule unconditional: visib
 render-registration, so the rule keeps running and counting toward validity while the field is off
 screen, and its message is suppressed until a submit finds the field rendered.
 
-Observe suppressions through `FormidableOptions.SuppressedIssueDiagnostic`, and force an issue
-visible (`true`) or hidden (`false`) with `DisclosureOverride`. When every failing field is hidden,
+Observe suppressions through `FormidableOptions.SuppressedIssueDiagnostic`, and answer for an issue
+whose field nothing renders with `DisclosureOverride`: at submit, `true` reveals that field and
+`false` withholds the issue's own contribution to revealing it. When every failing field is hidden,
 the engine blocks anyway and reports one model-level explanation rather than a silent no-op submit.
 For rows a `Virtualize` container disposes, `KeepRegistered` holds an already-showing error open,
 and a `DisclosureOverride` on the collection covers rows it has never rendered.
@@ -439,7 +458,9 @@ and a `DisclosureOverride` on the collection covers rows it has never rendered.
 
 ### I want to advise without blocking
 
-**Set:** `.WithSeverity(Severity.Warning)` or `.WithSeverity(Severity.Info)` on the rule.
+**Set:** `.WithSeverity(Severity.Warning)` or `.WithSeverity(Severity.Info)` on the validator that
+should advise — it attaches to the one it follows, so each component of a chain that should advise
+needs its own.
 
 ```csharp
 RuleFor(l => l.Tags).Must(tags => tags.Count <= 5)
@@ -880,9 +901,12 @@ holds, so an engaged field answers the custom profile between submits with no se
 keep in step. That is what the `/custom-profiles` sample's runtime toggle
 demonstrates. `FormidableForm` picks up the `Options`
 parameter once, when it binds a `Model` instance, but the engine holds that instance for its
-whole lifetime and re-reads its properties fresh on every pass — mutating
+whole lifetime and reads each property at that property's own next use — mutating
 `LiveProfile`/`SubmitProfile` on the same `FormidableOptions` object takes effect starting with
-the very next pass, no fresh model required. Handing the form a wholly new `FormidableOptions`
+the very next pass, no fresh model required. Two properties are read more coarsely and say so in
+their own entries: [`ClickRecovery`](options.md#clickrecovery) once per root and
+[`VerifyRowKeys`](options.md#verifyrowkeys) once per bound component, so a change to either
+reaches nothing that has already read it. Handing the form a wholly new `FormidableOptions`
 instance is a different move — that one does need a fresh model alongside it, and the form throws
 if it doesn't get one, since only a `Model` reference change makes `FormidableForm` look at the
 `Options` parameter again — and is
@@ -984,6 +1008,30 @@ Give the nested object a value the markup can reach — `public Address Shipping
 = new();` — since `() => Model.ShippingAddress.Street` dereferences it while rendering. The engine
 itself is defensive about a null on the way down (the issue falls back to the deepest object that
 does exist, carrying the rest of the path), but the page's own lambda runs first.
+
+Replacing that nested object later takes one more habit. A field is the object that owns the
+value plus the member name, and a component resolves its owner once, when it binds to the form's
+context, while the engine resolves afresh against the graph as it then stands. After
+`Model.ShippingAddress = new Address()` the two name different `Address` instances, so the next
+pass files `ShippingAddress.Street` under the new one while the components rendering that field
+go on asking under the old. What they read there is a field with nothing wrong with it. Its
+messages go, `aria-invalid` and `aria-describedby` go with them, and a field the visitor had
+already touched can end up wearing the valid class; the required marker and `aria-required` go
+too, at the next requirement derivation rather than at that pass. The failure is still real and
+it still blocks the submit, so a form with nothing else failing shows the
+[defensive gate](disclosure.md) rather than a field anyone can fix.
+
+Three ways to keep them naming one object, two of them habits and the third a blunt repair.
+`@key` the markup around the nested object by that object, so replacing it rebuilds the
+components inside and they rebind to the new owner; or swap the whole `Model`, which rebuilds the
+engine and the registry and rebinds everything at once. `FormidableForm.ResetAsync()` also
+rebinds, over the model already bound: it builds a fresh context instance, and that is a fresh
+mount for every descendant. What it costs is whatever the old engine was holding — touched and
+modified state, the message store, the advisory buckets, `HasSubmitted`, a pending refresh, a
+submit still in flight — since none of it survives the engine it belonged to. So it answers a
+"start over" button rather than a nested swap. Until one of the three is in place, turning on
+[`VerifyRowKeys`](options.md#verifyrowkeys) throws on the divergence rather than leaving it to be
+spotted on screen.
 
 **Read:** [Collections and row identity](collections-and-row-identity.md) (path resolution in
 full), [Fields and collections](fields-and-collections.md).
@@ -1112,8 +1160,8 @@ which render the kit exactly this way.
 |---|---|---|
 | A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. The error describes binding syntax and never mentions the namespace; the diagnostic that does name it is `RZ10012`, which is a warning, and warnings are what a reader scrolls past to reach the errors. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
 | A page won't build: `CS0103` — `The name 'context' does not exist in the current context`, or that sentence naming whatever a `Context="…"` called it — on a line inside a `<FormidableForm>`, with `RZ10012` warnings elsewhere in the same build. Or: the project builds clean and the page's own labels and headings appear while every Formidable component renders nothing. | The same missing namespace as the row above, on a page with no `@bind-Value` to turn it into a Razor error. An unresolved `<FormidableForm>` is plain markup, so it declares no typed fragment and no `context` variable for its body to read, and the C# error lands on the line doing the reading rather than on the element. Where nothing reads one either, `RZ10012` is the only diagnostic there is — and unless the project promotes warnings to errors, a warning does not fail the build, so the elements ship as markup the browser treats as unknown: their children still render, and the components themselves produce no output. | Add `@using Formidable.Blazor` to `_Imports.razor`, as above. And read the build's warnings, not only its errors: `RZ10012` says `Found markup element with unexpected name 'FormidableForm'. If this is intended to be a component, add a @using directive for its namespace.` — it names the fix that the C# error cannot. [Quickstart](quickstart.md). |
-| A page won't build: `RZ9999` — `The child content element 'ChildContent' of component 'FormidableField' uses the same parameter name ('context') as enclosing child content element 'ChildContent' of component 'FormidableForm'`, with the same wording for a `Virtualize` inside a form, or a `FormidableValidator` inside an `EditForm`. | Both components take a typed `ChildContent`, and an unnamed typed fragment claims the implicit `context`. Nesting one inside another puts two claims on that one name. What collides is the declaration, not any use of it, so the diagnostic arrives whether or not either body ever reads `context` — `EditForm` has always charged the same rename. | Name either fragment: `Context="field"` on a `FormidableField`, `Context="gadget"` on a `Virtualize`, `Context="formidable"` on a `FormidableValidator` inside a consumer's own `EditForm` — or on the `FormidableForm` itself, which names the outer body and leaves the inner one on `context`. Every shipped sample names the inner one. [Component kit](component-kit.md#formidableformtmodel). |
-| Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
+| A page won't build: `RZ9999` — `The child content element 'ChildContent' of component 'FormidableField' uses the same parameter name ('context') as enclosing child content element 'ChildContent' of component 'FormidableForm'`, with the same wording for a `Virtualize` inside a form, or a `FormidableValidator` inside an `EditForm`. | Both components take a typed `ChildContent`, and an unnamed typed fragment claims the implicit `context`. Nesting one inside another puts two claims on that one name. What collides is the declaration, not any use of it, so the diagnostic arrives whether or not either body ever reads `context` — `EditForm` has always charged the same rename. | Name either fragment: `Context="field"` on a `FormidableField`, `Context="gadget"` on a `Virtualize`, `Context="formidable"` on a `FormidableValidator` inside a consumer's own `EditForm` — or on the `FormidableForm` itself, which names the outer body and leaves the inner one on `context`. [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) is the one sample naming the outer body; every other page that owes the rename puts it on the inner fragment. [Component kit](component-kit.md#formidableformtmodel). |
+| Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The browser posted the form itself, so no Blazor component ever saw the submit, and there are two ways to arrive there. Either the page is statically server-rendered with no interactivity coming, or it carries a render mode and the submit landed inside the prerender window, before the circuit or the WebAssembly runtime had started. The advice can't be followed on either path: `FormidableForm` has no `FormName` parameter to pass. | Give a page that has no render mode one: `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or `@rendermode InteractiveAuto`. `FormidableForm` refuses to render where the renderer reports itself static, asking for a render mode in its own words; this 400 is what a host whose renderer says nothing answers instead. Where the page already has a render mode, the guard cannot help, because interactivity genuinely is coming: keep the submit button disabled until the page reports itself interactive (`RendererInfo.IsInteractive`), or take the window away with `@rendermode @(new InteractiveServerRenderMode(prerender: false))`. [Quickstart](quickstart.md#hosting-models). |
 | A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id and reports whether that element took focus. Either no rendered element carries the id — a control the page renders itself, or a field with no input of its own — or one does and will not take focus, which is what a container without `tabindex`, a disabled control, or a collapsed section around the field each produce. | Render the id and make the element focusable: `id="@field.ElementId"` on an input, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. Where the field cannot be made reachable up front, wire a `FocusFallback` to reach it on the retry. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
@@ -1121,7 +1169,7 @@ which render the kit exactly this way.
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
-| A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give the rule error severity if it must block. [Advise without blocking](#i-want-to-advise-without-blocking). |
+| A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give error severity to the validator that must block; `.WithSeverity` attaches to the one it follows rather than to the whole rule. [Advise without blocking](#i-want-to-advise-without-blocking). |
 | Submit is blocked but no field shows a message. | Every failing field is unwatched and unrendered, so the defensive gate blocks with one model-level explanation instead of a silent no-op — and no background refresh takes that explanation away while nothing on screen explains the block. | Give that explanation a surface: a `FormidableSummary` lists it among everything else, and a form built on inline messages alone renders a [`FormidableModelMessage`](component-kit.md#formidablemodelmessage), which is fixed to the model-level field the explanation belongs to. Then check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | The summary names a field that is not on screen. | A field a submit has shown stays watched until the form passes or is reset, so hiding it afterwards takes the message off its own row without taking the entry out of the summary. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Fix the value: the entry goes when the rule stops producing the issue, at the next pass to answer the submit profile. Keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | A message lingers after the value was fixed. | On the default `LiveProfile`, the live pass a commit starts re-answers the submit profile and takes the message with it — so a lingering message is one no such pass has answered for yet. A change that never committed starts none (under the default `UpdateOn` the commit is the blur); a `LiveDebounce` window holds one back until the typing quiets; and a `LiveProfile` narrowed past the rule leaves the message to the debounced refresh instead, 300 ms of quiet after the value commits, with that refresh waiting on any live pass still in flight. | Commit the change: leave the field, set `UpdateOn="InputUpdateMode.OnInput"` to commit on every keystroke, or call `field.NotifyChanged()` from a control the page wires itself. Where the debounce or the narrowing is deliberate, wait it out or tune `FormidableOptions.RefreshDebounce`. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator). |

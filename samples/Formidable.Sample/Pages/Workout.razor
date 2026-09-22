@@ -41,7 +41,7 @@
             <li>Clicking the summary entry of a row that is not in the DOM uses the summary's <code>FocusFallback</code>: the page scrolls the panel, lets Virtualize render the row, and the summary retries the focus once. A blocked submit's own auto-focus reaches the same row the same way, through the form's own <code>FocusFallback</code> — the identical callback, so no click is needed for it either.</li>
             <li><strong>Ticket tier</strong>: a foreign control — a plain <code>&lt;select&gt;</code> this page renders itself. The renderless <code>FormidableField</code> hands it everything a wrapped input gets for nothing — element id, state class, aria attributes, and <code>NotifyChanged()</code> — so it styles, carries messages and takes focus from the summary like the rest of the form. Its presence rule sits in the submit bucket, and the form opens on <em>General admission</em>, so it stays quiet until you pick the blank option — which is a committed change, so the message follows that choice rather than waiting for a submit.</li>
             <li><strong>Venue region</strong>: the same seam from the other side — a native <code>InputText</code> with a native <code>ValidationMessage</code>, inside a Formidable form. Its presence rule sits in the submit bucket like the ones above, and the wiring is what carries it: the engine writes error-severity issues into the EditContext's message store, so the native <code>ValidationMessage</code> speaks the verdict ("Venue region is required") without a Formidable component in sight, live pass and submit alike; the engine installs a css class provider on that same EditContext, so native <code>InputBase</code> components pick up the same state classes; and a <code>FormidableFieldAnchor</code> registers a natively-rendered field so its issues disclose at submit instead of being suppressed as unrevealed.</li>
-            <li>The one thing that shared EditContext cannot carry is click-to-focus: it addresses a field by the element id Formidable's own inputs render, and a native input renders none — so this page renders it, giving the input the field's id and the native <code>ValidationMessage</code> the matching messages id the input names in its <code>aria-describedby</code>. The other things a field context supplies and a native input cannot ask for are <code>aria-invalid</code> and <code>aria-required</code>, so the page reads both from the engine and renders them too — <code>aria-invalid</code> absent while the field is clean and <code>"true"</code> once it has an error, <code>aria-required</code> standing whatever the value does, because requiredness is a property of the rules.</li>
+            <li>The one thing that shared EditContext cannot carry is click-to-focus: it addresses a field by the element id Formidable's own inputs render, and a native input renders none — so this page renders it, giving the input the field's id and the native <code>ValidationMessage</code> the matching messages id. The three aria attributes cross the same way, since a wrapped input takes them from a field context and a native one has none to ask. <code>aria-required</code> stands whatever the value does, because requiredness is a property of the rules. <code>aria-invalid</code> follows the field's errors, and the page reads it off the engine; a native <code>InputText</code> answers that attribute for itself from the field's messages, with the same <code>true</code> or nothing. <code>aria-describedby</code> names that messages id only while the <code>ValidationMessage</code> is rendering a message, since that component renders nothing at all when there is none, and an <code>aria-describedby</code> naming an absent element describes nothing — a wrapped input paired with a <code>FormidableFieldMessage</code> is never asked that question, because the list renders empty and stays put.</li>
             <li>One addition per concern is what makes the crossings the shared context cannot: <code>FormidableFieldAnchor</code> for disclosure, the id for focus, and <code>aria-describedby</code>, <code>aria-invalid</code> and <code>aria-required</code> for the screen reader.</li>
         </ul>
     </Rules>
@@ -92,10 +92,7 @@
         <FormidableField For="() => _registration.ContactEmail" Context="field">
             <div class="field">
                 <label>Contact email <FormidableRequiredIndicator For="() => _registration.ContactEmail" /> <FormidableInputText @bind-Value="_registration.ContactEmail" UpdateOn="InputUpdateMode.OnInput" /></label>
-                @if (field.State.IsValidating)
-                {
-                    <em role="status">checking…</em>
-                }
+                <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
             </div>
             <FormidableFieldMessage For="() => _registration.ContactEmail" />
         </FormidableField>
@@ -194,7 +191,7 @@
             <FormidableFieldMessage For="() => _registration.TicketTier" />
         </FormidableField>
 
-        <div class="field"><label>Venue region (native InputText) <FormidableRequiredIndicator For="() => _registration.VenueRegion" /> <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@VenueRegionMessagesId" aria-required="@VenueRegionAriaRequired" /></label>
+        <div class="field"><label>Venue region (native InputText) <FormidableRequiredIndicator For="() => _registration.VenueRegion" /> <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@VenueRegionAriaDescribedBy" aria-required="@VenueRegionAriaRequired" /></label>
             <ValidationMessage For="() => _registration.VenueRegion" id="@VenueRegionMessagesId" />
             <FormidableFieldAnchor For="() => _registration.VenueRegion" /></div>
     </fieldset>

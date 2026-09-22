@@ -248,6 +248,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <c>ApplyServerIssues</c> overload is synchronous by contract and its focus move is
     /// therefore fire-and-forget.
     /// </para>
+    /// <para>
+    /// A <see cref="Func{T, TResult}"/> rather than an <see cref="EventCallback{TValue}"/>,
+    /// because invoking one of those routes through <see cref="IHandleEvent"/> on the component
+    /// that supplied the handler, and <see cref="ComponentBase"/>'s implementation calls
+    /// <c>StateHasChanged</c> for it: once for a handler that completes synchronously, and a
+    /// second time once an asynchronous one completes. This hook is awaited in the middle of a
+    /// move — after the field is chosen, before its element is addressed — and a render of the
+    /// page belongs to what the page changed, not to its having been asked to make the target
+    /// reachable.
+    /// </para>
     /// </remarks>
     [Parameter]
     public Func<FieldIdentifier, ValueTask>? PrepareFocus { get; set; }

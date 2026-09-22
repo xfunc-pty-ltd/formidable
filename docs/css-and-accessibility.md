@@ -231,6 +231,21 @@ hooks reach the containers, with a splatted `class` merging ahead of the structu
 fixed-role regions and everything inside them, the message items, and the required marker take
 no splat; they are what the table freezes.
 
+Several of those names carry a severity, and severity is one thing a stylesheet should not say in
+colour alone. An inline message item is its own text plus two classes: `formidable-message`, and
+one of `--error`, `--warning` or `--info`. That modifier is the only thing on the item saying
+which severity it is, so amber against red is the whole difference between "you have to fix this"
+and "worth knowing" for a reader who sees the two as one colour. `FormidableSummary` can put that
+difference into words — `ErrorsHeading`, `WarningsHeading` and `InfosHeading` label each band in
+your own wording, with no English default standing in for them — while an inline list has no such
+parameter. Its cue has to come from the stylesheet or from the message text: a word ahead of the
+message, an icon with a text alternative, anything visible that survives being read in one colour.
+`formidable-valid` and `formidable-pending` are the same question with less to fall back on:
+`formidable-invalid` at least pairs with the input's `aria-invalid` and with the message that
+explains it, while the kit renders no text for a confirmed field or a checking one, and no
+`aria-busy` anywhere. Severity, confirmed and checking each want a cue of their own; which cue,
+and how it is worded, is yours.
+
 ## The `FieldCssClassProvider` bridge
 
 A field rendered by a plain Blazor `InputBase` (not a Formidable component) still needs a class
@@ -472,6 +487,14 @@ the way `FieldIdentifier.Create` evaluates its own, so `o => o.Address.City` nam
 for the model-level field itself; construct `new FieldIdentifier(model, string.Empty)` and pass
 it to the `FieldIdentifier` overload, as `FormidableForm` does internally.
 
+The owner segment separates instances, not roots. Two roots over one model instance — two
+`FormidableForm`s, or a `FormidableForm` and a `FormidableValidator` — compute identical ids for
+every field they both render, which duplicates ids the same way a sanitizer collision would: both
+inputs point `aria-describedby` at one message list, and click-to-focus reaches whichever element
+came first. Two `FormidableForm`s duplicate the `<form>` element's own id whatever else they
+render, since each puts the model-level field's id there. Bind each root to its own model
+instance.
+
 The message list's id is the same id with `-messages` appended, and `FormidableFieldId.MessagesFor`
 is the one place that appends it — the `aria-describedby` contract has an owner rather than a
 convention. Call it when wiring a control by hand; the kit's inputs, the message components and
@@ -572,6 +595,44 @@ empty string keeps the empty element for a glyph drawn with `::before`). Turning
 [`ShowRequiredIndicators`](options.md#showrequiredindicators) off removes the mark and leaves
 `aria-required` in place, because whether a value is demanded is a fact about the input rather
 than a decoration.
+
+An input the page renders itself owes `aria-required` and `aria-describedby` by hand, since
+neither arrives from a field context it never had: `GetFieldRequirement(field)` answers the first,
+and the second carries a condition of its own, below. `aria-invalid` is the one a Blazor
+`InputText` sees to itself, and it does that from the field's messages rather than from anything
+the markup says. It recomputes every time its parameters are set and every time validation state
+changes, and each time it reads the splat it is holding right then rather than the markup. Holding
+the key while the field has messages, it leaves the held value alone: a `"false"` stands, and so
+does a `null`, which the Razor compiler still counts as naming the attribute and which renders
+nothing. Holding no key, it writes `aria-invalid="true"`. With no messages on the field it removes
+the key and writes nothing, whatever the markup says.
+
+The removal is what puts render order in charge, since it empties the component's own copy rather
+than the markup: the page's value returns at the next render of the page around the input, and not
+before. Until that render a page naming the attribute behaves exactly like one that does not, so a
+validation-state change arriving on its own puts `"true"` on the input over whatever the page
+asked for. An edit is not the case to watch, because its change event runs through the page and
+re-renders it. Formidable's other passes do not: a debounced live pass, an async rule landing, the
+post-submit refresh and a background `ApplyServerIssues` all move validation state with no render
+of the page in the loop. What supplies one is a subscription a hand-rendering page already wants —
+`Engine.StateChanged` keeps an engine-derived attribute fresh, and the render it triggers is also
+what puts the page's own `aria-invalid` back. Without it the framework's answer is the one that
+stands.
+
+`/vanilla` and `/workout` name the attribute and answer `"true"` or nothing from
+`GetFieldState(field).HasErrors`, which is the same pair of answers the framework writes, so the
+ordering cannot put a third thing on the input; both take out that subscription. `/attach` names
+nothing and takes the framework's.
+
+`aria-describedby` carries a condition a kit input paired with a `FormidableFieldMessage`
+never meets: it has to name an element that is on the page, and a native `ValidationMessage`
+renders one `<div>` per message and nothing at all when there are none, where
+`FormidableFieldMessage` renders its list empty and leaves it standing. So a page
+pointing at a native message element renders the attribute only while that element exists, and
+the question to ask is the one that component itself answers —
+`EditContext.GetValidationMessages(field)`. Every sample pairing a hand-rendered input with a
+native `ValidationMessage` does it that way: `/workout`'s venue input, `/attach`'s "Submitted
+by", and `/vanilla`'s nickname.
 
 ### `FormidableSummary` as a live region
 
@@ -808,10 +869,11 @@ class, and `aria-invalid`, `aria-describedby` and `aria-required` whenever each 
 [Component kit](component-kit.md)). The third is an element that carries the id and will not take
 focus: a disabled control, one inside a closed `<details>` or an `inert` subtree, or a container
 given the id without the `tabindex="-1"` that makes a `<div>` or a `<fieldset>` focusable at all.
-A `FormidableFieldAnchor`-only registration
-with no id on the control it anchors has nothing for the focus service to find. The samples now
-close that gap rather than illustrate it, giving their native `InputText`s the field's id
-alongside the anchor.
+A `FormidableFieldAnchor`-only registration with no id on the control it anchors has nothing
+for the focus service to find. [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
+closes that gap, giving its native `InputText` the field's id alongside the anchor;
+[`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) illustrates it instead,
+holding the id back until a focus misses and supplying it from `FocusFallback` for the retry.
 
 Because the id is the whole of the lookup, a field with no input of its own can be focused just
 as well. Give any element the field's `FormidableFieldId.For(...)` id and a `tabindex="-1"` so

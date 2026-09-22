@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Formidable;
 using Formidable.Blazor;
 using Formidable.Sample.Shared;
@@ -43,13 +44,38 @@ public partial class ServerRoundTrip
             return;
         }
 
+        // A 400 says the request was rejected, not that the endpoint is what rejected it. A
+        // reverse proxy, a gateway or a WAF in front of it answers with its own HTML page or its
+        // own JSON, and the parse reads the Content-Type header's character set as well as the
+        // body, so either can be something it cannot make sense of. The JSON literal null throws
+        // nothing and deserializes to nothing at all. A rejection the page cannot read is still a
+        // rejection, and none of these is an exception the visitor should meet.
+        FormidableValidationProblem? problem;
+        try
+        {
+            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            problem = null;
+        }
+
+        if (problem is null)
+        {
+            // The last verdict stays on screen. An unreadable response is no evidence that it
+            // stopped being true, and the reverse case is real too: a corrected resubmission that
+            // comes back unreadable leaves the old reasons standing under the new status line. A
+            // page that would rather show nothing hands ApplyServerIssues an empty sequence here.
+            _status = "Rejected — but the response is not a verdict this page can read.";
+            return;
+        }
+
         // One call for the whole verdict: every issue lands on the field it names, at the
         // severity it carries, so the page needs no advisory plumbing of its own. Each call
         // replaces the previous server verdict — pressing Send again with new input swaps the
         // old messages for the new ones, rather than accumulating them, so a corrected
         // resubmission cannot leave a stale one behind.
-        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        _form!.ApplyServerIssues(problem!);
+        _form!.ApplyServerIssues(problem);
         _status = "Server rejected the order — its verdict is now inline.";
     }
 }

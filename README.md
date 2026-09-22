@@ -63,9 +63,9 @@ only on `Formidable`.
 ## 5-minute quickstart
 
 Five minutes in an interactive project: `dotnet new blazorwasm`, or a Blazor Web App page
-carrying `@rendermode InteractiveServer` or `@rendermode InteractiveWebAssembly`.
-`FormidableForm` refuses to render on a statically rendered page, since a form there could be
-filled in but never submitted.
+carrying `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or
+`@rendermode InteractiveAuto`. `FormidableForm` refuses to render on a statically rendered page,
+since a form there could be filled in but never submitted.
 
 Install the Blazor package — it carries the core `Formidable` package with it:
 
@@ -138,6 +138,16 @@ builder.Services.AddFormidableBlazor();
 builder.Services.AddScoped<IValidator<Signup.Contact>, Signup.ContactValidator>();
 ```
 
+That `using` is the page's own namespace, which each template decides by where it puts the page
+file: `YourApp.Pages` in a standalone WebAssembly app, `YourApp.Components.Pages` in a Blazor Web
+App, and `YourApp.Client.Pages` in the `.Client` project of one created with
+`dotnet new blazor -int Auto` or `-int WebAssembly`. Those two-project Web Apps register in
+**both** projects, because the server builds the form whenever the page prerenders (on by default)
+or runs on the server's circuit, which `InteractiveServer` does every visit and `InteractiveAuto`
+does on the first one. In those apps, only a page written `InteractiveWebAssembly` with
+`prerender: false` skips the server entirely. [Hosting models](docs/quickstart.md#hosting-models)
+covers what else differs.
+
 That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
 registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
 `FormidableSummary` render whatever the validator reports. The same four pieces taken slowly, with
@@ -166,8 +176,11 @@ MVC controllers:
 *Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
 
 Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand
-it to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names; the
-wire contract they share is in [Server integration](docs/server-integration.md).
+it to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names. Guard
+that deserialize: a 400 can come from a proxy or a gateway rather than from the endpoint, and what
+those send is no verdict, often not JSON at all. The wire contract the filters share and
+[that guard](docs/server-integration.md#reading-the-rejection-body) are both in
+[Server integration](docs/server-integration.md).
 
 ## Documentation
 
@@ -240,6 +253,6 @@ in for the real server; every other page behaves exactly as it does locally.
 
 Contributions are welcome, and [CONTRIBUTING.md](CONTRIBUTING.md) is where to start: project
 layout, dev setup, and what to do before opening a pull request. Found a security issue?
-[SECURITY.md](SECURITY.md) has the private disclosure route.
+[SECURITY.md](SECURITY.md) says how to report it privately.
 
 Formidable is licensed under the [MIT License](LICENSE).

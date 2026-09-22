@@ -22,12 +22,12 @@ it: while the rule is in flight, the field it's checking carries a pending state
 ```razor
 <FormidableField For="() => _signup.Email" Context="field">
     <FormidableInputText @bind-Value="_signup.Email" />
-    @if (field.State.IsValidating)
-    {
-        <span role="status">checking…</span>
-    }
+    <span role="status">@(field.State.IsValidating ? "checking…" : null)</span>
 </FormidableField>
 ```
+
+The `<span>` renders either way and only its text comes and goes: a live region announces
+reliably when assistive technology was told about it before the content arrived.
 
 That's the whole visible surface of it. What decides *when* a check starts, what happens to one
 still running when the value it was checking is already stale, and how a burst of keystrokes
@@ -51,13 +51,20 @@ been touched or modified, without blocking anything. Each call replaces
 the previous server verdict rather than piling onto it, so resubmitting never leaves a stale
 duplicate behind, and an advisory the client already showed for that field doesn't double up.
 `_form` below is the `FormidableForm` reference, captured on its element with `@ref="_form"`.
+Reading the body is the half that wants care: a 400 can come from a proxy or a gateway rather than
+from the endpoint, and what those send is no verdict, often not JSON at all, in which case the
+deserialize throws rather than returning one.
+[Server integration](server-integration.md#reading-the-rejection-body) has that guard in full.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/signups", _signup);
 if (!response.IsSuccessStatusCode)
 {
     var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-    _form!.ApplyServerIssues(problem!);
+    if (problem is not null)
+    {
+        _form!.ApplyServerIssues(problem);
+    }
 }
 ```
 

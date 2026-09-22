@@ -90,7 +90,9 @@ has no matching registration when the markup that would render it sits behind an
 satisfied. The rule still ran and the issue still exists in the validator's report, but it never
 reaches the `EditContext`'s message store, `FormidableFieldMessage`, or `FormidableSummary`. It's
 suppressed instead, and `SuppressedIssueDiagnostic` (see [Options](options.md)) is invoked once
-per suppressed issue so you can still observe it outside the UI.
+per suppressed *error* so you can still observe it outside the UI. A submit's suppressed
+advisories reach no diagnostic at all; applying a server verdict is the one path that reports one,
+[below](#disclosureoverride-the-escape-hatch).
 
 That registry answer decides one thing: whether the field joins the watched set. It is asked at
 the moment `ValidateForSubmitAsync` runs, not continuously, and the set it feeds only grows. Later
@@ -115,7 +117,7 @@ flowchart TD
     A["Submit runs"] --> B["For each failing field: is it already watched, or is a rendering component registered for it?"]
     B -- "yes" --> C["Field is watched until the form passes or resets; its issues show in FormidableSummary, and inline wherever the field renders"]
     B -- "no" --> D["Issue is suppressed for this submit"]
-    D --> E["SuppressedIssueDiagnostic fires once per suppressed issue"]
+    D --> E["SuppressedIssueDiagnostic fires once per suppressed error; suppressed advisories are dropped silently"]
 
     C --> F{"Any error shown?"}
     E --> F
@@ -327,7 +329,7 @@ nickname field is the remaining genuine example:
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@NicknameMessagesId" /></label>
+                       aria-describedby="@NicknameAriaDescribedBy" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
@@ -366,11 +368,14 @@ submit can still disclose a row the visitor scrolled past. See the Virtualize se
 
 ## DisclosureOverride: the escape hatch
 
-`FormidableOptions.DisclosureOverride` is consulted per issue *before* the registry check: return
-`true` to force an issue visible regardless of registration, `false` to force it suppressed
-regardless of registration, or `null` to defer to the registry as described above. It's the way
-out for issues that don't fit the render-registration model — forcing a rule visible without
-wrapping its field, or silencing a known-noisy rule outright.
+`FormidableOptions.DisclosureOverride` is the escape hatch for an issue whose field nothing
+renders. Where a channel consults it at all, it is asked per issue and *before* the registry
+check: return `true` to answer yes, `false` to answer no, or `null` to defer to the registry as
+described above. An answer is an input to the asking channel's own disclosure rule rather than a
+switch over what is on screen, and the channels differ in what they make of it — the paragraphs
+below take them in turn. It's the way out for issues that don't fit the render-registration model:
+reaching a rule's failure without wrapping its field, or keeping a known-noisy one from being the
+reason a field is watched.
 
 What each answer decides at submit is whether that issue puts its field under watch, and the
 watch is per field rather than per issue. So a `false` on one of two issues failing on the same
@@ -387,8 +392,8 @@ the registry check entirely rather than defer to it. They're visible unless `Dis
 explicitly returns `false`: the server already validated the submitted data, and an error that
 blocks the save has to reach the user whether or not the client happened to render its field.
 Advisories in the same payload defer to the registry like the client's own, and a suppressed one
-fires the diagnostic. Nothing is stranded by that: an advisory blocks no submit, so hiding one
-leaves the user nothing to fix.
+fires the diagnostic — which a submit's own suppressed advisories do not. Nothing is stranded by
+that: an advisory blocks no submit, so hiding one leaves the user nothing to fix.
 
 **Samples:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
 suppressed-issue list on the page reflects only the most recent submit. It's cleared at the start

@@ -18,11 +18,16 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     // and for a memoized one it costs a lookup. The whole scoping claim holds only while a check
     // is in flight, so the two surfaces that carry it are read together, in the browser, at one
     // instant: the page's own "checking…" indicator must sit in the contact email field's wrapper
-    // and nowhere else, and the kit's pending class must be on that field's input alone.
+    // and nowhere else, and the kit's pending class must be on that field's input alone. The page
+    // renders that indicator's element from the first paint and toggles only the text inside it —
+    // a live region has to be in the DOM before the content it announces arrives — so the
+    // element's presence says nothing about what the engine is doing, and the text is what
+    // discriminates. AsyncRulesJourney reads its own the same way.
     private const string PendingScopedToContactEmail = """
         () => {
             const email = document.querySelector("[id$='-contactemail']");
-            const indicators = document.querySelectorAll("em[role='status']");
+            const indicators = [...document.querySelectorAll("em[role='status']")]
+                .filter(e => e.textContent.trim().length > 0);
             const pending = document.querySelectorAll(".formidable-pending");
             return email !== null
                 && indicators.length === 1
