@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>ASP.NET Core server validation for Formidable: minimal-API endpoint filter and MVC action filter running validation profiles, with ProblemDetails output in the same path format the Blazor client consumes.</Description>
+        <PackageTags>aspnetcore;validation;fluentvalidation;problemdetails;blazor</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+        <ProjectReference Include="..\Formidable\Formidable.csproj" />
+    </ItemGroup>
+</Project>

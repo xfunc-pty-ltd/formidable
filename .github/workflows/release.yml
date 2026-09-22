@@ -4,6 +4,9 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -17,4 +20,6 @@ jobs:
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
       - run: dotnet pack src/Formidable -c Release --no-build -o artifacts
+      - run: dotnet pack src/Formidable.Blazor -c Release --no-build -o artifacts
+      - run: dotnet pack src/Formidable.AspNetCore -c Release --no-build -o artifacts
       - run: dotnet nuget push "artifacts/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicates
