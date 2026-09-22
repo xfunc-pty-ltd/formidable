@@ -128,6 +128,39 @@ public class FormValidationEngineServerIssueTests
     }
 
     [Fact]
+    public async Task Reapplied_server_issue_is_not_duplicated_by_an_intervening_refresh()
+    {
+        // Walkthrough repro: apply a server issue, edit the field (arms the debounced
+        // refresh, whose client pass re-produces an equal issue and drops the applied-
+        // server bookkeeping), let the refresh run, apply the same server verdict again.
+        // Replace-per-apply must leave exactly ONE issue on the field.
+        _order.Items = [new EngineItem(), new EngineItem()];
+        var item0Sku = new FieldIdentifier(_order.Items[0], nameof(EngineItem.Sku));
+        var item1Sku = new FieldIdentifier(_order.Items[1], nameof(EngineItem.Sku));
+
+        // 1 & 2. Apply the server's first-submit verdict: both items are missing a SKU.
+        _engine.ApplyServerIssues(
+        [
+            new ValidationIssue("Items[0].Sku", "SKU is required"),
+            new ValidationIssue("Items[1].Sku", "SKU is required"),
+        ]);
+
+        // 3. Fix item 0 and let the debounced refresh (client-side, same message) run to
+        //    completion before the next "send to server" click.
+        _order.Items[0].Sku = "ABC";
+        _editContext.NotifyFieldChanged(item0Sku);
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        // 4. The server re-validates and re-sends its current verdict: only item 1 still fails.
+        _engine.ApplyServerIssues([new ValidationIssue("Items[1].Sku", "SKU is required")]);
+
+        // 5. Exactly one issue on the surviving field - no duplicate from the refresh.
+        Assert.Equal(1, _engine.GetIssues(item1Sku).Count(i => i.Message == "SKU is required"));
+        Assert.Single(_engine.GetVisibleIssues(), v => v.Field.Equals(item1Sku) && v.Issue.Message == "SKU is required");
+    }
+
+    [Fact]
     public async Task Client_submit_issues_survive_a_server_replace()
     {
         var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
@@ -144,6 +177,43 @@ public class FormValidationEngineServerIssueTests
 
         engine.ApplyServerIssues([new ValidationIssue("Description", "Server rejected this description")]);
         Assert.Contains("Server rejected this description", editContext.GetValidationMessages(description));
+
+        engine.ApplyServerIssues([]);
+
+        var messages = editContext.GetValidationMessages(description).ToList();
+        Assert.Contains(clientMessage, messages);
+        Assert.DoesNotContain("Server rejected this description", messages);
+    }
+
+    [Fact]
+    public async Task Client_submit_issue_survives_a_server_replace_across_an_intervening_refresh()
+    {
+        // Same shape as Client_submit_issues_survive_a_server_replace, but with a debounced
+        // refresh landing between the two ApplyServerIssues calls (an unrelated field's edit
+        // arms it). The refresh re-derives Description's own still-failing client issue and
+        // wipes the server-applied bookkeeping. A field-ownership-based re-keying of that
+        // bookkeeping would wrongly adopt the client issue as "the server's" and let the second
+        // (empty) apply delete it - exactly the regression this pin guards against.
+        var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, _time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await engine.ValidateForSubmitAsync();
+        var clientMessage = Assert.Single(editContext.GetValidationMessages(description));
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server rejected this description")]);
+        Assert.Contains("Server rejected this description", editContext.GetValidationMessages(description));
+
+        // Unrelated field edit arms the debounced refresh; Description itself is untouched and
+        // still fails its own client rule (still empty) the whole time.
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
 
         engine.ApplyServerIssues([]);
 

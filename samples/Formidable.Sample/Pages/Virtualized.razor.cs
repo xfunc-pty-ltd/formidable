@@ -1,3 +1,4 @@
+using Formidable.Blazor;
 using Formidable.Sample.Shared;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -16,6 +17,16 @@ public partial class Virtualized
         Colour = "Red",
         Nickname = "bulk",
         Gadgets = [.. Enumerable.Range(1, 200).Select(i => new Gadget { Serial = i % 7 == 0 ? string.Empty : $"SN-{i:0000}" })]
+    };
+
+    // Rows Virtualize has never rendered carry no registration, so render-gated
+    // disclosure would hide their issues until the user scrolled past them. Forcing the
+    // collection visible costs nothing: validation always runs the full in-memory model -
+    // only visibility is render-gated.
+    private readonly FormidableOptions _options = new()
+    {
+        DisclosureOverride = issue =>
+            issue.Path.StartsWith("Gadgets[", StringComparison.Ordinal) ? true : null
     };
 
     private string _status = string.Empty;

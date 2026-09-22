@@ -390,6 +390,11 @@ legend {
     padding: 0 .4rem;
 }
 
+fieldset > label:has(> select) {
+    display: block;
+    margin: 0 0 1rem;
+}
+
 .scroll-panel {
     height: 20rem;
     overflow-y: auto;
@@ -420,7 +425,7 @@ em[role=status] {
     margin-bottom: .8rem;
 }
 
-/* ---------- teaching panel and action rows (walkthrough response) ---------- */
+/* ---------- teaching panel and action rows ---------- */
 
 .teaching {
     border: 1px solid var(--border);

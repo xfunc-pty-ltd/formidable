@@ -5,7 +5,8 @@ namespace Formidable.Blazor;
 /// <param name="IsModified">The EditContext reports the field as modified.</param>
 /// <param name="IsValidating">
 /// A validation pass involving this field is in flight — scoped to the changed field for live
-/// passes, form-wide for submit and refresh passes.
+/// passes, scoped to whichever fields were edited within its debounce window for refresh
+/// passes, form-wide for submit passes.
 /// </param>
 /// <param name="HasErrors">The field currently has error-severity messages.</param>
 /// <param name="HasWarnings">The field currently has warning-severity issues.</param>

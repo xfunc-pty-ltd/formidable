@@ -95,11 +95,15 @@ never supersedes it.
 Two flags both answer "is something still checking?", at different scopes. The engine-level
 `IsValidating` (`IFormValidationEngine.IsValidating`) is true whenever *any* pass is in flight,
 regardless of which field triggered it — the right one for a form-wide spinner.
-`GetFieldState(field).IsValidating` is narrower: during a live pass it's true only for the field
-whose change started that pass, so `Username` and `DisplayName` — two independent async rules on
-the same form — each show their own "checking…" without one lighting up the other's. During
-submit or the debounced refresh, both of which re-validate the whole model in one pass, it's true
-for every field, because every field really is being (re-)checked at that point. The same
+`GetFieldState(field).IsValidating` is narrower and scoped to the fields the pass actually
+concerns: during a live pass it's true only for the field whose change started that pass, so
+`Username` and `DisplayName` — two independent async rules on the same form — each show their own
+"checking…" without one lighting up the other's. During the debounced refresh it's true only for
+the fields edited within that debounce window — the ones whose changes scheduled it — even though
+the refresh itself re-validates the whole model in one pass; a live pass that supersedes an
+in-flight refresh takes the indicator scope with it, the same way one live pass already displaces
+another's before submit. Submit is the one pass where the per-field flag goes form-wide too: it's
+true for every field, because a submit really does (re-)check every field at once. The same
 per-field flag also drives the `Pending` CSS class (see [`docs/options.md`](options.md)) that
 ordinary `Validated*` inputs apply automatically.
 

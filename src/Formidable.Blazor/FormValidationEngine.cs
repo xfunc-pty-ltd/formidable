@@ -18,7 +18,9 @@ namespace Formidable.Blazor;
 /// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
 /// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
 /// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _submitInFlight,
-/// _touched) mutates synchronously on the caller's context.
+/// _touched, _pendingRefreshFields) mutates synchronously on the caller's context — except that
+/// _pendingRefreshFields also mutates on the dispatcher, when RunRefreshPassAsync snapshots and
+/// clears it at the start of a refresh pass.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDisposable
     where TModel : class
@@ -34,6 +36,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveIssues = [];
     private readonly HashSet<FieldIdentifier> _touched = [];
+    private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitIssues = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
     private HashSet<FieldIdentifier> _submitVisible = [];
@@ -45,7 +48,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private CancellationTokenSource? _passCts;
     private bool _submitInFlight;
     private bool _disposed;
-    private FieldIdentifier? _validatingScope;
+    private HashSet<FieldIdentifier>? _validatingScope;
 
     private int _version;
 
@@ -107,7 +110,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         return new FieldState(
             IsTouched: _touched.Contains(field),
             IsModified: EditContext.IsModified(field),
-            IsValidating: IsValidating && (_validatingScope is null || _validatingScope.Value.Equals(field)),
+            IsValidating: IsValidating && (_validatingScope is null || _validatingScope.Contains(field)),
             HasErrors: issues.Any(i => i.Severity == ValidationSeverity.Error),
             HasWarnings: issues.Any(i => i.Severity == ValidationSeverity.Warning));
     }
@@ -188,6 +191,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         _ = RunLivePassAsync(e.FieldIdentifier);
         if (HasSubmitted || _submitInFlight)
         {
+            _pendingRefreshFields.Add(e.FieldIdentifier);
             ScheduleRefresh();
         }
     }
@@ -211,12 +215,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
     /// The write is skipped when <paramref name="version"/> no longer matches the current pass —
     /// a superseded pass must not stomp a newer pass's state. <paramref name="scope"/> narrows which
-    /// field <see cref="GetFieldState"/> reports as validating: a live pass passes the field that
-    /// triggered it; submit and refresh passes pass <see langword="null"/> (form-wide, every field).
-    /// Only meaningful when <paramref name="value"/> is <see langword="true"/> — clearing always
-    /// clears the scope too.
+    /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the single field
+    /// that triggered it; a refresh pass passes the fields edited within its debounce window; a
+    /// submit pass passes <see langword="null"/> (form-wide, every field). Only meaningful when
+    /// <paramref name="value"/> is <see langword="true"/> — clearing always clears the scope too.
     /// </summary>
-    private Task SetValidating(bool value, int version, FieldIdentifier? scope = null) =>
+    private Task SetValidating(bool value, int version, HashSet<FieldIdentifier>? scope = null) =>
         _renderDispatch(() =>
         {
             if (version == _version)
@@ -237,7 +241,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
         var version = _version + 1;
         var token = BeginPass(CancellationToken.None);
-        await SetValidating(true, version, changedField).ConfigureAwait(false);
+        await SetValidating(true, version, [changedField]).ConfigureAwait(false);
         try
         {
             ValidationReport report;
@@ -512,9 +516,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         // The payload is the server's CURRENT verdict, not an addition to its last one: undo
         // exactly what the previous call added before applying this call's issues. ValidationIssue
         // is a record (value equality), so List<T>.Remove takes out one value-equal entry — the
-        // instance the previous apply added. If a client-sourced issue happens to be value-identical
-        // to a previously-applied server issue, removing either of the two equal entries is
-        // indistinguishable and acceptable.
+        // instance the previous apply added, or (see RunRefreshPassAsync) the message-matched
+        // refreshed issue standing in for it if a refresh landed since. If a client-sourced issue
+        // happens to be value-identical to a previously-applied server issue, removing either of
+        // the two equal entries is indistinguishable and acceptable.
         foreach (var (field, issue) in _appliedServerIssues)
         {
             if (_submitIssues.TryGetValue(field, out var tracked))
@@ -583,7 +588,27 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
         var version = _version + 1;
         var token = BeginPass(CancellationToken.None);
-        await SetValidating(true, version).ConfigureAwait(false);
+
+        // Snapshot-and-clear: this window's refresh flags exactly the fields the user edited
+        // since the last refresh (or since submit, for the first one). Fields edited while this
+        // pass is in flight land in the now-empty accumulator and are flagged by the NEXT
+        // refresh instead — they are not lost, just deferred one window (see ScheduleRefresh's
+        // re-arm on the _submitInFlight branch above for the analogous deferred case). If THIS
+        // pass is itself superseded before finishing (a live pass never defers to a refresh —
+        // see BeginPass), its already-captured scope is deliberately dropped, not merged into
+        // whatever runs next: the superseding pass owns the indicator outright, exactly as one
+        // live pass already displaces another's scope pre-submit — this is the same "post-submit
+        // editing reads like pre-submit editing" symmetry, not a gap.
+
+        // The empty case is reachable, not a bug: a re-armed timer (see the _submitInFlight defer
+        // above) can fire after an earlier refresh pass already snapshotted the union, leaving
+        // nothing new accumulated. The ternary's null branch then falls back to form-wide
+        // validating for this redundant pass — a brief conservative flash, the pre-scoping
+        // behaviour, never a stuck flag.
+        var scope = _pendingRefreshFields.Count > 0 ? new HashSet<FieldIdentifier>(_pendingRefreshFields) : null;
+        _pendingRefreshFields.Clear();
+
+        await SetValidating(true, version, scope).ConfigureAwait(false);
         try
         {
             ValidationReport report;
@@ -622,6 +647,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
                 _faultIssue = null;
 
+                // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
+                // own issues (below) replace _submitIssues wholesale.
+                var previouslyApplied = _appliedServerIssues;
+
                 // Resurface only what the user already saw at submit AND is still failing —
                 // fixed fields clear; fields revealed after submit stay quiet until the next submit.
                 _submitIssues = report.Errors
@@ -629,7 +658,26 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     .Where(x => _submitVisible.Contains(x.Field))
                     .GroupBy(x => x.Field, x => x.Issue)
                     .ToDictionary(g => g.Key, g => g.ToList());
-                _appliedServerIssues = [];
+
+                // Re-key by MESSAGE, not by field: a field can carry both a server-applied issue
+                // and an unrelated, independently-failing client-sourced submit issue at once (see
+                // ApplyServerIssues' own remarks), and adopting everything the refresh wrote for a
+                // previously-applied field would sweep up that unrelated client issue too, so the
+                // next apply would delete it — a worse bug than the duplicate this guards against.
+                // Instead, for each issue the previous apply is responsible for, adopt the
+                // refreshed issue on that field whose message matches it (the duplicate this fixes
+                // is by definition message-identical, so this still finds and replaces it) and drop
+                // the bookkeeping entry when no refreshed issue matches — the server's contribution
+                // is no longer part of what's shown, so there is nothing left to protect.
+                _appliedServerIssues = previouslyApplied
+                    .Select(entry => (
+                        entry.Field,
+                        Issue: _submitIssues.TryGetValue(entry.Field, out var current)
+                            ? current.FirstOrDefault(i => i.Message == entry.Issue.Message)
+                            : null))
+                    .Where(x => x.Issue is not null)
+                    .Select(x => (x.Field, Issue: x.Issue!))
+                    .ToList();
 
                 // Advisories follow the same "only what the user already saw" rule, but over the
                 // union of the two submit-time sets: a field that was an error site keeps any

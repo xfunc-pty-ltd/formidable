@@ -65,18 +65,22 @@ parameter on a later render. Create the `FormidableOptions` once and treat it as
 the life of the rendered form:
 
 ```csharp
-private FormidableOptions? _options;
+    private FormidableOptions? _options;
 
-protected override void OnInitialized()
-{
-    _options = new FormidableOptions
+    protected override void OnInitialized()
     {
-        SuppressedIssueDiagnostic = issue => _suppressed.Add($"{issue.Path}: {issue.Message}")
-    };
-}
+        _options = new FormidableOptions
+        {
+            SuppressedIssueDiagnostic = issue =>
+            {
+                _suppressed.Add($"{issue.Path}: {issue.Message}");
+                _ = InvokeAsync(StateHasChanged);
+            }
+        };
+    }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor`*
+*Source: `samples/Formidable.Sample/Pages/Disclosure.razor.cs`*
 
 Passing a different `FormidableOptions` instance on a later render has no effect by itself,
 because nothing rebuilds — the engine only rebuilds when the `Model` reference changes. A new

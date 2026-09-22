@@ -18,8 +18,8 @@ public class GadgetOrderValidator : DraftSubmitValidator<GadgetOrder>
 {
     protected override void ConfigureDraftRules()
     {
-        // Common bucket: live while editing AND enforced at submit (walkthrough decision, 11 Aug).
-        RuleFor(g => g.Colour).NotEmpty().WithMessage("Pick a colour");
+        // Common bucket: live while editing and enforced at submit.
+        RuleFor(g => g.Colour).NotEmpty().WithMessage("Colour is required");
         RuleFor(g => g.Nickname).NotEmpty().WithMessage("Nickname is required");
         RuleForEach(g => g.Gadgets).ChildRules(gadget =>
             gadget.RuleFor(x => x.Serial).NotEmpty().WithMessage("Serial is required"));

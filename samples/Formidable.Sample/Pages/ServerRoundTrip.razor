@@ -11,6 +11,7 @@
             <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
             <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
             <li>Non-error issues in the response (warnings) are listed by the page, not applied to fields.</li>
+            <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
         </ul>
     </Rules>
     <TryIt>

@@ -18,7 +18,8 @@ public interface IFormValidationEngine
     /// True while a validation pass is in flight — form-wide: true for any pass regardless of
     /// which field triggered it. Field-scoped consumers (per-field "checking..." indicators)
     /// should read <see cref="FieldState.IsValidating"/> via <see cref="GetFieldState"/> instead,
-    /// which narrows to the triggering field during a live pass.
+    /// which narrows to the triggering field during a live pass, or to the fields edited within
+    /// its debounce window during a refresh pass.
     /// </summary>
     bool IsValidating { get; }
 

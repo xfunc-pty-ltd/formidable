@@ -37,7 +37,7 @@ public sealed class EngineOrderValidator : DraftSubmitValidator<EngineOrder>
     {
         RuleFor(x => x.Description).NotEmpty().WithName("Order description");
         RuleFor(x => x.Customer).NotNull();
-        RuleForEach(x => x.Items).ChildRules(item => item.RuleFor(x => x.Sku).NotEmpty());
+        RuleForEach(x => x.Items).ChildRules(item => item.RuleFor(x => x.Sku).NotEmpty().WithMessage("SKU is required"));
         RuleFor(x => x).Must(o => o.Items.Count <= 3).WithMessage("No more than 3 items");
         RuleFor(x => x.Description)
             .Must(d => !d.Contains('-'))
@@ -80,4 +80,39 @@ public sealed class ThrowingValidator : DraftSubmitValidator<EngineOrder>
     protected override void ConfigureSubmitRules()
     {
     }
+}
+
+/// <summary>
+/// Draft validator with two independent async rules (mirrors the sample's <c>HandleValidator</c>
+/// shape): the <see cref="EngineOrder.Description"/> rule resolves on its own, while the
+/// <see cref="EngineCustomer.Name"/> rule blocks on <see cref="CustomerNameGate"/> until
+/// released — for asserting that a live pass triggered by editing one async field does not mark
+/// a sibling async field as validating too.
+/// </summary>
+public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource CustomerNameGate { get; private set; } = new();
+
+    protected override void ConfigureDraftRules()
+    {
+        RuleFor(x => x.Description).MustAsync(async (_, _) =>
+        {
+            await Task.Yield();
+            return true;
+        });
+
+        RuleFor(x => x.Customer!.Name)
+            .MustAsync(async (_, ct) =>
+            {
+                await CustomerNameGate.Task.WaitAsync(ct);
+                return true;
+            })
+            .When(x => x.Customer is not null);
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+    }
+
+    public void Reset() => CustomerNameGate = new TaskCompletionSource();
 }

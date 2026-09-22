@@ -7,7 +7,12 @@ public class RoundTripOrder : INormalizableModel
     public string Description { get; set; } = string.Empty;
     public List<OrderLine> Lines { get; set; } = [];
 
-    public void Normalize() => Lines.RemoveAll(line => line.Sku.Length > 0 && string.IsNullOrWhiteSpace(line.Sku));
+    public void Normalize()
+    {
+        // Whitespace-only SKUs are noise - drop those lines entirely. A genuinely empty
+        // SKU ("") survives on purpose so NotEmpty can point at the row.
+        Lines.RemoveAll(line => line.Sku.Length > 0 && string.IsNullOrWhiteSpace(line.Sku));
+    }
 }
 
 public class OrderLine

@@ -9,6 +9,7 @@
         <ul>
             <li><strong>Username</strong> and <strong>Display name</strong> — checked for uniqueness asynchronously while you type (a 600&nbsp;ms delay stands in for the server). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
             <li><strong>Username</strong> — also required at submit.</li>
+            <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
         </ul>
     </Rules>
     <TryIt>

@@ -2,27 +2,28 @@
 
 <PageTitle>Virtualize + KeepRegistered</PageTitle>
 <h1>Virtualize + KeepRegistered</h1>
-<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows revealed, so submit still reports their errors — and the summary's focus fallback scrolls far rows into view on click.</p>
+<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows revealed, and a DisclosureOverride reveals the whole collection — so the summary reports every row's errors from the first submit, and the focus fallback scrolls far rows into view on click.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Virtualized.razor", "Virtualized.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li>Every row's <strong>Serial</strong> is required (live). Every 7th row starts empty.</li>
-            <li><code>KeepRegistered</code> keeps scrolled-away rows disclosed, so their errors stay in the summary.</li>
-            <li>The summary's <code>FocusFallback</code> handles rows outside the render window: scroll the panel to the row, let Virtualize render it, retry the focus once.</li>
+            <li>Every row's <strong>Serial</strong> is required (live). Every 7th row starts empty — 28 errors across 200 rows.</li>
+            <li>Disclosure is render-registration: a row can show issues once it has rendered. <code>KeepRegistered</code> keeps scrolled-past rows disclosed after they leave the window.</li>
+            <li>This page also sets a <code>DisclosureOverride</code> for the collection, so the summary lists every row's errors from the first submit — even rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
+            <li>Clicking a never-rendered row's entry uses the summary's <code>FocusFallback</code>: scroll the panel, let the row render, retry the focus.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>Submit — the summary lists errors including rows far outside the viewport.</li>
+            <li>Submit immediately — the summary lists all 28 missing serials, no scrolling required.</li>
             <li>Click an entry near the top — it focuses directly.</li>
             <li>Click one of the LAST entries — the panel scrolls, the row renders, and focus lands. That is the fallback at work.</li>
-            <li>Fix a serial, scroll far away, submit again — the row's verdict updates without it being visible.</li>
+            <li>Fix a serial, scroll far away, submit again — its entry disappears; the others remain.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
     <FormSummary FocusFallback="ScrollToRowAsync" />
 
     <div class="scroll-panel">

@@ -85,29 +85,39 @@ should count toward validity regardless of whether the user chose to look.
 ### Pattern 2 — data-gated cascades
 
 A field's relevance is driven by another field's value, and the rule's `.When(...)` condition
-mirrors the same condition the `@if` uses to render it:
+mirrors the same condition the `@if` uses to render it. The accommodation type is a native
+`<select>` — nothing Formidable would otherwise wrap — so it renders inside `FormidableField`,
+whose context supplies the plumbing the control needs (`ElementId`, `AriaInvalid`,
+`AriaDescribedBy`, `CssClass`) and whose `NotifyChanged()` the `@onchange` handler calls
+explicitly, so the engine's live pass runs on every change the same way it would for a
+Formidable-wrapped input:
 
 ```razor
     @if (_request.NeedsAccommodation == true)
     {
         <fieldset>
             <legend>Accommodation</legend>
-            <label>Type
-                <select value="@_request.AccommodationType" @onchange="OnTypeChanged">
-                    <option value="">Choose…</option>
-                    <option>Hotel</option>
-                    <option>Serviced apartment</option>
-                    <option>Accessible</option>
-                </select>
-            </label>
-            <FieldAnchor For="() => _request.AccommodationType" />
+            <FormidableField For="() => _request.AccommodationType" Context="field">
+                <label>Type
+                    <select id="@field.ElementId" class="@field.CssClass"
+                            aria-invalid="@(field.AriaInvalid ? "true" : null)"
+                            aria-describedby="@field.AriaDescribedBy"
+                            value="@_request.AccommodationType"
+                            @onchange="args => OnTypeChanged(args, field)">
+                        <option value="">Choose…</option>
+                        <option>Hotel</option>
+                        <option>Serviced apartment</option>
+                        <option>Accessible</option>
+                    </select>
+                </label>
+            </FormidableField>
             <FieldMessage For="() => _request.AccommodationType" />
 
             @if (_request.AccommodationType == "Accessible")
             {
-                <p><label>Special requirements
+                <div class="field"><label>Special requirements
                     <FormidableInputText For="() => _request.SpecialRequirements" @bind-Value="_request.SpecialRequirements" /></label>
-                    <FieldMessage For="() => _request.SpecialRequirements" /></p>
+                    <FieldMessage For="() => _request.SpecialRequirements" /></div>
             }
         </fieldset>
     }
@@ -137,26 +147,29 @@ UI-only toggle.
 
 Anything Formidable doesn't wrap — a plain `<input>`, a native `<select>`, a third-party
 component — never registers on its own. `FieldAnchor` is a registration-only marker that renders
-nothing; placing it next to a raw control keeps automatic disclosure truthful for it. The
-`<select>` above is one example; the accommodation question's raw radio buttons are another,
-always-rendered one:
+nothing; placing it next to a raw control keeps automatic disclosure truthful for it. It suits
+controls that already notify the `EditContext` of changes through the ordinary Blazor forms
+pipeline — a native `InputText` is itself an `InputBase<TValue>` descendant, so it calls
+`EditContext.NotifyFieldChanged` on its own without any help. The vanilla-interop sample's
+nickname field is the remaining genuine example:
 
 ```razor
-    <fieldset>
-        <legend>Do you need accommodation?</legend>
-        <label><input type="radio" name="needs" checked="@(_request.NeedsAccommodation == true)"
-                      @onchange="() => SetNeeds(true)" /> Yes</label>
-        <label><input type="radio" name="needs" checked="@(_request.NeedsAccommodation == false)"
-                      @onchange="() => SetNeeds(false)" /> No</label>
-        <FieldAnchor For="() => _request.NeedsAccommodation" />
-        <FieldMessage For="() => _request.NeedsAccommodation" />
-    </fieldset>
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
+        <ValidationMessage For="() => _order.Nickname" />
+        <FieldAnchor For="() => _order.Nickname" /></div>
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor`*
+*Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor`*
 
-Without the anchor, `NeedsAccommodation`'s `NotNull()` failure would be unrevealed forever — the
-radio inputs are bound manually and no Formidable component ever mounts for that field.
+Without the anchor, `Nickname`'s failure would be unrevealed forever — the native `InputText`
+never mounts a Formidable component, so nothing registers the field for disclosure even though
+Blazor's own binding already keeps the engine's live pass running. The disclosure page's
+accommodation radio group and type `<select>` used to be anchored the same way, but a hand-wired
+`@onchange` on a raw element doesn't call `EditContext.NotifyFieldChanged` the way `InputBase`
+does — so both now render inside `FormidableField` instead, whose context exposes the
+`NotifyChanged()` their handlers call explicitly. Reach for `FieldAnchor` when a raw or foreign
+control already drives the engine's live pass by some other means and only needs registering;
+reach for `FormidableField` when a raw or hand-wired control needs to trigger that pass itself.
 
 ## KeepRegistered and virtualization
 
@@ -183,5 +196,6 @@ submitted data and hiding a field the client happens not to have rendered isn't 
 disclosure exists to solve.
 
 **Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
-suppressed-issue list on the page accumulates across submits (it's append-only), so submitting
-more than once shows the full history of what's been hidden, not just the latest submit's.
+suppressed-issue list on the page reflects only the most recent submit: it's cleared at the start
+of each submit and the diagnostic repopulates it as that submit runs, so a fully disclosed submit
+leaves it empty instead of carrying forward what an earlier submit hid.

@@ -599,7 +599,7 @@ go quiet, even though the row still exists in the model. The sample page pairs t
 disclosed and reachable by a summary click:
 
 ```razor
-<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
     <FormSummary FocusFallback="ScrollToRowAsync" />
 
     <div class="scroll-panel">
@@ -622,8 +622,11 @@ disclosed and reachable by a summary click:
 itself is unchanged from what's shown here.
 
 `KeepRegistered="true"` on the row's `FormidableInputText` keeps a scrolled-away row's error in
-`FormSummary` no matter how far it scrolls, exactly as before. What's new is `ScrollToRowAsync`,
-the code-behind method wired to `FocusFallback` above:
+`FormSummary` no matter how far it scrolls, exactly as before. The sample also sets a
+`DisclosureOverride` for the collection, so even rows Virtualize has never rendered keep their
+place in the summary — validation always runs against the full model; the override only lifts the
+visibility gate. What's new is `ScrollToRowAsync`, the code-behind method wired to `FocusFallback`
+above:
 
 ```csharp
     private const float RowHeight = 96f;

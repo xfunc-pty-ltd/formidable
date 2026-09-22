@@ -13,16 +13,17 @@
     </Rules>
     <TryIt>
         <ol>
-            <li>Type into Traveler name, leave the field, clear it, leave again — the required message appears live because you acted on the field.</li>
+            <li>Click <em>Show traveler details</em>, type into Traveler name, leave the field, clear it, leave again — the required message appears live because you acted on the field.</li>
             <li>Hide traveler details and submit — that error is suppressed into the diagnostic list below instead of appearing inline. A collapsed section cannot show a message.</li>
             <li>Show the details and submit again — the error is now inline and in the summary.</li>
             <li>Answer Yes, pick Accessible — watch the conditional cascade reveal rules only as their fields appear.</li>
             <li>Complete everything and submit — the status line confirms.</li>
         </ol>
+        <p><small>Use the Submit button rather than pressing Enter — the browser's implicit submission bypasses this page's per-submit list clearing.</small></p>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form">
     <FormSummary />
 
     <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
@@ -37,11 +38,16 @@
 
     <fieldset>
         <legend>Do you need accommodation?</legend>
-        <label><input type="radio" name="needs" checked="@(_request.NeedsAccommodation == true)"
-                      @onchange="() => SetNeeds(true)" /> Yes</label>
-        <label><input type="radio" name="needs" checked="@(_request.NeedsAccommodation == false)"
-                      @onchange="() => SetNeeds(false)" /> No</label>
-        <FieldAnchor For="() => _request.NeedsAccommodation" />
+        <FormidableField For="() => _request.NeedsAccommodation" Context="field">
+            <label><input type="radio" name="needs" id="@field.ElementId"
+                          aria-invalid="@(field.AriaInvalid ? "true" : null)"
+                          aria-describedby="@field.AriaDescribedBy"
+                          checked="@(_request.NeedsAccommodation == true)"
+                          @onchange="() => SetNeeds(true, field)" /> Yes</label>
+            <label><input type="radio" name="needs"
+                          checked="@(_request.NeedsAccommodation == false)"
+                          @onchange="() => SetNeeds(false, field)" /> No</label>
+        </FormidableField>
         <FieldMessage For="() => _request.NeedsAccommodation" />
     </fieldset>
 
@@ -49,15 +55,20 @@
     {
         <fieldset>
             <legend>Accommodation</legend>
-            <label>Type
-                <select value="@_request.AccommodationType" @onchange="OnTypeChanged">
-                    <option value="">Choose…</option>
-                    <option>Hotel</option>
-                    <option>Serviced apartment</option>
-                    <option>Accessible</option>
-                </select>
-            </label>
-            <FieldAnchor For="() => _request.AccommodationType" />
+            <FormidableField For="() => _request.AccommodationType" Context="field">
+                <label>Type
+                    <select id="@field.ElementId" class="@field.CssClass"
+                            aria-invalid="@(field.AriaInvalid ? "true" : null)"
+                            aria-describedby="@field.AriaDescribedBy"
+                            value="@_request.AccommodationType"
+                            @onchange="args => OnTypeChanged(args, field)">
+                        <option value="">Choose…</option>
+                        <option>Hotel</option>
+                        <option>Serviced apartment</option>
+                        <option>Accessible</option>
+                    </select>
+                </label>
+            </FormidableField>
             <FieldMessage For="() => _request.AccommodationType" />
 
             @if (_request.AccommodationType == "Accessible")
@@ -69,13 +80,13 @@
         </fieldset>
     }
 
-    <div class="actions"><button type="submit">Submit</button></div>
+    <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
 </FormidableForm>
 
 <p role="status">@_status</p>
 
 <h2>Suppressed-issue diagnostic</h2>
-<p><small>Entries accumulate across submits — the list below is append-only.</small></p>
+<p><small>Shows the issues the most recent submit suppressed — a fully disclosed submit leaves it empty.</small></p>
 <ul>
     @foreach (var message in _suppressed)
     {

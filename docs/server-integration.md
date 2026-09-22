@@ -502,6 +502,9 @@ end — press Send and the server's 400 lands on the exact fields:
 ```csharp
     private async Task Send()
     {
+        // Normalizing before the POST keeps the client's line list identical to what the
+        // server validates (its filter normalizes too) - so issue paths always match rows.
+        _order.Normalize();
         _serverWarnings.Clear();
         var response = await Http.PostAsJsonAsync("/api/orders/", _order);
 

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Components;
 
 namespace Formidable.Sample.Components;
 
-// The per-page teaching pattern (walkthrough decision, 11 Aug): plain-language rules,
+// The per-page teaching pattern: plain-language rules,
 // a guided exercise, and the page's real embedded source - never a hand-copied snippet.
 public partial class TeachingPanel
 {
