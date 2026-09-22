@@ -12,6 +12,14 @@ public partial class CustomProfiles
     private string _profileName = "Standard submit";
     private string _status = string.Empty;
 
+    // FormidableInputSelect ignores a splatted id (like every FormidableInputBase descendant). A
+    // <label> wrapping a <select> has text content that includes every <option>'s own text, not
+    // just the label's, which defeats an exact-match label lookup in test tooling (not an
+    // accessibility defect) — so unlike the text fields above, Category needs an explicit for=,
+    // addressed by the same deterministic id the component renders itself. Computed, not cached:
+    // _post is a new instance after every profile switch.
+    private string CategoryId => FormidableFieldId.For(_post, p => p.Category);
+
     // A fresh model instance is what makes the new Options take effect - FormidableForm
     // only re-reads Options when the Model reference changes, so a profile swap without a
     // model swap would silently keep validating under the old profile.

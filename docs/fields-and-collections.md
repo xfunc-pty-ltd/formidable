@@ -20,12 +20,12 @@ Blazor's diffing keeps the right DOM element attached to the right row as the li
 write each `For` lambda as a closure over that same instance:
 
 ```razor
-<CollectionMessage For="() => _invoice.Lines" />
+<FormidableCollectionMessage For="() => _invoice.Lines" />
 @foreach (var line in _invoice.Lines)
 {
     <div class="field" @key="line">
         <label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
-        <FieldMessage For="() => line.Sku" />
+        <FormidableFieldMessage For="() => line.Sku" />
     </div>
 }
 ```
@@ -33,20 +33,24 @@ write each `For` lambda as a closure over that same instance:
 The engine resolves `line.Sku` to the same object on the validator side, independently, with
 nothing coordinating the two — they just both start from the object, never the position.
 
-`FieldMessage` and `CollectionMessage` split one job. `FieldMessage` renders a field's own
-issues but registers nothing itself — it needs a nearby input (or a `FormidableField`, or a
-`FieldAnchor`) to register that path, or its messages stay permanently unrevealed.
-`CollectionMessage` does its own registering, because a `List<T>` property like `Lines` has no
-input of its own for a collection-level rule (`Add at least one line`) to attach to — without
-it, that rule's failure would have nowhere in the markup to become visible at all.
+`FormidableFieldMessage` and `FormidableCollectionMessage` split one job.
+`FormidableFieldMessage` renders a field's own issues but registers nothing itself — it needs a
+nearby input (or a `FormidableField`, or a `FormidableFieldAnchor`) to register that path, or its
+messages stay permanently unrevealed. `FormidableCollectionMessage` does its own registering,
+because a `List<T>` property like `Lines` has no input of its own for a collection-level rule
+(`Add at least one line`) to attach to — without it, that rule's failure would have nowhere in
+the markup to become visible at all.
 
 ## `FormidableField`, a first look
 
 Not every control on a form is one Formidable wraps for you. A UI library's own `<select>`, a
-checkbox group, a date picker: none of those are `FormidableInputText`, and none of them need
-to be. `FormidableField` is the renderless seam for exactly that case. It registers the field
-and hands its content a `FormidableFieldContext` — the field's state, its computed CSS class,
-its element id — instead of rendering any markup of its own.
+checkbox group, a third-party date-picker widget: none of those are `FormidableInputText`, and
+none of them need to be. `FormidableField` is the renderless seam for exactly that case. It
+registers the field and hands its content a `FormidableFieldContext` — the field's state, its
+computed CSS class, its element id — instead of rendering any markup of its own. The `<select>`
+below is only a stand-in for that case — the kit now ships `FormidableInputSelect` for a plain
+select, so reach for this seam when the control is one the kit doesn't wrap, a UI library's own
+select being the common example.
 
 ```razor
 <FormidableField For="() => _invoice.PaymentTerms" Context="field">
@@ -74,17 +78,20 @@ foreign element correctly and how a native input reads the same context for its 
 attributes, lives in
 [Component kit](component-kit.md#the-foreign-control-pattern).
 
-## One typed input, on purpose
+## A curated set of typed inputs, on purpose
 
-Formidable ships exactly one typed input component, `FormidableInputText`. That's not a gap I
-haven't gotten around to; it's the shape a headless kit is supposed to have. The seam is the
-contract: `FormidableField` is how any control talks to the engine, and the typed input is one
-pre-wired instance of that seam, shipped because a text box is every form's common case.
-Wrapping it once, in the kit, saves every consumer from rewriting the same handful of things for
-their own: registration, ids, aria, the CSS merge, the change handler. A `<select>`, a radio
-group, a date picker, or any UI library's own input varies too much between projects for one
-wrapper to serve them all, so those ride the `FormidableField` seam above, or a native input
-paired with `FieldAnchor`. One typed input, and a seam for everything else, is the whole shape.
+Formidable ships three typed input components: `FormidableInputText`, `FormidableInputSelect`,
+and `FormidableInputTextArea`. That's not an open-ended roadmap; it's the shape a headless kit is
+supposed to have. The seam is the contract: `FormidableField` is how any control talks to the
+engine, and each typed input is one pre-wired instance of that seam, shipped because wrapping it
+meaningfully improves the control's validation UX — a text box, a dropdown, and a text area all
+clear that bar the same way. Wrapping each once, in the kit, saves every consumer from rewriting
+the same handful of things for their own: registration, ids, aria, the CSS merge, the change
+handler. A checkbox, a radio group, a third-party date-picker widget, or any UI library's own
+input varies too much between projects for one wrapper to serve them all, so those ride the
+`FormidableField` seam above, or a native input paired with `FormidableFieldAnchor` — a native
+date input's home, by contrast, is `FormidableInputText type="date" UpdateOn="OnBlur"`. Three
+typed inputs, and a seam for everything else, is the whole shape.
 Not a promise of more typed inputs to come.
 
 **Next:** [Async and server](async-and-server.md)

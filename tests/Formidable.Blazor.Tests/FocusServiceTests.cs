@@ -6,8 +6,8 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor.Tests;
 
-// Adaptation (see class remarks / task report): bunit 2.9.0's matcher-based SetupVoid overload
-// returns a handler that must be explicitly completed via SetVoidResult() (identifier+args
+// Adaptation: bunit 2.9.0's matcher-based SetupVoid overload returns a handler that must be
+// explicitly completed via SetVoidResult() (identifier+args
 // overloads auto-complete; the InvocationMatcher overload used here does not). Also, resolving
 // FormidableFocusService (IAsyncDisposable-only, per the binding contract) directly from
 // BunitContext.Services means the .NET DI container captures it for disposal; BunitContext's
@@ -39,9 +39,9 @@ public class FocusServiceTests : BunitContext
     // Pins the shared-import-task shape of the fix: two FocusAsync calls started before either is
     // awaited must still result in exactly one "import" call and both "focusField" calls succeeding.
     //
-    // NOTE on what this test can and cannot prove (see class remarks / task report for the full
-    // investigation): bUnit 2.9.0 has no supported way to hold an IJSRuntime.InvokeAsync<IJSObjectReference>
-    // ("import", ...) call pending. `Setup<IJSObjectReference>` explicitly throws
+    // NOTE on what this test can and cannot prove: bUnit 2.9.0 has no supported way to hold an
+    // IJSRuntime.InvokeAsync<IJSObjectReference> ("import", ...) call pending.
+    // `Setup<IJSObjectReference>` explicitly throws
     // ("Use one of the SetupModule() methods instead") and SetupModule's own handler
     // (JSObjectReferenceInvocationHandler) calls SetResult in its constructor - confirmed by reading
     // bUnit's source - so the import always resolves synchronously the moment it is set up. Because

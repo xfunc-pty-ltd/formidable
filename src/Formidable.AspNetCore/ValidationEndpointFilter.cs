@@ -28,11 +28,11 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
             return await next(context);
         }
 
-        var warnings = ValidationReportProblemMapper.ToWarnings(report);
+        var advisories = ValidationReportProblemMapper.ToAdvisories(report);
         return TypedResults.ValidationProblem(
             ValidationReportProblemMapper.ToErrorDictionary(report),
-            extensions: warnings.Count > 0
-                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.WarningsExtensionKey] = warnings }
+            extensions: advisories.Count > 0
+                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories }
                 : null);
     }
 }

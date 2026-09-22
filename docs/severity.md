@@ -127,14 +127,14 @@ So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
 <FormidableForm @ref="_form" Model="_listing">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
-        <FieldMessage For="() => _listing.Title" /></div>
+        <FormidableFieldMessage For="() => _listing.Title" /></div>
     <div class="field"><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
-        <FieldMessage For="() => _listing.Description" /></div>
+        <FormidableFieldMessage For="() => _listing.Description" /></div>
     <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
-        <FieldMessage For="() => _listing.Tags" /></div>
+        <FormidableFieldMessage For="() => _listing.Tags" /></div>
 
     <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
 </FormidableForm>
@@ -163,12 +163,13 @@ through without blocking:
 Warnings never reach the `EditContext`'s own message store, either — only error-severity issues
 are written there, which is what built-in `InputBase`/`ValidationMessage` interop sees. The full
 issue set, warnings included, is available through `GetIssues`/`GetVisibleIssues` and
-`FieldState.HasWarnings`, which is what `FieldMessage` and `FormSummary` render from.
+`FieldState.HasWarnings`, which is what `FormidableFieldMessage` and `FormidableSummary` render from.
 
 ## Rendering
 
-`FieldMessage` (and its collection-level sibling, `CollectionMessage`) render every current issue
-for a field as a list item, whatever its severity, with a class built straight from it:
+`FormidableFieldMessage` (and its collection-level sibling, `FormidableCollectionMessage`) render
+every current issue for a field as a list item, whatever its severity, with a class built
+straight from it:
 
 ```csharp
             var severitySuffix = issue.Severity switch
@@ -182,14 +183,14 @@ for a field as a list item, whatever its severity, with a class built straight f
             builder.AddAttribute(sequence++, "class", $"formidable-message formidable-message{severitySuffix}");
 ```
 
-*Source: `src/Formidable.Blazor/FieldMessage.cs`*
+*Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
 
 So a rendered message carries `formidable-message formidable-message--error`,
 `formidable-message formidable-message--warning`, or
 `formidable-message formidable-message--info`. Style each in your own stylesheet; Formidable ships
 no CSS of its own (see [CSS and accessibility](css-and-accessibility.md)).
 
-`FormSummary` groups the whole form's currently-visible issues by severity — errors, then
+`FormidableSummary` groups the whole form's currently-visible issues by severity — errors, then
 warnings, then infos — one list per non-empty group, the same suffix convention applied to the
 group itself:
 
@@ -207,7 +208,7 @@ group itself:
             builder.AddAttribute(sequence++, "class", $"formidable-summary__group formidable-summary__group{severitySuffix}");
 ```
 
-*Source: `src/Formidable.Blazor/FormSummary.cs`*
+*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
 
 — giving `formidable-summary__group formidable-summary__group--error`,
 `formidable-summary__group formidable-summary__group--warning`, and
@@ -237,7 +238,7 @@ On the server, both the minimal-API `Validate<T>()` filter and the MVC `[Validat
 short-circuit to a 400 `ValidationProblemDetails` only when the report has at least one
 error-severity issue; a report that's all warnings and infos lets the request through unblocked.
 When a request *is* blocked, any warnings or infos in that same report ride along on the
-response's `warnings` extension key. That key sits alongside the standard `errors` dictionary, not
+response's `advisories` extension key. That key sits alongside the standard `errors` dictionary, not
 inside it, so a client can show them next to the fields that actually failed. See
 [Server integration](server-integration.md) for the full wire format and how the client
 re-applies a server response through `ApplyServerIssues`.

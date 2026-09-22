@@ -12,7 +12,7 @@
     <Rules>
         <ul>
             <li><strong>Contact email</strong> — required at submit; checked for a valid address and, asynchronously as you type, for availability (a fixed 300&nbsp;ms delay stands in for the server call). <code>taken@@example.com</code> is already registered.</li>
-            <li><strong>Event name</strong> and <strong>Event date</strong> — required at submit. <strong>Event date</strong> and <strong>Early-bird deadline</strong> must each be a real date, and the deadline must fall on or before the event date — a cross-field rule that runs only once both parse. Both date fields commit on blur rather than on every keystroke: a native date input fires <code>change</code> per segment as you type, so the field notifies the engine only once its value has settled — the same foreign-control seam as Ticket tier, applied to a native date picker.</li>
+            <li><strong>Event name</strong> and <strong>Event date</strong> — required at submit. <strong>Event date</strong> and <strong>Early-bird deadline</strong> must each be a real date, and the deadline must fall on or before the event date — a cross-field rule that runs only once both parse. Both date fields set <code>UpdateOn="InputUpdateMode.OnBlur"</code>: a native date input fires <code>change</code> per segment as you type, so the mode commits the value on every one of those but waits for the field to lose focus before notifying the engine, once the value has actually settled.</li>
             <li>Draft and Submit stay orthogonal: malformed-value rules (formats, ranges, the availability check) run always, presence rules only at submit — with <strong>Dietary notes</strong> as the deliberate exception, a presence rule left in the always-on bucket precisely so the UI alone gates it (see below). <em>Save draft</em> asks the validator for the Draft profile directly, so it answers about that bucket and no other; <em>Submit registration</em> runs the form's submit pipeline.</li>
             <li><strong>Coupon code</strong> — no client rule at all: the server owns the code list, and its 400 lands on this field through <code>ApplyServerIssues</code>. Each response replaces the previous server verdict, so a corrected resubmission never leaves a stale coupon error behind.</li>
             <li>Before posting, the page calls <code>Normalize()</code> — contact email and description are trimmed, event name's internal whitespace collapses to single spaces, and the coupon is trimmed and upper-cased, so <code>welcome10</code> and the server's <code>WELCOME10</code> are the same code.</li>
@@ -25,7 +25,7 @@
             <li>Disclosure is render-registration, and virtualized rows come and go: the seats input sets <code>KeepRegistered</code>, which keeps a scrolled-past row's registration alive after it leaves the window. This page then goes further and sets a <code>DisclosureOverride</code> for the collection — an override answers before the registry is consulted, so every session row is disclosed, including rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
             <li>Clicking the summary entry of a row that is not in the DOM uses the summary's <code>FocusFallback</code>: the page scrolls the panel, lets Virtualize render the row, and the summary retries the focus once.</li>
             <li><strong>Ticket tier</strong> — a foreign control: a plain <code>&lt;select&gt;</code> this page renders itself. The renderless <code>FormidableField</code> hands it everything a wrapped input gets for nothing — element id, state class, aria attributes, and <code>NotifyChanged()</code> — so it styles, carries messages and takes focus from the summary like the rest of the form. Its presence rule belongs to Submit, and the form opens on <em>General admission</em>, so it only speaks up if you choose the blank option.</li>
-            <li><strong>Venue region</strong> — the same seam from the other side: a native <code>InputText</code> with a native <code>ValidationMessage</code>, inside a Formidable form. Its presence rule belongs to Submit like the ones above, and the wiring is what carries it: the engine writes error-severity issues into the EditContext's message store, so the native <code>ValidationMessage</code> speaks the verdict ("Venue region is required") without a Formidable component in sight; the engine installs a css class provider on that same EditContext, so native <code>InputBase</code> components pick up the same state classes; and a <code>FieldAnchor</code> registers a natively-rendered field so its issues disclose instead of being suppressed as unrevealed. The one thing the shared EditContext cannot carry is click-to-focus: it addresses a field by the element id Formidable's own inputs render, and a native input renders none — so this page renders it, giving the input the field's id and the native <code>ValidationMessage</code> the matching messages id the input names in its <code>aria-describedby</code>. The other thing a field context supplies and a native input cannot ask for is <code>aria-invalid</code>, so the page reads that from the engine and renders it too — absent while the field is clean, <code>"true"</code> once it has an error. One addition per concern is what makes the crossings the shared context cannot: <code>FieldAnchor</code> for disclosure, the id for focus, <code>aria-describedby</code> and <code>aria-invalid</code> for the screen reader.</li>
+            <li><strong>Venue region</strong> — the same seam from the other side: a native <code>InputText</code> with a native <code>ValidationMessage</code>, inside a Formidable form. Its presence rule belongs to Submit like the ones above, and the wiring is what carries it: the engine writes error-severity issues into the EditContext's message store, so the native <code>ValidationMessage</code> speaks the verdict ("Venue region is required") without a Formidable component in sight; the engine installs a css class provider on that same EditContext, so native <code>InputBase</code> components pick up the same state classes; and a <code>FormidableFieldAnchor</code> registers a natively-rendered field so its issues disclose instead of being suppressed as unrevealed. The one thing the shared EditContext cannot carry is click-to-focus: it addresses a field by the element id Formidable's own inputs render, and a native input renders none — so this page renders it, giving the input the field's id and the native <code>ValidationMessage</code> the matching messages id the input names in its <code>aria-describedby</code>. The other thing a field context supplies and a native input cannot ask for is <code>aria-invalid</code>, so the page reads that from the engine and renders it too — absent while the field is clean, <code>"true"</code> once it has an error. One addition per concern is what makes the crossings the shared context cannot: <code>FormidableFieldAnchor</code> for disclosure, the id for focus, <code>aria-describedby</code> and <code>aria-invalid</code> for the screen reader.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -56,8 +56,8 @@
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked" id="@FormGateId" tabindex="-1">
-    <FormSummary FocusFallback="ScrollToSessionAsync" />
+<FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked">
+    <FormidableSummary FocusFallback="ScrollToSessionAsync" />
 
     <fieldset>
         <legend>Registration details</legend>
@@ -70,39 +70,20 @@
                     <em role="status">checking…</em>
                 }
             </div>
-            <FieldMessage For="() => _registration.ContactEmail" />
+            <FormidableFieldMessage For="() => _registration.ContactEmail" />
         </FormidableField>
 
         <div class="field"><label>Event name <FormidableInputText For="() => _registration.EventName" @bind-Value="_registration.EventName" /></label>
-            <FieldMessage For="() => _registration.EventName" /></div>
-        <FormidableField For="() => _registration.EventDate" Context="field">
-            <div class="field">
-                <label for="@field.ElementId">Event date</label>
-                <input type="date" id="@field.ElementId" class="@field.CssClass"
-                       aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                       aria-describedby="@field.AriaDescribedBy"
-                       value="@_registration.EventDate"
-                       @onchange="ChangeEventDate" @onblur="field.NotifyChanged" />
-            </div>
-            <FieldMessage For="() => _registration.EventDate" />
-        </FormidableField>
-
-        <FormidableField For="() => _registration.EarlyBirdDeadline" Context="field">
-            <div class="field">
-                <label for="@field.ElementId">Early-bird deadline</label>
-                <input type="date" id="@field.ElementId" class="@field.CssClass"
-                       aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                       aria-describedby="@field.AriaDescribedBy"
-                       value="@_registration.EarlyBirdDeadline"
-                       @onchange="ChangeEarlyBirdDeadline" @onblur="field.NotifyChanged" />
-            </div>
-            <FieldMessage For="() => _registration.EarlyBirdDeadline" />
-        </FormidableField>
+            <FormidableFieldMessage For="() => _registration.EventName" /></div>
+        <div class="field"><label>Event date <FormidableInputText type="date" For="() => _registration.EventDate" @bind-Value="_registration.EventDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
+            <FormidableFieldMessage For="() => _registration.EventDate" /></div>
+        <div class="field"><label>Early-bird deadline <FormidableInputText type="date" For="() => _registration.EarlyBirdDeadline" @bind-Value="_registration.EarlyBirdDeadline" UpdateOn="InputUpdateMode.OnBlur" /></label>
+            <FormidableFieldMessage For="() => _registration.EarlyBirdDeadline" /></div>
 
         <div class="field"><label>Description <FormidableInputText For="() => _registration.Description" @bind-Value="_registration.Description" /></label>
-            <FieldMessage For="() => _registration.Description" /></div>
+            <FormidableFieldMessage For="() => _registration.Description" /></div>
         <div class="field"><label>Coupon code <FormidableInputText For="() => _registration.CouponCode" @bind-Value="_registration.CouponCode" /></label>
-            <FieldMessage For="() => _registration.CouponCode" /></div>
+            <FormidableFieldMessage For="() => _registration.CouponCode" /></div>
     </fieldset>
 
     <fieldset>
@@ -119,9 +100,9 @@
         @if (_registration.IncludeCatering)
         {
             <div class="field"><label>Catering headcount <FormidableInputText For="() => _registration.CateringHeadcount" @bind-Value="_registration.CateringHeadcount" /></label>
-                <FieldMessage For="() => _registration.CateringHeadcount" /></div>
+                <FormidableFieldMessage For="() => _registration.CateringHeadcount" /></div>
             <div class="field"><label>Dietary notes <FormidableInputText For="() => _registration.DietaryNotes" @bind-Value="_registration.DietaryNotes" /></label>
-                <FieldMessage For="() => _registration.DietaryNotes" /></div>
+                <FormidableFieldMessage For="() => _registration.DietaryNotes" /></div>
         }
     </fieldset>
 
@@ -129,16 +110,16 @@
         <fieldset id="@field.ElementId" tabindex="-1">
             <legend>Attendees</legend>
 
-            <CollectionMessage For="() => _registration.Attendees" />
+            <FormidableCollectionMessage For="() => _registration.Attendees" />
 
             <ul class="member-list">
                 @foreach (var attendee in _registration.Attendees)
                 {
                     <li class="field" @key="attendee">
                         <label>Name <FormidableInputText For="() => attendee.Name" @bind-Value="attendee.Name" /></label>
-                        <FieldMessage For="() => attendee.Name" />
+                        <FormidableFieldMessage For="() => attendee.Name" />
                         <label>Email <FormidableInputText For="() => attendee.Email" @bind-Value="attendee.Email" /></label>
-                        <FieldMessage For="() => attendee.Email" />
+                        <FormidableFieldMessage For="() => attendee.Email" />
                         <div class="actions">
                             <button type="button" @onclick="() => RemoveAttendee(attendee, field)">Remove</button>
                         </div>
@@ -163,7 +144,7 @@
                     <label>@session.Title
                         <FormidableInputText For="() => session.Seats" @bind-Value="session.Seats" KeepRegistered="true" />
                     </label>
-                    <FieldMessage For="() => session.Seats" />
+                    <FormidableFieldMessage For="() => session.Seats" />
                 </div>
             </Virtualize>
         </div>
@@ -185,12 +166,12 @@
                     <option>Speaker</option>
                 </select>
             </div>
-            <FieldMessage For="() => _registration.TicketTier" />
+            <FormidableFieldMessage For="() => _registration.TicketTier" />
         </FormidableField>
 
         <div class="field"><label>Venue region (native InputText) <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@($"{VenueRegionId}-messages")" /></label>
             <ValidationMessage For="() => _registration.VenueRegion" id="@($"{VenueRegionId}-messages")" />
-            <FieldAnchor For="() => _registration.VenueRegion" /></div>
+            <FormidableFieldAnchor For="() => _registration.VenueRegion" /></div>
     </fieldset>
 
     <div class="actions">

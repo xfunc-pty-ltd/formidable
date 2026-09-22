@@ -108,7 +108,7 @@ as `field.State.IsValidating`:
                 <em role="status">checking…</em>
             }
         </div>
-        <FieldMessage For="() => _handle.Username" />
+        <FormidableFieldMessage For="() => _handle.Username" />
     </FormidableField>
 
     <FormidableField For="() => _handle.DisplayName" Context="field">
@@ -119,7 +119,7 @@ as `field.State.IsValidating`:
                 <em role="status">checking…</em>
             }
         </div>
-        <FieldMessage For="() => _handle.DisplayName" />
+        <FormidableFieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
 ```
 

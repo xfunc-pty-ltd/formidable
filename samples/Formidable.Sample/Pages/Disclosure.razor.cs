@@ -1,7 +1,6 @@
 using Formidable.Blazor;
 using Formidable.Sample.Shared;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Sample.Pages;
 
@@ -13,11 +12,6 @@ public partial class Disclosure
     private FormidableForm<TravelRequest>? _form;
     private bool _showDetails;
     private string _status = string.Empty;
-
-    // The defensive gate reports under the model-level field, which owns no input: without an
-    // element carrying its id, the one summary entry a fully-suppressed submit produces would be
-    // the one entry that goes nowhere. The form element itself is that element.
-    private string FormGateId => FormidableFieldId.For(new FieldIdentifier(_request, string.Empty));
 
     protected override void OnInitialized()
     {

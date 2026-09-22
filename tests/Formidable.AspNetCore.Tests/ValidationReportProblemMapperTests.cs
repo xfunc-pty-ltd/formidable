@@ -24,18 +24,18 @@ public class ValidationReportProblemMapperTests
     }
 
     [Fact]
-    public void ToWarnings_carries_non_error_issues_with_severity_names()
+    public void ToAdvisories_carries_non_error_issues_with_severity_names()
     {
-        var warnings = ValidationReportProblemMapper.ToWarnings(Report);
+        var advisories = ValidationReportProblemMapper.ToAdvisories(Report);
 
-        Assert.Equal(2, warnings.Count);
-        Assert.Equal(new ValidationProblemWarning("Description", "Avoid hyphens", "Warning", "HYPHENS", "Description"), warnings[0]);
-        Assert.Equal(new ValidationProblemWarning("Notes", "FYI", "Info"), warnings[1]);
+        Assert.Equal(2, advisories.Count);
+        Assert.Equal(new ValidationProblemAdvisory("Description", "Avoid hyphens", "Warning", "HYPHENS", "Description"), advisories[0]);
+        Assert.Equal(new ValidationProblemAdvisory("Notes", "FYI", "Info"), advisories[1]);
     }
 
     [Fact]
-    public void Warnings_extension_key_matches_the_client_contract()
+    public void Advisories_extension_key_matches_the_client_contract()
     {
-        Assert.Equal("warnings", ValidationReportProblemMapper.WarningsExtensionKey);
+        Assert.Equal("advisories", ValidationReportProblemMapper.AdvisoriesExtensionKey);
     }
 }

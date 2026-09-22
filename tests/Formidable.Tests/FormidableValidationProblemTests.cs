@@ -24,16 +24,16 @@ public class FormidableValidationProblemTests
     }
 
     [Fact]
-    public void ToIssues_maps_warnings_with_parsed_severity()
+    public void ToIssues_maps_advisories_with_parsed_severity()
     {
         var problem = new FormidableValidationProblem
         {
-            Warnings =
+            Advisories =
             [
-                new ValidationProblemWarning("Description", "Avoid hyphens", "Warning", Code: "HYPHENS"),
-                new ValidationProblemWarning("Notes", "FYI only", "info"),
-                new ValidationProblemWarning("Notes", "Unknown tag", "Bogus"),
-                new ValidationProblemWarning("Notes", "Never an error here", "Error")
+                new ValidationProblemAdvisory("Description", "Avoid hyphens", "Warning", Code: "HYPHENS"),
+                new ValidationProblemAdvisory("Notes", "FYI only", "info"),
+                new ValidationProblemAdvisory("Notes", "Unknown tag", "Bogus"),
+                new ValidationProblemAdvisory("Notes", "Never an error here", "Error")
             ]
         };
 
@@ -55,7 +55,7 @@ public class FormidableValidationProblemTests
               "title": "One or more validation errors occurred.",
               "status": 400,
               "errors": { "Items[0].Sku": ["Required"] },
-              "warnings": [
+              "advisories": [
                 { "path": "Description", "message": "Avoid hyphens", "severity": "Warning", "code": null, "displayName": "Description" }
               ]
             }
@@ -90,10 +90,10 @@ public class FormidableValidationProblemTests
     }
 
     [Fact]
-    public void ToIssues_tolerates_null_errors_and_warnings_collections()
+    public void ToIssues_tolerates_null_errors_and_advisories_collections()
     {
         const string body = """
-            { "errors": null, "warnings": null }
+            { "errors": null, "advisories": null }
             """;
 
         var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(

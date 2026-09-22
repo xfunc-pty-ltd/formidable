@@ -90,7 +90,7 @@ internal sealed class HostedDemoApiHandler : DelegatingHandler
         // Program.cs registrations handler exactly, including its narrower wire shape: this
         // rejection is a standalone problem carrying only the coupon issue, built the same way
         // the real handler builds it (Results.ValidationProblem with no extensions), not routed
-        // through the group filter's warnings extension above.
+        // through the group filter's advisories extension above.
         var coupon = registration.CouponCode;
         var recognised = string.Equals(coupon, "WELCOME10", StringComparison.OrdinalIgnoreCase)
             || string.Equals(coupon, "SPEAKER", StringComparison.OrdinalIgnoreCase);
@@ -107,7 +107,7 @@ internal sealed class HostedDemoApiHandler : DelegatingHandler
     }
 
     // Mirrors ValidationReportProblemMapper (Formidable.AspNetCore, not referenceable from a
-    // WASM client): errors keyed by path in issue order, non-error issues riding a "warnings"
+    // WASM client): errors keyed by path in issue order, non-error issues riding an "advisories"
     // extension that appears only when at least one exists.
     private static HttpResponseMessage ProblemResponse(ValidationReport report)
     {
@@ -115,7 +115,7 @@ internal sealed class HostedDemoApiHandler : DelegatingHandler
             .GroupBy(issue => issue.Path)
             .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message).ToArray());
 
-        var warnings = report.Issues
+        var advisories = report.Issues
             .Where(issue => issue.Severity != ValidationSeverity.Error)
             .Select(issue => new
             {
@@ -127,18 +127,18 @@ internal sealed class HostedDemoApiHandler : DelegatingHandler
             })
             .ToList();
 
-        return ProblemResponse(errors, warnings.Count > 0 ? warnings : null);
+        return ProblemResponse(errors, advisories.Count > 0 ? advisories : null);
     }
 
     private static HttpResponseMessage ProblemResponse(Dictionary<string, string[]> errors) =>
-        ProblemResponse(errors, warnings: null);
+        ProblemResponse(errors, advisories: null);
 
-    private static HttpResponseMessage ProblemResponse(Dictionary<string, string[]> errors, object? warnings)
+    private static HttpResponseMessage ProblemResponse(Dictionary<string, string[]> errors, object? advisories)
     {
-        // Two differently-shaped anonymous types (not a ternary): the "warnings" key must be
+        // Two differently-shaped anonymous types (not a ternary): the "advisories" key must be
         // absent entirely when there are none, matching TypedResults.ValidationProblem, which
         // never writes an empty/null extension.
-        if (warnings is null)
+        if (advisories is null)
         {
             return JsonResponse(
                 HttpStatusCode.BadRequest,
@@ -148,7 +148,7 @@ internal sealed class HostedDemoApiHandler : DelegatingHandler
 
         return JsonResponse(
             HttpStatusCode.BadRequest,
-            new { type = ProblemType, title = ProblemTitle, status = 400, errors, warnings },
+            new { type = ProblemType, title = ProblemTitle, status = 400, errors, advisories },
             "application/problem+json");
     }
 

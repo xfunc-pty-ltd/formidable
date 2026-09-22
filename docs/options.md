@@ -19,15 +19,16 @@ falls back to `new FormidableOptions()`) is a fully working configuration:
 
 ```razor
 <FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
-                @ref="_form" id="@FormGateId" tabindex="-1">
+                @ref="_form">
 ```
 
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
 
-`Options` is the parameter this page is quoted for. The `id` and `tabindex` beside it are the
-sample's own: they give the model-level field that the defensive gate reports under an element
-to focus (see [CSS and accessibility](css-and-accessibility.md)). Any attribute
-`FormidableForm<TModel>` does not recognise is splatted onto the `<form>` element it renders.
+`Options` is the parameter this page is quoted for. Any attribute `FormidableForm<TModel>` does
+not recognise is splatted onto the `<form>` element it renders — except `id` and `tabindex`,
+which `FormidableForm` always sets itself, so the all-suppressed defensive gate's summary entry
+has an element to focus without this page (or any other) wiring it up (see
+[CSS and accessibility](css-and-accessibility.md)).
 
 Here's the one gotcha worth knowing before anything else: `FormidableForm<TModel>` builds its
 engine once per `Model` instance and passes `Options` straight into the engine's constructor at
@@ -89,6 +90,33 @@ telemetry, not the only place they get recorded.
 
 `Pending` appends alongside `Invalid`/`Valid` rather than replacing it — see
 [CSS and accessibility](css-and-accessibility.md) for how the three compose.
+
+## `UpdateOn` (per input, not a `FormidableOptions` property)
+
+Every property above tunes the engine as a whole, through `FormidableOptions`. `UpdateOn` tunes a
+single input instead: it's a parameter on `FormidableInputBase<TValue>` (see [Component
+kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member of
+`FormidableOptions`, so it isn't set through `Options` and doesn't appear in the properties list
+above — it earns a place on this page anyway because it answers the other half of "when does a
+rule get to answer": `RefreshDebounce` governs the post-submit refresh's timing, and `UpdateOn`
+governs a live pass's.
+
+`InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the
+element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke
+instead. `InputUpdateMode.OnBlur` splits the pair across two events: the value commits on
+`change`, but the engine isn't notified until `blur` — for a native control whose `change` event
+fires more than once per logical edit (a date input, segment by segment, is the clearest case),
+so the live pass a notification starts waits for the value to actually settle instead of running
+on a value still being typed.
+
+```razor
+<FormidableInputText type="date" For="() => Model.EventDate" @bind-Value="Model.EventDate"
+                      UpdateOn="InputUpdateMode.OnBlur" />
+```
+
+**Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
+full behaviour table across all three modes and both rule buckets.
+**Sample:** [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — both date fields.
 
 ## `FormidableOptions`, built once
 

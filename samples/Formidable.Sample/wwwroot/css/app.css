@@ -266,6 +266,7 @@ main {
    ask for the field chrome the form selectors give every other select. */
 form input:where(:not([type=radio]):not([type=checkbox])),
 form select,
+form textarea,
 .culture select {
     display: block;
     width: 100%;
@@ -281,6 +282,7 @@ form select,
 
 form input:where(:not([type=radio]):not([type=checkbox])):focus,
 form select:focus,
+form textarea:focus,
 .culture select:focus {
     outline: none;
     border-color: var(--accent);

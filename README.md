@@ -34,8 +34,8 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
   profile for save-as-you-go, a strict Submit profile for the real thing, both defined once in
   the same FluentValidation class. Wizard steps and approval stages are custom profiles over
   that same definition.
-- **A headless component kit** — `FormidableForm`, `FormidableField`, `FieldMessage`, and
-  `FormSummary` own the `EditContext` and render whatever the validator reports. The
+- **A headless component kit** — `FormidableForm`, `FormidableField`, `FormidableFieldMessage`,
+  and `FormidableSummary` own the `EditContext` and render whatever the validator reports. The
   library ships no CSS, so the same kit fits a UI library, a design system, or plain HTML.
 - **One validator, client and server** — the same FluentValidation rules run in the browser and
   again on the server, and the server's `ValidationProblemDetails` response applies straight
@@ -51,7 +51,7 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 | Package | Depends on | Contents |
 |---|---|---|
 | `Formidable` | FluentValidation only | Validation profiles, `ProfiledValidator<T>` / `DraftSubmitValidator<T>`, the `IModelValidator` seam, `ValidationIssue` / `ValidationReport`, `INormalizableModel`, model introspection. No Blazor dependency. |
-| `Formidable.Blazor` | `Formidable` + `Microsoft.AspNetCore.Components.Web` | The validation engine (EditContext integration, field registry, validation flows) and the headless component kit (`FormidableForm`, `FormidableField`, `FieldMessage`, `FormSummary`, …). |
+| `Formidable.Blazor` | `Formidable` + `Microsoft.AspNetCore.Components.Web` | The validation engine (EditContext integration, field registry, validation flows) and the headless component kit (`FormidableForm`, `FormidableField`, `FormidableFieldMessage`, `FormidableSummary`, …). |
 | `Formidable.AspNetCore` | `Formidable` + ASP.NET Core | Minimal-API endpoint filter and MVC `[Validate]` action filter, returning `ValidationProblemDetails` in the same path format the Blazor client consumes. |
 
 A shared contracts assembly (your models and validators) references `Formidable` only and
@@ -109,12 +109,12 @@ The page — routed at `@page "/"` in the sample:
 
 ```razor
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
-        <FieldMessage For="() => _contact.Name" /></div>
+        <FormidableFieldMessage For="() => _contact.Name" /></div>
     <div class="field"><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
-        <FieldMessage For="() => _contact.Email" /></div>
+        <FormidableFieldMessage For="() => _contact.Email" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
@@ -130,8 +130,8 @@ The page — routed at `@page "/"` in the sample:
 sample app's own styling; the library ships none.
 
 That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
-registers its field and applies the validation CSS classes, and `FieldMessage` and
-`FormSummary` render whatever the validator reports. The same four pieces taken slowly, with
+registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
+`FormidableSummary` render whatever the validator reports. The same four pieces taken slowly, with
 each line explained and a run at the end, are in [Quickstart](docs/quickstart.md).
 
 ## Server validation in two lines

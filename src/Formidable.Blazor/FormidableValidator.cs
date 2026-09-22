@@ -56,17 +56,23 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             _engine = null;
         }
 
-        _engine ??= new FormValidationEngine<TModel>(
-            model,
-            CascadedEditContext,
-            Validator
-                ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
-                ?? throw new InvalidOperationException($"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-            (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
-                ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
-            Options ?? new FormidableOptions(),
-            renderDispatch: work => InvokeAsync(work));
-        _context = new FormidableFormContext(_engine);
+        // _context is rebuilt only when _engine is: it is the cascaded CascadingValue's Value
+        // under an IsFixed cascade below, and IsFixed's whole premise is that Value does not
+        // change on a render where nothing about the underlying engine actually did.
+        if (_engine is null)
+        {
+            _engine = new FormValidationEngine<TModel>(
+                model,
+                CascadedEditContext,
+                Validator
+                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
+                    ?? throw new InvalidOperationException($"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
+                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
+                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
+                Options ?? new FormidableOptions(),
+                renderDispatch: work => InvokeAsync(work));
+            _context = new FormidableFormContext(_engine);
+        }
     }
 
     /// <inheritdoc />
@@ -78,11 +84,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         }
 
         builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
-        builder.AddComponentParameter(1, "Value", _context);
-        builder.AddComponentParameter(2, "ChildContent", ChildContent);
+        builder.AddComponentParameter(1, "IsFixed", true);
+        builder.AddComponentParameter(2, "Value", _context);
+        builder.AddComponentParameter(3, "ChildContent", ChildContent);
         builder.CloseComponent();
-        // Not IsFixed: the context instance is replaced if the enclosing EditForm swaps its
-        // EditContext (model change), and descendants must observe the replacement.
+        // IsFixed: same reasoning as FormidableForm's identical cascade — a non-fixed
+        // CascadingValue re-supplies every subscriber's parameters from a stale snapshot on every
+        // re-render, which is what let a kit input's just-committed Value be overwritten with its
+        // pre-keystroke value. Safe here for the same structural reason: the enclosing EditForm
+        // (owned by the consumer, not this component) renders its subtree inside a region keyed on
+        // its EditContext, so an EditContext swap tears down and rebuilds this component — and
+        // everything cascaded from it — rather than leaving it in place to observe a replacement.
     }
 
     /// <inheritdoc />

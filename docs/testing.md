@@ -44,7 +44,7 @@ Three projects, unconditional — no environment variable, no running server, no
 | Project | Covers |
 |---|---|
 | `tests/Formidable.Tests` | Core: `Formidable` — profiles (Draft/Submit, `ProfiledValidator<T>`), the `IModelValidator<T>` seam, the reflection-based introspector, path resolution, service registration. |
-| `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/warnings wire mapping. |
+| `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/advisories wire mapping. |
 | `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormValidationEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
 Run the whole tier from the repo root:

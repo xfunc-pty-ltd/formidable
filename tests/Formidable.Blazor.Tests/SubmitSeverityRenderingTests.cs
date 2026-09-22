@@ -6,8 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Formidable.Blazor.Tests;
 
 // Reproduces the Phase-1 walkthrough report "info message not shown on submit": an
-// Info-severity rule that fails at submit must render in both FieldMessage
-// (formidable-message--info) and the FormSummary info group. Pins the disclosure
+// Info-severity rule that fails at submit must render in both FormidableFieldMessage
+// (formidable-message--info) and the FormidableSummary info group. Pins the disclosure
 // lifecycle for advisory severities at the component level.
 public class SubmitSeverityRenderingTests : BunitContext
 {
@@ -48,11 +48,11 @@ public class SubmitSeverityRenderingTests : BunitContext
                     EventCallback.Factory.Create<string?>(this, v => listing.Tags = v ?? string.Empty));
                 inner.CloseComponent();
 
-                inner.OpenComponent<FieldMessage<string>>(4);
+                inner.OpenComponent<FormidableFieldMessage<string>>(4);
                 inner.AddComponentParameter(5, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => listing.Tags));
                 inner.CloseComponent();
 
-                inner.OpenComponent<FormSummary>(6);
+                inner.OpenComponent<FormidableSummary>(6);
                 inner.CloseComponent();
             }));
             builder.CloseComponent();
@@ -74,11 +74,11 @@ public class SubmitSeverityRenderingTests : BunitContext
 
         form.WaitForAssertion(() =>
         {
-            // 1. FieldMessage renders the info: a li.formidable-message--info with the message text.
+            // 1. FormidableFieldMessage renders the info: a li.formidable-message--info with the message text.
             var messageItem = form.Find("li.formidable-message--info");
             Assert.Contains("More than five tags rarely helps discovery", messageItem.TextContent);
 
-            // 2. FormSummary renders an info group: ul.formidable-summary__group--info with one item.
+            // 2. FormidableSummary renders an info group: ul.formidable-summary__group--info with one item.
             var summaryGroup = form.Find("ul.formidable-summary__group--info");
             Assert.Single(summaryGroup.QuerySelectorAll("li"));
         });

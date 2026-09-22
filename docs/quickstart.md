@@ -52,22 +52,22 @@ public class SignupValidator : AbstractValidator<Signup>
 ## The form
 
 Four components and nothing else: `FormidableForm` owns the `EditContext`,
-`FormidableInputText` renders each field, `FieldMessage` shows that field's own issues, and
-`FormSummary` lists everything the form currently has to say at once.
+`FormidableInputText` renders each field, `FormidableFieldMessage` shows that field's own
+issues, and `FormidableSummary` lists everything the form currently has to say at once.
 
 ```razor
 <FormidableForm Model="_signup" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <label>Name
         <FormidableInputText For="() => _signup.Name" @bind-Value="_signup.Name" />
     </label>
-    <FieldMessage For="() => _signup.Name" />
+    <FormidableFieldMessage For="() => _signup.Name" />
 
     <label>Email
         <FormidableInputText For="() => _signup.Email" @bind-Value="_signup.Email" />
     </label>
-    <FieldMessage For="() => _signup.Email" />
+    <FormidableFieldMessage For="() => _signup.Email" />
 
     <button type="submit">Submit</button>
 </FormidableForm>
@@ -85,8 +85,8 @@ private void HandleValid()
 ## Run it
 
 Submit the empty form and both fields complain at once: the summary lists "Name is required"
-and "Email is required", and each field's own `FieldMessage` repeats its half of that list
-right where the field renders. Type a name and move to the next field, and its message
+and "Email is required", and each field's own `FormidableFieldMessage` repeats its half of that
+list right where the field renders. Type a name and move to the next field, and its message
 disappears immediately — no second submit needed. Leave the email blank a moment longer and
 its message just sits there, waiting for you to fix it.
 

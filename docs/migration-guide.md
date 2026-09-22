@@ -20,7 +20,7 @@ how results reach the UI.
 |---|---|
 | `<FluentValidationValidator />` inside an `EditForm` | `<FormidableValidator>` (attaches to an `EditForm` you already own — see "Two ways to attach" below), or `<FormidableForm>` if you're open to it owning the `EditForm` itself |
 | RuleSet parameters selecting which rules run | A `ValidationProfile` (`ValidationProfile.Draft` / `ValidationProfile.Submit` / `ValidationProfile.Named(...)`) — see [Profiles](profiles.md) |
-| `<ValidationMessage For="...">` | `<FieldMessage For="...">` — severity-aware (renders warnings and infos, not just errors) and resolves paths `ValidationMessage` can't, including indexed collection items and nested-nullable properties. See [Collections and row identity](collections-and-row-identity.md) |
+| `<ValidationMessage For="...">` | `<FormidableFieldMessage For="...">` — severity-aware (renders warnings and infos, not just errors) and resolves paths `ValidationMessage` can't, including indexed collection items and nested-nullable properties. See [Collections and row identity](collections-and-row-identity.md) |
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle — swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you; `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure — a field's visibility is a side effect of whether something registered it while mounted, not code you write per form. See [Disclosure](disclosure.md) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine — there's no second store to keep synchronized. See [Component kit](component-kit.md)'s `FormidableForm` section |
@@ -57,8 +57,9 @@ relying on the old one implicitly:
   whether the field's containing UI was rendered, some of those errors are now suppressed by
   render-registration until the field is actually on screen (see
   [Disclosure](disclosure.md)). Fields wrapped in a Formidable component get this
-  automatically; a raw/foreign control needs a `<FieldAnchor>` alongside it to opt back in to
-  being counted as revealed. Sections that were always fully rendered are unaffected either way.
+  automatically; a raw/foreign control needs a `<FormidableFieldAnchor>` alongside it to opt back
+  in to being counted as revealed. Sections that were always fully rendered are unaffected either
+  way.
 
 ## Sample
 

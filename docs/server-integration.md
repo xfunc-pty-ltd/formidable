@@ -43,7 +43,7 @@ adapter's own shape, and the normalize step both run before they validate anythi
 
 A rejected request returns a 400 `ValidationProblemDetails`. Its `errors` dictionary is keyed by
 the same property-path format the client uses internally (`Items[0].Sku`, and so on — see
-[Collections and row identity](collections-and-row-identity.md)). A `warnings` extension
+[Collections and row identity](collections-and-row-identity.md)). An `advisories` extension
 alongside `errors` carries every non-error issue from the same report. The client-side shape of
 that body is one type in the core `Formidable` package — no ASP.NET Core or Blazor dependency
 required to read it:
@@ -53,7 +53,7 @@ namespace Formidable;
 
 /// <summary>
 /// Client-side shape of the validation ProblemDetails body produced by Formidable.AspNetCore:
-/// the standard <c>errors</c> dictionary keyed by property path plus a <c>warnings</c>
+/// the standard <c>errors</c> dictionary keyed by property path plus an <c>advisories</c>
 /// extension for non-error issues. Deserialize an HTTP 400 body into this (web JSON defaults,
 /// e.g. <c>ReadFromJsonAsync</c>) and pass <see cref="ToIssues"/> to the Blazor engine's
 /// server-issue application.
@@ -63,12 +63,12 @@ public sealed class FormidableValidationProblem
     /// <summary>Error messages keyed by property path (standard ValidationProblemDetails shape).</summary>
     public Dictionary<string, string[]> Errors { get; set; } = [];
 
-    /// <summary>Non-error issues from the <c>warnings</c> extension.</summary>
-    public List<ValidationProblemWarning> Warnings { get; set; } = [];
+    /// <summary>Non-error issues from the <c>advisories</c> extension.</summary>
+    public List<ValidationProblemAdvisory> Advisories { get; set; } = [];
 
     /// <summary>
     /// Flattens the payload into engine-ready issues: error entries first (one issue per
-    /// message), then warnings with their severity parsed case-insensitively — unknown or
+    /// message), then advisories with their severity parsed case-insensitively — unknown or
     /// "Error" severities read as <see cref="ValidationSeverity.Warning"/>, because the
     /// errors dictionary is the only error channel.
     /// </summary>
@@ -80,22 +80,22 @@ public sealed class FormidableValidationProblem
         // initializers below (the deserializer doesn't enforce nullable-reference annotations),
         // and a key's message array itself can be null — tolerate both rather than throw.
         var errors = Errors ?? new Dictionary<string, string[]>();
-        var warnings = Warnings ?? [];
+        var advisories = Advisories ?? [];
 
         foreach (var (path, messages) in errors)
         {
             issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message)));
         }
 
-        foreach (var warning in warnings)
+        foreach (var advisory in advisories)
         {
             var severity =
-                Enum.TryParse<ValidationSeverity>(warning.Severity, ignoreCase: true, out var parsed)
+                Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
                 && parsed != ValidationSeverity.Error
                     ? parsed
                     : ValidationSeverity.Warning;
 
-            issues.Add(new ValidationIssue(warning.Path, warning.Message, severity, warning.Code, warning.DisplayName));
+            issues.Add(new ValidationIssue(advisory.Path, advisory.Message, severity, advisory.Code, advisory.DisplayName));
         }
 
         return issues;
@@ -111,7 +111,7 @@ that survive deserialization and override the property initializers above.
 
 ```csharp
 /// <summary>
-/// The wire shape of one non-error issue carried on the <c>warnings</c> extension of a
+/// The wire shape of one non-error issue carried on the <c>advisories</c> extension of a
 /// validation ProblemDetails payload. <paramref name="Severity"/> is the
 /// <see cref="ValidationSeverity"/> member name as a string ("Warning" or "Info").
 /// </summary>
@@ -120,7 +120,7 @@ that survive deserialization and override the property initializers above.
 /// <param name="Severity">Severity name; unknown values are read as Warning.</param>
 /// <param name="Code">Optional machine-readable code.</param>
 /// <param name="DisplayName">Optional user-facing field name.</param>
-public sealed record ValidationProblemWarning(
+public sealed record ValidationProblemAdvisory(
     string Path,
     string Message,
     string Severity,
@@ -128,7 +128,7 @@ public sealed record ValidationProblemWarning(
     string? DisplayName = null);
 ```
 
-*Source: `src/Formidable/ValidationProblemWarning.cs`*
+*Source: `src/Formidable/ValidationProblemAdvisory.cs`*
 
 Building the other side of that contract — turning a `ValidationReport` into the two wire pieces
 — is one static mapper in `Formidable.AspNetCore`, shared by both server adapters below:
@@ -139,12 +139,12 @@ namespace Formidable.AspNetCore;
 /// <summary>
 /// Maps a <see cref="ValidationReport"/> to the wire shape shared with the client:
 /// error messages keyed by property path plus non-error issues for the
-/// <see cref="WarningsExtensionKey"/> ProblemDetails extension.
+/// <see cref="AdvisoriesExtensionKey"/> ProblemDetails extension.
 /// </summary>
 public static class ValidationReportProblemMapper
 {
     /// <summary>The ProblemDetails extension key carrying non-error issues.</summary>
-    public const string WarningsExtensionKey = "warnings";
+    public const string AdvisoriesExtensionKey = "advisories";
 
     /// <summary>Error messages grouped by path, preserving issue order within each path.</summary>
     public static Dictionary<string, string[]> ToErrorDictionary(ValidationReport report)
@@ -155,13 +155,13 @@ public static class ValidationReportProblemMapper
             .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message).ToArray());
     }
 
-    /// <summary>Non-error issues as the warnings-extension payload, in issue order.</summary>
-    public static List<ValidationProblemWarning> ToWarnings(ValidationReport report)
+    /// <summary>Non-error issues as the advisories-extension payload, in issue order.</summary>
+    public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
         return report.Issues
             .Where(issue => issue.Severity != ValidationSeverity.Error)
-            .Select(issue => new ValidationProblemWarning(
+            .Select(issue => new ValidationProblemAdvisory(
                 issue.Path, issue.Message, issue.Severity.ToString(), issue.Code, issue.DisplayName))
             .ToList();
     }
@@ -186,7 +186,7 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>warnings</c> extension and
+    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
     /// never block on their own.
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
@@ -203,7 +203,7 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>warnings</c> extension and
+    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
     /// never block on their own.
     /// </summary>
     /// <param name="builder">The route group to validate.</param>
@@ -256,11 +256,11 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
             return await next(context);
         }
 
-        var warnings = ValidationReportProblemMapper.ToWarnings(report);
+        var advisories = ValidationReportProblemMapper.ToAdvisories(report);
         return TypedResults.ValidationProblem(
             ValidationReportProblemMapper.ToErrorDictionary(report),
-            extensions: warnings.Count > 0
-                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.WarningsExtensionKey] = warnings }
+            extensions: advisories.Count > 0
+                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories }
                 : null);
     }
 }
@@ -380,10 +380,10 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
                 Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
             };
 
-            var warnings = ValidationReportProblemMapper.ToWarnings(aggregate);
-            if (warnings.Count > 0)
+            var advisories = ValidationReportProblemMapper.ToAdvisories(aggregate);
+            if (advisories.Count > 0)
             {
-                problem.Extensions[ValidationReportProblemMapper.WarningsExtensionKey] = warnings;
+                problem.Extensions[ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories;
             }
 
             // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on
@@ -520,7 +520,7 @@ exactly what its own previous call added, then applies the new payload. Calling 
 row with the same or a corrected body never leaves a stale duplicate inline error behind. Only
 error-severity issues in the payload are applied to fields; anything else in the payload is
 ignored by the engine entirely. That is why the page, not the engine, is responsible for
-presenting the warnings a 400 carries.
+presenting the advisories a 400 carries.
 
 The sample deliberately skips client-side submit validation so the round-trip is visible end to
 end — press Send and the server's 400 lands on the exact fields:
@@ -531,7 +531,7 @@ end — press Send and the server's 400 lands on the exact fields:
         // Normalizing before the POST keeps the client's line list identical to what the
         // server validates (its filter normalizes too) - so issue paths always match rows.
         _order.Normalize();
-        _serverWarnings.Clear();
+        _serverAdvisories.Clear();
         var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
         if (response.IsSuccessStatusCode)
@@ -544,12 +544,12 @@ end — press Send and the server's 400 lands on the exact fields:
         var issues = problem!.ToIssues();
 
         // The engine applies error-severity issues to fields; non-error issues are the
-        // page's to present (a 400's warnings ride alongside its errors by contract).
+        // page's to present (a 400's advisories ride alongside its errors by contract).
         // Each call replaces the previous server verdict — pressing Send again with new
         // input swaps the old server errors for the new ones, rather than accumulating
         // them, so a corrected resubmission cannot leave stale errors behind.
         _form!.Engine!.ApplyServerIssues(issues);
-        _serverWarnings.AddRange(issues
+        _serverAdvisories.AddRange(issues
             .Where(i => i.Severity != ValidationSeverity.Error)
             .Select(i => i.Message));
         _status = "Server rejected the order — its errors are now inline.";
@@ -562,16 +562,16 @@ Error issues from `ToIssues()` reach the form's fields the moment `ApplyServerIs
 bypassing the field-registry disclosure check entirely (see [Disclosure](disclosure.md)). The
 server already validated the submitted data, so a field the client happens not to have rendered
 isn't a disclosure concern. Non-error issues in the same payload are not applied to any field by
-the engine. The page pulls them back out of the same `issues` list itself (`_serverWarnings`
+the engine. The page pulls them back out of the same `issues` list itself (`_serverAdvisories`
 above) and renders them however it chooses. Formidable draws no opinion about where a server
-warning belongs on the page.
+advisory belongs on the page.
 
-**Warnings never ride a success response.** The wire contract above only defines the *rejection*
-shape — the `warnings` extension exists on a 400 `ValidationProblemDetails` body. Both adapters
+**Advisories never ride a success response.** The wire contract above only defines the *rejection*
+shape — the `advisories` extension exists on a 400 `ValidationProblemDetails` body. Both adapters
 skip straight to the framework's ordinary success path when the report has no errors
 (`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections
 above). The handler's or action's own return value passes through completely untouched, with no
-warnings attached, because there is no wire contract for a successful response to carry them.
+advisories attached, because there is no wire contract for a successful response to carry them.
 
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) and
 [`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs) for

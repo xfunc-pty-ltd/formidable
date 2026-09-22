@@ -6,6 +6,7 @@ public class ReviewedPost
 {
     public string Title { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
     public string ReviewNote { get; set; } = string.Empty;
 }
 
@@ -27,7 +28,10 @@ public class ReviewedPostValidator : ProfiledValidator<ReviewedPost>
     protected override void ConfigureProfiles()
     {
         Profile(ValidationProfile.SubmitRuleSetName, () =>
-            RuleFor(p => p.Slug).NotEmpty().WithMessage("Slug is required"));
+        {
+            RuleFor(p => p.Slug).NotEmpty().WithMessage("Slug is required");
+            RuleFor(p => p.Category).NotEmpty().WithMessage("Category is required");
+        });
 
         Profile("AdminReview", () =>
             RuleFor(p => p.ReviewNote).NotEmpty().WithMessage("A review note is required for admin review"));

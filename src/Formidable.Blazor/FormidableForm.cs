@@ -44,7 +44,13 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter]
     public EventCallback<SubmitOutcome> OnInvalidSubmit { get; set; }
 
-    /// <summary>Additional attributes splatted onto the rendered form element.</summary>
+    /// <summary>
+    /// Additional attributes splatted onto the rendered form element. A consumer-supplied
+    /// <c>id</c> or <c>tabindex</c> is ignored: the rendered <c>id</c> is always the deterministic
+    /// <see cref="FormidableFieldId"/> for the model-level field, and <c>tabindex="-1"</c> keeps it
+    /// focusable for the all-suppressed gate's summary entry — the same override policy the kit's
+    /// inputs apply to their own <c>id</c>.
+    /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
@@ -102,9 +108,13 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
+        // Keys the cascade below on _context's own identity (the same idiom EditForm itself uses
+        // for EditContext) — see the trailing comment for why this region exists.
+        builder.OpenRegion(_context!.GetHashCode());
         builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
-        builder.AddComponentParameter(1, "Value", _context);
-        builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+        builder.AddComponentParameter(1, "IsFixed", true);
+        builder.AddComponentParameter(2, "Value", _context);
+        builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
         {
             inner.OpenComponent<EditForm>(0);
             inner.AddComponentParameter(1, nameof(EditForm.EditContext), _editContext);
@@ -113,12 +123,31 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             {
                 inner.AddMultipleAttributes(3, AdditionalAttributes!);
             }
-            inner.AddComponentParameter(4, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
+            // Rendered after the splat, so they win the duplicate-attribute race: the all-suppressed
+            // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
+            // consumer-supplied id or tabindex would break that the same way a consumer-supplied
+            // input id would — see FormidableInputBase<TValue>'s identical policy.
+            inner.AddAttribute(4, "id", FormidableFieldId.For(new FieldIdentifier(Model, string.Empty)));
+            inner.AddAttribute(5, "tabindex", "-1");
+            inner.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();
-        // Not IsFixed: the context instance is replaced whenever Model is swapped (a new
-        // engine/EditContext pair), and descendants must observe the replacement.
+        builder.CloseRegion();
+        // IsFixed: a non-fixed CascadingValue re-supplies every subscriber's parameters from a
+        // snapshot of the parent's PREVIOUS render on every re-render of this component, even
+        // though FormidableFormContext is the same instance — that stale re-supply is what let a
+        // kit input's own just-committed Value be overwritten with the value it held a moment
+        // earlier (a caret jump in text, a wiped segment in a date input). Losing that
+        // notification costs nothing an input needs: ongoing state (touched, validating, errors)
+        // never travels through the cascade at all, fixed or not — it travels through
+        // Engine.StateChanged, which every kit input subscribes to directly (see
+        // FormContextBinding). The cascade's only remaining job is handing a descendant ITS OWN
+        // reference to the context once, at mount. The region above turns a Model swap into
+        // exactly that kind of mount for every descendant: it keys this cascade on _context's own
+        // identity, so a swap destroys this component — not merely what renders below it — and a
+        // fresh instance takes its place, whose subscribers are therefore all newly mounted and
+        // read the swapped-in Value on their own first render, with no notification to miss.
     }
 
     /// <inheritdoc />

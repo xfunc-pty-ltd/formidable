@@ -13,9 +13,9 @@ tests, running a real project's forms today.
   for save-as-you-go, a strict Submit profile for the real thing, both defined once in the same
   FluentValidation class. Wizard steps and approval stages are custom profiles over that same
   definition.
-- A headless component kit — FormidableForm, FormidableField, FieldMessage, and FormSummary own
-  the EditContext and render exactly what the validator reports. The library ships no CSS, so
-  the kit drops into a UI library, a design system, or plain HTML.
+- A headless component kit — FormidableForm, FormidableField, FormidableFieldMessage, and
+  FormidableSummary own the EditContext and render exactly what the validator reports. The
+  library ships no CSS, so the kit drops into a UI library, a design system, or plain HTML.
 - One validator, client and server — the same FluentValidation rules run in the browser and
   again on the server, and the server's ValidationProblemDetails response applies straight into
   the engine, so a rejected save lights up the exact fields inline.
@@ -46,8 +46,8 @@ Register it and your FluentValidation validators:
     builder.Services.AddFormidableBlazor();
     builder.Services.AddScoped<IValidator<QuickContact>, QuickContactValidator>();
 
-Then wrap a model in FormidableForm and let FormidableInputText, FieldMessage, and FormSummary
-render whatever the validator reports. That is a working form.
+Then wrap a model in FormidableForm and let FormidableInputText, FormidableFieldMessage, and
+FormidableSummary render whatever the validator reports. That is a working form.
 
 ## Links
 

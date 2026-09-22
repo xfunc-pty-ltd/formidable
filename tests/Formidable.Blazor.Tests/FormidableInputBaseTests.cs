@@ -7,9 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
-public class ValidatedInputBaseTests : BunitContext
+public class FormidableInputBaseTests : BunitContext
 {
-    public ValidatedInputBaseTests()
+    public FormidableInputBaseTests()
     {
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
@@ -85,6 +85,36 @@ public class ValidatedInputBaseTests : BunitContext
         form.Find("input").Input("hello");
 
         Assert.Equal("hello", order.Description);
+    }
+
+    // Pins the split OnBlur adds: the value commits on change alone, with no engine notification
+    // riding along — so a rule that would fail (11 chars, past EngineOrderValidator's max) commits
+    // to the model but starts no live pass, and the class stays exactly what an untouched field
+    // renders (empty; see FormidableCss.Compute).
+    [Fact]
+    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    {
+        var order = new EngineOrder();
+        var form = RenderInput(order, InputUpdateMode.OnBlur);
+
+        form.Find("input").Change(new string('x', 11));
+
+        Assert.Equal(new string('x', 11), order.Description);
+        Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
+    }
+
+    // The other half: once the committed value above is followed by blur, the engine is notified
+    // and the live pass that was withheld on change now runs.
+    [Fact]
+    public void Blur_mode_notifies_the_engine_on_blur()
+    {
+        var order = new EngineOrder();
+        var form = RenderInput(order, InputUpdateMode.OnBlur);
+
+        form.Find("input").Change(new string('x', 11));
+        form.Find("input").Blur();
+
+        form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
     [Fact]
@@ -163,12 +193,99 @@ public class ValidatedInputBaseTests : BunitContext
         Assert.Equal("Order description", form.Find("input").GetAttribute("placeholder"));
     }
 
+    // Pins a stale-cascade regression: a bare kit input (no FormidableField wrapper — wrapping it
+    // would mask the symptom, since FormidableField is itself a cascade subscriber notified BEFORE
+    // the input in subscription order, so its own re-render would overwrite the input's parameters
+    // with the fresh value first) sits behind a NON-fixed CascadingValue<FormidableFormContext>
+    // carrying the SAME context instance throughout the test — no replacement, unlike the rebind
+    // test below. A host that re-renders as a normal consequence of ValueChanged (exactly what
+    // @bind-Value does on a real page) causes Blazor to re-notify the cascade's subscribers with a
+    // stale direct-parameters snapshot taken before the keystroke — so the input can be handed
+    // back the value it just replaced, one render after committing the new one. This fails at
+    // IsFixed=false (the sequence regresses to the pre-commit value after the fresh commit render)
+    // and passes once the cascade is IsFixed=true.
+    [Fact]
+    public void A_bare_input_is_never_handed_back_the_value_it_just_replaced()
+    {
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<DescriptionHost>(0);
+            builder.AddComponentParameter(1, nameof(DescriptionHost.Order), order);
+            builder.CloseComponent();
+        });
+
+        var tracker = cut.FindComponent<ValueTrackingInput>().Instance;
+        tracker.RenderedValues.Clear(); // only the renders caused by the commit below matter
+
+        cut.Find("input").Change("hello");
+
+        cut.WaitForAssertion(() => Assert.Contains("hello", tracker.RenderedValues));
+
+        var committedAt = tracker.RenderedValues.IndexOf("hello");
+        for (var i = committedAt + 1; i < tracker.RenderedValues.Count; i++)
+        {
+            Assert.True(
+                tracker.RenderedValues[i] == "hello",
+                $"render {i} handed the input '{tracker.RenderedValues[i]}' after it had already committed 'hello' (full sequence: {string.Join(", ", tracker.RenderedValues)})");
+        }
+    }
+
+    /// <summary>
+    /// Renders <see cref="ValueTrackingInput"/> bare inside a <c>FormidableForm</c>, with
+    /// <c>ValueChanged</c> bound to THIS component — mirroring a real consumer page, where
+    /// committing a value auto-renders the owning page (the same mechanism <c>@bind-Value</c>
+    /// relies on) and that page's re-render re-supplies <c>FormidableForm</c>'s ChildContent.
+    /// </summary>
+    private sealed class DescriptionHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", Order);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<ValueTrackingInput>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => Order.Description));
+                inner.AddComponentParameter(2, "Value", Order.Description);
+                inner.AddComponentParameter(3, "ValueChanged",
+                    EventCallback.Factory.Create<string?>(this, v => Order.Description = v ?? string.Empty));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>Records the <c>Value</c> it renders on every <c>BuildRenderTree</c> call, in order.</summary>
+    private sealed class ValueTrackingInput : FormidableInputBase<string?>
+    {
+        public List<string?> RenderedValues { get; } = new();
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            RenderedValues.Add(Value);
+            builder.OpenElement(0, "input");
+            builder.AddMultipleAttributes(1, AdditionalAttributes!);
+            builder.AddAttribute(2, "id", ElementId);
+            builder.AddAttribute(3, "class", CssClass);
+            builder.AddMultipleAttributes(4, AriaAttributes!);
+            builder.AddAttribute(5, "value", Value);
+            AddValueBinding(builder, 6);
+            builder.CloseElement();
+        }
+    }
+
     // Regression test mirroring FormidableFieldTests.Field_rebinds_when_the_cascaded_context_is_replaced_without_a_host_remount:
-    // ValidatedInputBase must rebind its registration AND its engine StateChanged subscription
-    // when the cascaded FormidableFormContext instance changes, independent of a host remount.
-    // Cascading the context directly (no EditForm underneath) isolates this from EditForm's own
-    // subtree-recreation behaviour on EditContext swap (see the sibling test's remarks for why
-    // a test built on top of FormidableForm cannot distinguish fixed from unfixed component code).
+    // FormidableInputBase must rebind its registration AND its engine StateChanged subscription
+    // when the cascaded FormidableFormContext instance is REPLACED BY A GENUINELY DIFFERENT
+    // INSTANCE, independent of a host remount — distinct from the stale-re-supply test above,
+    // where the instance never changes at all. Cascading the context directly (no EditForm
+    // underneath) isolates this from EditForm's own subtree-recreation behaviour on EditContext
+    // swap (see the sibling test's remarks for why a test built on top of FormidableForm cannot
+    // distinguish fixed from unfixed component code).
     [Fact]
     public void Input_rebinds_when_the_cascaded_context_is_replaced_without_a_host_remount()
     {

@@ -15,8 +15,8 @@ ever surfaces when the markup that would show it is actually mounted.
 ## Need to know
 
 A field's issue only ever reaches the screen if something is currently rendering that field —
-`FormidableInputText` and other `ValidatedInputBase<TValue>` descendants, the renderless
-`FormidableField`, or the registration-only `FieldAnchor`. Each of those registers the field for
+`FormidableInputText` and other `FormidableInputBase<TValue>` descendants, the renderless
+`FormidableField`, or the registration-only `FormidableFieldAnchor`. Each of those registers the field for
 as long as it stays mounted. The one guardrail: if literally everything that's failing is
 unregistered, submit still blocks with a form-level explanation instead of quietly doing nothing —
 
@@ -38,6 +38,16 @@ unregistered, submit still blocks with a form-level explanation instead of quiet
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
 
+That model-level issue needs somewhere to land, the same as any other: `FormidableSummary`'s
+click-to-focus addresses it by `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`,
+exactly like a named field. `FormidableForm` renders that id — plus `tabindex="-1"` so the
+otherwise-inert `<form>` element can hold focus — on its own `<form>` automatically, so the gate's
+summary entry works without a page rendering anything for it (see
+[CSS and accessibility](css-and-accessibility.md) for the id mechanics, and
+[Component kit](component-kit.md) for what `FormidableForm` renders). Attach mode's
+`FormidableValidator` renders no `<form>` of its own, so a page using it still renders that id by
+hand — see [Component kit](component-kit.md)'s `FormidableValidator` section for the pattern.
+
 That gate only fires when every failing field is hidden; the ordinary case is narrower. At
 submit, the engine resolves each FluentValidation failure's property path to a `FieldIdentifier`
 through the model introspector, then asks the registry (`FieldRegistry`) whether that identifier
@@ -45,7 +55,7 @@ is currently revealed. [Collections and row identity](collections-and-row-identi
 that resolution walks indexed paths. A field has no matching registration when the markup that
 would render it sits behind an `@if` that isn't satisfied. The rule still ran and the issue still
 exists in the validator's report, but it never reaches the `EditContext`'s message store,
-`FieldMessage`, or `FormSummary`. It's suppressed instead, and `SuppressedIssueDiagnostic` (see
+`FormidableFieldMessage`, or `FormidableSummary`. It's suppressed instead, and `SuppressedIssueDiagnostic` (see
 [Options](options.md)) is invoked once per suppressed issue so you can still observe it outside
 the UI.
 
@@ -61,13 +71,13 @@ suppressed, and the defensive gate catching the all-suppressed case:
 ```mermaid
 flowchart TD
     A["Submit runs"] --> B["For each failing field: is a rendering component currently registered for it?"]
-    B -- "yes" --> C["Issue is revealed to FieldMessage / FormSummary"]
+    B -- "yes" --> C["Issue is revealed to FormidableFieldMessage / FormidableSummary"]
     B -- "no" --> D["Issue is suppressed for this submit"]
     D --> E["SuppressedIssueDiagnostic fires once per suppressed issue"]
 
     C --> F{"Any revealed error left?"}
     E --> F
-    F -- "yes" --> G["Submit blocks; FormSummary shows whichever issues are visible now"]
+    F -- "yes" --> G["Submit blocks; FormidableSummary shows whichever issues are visible now"]
     F -- "no, every failing field was hidden" --> H["Defensive gate adds one model-level explanation instead"]
     H --> G
 
@@ -105,7 +115,7 @@ user has opened the section:
             <label>Traveler name
                 <FormidableInputText For="() => _request.TravelerName"
                                      @bind-Value="_request.TravelerName" /></label>
-            <FieldMessage For="() => _request.TravelerName" />
+            <FormidableFieldMessage For="() => _request.TravelerName" />
         </div>
     }
 ```
@@ -156,7 +166,7 @@ Formidable-wrapped input:
                     </select>
                 </label>
             </FormidableField>
-            <FieldMessage For="() => _request.AccommodationType" />
+            <FormidableFieldMessage For="() => _request.AccommodationType" />
 
             @if (_request.AccommodationType == "Accessible")
             {
@@ -164,7 +174,7 @@ Formidable-wrapped input:
                     <label>Special requirements
                         <FormidableInputText For="() => _request.SpecialRequirements"
                                               @bind-Value="_request.SpecialRequirements" /></label>
-                    <FieldMessage For="() => _request.SpecialRequirements" />
+                    <FormidableFieldMessage For="() => _request.SpecialRequirements" />
                 </div>
             }
         </fieldset>
@@ -191,11 +201,12 @@ permanently unregistered — exactly the all-suppressed case the defensive gate 
 submit at all. Use this pattern whenever a field's relevance is determined by data, not by a
 UI-only toggle.
 
-## FieldAnchor for raw and foreign controls
+## FormidableFieldAnchor for raw and foreign controls
 
 Anything Formidable doesn't wrap — a plain `<input>`, a native `<select>`, a third-party
-component — never registers on its own. `FieldAnchor` is a registration-only marker that renders
-nothing; placing it next to a raw control keeps automatic disclosure truthful for it. It suits
+component — never registers on its own. `FormidableFieldAnchor` is a registration-only marker
+that renders nothing; placing it next to a raw control keeps automatic disclosure truthful for
+it. It suits
 controls that already notify the `EditContext` of changes through the ordinary Blazor forms
 pipeline — a native `InputText` is itself an `InputBase<TValue>` descendant, so it calls
 `EditContext.NotifyFieldChanged` on its own without any help. The vanilla-interop sample's
@@ -209,7 +220,7 @@ nickname field is the remaining genuine example:
                        aria-invalid="@NicknameAriaInvalid"
                        aria-describedby="@($"{NicknameId}-messages")" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
-        <FieldAnchor For="() => _order.Nickname" />
+        <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
 ```
 
@@ -225,14 +236,15 @@ Blazor's own binding already keeps the engine's live pass running. The disclosur
 accommodation radio group and type `<select>` used to be anchored the same way, but a hand-wired
 `@onchange` on a raw element doesn't call `EditContext.NotifyFieldChanged` the way `InputBase`
 does. So both now render inside `FormidableField` instead, whose context exposes the
-`NotifyChanged()` their handlers call explicitly. Reach for `FieldAnchor` when a raw or foreign
-control already drives the engine's live pass by some other means and only needs registering;
-reach for `FormidableField` when a raw or hand-wired control needs to trigger that pass itself.
+`NotifyChanged()` their handlers call explicitly. Reach for `FormidableFieldAnchor` when a raw or
+foreign control already drives the engine's live pass by some other means and only needs
+registering; reach for `FormidableField` when a raw or hand-wired control needs to trigger that
+pass itself.
 
 ## KeepRegistered and virtualization
 
-Every registering component — `ValidatedInputBase<TValue>` descendants, `FieldAnchor`,
-`FormidableField`, and `CollectionMessage` — exposes a `KeepRegistered` parameter. A container
+Every registering component — `FormidableInputBase<TValue>` descendants, `FormidableFieldAnchor`,
+`FormidableField`, and `FormidableCollectionMessage` — exposes a `KeepRegistered` parameter. A container
 such as `Virtualize` disposes rows that scroll out of view, even though they remain part of the
 form. Without `KeepRegistered`, a scrolled-away row's field would unregister and its errors would
 go quiet while the row still sits in the model. Setting `KeepRegistered` on the row's fields

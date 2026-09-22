@@ -14,7 +14,7 @@
         <ul>
             <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
             <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
-            <li>Non-error issues in the response (warnings) are listed by the page, not applied to fields.</li>
+            <li>Non-error issues in the response (advisories) are listed by the page, not applied to fields.</li>
             <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
             <li>The same validation filter runs in both hosting styles — pick Minimal API or the MVC controller above and the 400 shape is identical.</li>
             <li><code>OrdersController.cs</code> in the panel below is real server source — the MVC twin of the minimal-API mapping, behind the same filter. <code>requests.http</code> in the API project calls both endpoints without the UI.</li>
@@ -47,15 +47,15 @@
 <p class="endpoint-caption"><small>POST <code>@_endpoint</code> on the API (port 5180)</small></p>
 
 <FormidableForm @ref="_form" Model="_order">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Description <FormidableInputText For="() => _order.Description" @bind-Value="_order.Description" /></label>
-        <FieldMessage For="() => _order.Description" /></div>
+        <FormidableFieldMessage For="() => _order.Description" /></div>
 
     @foreach (var line in _order.Lines)
     {
         <div class="field" @key="line"><label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
-            <FieldMessage For="() => line.Sku" /></div>
+            <FormidableFieldMessage For="() => line.Sku" /></div>
     }
 
     <div class="actions">
@@ -64,13 +64,13 @@
     </div>
 </FormidableForm>
 
-@if (_serverWarnings.Count > 0)
+@if (_serverAdvisories.Count > 0)
 {
-    <h2>Server warnings (non-blocking)</h2>
+    <h2>Server advisories (non-blocking)</h2>
     <ul>
-        @foreach (var warning in _serverWarnings)
+        @foreach (var advisory in _serverAdvisories)
         {
-            <li>@warning</li>
+            <li>@advisory</li>
         }
     </ul>
 }

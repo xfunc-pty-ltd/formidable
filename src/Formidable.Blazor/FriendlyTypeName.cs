@@ -3,7 +3,8 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Renders a runtime type's name the way a developer wrote it, for diagnostics.
 /// <c>Type.Name</c> keeps the CLR's generic-arity suffix, so a generic component reporting
-/// itself with <c>GetType().Name</c> would say "FieldMessage`1" rather than "FieldMessage".
+/// itself with <c>GetType().Name</c> would say "FormidableFieldMessage`1" rather than
+/// "FormidableFieldMessage".
 /// </summary>
 internal static class FriendlyTypeName
 {

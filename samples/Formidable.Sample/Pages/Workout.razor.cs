@@ -50,12 +50,10 @@ public partial class Workout : IDisposable
     private FieldIdentifier VenueRegionField => new(_registration, nameof(EventRegistration.VenueRegion));
 
     // The focus service addresses a field by its id and nothing else, so a field this page renders
-    // itself has to render that id too. The native venue input is one; the model-level field the
-    // defensive gate reports under is the other, and it has no input at all - the form element
-    // carries it.
+    // itself has to render that id too. The native venue input is the one field on this page with
+    // no wrapper to do it for it; the model-level field the defensive gate reports under has no
+    // input at all, but FormidableForm renders that id itself, on the form element.
     private string VenueRegionId => FormidableFieldId.For(VenueRegionField);
-
-    private string FormGateId => FormidableFieldId.For(new FieldIdentifier(_registration, string.Empty));
 
     // A wrapped input takes aria-invalid from its field context; a native one has no context, so
     // the page reads the same state off the engine. Null renders no attribute at all, which is
@@ -140,14 +138,6 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    // Change fires per segment keystroke on a native date input, so these only write the
-    // model - NotifyChanged waits for @onblur, once the value has settled.
-    private void ChangeEventDate(ChangeEventArgs args) =>
-        _registration.EventDate = args.Value?.ToString() ?? string.Empty;
-
-    private void ChangeEarlyBirdDeadline(ChangeEventArgs args) =>
-        _registration.EarlyBirdDeadline = args.Value?.ToString() ?? string.Empty;
-
     private void ChangeTicketTier(ChangeEventArgs args, FormidableFieldContext field)
     {
         _registration.TicketTier = args.Value?.ToString() ?? string.Empty;
@@ -157,7 +147,7 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    // FormSummary calls this when a clicked issue's element is not in the DOM (a session outside
+    // FormidableSummary calls this when a clicked issue's element is not in the DOM (a session outside
     // Virtualize's render window): scroll the panel to the row's approximate offset, give
     // Virtualize a moment to render it, then let the summary retry the focus. The retry's own
     // scrollIntoView centres the row exactly, so the row height only needs to be close.

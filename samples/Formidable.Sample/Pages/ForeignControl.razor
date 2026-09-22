@@ -22,7 +22,7 @@
 </TeachingPanel>
 
 <FormidableForm Model="_order" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
@@ -37,7 +37,7 @@
                 <option>Blue</option>
             </select>
         </div>
-        <FieldMessage For="() => _order.Colour" />
+        <FormidableFieldMessage For="() => _order.Colour" />
     </FormidableField>
 
     <div class="actions">

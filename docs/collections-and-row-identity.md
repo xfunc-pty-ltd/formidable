@@ -22,7 +22,8 @@ collection nests inside another.
 ## Need to know
 
 Three idioms turn that resolution into row-stable markup: `@key` by instance, a `For` lambda
-closing over the same instance, and a `CollectionMessage` for every collection-level rule.
+closing over the same instance, and a `FormidableCollectionMessage` for every collection-level
+rule.
 
 ```razor
                 <ul class="member-list">
@@ -30,7 +31,7 @@ closing over the same instance, and a `CollectionMessage` for every collection-l
                     {
                         <li class="field" @key="member">
                             <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
-                            <FieldMessage For="() => member.Alias" />
+                            <FormidableFieldMessage For="() => member.Alias" />
                             <div class="actions">
                                 <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
                                 <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
@@ -52,11 +53,11 @@ coordinating.
 
 Neither idiom helps a rule that has no field of its own. `Teams` and `Members` are both `List<T>`
 properties, so nothing renders an input for the list itself. A whole-collection rule like "Add at
-least one team" would have nowhere to register and nowhere to become visible. `CollectionMessage`
-closes that gap:
+least one team" would have nowhere to register and nowhere to become visible.
+`FormidableCollectionMessage` closes that gap:
 
 ```razor
-    <CollectionMessage For="() => _roster.Teams" />
+    <FormidableCollectionMessage For="() => _roster.Teams" />
 ```
 
 *Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`*
@@ -122,8 +123,8 @@ idioms at both levels:
 
 ```razor
 <FormidableForm Model="_roster" OnValidSubmit="HandleValid">
-    <FormSummary />
-    <CollectionMessage For="() => _roster.Teams" />
+    <FormidableSummary />
+    <FormidableCollectionMessage For="() => _roster.Teams" />
 
     <div class="team-list" id="@TeamsId" tabindex="-1">
         @foreach (var team in _roster.Teams)
@@ -132,16 +133,16 @@ idioms at both levels:
                 <legend>Team</legend>
                 <div class="field">
                     <label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
-                    <FieldMessage For="() => team.Name" />
+                    <FormidableFieldMessage For="() => team.Name" />
                 </div>
 
-                <CollectionMessage For="() => team.Members" />
+                <FormidableCollectionMessage For="() => team.Members" />
                 <ul class="member-list">
                     @foreach (var member in team.Members)
                     {
                         <li class="field" @key="member">
                             <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
-                            <FieldMessage For="() => member.Alias" />
+                            <FormidableFieldMessage For="() => member.Alias" />
                             <div class="actions">
                                 <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
                                 <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>

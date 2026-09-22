@@ -6,11 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
-// Adaptations (see task report):
+// Adaptations:
 // 1. bunit 2.9.0's matcher-based SetupVoid overload returns a handler that must be explicitly
 //    completed via SetVoidResult() (identifier+args overloads auto-complete; the
 //    InvocationMatcher overload used here does not) — same discovery as FocusServiceTests.cs.
-// 2. FormSummary injects IFormidableFocusService (IAsyncDisposable-only, per the binding
+// 2. FormidableSummary injects IFormidableFocusService (IAsyncDisposable-only, per the binding
 //    contract), so rendering it here — same as FocusServiceTests.cs resolving the service
 //    directly — makes the DI container capture a FormidableFocusService for disposal.
 //    BunitContext's xUnit teardown calls the synchronous IDisposable.Dispose(), which throws
@@ -20,9 +20,9 @@ namespace Formidable.Blazor.Tests;
 //    await) turns the existing fire-and-forget `form.InvokeAsync(() => ...SubmitAsync())` calls
 //    (unawaited by design — WaitForAssertion below polls for the eventual render) into CS4014
 //    errors under TreatWarningsAsErrors, so they are explicitly discarded with `_ = `.
-public class FormSummaryTests : BunitContext
+public class FormidableSummaryTests : BunitContext
 {
-    public FormSummaryTests()
+    public FormidableSummaryTests()
     {
         Services.AddFormidableBlazor();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
@@ -40,7 +40,7 @@ public class FormSummaryTests : BunitContext
             builder.AddComponentParameter(2, "Options", new FormidableOptions { DisclosureOverride = _ => true });
             builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
             {
-                inner.OpenComponent<FormSummary>(0);
+                inner.OpenComponent<FormidableSummary>(0);
                 if (focusFallback is not null)
                 {
                     inner.AddComponentParameter(1, "FocusFallback", focusFallback);

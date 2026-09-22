@@ -88,7 +88,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         _store = new ValidationMessageStore(editContext);
         _fieldChangedHandler = HandleFieldChanged;
         editContext.OnFieldChanged += _fieldChangedHandler;
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses));
+        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses, this));
         Registry = new FieldRegistry();
     }
 
@@ -236,6 +236,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     /// that triggered it; a refresh pass passes the fields edited within its debounce window; a
     /// submit pass passes <see langword="null"/> (form-wide, every field). Only meaningful when
     /// <paramref name="value"/> is <see langword="true"/> — clearing always clears the scope too.
+    /// Also raises the EditContext's own validation-state notification, not just the engine's: a
+    /// native InputBase re-renders on that event, not on <see cref="StateChanged"/>, so without it
+    /// the Pending class a native input picks up through
+    /// <see cref="FormidableFieldCssClassProvider"/> would light on the next store rebuild but have
+    /// no later trigger to clear it once the pass ends.
     /// </summary>
     private Task SetValidating(bool value, int version, HashSet<FieldIdentifier>? scope = null) =>
         _renderDispatch(() =>
@@ -245,6 +250,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 IsValidating = value;
                 _validatingScope = value ? scope : null;
                 NotifyStateChanged();
+                EditContext.NotifyValidationStateChanged();
             }
             return Task.CompletedTask;
         });
@@ -321,7 +327,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
             // What SetValidating does, plus the in-flight marker — cleared in the same dispatch and
             // before the notification, exactly as the submit pass clears _submitInFlight, so that a
             // handler which reacts by letting a deferred refresh run cannot still see this pass as
-            // the one in flight.
+            // the one in flight. Also raises EditContext.NotifyValidationStateChanged() itself
+            // (inlined rather than routed through SetValidating, which does the same) so a native
+            // InputBase — which re-renders on that event, not on StateChanged — clears the Pending
+            // class this pass's own start already gave it.
             await _renderDispatch(() =>
             {
                 if (version == _version)
@@ -330,6 +339,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     _validatingScope = null;
                     _liveVersion = -1;
                     NotifyStateChanged();
+                    EditContext.NotifyValidationStateChanged();
                 }
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
@@ -540,6 +550,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         }
         finally
         {
+            // Inlined rather than routed through SetValidating (which does the same) so the
+            // in-flight marker clears in the same dispatch; also raises
+            // EditContext.NotifyValidationStateChanged() so a native InputBase — which re-renders
+            // on that event, not on StateChanged — clears the Pending class this pass's own start
+            // already gave it.
             await _renderDispatch(() =>
             {
                 if (version == _version)
@@ -548,6 +563,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     _validatingScope = null;
                     _submitInFlight = false;
                     NotifyStateChanged();
+                    EditContext.NotifyValidationStateChanged();
                 }
                 return Task.CompletedTask;
             }).ConfigureAwait(false);

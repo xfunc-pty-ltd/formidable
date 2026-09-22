@@ -31,7 +31,7 @@
 </p>
 
 <FormidableForm Model="_handle" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">
@@ -41,7 +41,7 @@
                 <em role="status">checking…</em>
             }
         </div>
-        <FieldMessage For="() => _handle.Username" />
+        <FormidableFieldMessage For="() => _handle.Username" />
     </FormidableField>
 
     <FormidableField For="() => _handle.DisplayName" Context="field">
@@ -52,7 +52,7 @@
                 <em role="status">checking…</em>
             }
         </div>
-        <FieldMessage For="() => _handle.DisplayName" />
+        <FormidableFieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
 
     <div class="actions">

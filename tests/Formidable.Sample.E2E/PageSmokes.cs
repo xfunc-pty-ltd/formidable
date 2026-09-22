@@ -42,6 +42,7 @@ public sealed class PageSmokes(SampleAppFixture app)
 
         await page.GetByLabel("Title", new() { Exact = true }).FillAsync("Release notes");
         await page.GetByLabel("Slug", new() { Exact = true }).FillAsync("release-notes");
+        await Field(page, "category").SelectOptionAsync("Tutorial");
         await SubmitAsync(page);
 
         // Standard submit does not include the AdminReview ruleset, so the empty review note passes.

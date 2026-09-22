@@ -1,7 +1,7 @@
 namespace Formidable;
 
 /// <summary>
-/// The wire shape of one non-error issue carried on the <c>warnings</c> extension of a
+/// The wire shape of one non-error issue carried on the <c>advisories</c> extension of a
 /// validation ProblemDetails payload. <paramref name="Severity"/> is the
 /// <see cref="ValidationSeverity"/> member name as a string ("Warning" or "Info").
 /// </summary>
@@ -10,7 +10,7 @@ namespace Formidable;
 /// <param name="Severity">Severity name; unknown values are read as Warning.</param>
 /// <param name="Code">Optional machine-readable code.</param>
 /// <param name="DisplayName">Optional user-facing field name.</param>
-public sealed record ValidationProblemWarning(
+public sealed record ValidationProblemAdvisory(
     string Path,
     string Message,
     string Severity,

@@ -7,7 +7,7 @@
 <TeachingPanel CodeFiles="@(new[] { "TrimmedNote.cs", "Normalize.razor", "Normalize.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces.</li>
+            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces. <strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed the same way.</li>
             <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
             <li>Client code has no automatic hook — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
             <li>Messages describe the last validated value, not the model's current one — <em>Normalize now</em> changes only the model, so any message already on screen stays put until the next validation pass (e.g. submit) judges the cleaned value.</li>
@@ -23,12 +23,12 @@
 </TeachingPanel>
 
 <FormidableForm @ref="_form" Model="_note">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Title <FormidableInputText For="() => _note.Title" @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
-        <FieldMessage For="() => _note.Title" /></div>
-    <div class="field"><label>Body <FormidableInputText For="() => _note.Body" @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
-        <FieldMessage For="() => _note.Body" /></div>
+        <FormidableFieldMessage For="() => _note.Title" /></div>
+    <div class="field"><label>Body <FormidableInputTextArea For="() => _note.Body" @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <FormidableFieldMessage For="() => _note.Body" /></div>
 
     <div class="actions">
         <button type="button" @onclick="NormalizeNow">Normalize now</button>

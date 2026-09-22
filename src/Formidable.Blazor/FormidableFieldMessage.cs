@@ -10,22 +10,25 @@ namespace Formidable.Blazor;
 /// resolves <see cref="For"/> to a <see cref="FieldIdentifier"/>, subscribes to the cascaded
 /// engine's <see cref="IFormValidationEngine.StateChanged"/> so a validation pass re-renders the
 /// list, and renders an accessible message list from <see cref="IFormValidationEngine.GetIssues"/>
-/// — nothing when the field currently has no issues. The constructor is not accessible outside
-/// this assembly, so <see cref="FieldMessage{TValue}"/> and <see cref="CollectionMessage{TValue}"/>
-/// are the only two shapes; whether the field is also registered with the field registry is the
-/// one thing they differ on (see <see cref="Register"/>). <see cref="For"/> is (re-)read whenever
+/// — nothing when the field currently has no issues. This type is public only because a public
+/// component cannot inherit a less accessible base; it is not an extension point, and unlike
+/// <see cref="FormidableInputBase{TValue}"/> it is not meant to be one. The constructor is not
+/// accessible outside this assembly, so <see cref="FormidableFieldMessage{TValue}"/> and
+/// <see cref="FormidableCollectionMessage{TValue}"/> are the only two shapes; whether the field
+/// is also registered with the field registry is the one thing they differ on (see
+/// <see cref="Register"/>). <see cref="For"/> is (re-)read whenever
 /// the cascaded <see cref="FormidableFormContext"/> is a new instance — including the first
 /// render and again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c> swaps
 /// its model and rebuilds its engine and registry — so any registration and the engine
 /// subscription always target the currently-active context.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
-public abstract class FieldMessageBase<TValue> : ComponentBase, IDisposable
+public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
 {
     private readonly FormContextBinding _binding = new();
     private FieldIdentifier _field;
 
-    private protected FieldMessageBase()
+    private protected FormidableMessageBase()
     {
     }
 
@@ -39,8 +42,9 @@ public abstract class FieldMessageBase<TValue> : ComponentBase, IDisposable
     /// <summary>
     /// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
     /// returns null to skip registration. Messages are not inputs, so the base implementation
-    /// (used by <see cref="FieldMessage{TValue}"/>) never registers; <see cref="CollectionMessage{TValue}"/>
-    /// overrides this to mark its collection-level path revealed so collection-level rules
+    /// (used by <see cref="FormidableFieldMessage{TValue}"/>) never registers;
+    /// <see cref="FormidableCollectionMessage{TValue}"/> overrides this to mark its
+    /// collection-level path revealed so collection-level rules
     /// surface even though the collection itself has no validated input registering it.
     /// </summary>
     private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
@@ -103,10 +107,11 @@ public abstract class FieldMessageBase<TValue> : ComponentBase, IDisposable
 /// <summary>
 /// Renders a field's current validation issues (any severity) as an accessible message list;
 /// renders nothing when the field has none. Does not register with the field registry — messages
-/// are not inputs, so pairing a message with a validated input (or a <see cref="FieldAnchor{TValue}"/>)
-/// elsewhere in the form is what keeps the field revealed.
+/// are not inputs, so pairing a message with a validated input (or a
+/// <see cref="FormidableFieldAnchor{TValue}"/>) elsewhere in the form is what keeps the field
+/// revealed.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FieldMessageBase{TValue}.For"/>).</typeparam>
-public sealed class FieldMessage<TValue> : FieldMessageBase<TValue>
+/// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
+public sealed class FormidableFieldMessage<TValue> : FormidableMessageBase<TValue>
 {
 }

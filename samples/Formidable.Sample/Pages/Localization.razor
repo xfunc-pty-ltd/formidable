@@ -34,12 +34,12 @@
 </fieldset>
 
 <FormidableForm Model="_profile" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Full Name <FormidableInputText For="() => _profile.FullName" @bind-Value="_profile.FullName" /></label>
-        <FieldMessage For="() => _profile.FullName" /></div>
+        <FormidableFieldMessage For="() => _profile.FullName" /></div>
     <div class="field"><label>Age <FormidableInputText For="() => _profile.Age" @bind-Value="_profile.Age" /></label>
-        <FieldMessage For="() => _profile.Age" /></div>
+        <FormidableFieldMessage For="() => _profile.Age" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>

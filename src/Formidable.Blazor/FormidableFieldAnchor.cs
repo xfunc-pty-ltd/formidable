@@ -14,7 +14,7 @@ namespace Formidable.Blazor;
 /// the currently-active registry.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
-public sealed class FieldAnchor<TValue> : ComponentBase, IDisposable
+public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
 {
     private readonly FormContextBinding _binding = new();
 

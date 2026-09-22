@@ -7,9 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
-public class FieldAnchorTests : BunitContext
+public class FormidableFieldAnchorTests : BunitContext
 {
-    public FieldAnchorTests()
+    public FormidableFieldAnchorTests()
     {
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
@@ -27,9 +27,19 @@ public class FieldAnchorTests : BunitContext
         Assert.DoesNotContain(FormidableFieldId.For(new FieldIdentifier(a, "Location.X")), ".");
     }
 
-    // Adaptation (see class remarks / task report): bunit 2.9.0 does not dispose the first
-    // tree when a second top-level `Render` call replaces it on the same BunitContext, so the
-    // anchor is rendered behind a bool flag component parameter and flipped via re-parameterization
+    [Fact]
+    public void Expression_overload_matches_the_string_path()
+    {
+        var order = new EngineOrder();
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description))),
+            FormidableFieldId.For(order, o => o.Description));
+    }
+
+    // Adaptation: bunit 2.9.0 does not dispose the first tree when a second top-level `Render`
+    // call replaces it on the same BunitContext, so the anchor is rendered behind a bool flag
+    // component parameter and flipped via re-parameterization
     // (`IRenderedComponent<T>.Render(...)`, the v2 equivalent of SetParametersAndRender) instead of
     // replacing the whole tree. The assertions are unchanged: reveal on register, hide on dispose.
     [Fact]
@@ -56,11 +66,12 @@ public class FieldAnchorTests : BunitContext
     // recreates its entire descendant subtree whenever its EditContext instance changes (it opens
     // a render region keyed on `_editContext.GetHashCode()` specifically so its internal
     // `CascadingValue<EditContext> IsFixed="true"` is safe — see EditForm.BuildRenderTree). That
-    // means a FieldAnchor nested inside a FormidableForm/FormidableValidator-wrapped EditForm is
-    // ALWAYS disposed and freshly constructed on a model swap, regardless of whether FieldAnchor
-    // itself rebinds on cascading-parameter changes — so a test built on top of FormidableForm
-    // cannot distinguish fixed from unfixed FieldAnchor code. Cascading a FormidableFormContext
-    // directly (no EditForm underneath) isolates FieldAnchor's own contract: it must rebind when
+    // means a FormidableFieldAnchor nested inside a FormidableForm/FormidableValidator-wrapped
+    // EditForm is ALWAYS disposed and freshly constructed on a model swap, regardless of whether
+    // FormidableFieldAnchor itself rebinds on cascading-parameter changes — so a test built on
+    // top of FormidableForm cannot distinguish fixed from unfixed FormidableFieldAnchor code.
+    // Cascading a FormidableFormContext directly (no EditForm underneath) isolates
+    // FormidableFieldAnchor's own contract: it must rebind when
     // the cascaded context instance changes, independent of whatever caused that change.
     [Fact]
     public void Anchor_rebinds_registration_when_the_cascaded_context_is_replaced()
@@ -69,8 +80,8 @@ public class FieldAnchorTests : BunitContext
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
         RenderFragment fieldFragment = inner =>
         {
-            inner.OpenComponent<FieldAnchor<string>>(0);
-            inner.AddComponentParameter(1, nameof(FieldAnchor<string>.For), (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.OpenComponent<FormidableFieldAnchor<string>>(0);
+            inner.AddComponentParameter(1, nameof(FormidableFieldAnchor<string>.For), (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
             inner.CloseComponent();
         };
 
@@ -111,7 +122,7 @@ public class FieldAnchorTests : BunitContext
         var order = new EngineOrder();
         var exception = Assert.ThrowsAny<Exception>(() => Render(builder =>
         {
-            builder.OpenComponent<FieldAnchor<string>>(0);
+            builder.OpenComponent<FormidableFieldAnchor<string>>(0);
             builder.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
             builder.CloseComponent();
         }));
@@ -136,8 +147,8 @@ public class FieldAnchorTests : BunitContext
             {
                 if (ShowAnchor)
                 {
-                    inner.OpenComponent<FieldAnchor<string>>(0);
-                    inner.AddComponentParameter(1, nameof(FieldAnchor<string>.For), (System.Linq.Expressions.Expression<Func<string>>)(() => Order.Description));
+                    inner.OpenComponent<FormidableFieldAnchor<string>>(0);
+                    inner.AddComponentParameter(1, nameof(FormidableFieldAnchor<string>.For), (System.Linq.Expressions.Expression<Func<string>>)(() => Order.Description));
                     inner.CloseComponent();
                 }
             }));

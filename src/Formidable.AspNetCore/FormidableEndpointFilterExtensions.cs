@@ -12,7 +12,7 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>warnings</c> extension and
+    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
     /// never block on their own.
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
@@ -29,7 +29,7 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>warnings</c> extension and
+    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
     /// never block on their own.
     /// </summary>
     /// <param name="builder">The route group to validate.</param>

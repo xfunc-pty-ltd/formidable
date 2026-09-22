@@ -11,7 +11,7 @@ namespace Formidable.AspNetCore;
 /// Validates action arguments with a Formidable profile before the action runs: normalize
 /// (when a model implements <see cref="INormalizableModel"/>), validate, and short-circuit to
 /// a 400 ValidationProblemDetails — errors keyed by the client's path format, non-error
-/// issues on the <c>warnings</c> extension — when any error issue exists.
+/// issues on the <c>advisories</c> extension — when any error issue exists.
 /// </summary>
 /// <remarks>
 /// Without constructor arguments, every non-null action argument whose type has a registered
@@ -92,10 +92,10 @@ public sealed class ValidateAttribute : ActionFilterAttribute
                 Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
             };
 
-            var warnings = ValidationReportProblemMapper.ToWarnings(aggregate);
-            if (warnings.Count > 0)
+            var advisories = ValidationReportProblemMapper.ToAdvisories(aggregate);
+            if (advisories.Count > 0)
             {
-                problem.Extensions[ValidationReportProblemMapper.WarningsExtensionKey] = warnings;
+                problem.Extensions[ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories;
             }
 
             // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on

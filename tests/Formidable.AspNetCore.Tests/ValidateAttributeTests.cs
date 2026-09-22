@@ -111,7 +111,7 @@ public class ValidateAttributeTests
         var body = await response.Content.ReadAsStringAsync();
         var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(body, JsonSerializerOptions.Web);
         Assert.Contains("Sku required", problem!.Errors["Items[0].Sku"]);
-        Assert.Contains(problem.Warnings, w => w.Path == "Description" && w.Severity == "Warning");
+        Assert.Contains(problem.Advisories, w => w.Path == "Description" && w.Severity == "Warning");
 
         using var document = JsonDocument.Parse(body);
         Assert.NotNull(document.RootElement.GetProperty("type").GetString());

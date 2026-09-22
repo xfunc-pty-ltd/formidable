@@ -24,11 +24,11 @@
 </TeachingPanel>
 
 <FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
-                @ref="_form" id="@FormGateId" tabindex="-1">
-    <FormSummary />
+                @ref="_form">
+    <FormidableSummary />
 
     <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
-        <FieldMessage For="() => _request.Destination" /></div>
+        <FormidableFieldMessage For="() => _request.Destination" /></div>
 
     <p>
         <button type="button"
@@ -42,7 +42,7 @@
             <label>Traveler name
                 <FormidableInputText For="() => _request.TravelerName"
                                      @bind-Value="_request.TravelerName" /></label>
-            <FieldMessage For="() => _request.TravelerName" />
+            <FormidableFieldMessage For="() => _request.TravelerName" />
         </div>
     }
 
@@ -58,7 +58,7 @@
                           checked="@(_request.NeedsAccommodation == false)"
                           @onchange="() => SetNeeds(false, field)" /> No</label>
         </FormidableField>
-        <FieldMessage For="() => _request.NeedsAccommodation" />
+        <FormidableFieldMessage For="() => _request.NeedsAccommodation" />
     </fieldset>
 
     @if (_request.NeedsAccommodation == true)
@@ -79,7 +79,7 @@
                     </select>
                 </label>
             </FormidableField>
-            <FieldMessage For="() => _request.AccommodationType" />
+            <FormidableFieldMessage For="() => _request.AccommodationType" />
 
             @if (_request.AccommodationType == "Accessible")
             {
@@ -87,7 +87,7 @@
                     <label>Special requirements
                         <FormidableInputText For="() => _request.SpecialRequirements"
                                               @bind-Value="_request.SpecialRequirements" /></label>
-                    <FieldMessage For="() => _request.SpecialRequirements" />
+                    <FormidableFieldMessage For="() => _request.SpecialRequirements" />
                 </div>
             }
         </fieldset>

@@ -24,7 +24,7 @@
 </TeachingPanel>
 
 <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
-    <FormSummary FocusFallback="ScrollToRowAsync" />
+    <FormidableSummary FocusFallback="ScrollToRowAsync" />
 
     <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
@@ -32,7 +32,7 @@
                 <label>Serial
                     <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
-                <FieldMessage For="() => gadget.Serial" />
+                <FormidableFieldMessage For="() => gadget.Serial" />
             </div>
         </Virtualize>
     </div>

@@ -6,9 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
-public class FieldMessageTests : BunitContext
+public class FormidableFieldMessageTests : BunitContext
 {
-    public FieldMessageTests()
+    public FormidableFieldMessageTests()
     {
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
@@ -34,7 +34,7 @@ public class FieldMessageTests : BunitContext
         var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
         var form = RenderWithMessage(order, inner =>
         {
-            inner.OpenComponent<FieldMessage<string>>(0);
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
             inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
             inner.CloseComponent();
         });
@@ -60,7 +60,7 @@ public class FieldMessageTests : BunitContext
         var order = new EngineOrder();
         var form = RenderWithMessage(order, inner =>
         {
-            inner.OpenComponent<FieldMessage<string>>(0);
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
             inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
             inner.CloseComponent();
         });
@@ -85,7 +85,7 @@ public class FieldMessageTests : BunitContext
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
             {
-                inner.OpenComponent<CollectionMessage<List<EngineItem>>>(0);
+                inner.OpenComponent<FormidableCollectionMessage<List<EngineItem>>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<List<EngineItem>>>)(() => order.Items));
                 inner.CloseComponent();
             }));
@@ -107,7 +107,7 @@ public class FieldMessageTests : BunitContext
         };
         var form = RenderWithMessage(order, inner =>
         {
-            inner.OpenComponent<CollectionMessage<List<EngineItem>>>(0);
+            inner.OpenComponent<FormidableCollectionMessage<List<EngineItem>>>(0);
             inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<List<EngineItem>>>)(() => order.Items));
             inner.CloseComponent();
         });
@@ -115,7 +115,7 @@ public class FieldMessageTests : BunitContext
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
         // The count rule is model-level (Path ""), so it does NOT land on Items — this
-        // asserts the boundary: CollectionMessage shows only ITS field's issues.
+        // asserts the boundary: FormidableCollectionMessage shows only ITS field's issues.
         form.WaitForAssertion(() => Assert.Empty(form.FindAll("li")));
     }
 
@@ -125,12 +125,12 @@ public class FieldMessageTests : BunitContext
         var order = new EngineOrder();
         var exception = Assert.ThrowsAny<Exception>(() => Render(builder =>
         {
-            builder.OpenComponent<FieldMessage<string>>(0);
+            builder.OpenComponent<FormidableFieldMessage<string>>(0);
             builder.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
             builder.CloseComponent();
         }));
 
-        Assert.Contains("FieldMessage must be placed", exception.Message);
-        Assert.DoesNotContain("`", exception.Message); // not the CLR's "FieldMessage`1"
+        Assert.Contains("FormidableFieldMessage must be placed", exception.Message);
+        Assert.DoesNotContain("`", exception.Message); // not the CLR's "FormidableFieldMessage`1"
     }
 }

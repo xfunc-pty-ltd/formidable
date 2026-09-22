@@ -64,7 +64,7 @@ public class EndpointFilterTests
     }
 
     [Fact]
-    public async Task Warnings_ride_the_extension_and_round_trip_to_issues()
+    public async Task Advisories_ride_the_extension_and_round_trip_to_issues()
     {
         await using var app = await StartDefaultAppAsync();
         var client = app.GetTestClient();

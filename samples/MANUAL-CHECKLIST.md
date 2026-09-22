@@ -54,10 +54,13 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Custom profiles
 
-- [ ] With *Standard submit* selected: Title + Slug filled, Review note empty — submit goes through
-- [ ] Switch to *Admin review*: the form RESETS; re-enter Title + Slug and submit — blocked,
-      the review note is now required
+- [ ] With *Standard submit* selected: Title + Slug + Category filled, Review note empty — submit
+      goes through
+- [ ] Switch to *Admin review*: the form RESETS; re-enter Title + Slug + Category and submit —
+      blocked, the review note is now required
 - [ ] Fill Review note and submit again: goes through under admin review
+- [ ] Category is a select (`FormidableInputSelect`): invalid/valid border and message behave
+      exactly like the other fields
 
 ### Progressive disclosure
 
@@ -222,6 +225,7 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       shows — no length message stacked alongside it, whatever the number of spaces
 - [ ] Both buttons fire on the FIRST click every time — no mid-click layout shift swallowing
       the press
+- [ ] Body is a textarea; chrome and focus ring match the other fields, light + dark
 
 ### Localization
 
@@ -319,10 +323,10 @@ steps build on each other.
       disappears (it is conditional, and it stays current without a resubmit)
 - [ ] **Message-bearing fields separate from the next field — both shapes.** With several
       errors showing at once, check the two idioms side by side: a message rendered INSIDE its
-      field box (Event name, Description, Coupon code) and one rendered as the field's SIBLING
-      (Contact email, both dates, Ticket tier). In both, the message sits tight under its own
-      input and leaves a clear gap before the NEXT label — no message is ever flush against the
-      label below it, and the two shapes read alike down the form
+      field box (Event name, both dates, Description, Coupon code) and one rendered as the
+      field's SIBLING (Contact email, Ticket tier). In both, the message sits tight under its
+      own input and leaves a clear gap before the NEXT label — no message is ever flush against
+      the label below it, and the two shapes read alike down the form
 - [ ] Whole page in BOTH light and dark mode: fieldset legends, the scrolling session panel's
       border/background, the foreign select's chrome, the focus outlines on the Attendees
       fieldset and the form, and the summary's severity colours all read correctly; nothing is

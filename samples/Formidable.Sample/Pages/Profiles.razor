@@ -24,12 +24,12 @@
 </TeachingPanel>
 
 <FormidableForm Model="_brief" OnValidSubmit="HandleValid">
-    <FormSummary />
+    <FormidableSummary />
 
     <div class="field"><label>Title <FormidableInputText For="() => _brief.Title" @bind-Value="_brief.Title" /></label>
-        <FieldMessage For="() => _brief.Title" /></div>
+        <FormidableFieldMessage For="() => _brief.Title" /></div>
     <div class="field"><label>Summary <FormidableInputText For="() => _brief.Summary" @bind-Value="_brief.Summary" /></label>
-        <FieldMessage For="() => _brief.Summary" /></div>
+        <FormidableFieldMessage For="() => _brief.Summary" /></div>
 
     <div class="actions">
         <button type="submit">Submit</button>

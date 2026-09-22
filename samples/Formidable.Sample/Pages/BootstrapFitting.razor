@@ -27,12 +27,12 @@
 
 <div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
     <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
-        <FormSummary />
+        <FormidableSummary />
 
         <div class="mb-3"><label class="form-label">Name <FormidableInputText class="form-control" For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
-            <FieldMessage For="() => _contact.Name" /></div>
+            <FormidableFieldMessage For="() => _contact.Name" /></div>
         <div class="mb-3"><label class="form-label">Email <FormidableInputText class="form-control" For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
-            <FieldMessage For="() => _contact.Email" /></div>
+            <FormidableFieldMessage For="() => _contact.Email" /></div>
 
         <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>
     </FormidableForm>
