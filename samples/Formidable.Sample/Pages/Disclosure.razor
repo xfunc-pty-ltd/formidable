@@ -83,7 +83,7 @@
         <fieldset>
             <legend>Accommodation</legend>
             <FormidableField For="() => _request.AccommodationType" Context="field">
-                <label>Type
+                <label>Type <FormidableRequiredIndicator For="() => _request.AccommodationType" />
                     <select id="@field.ElementId" class="@field.CssClass"
                             aria-invalid="@(field.AriaInvalid ? "true" : null)"
                             aria-describedby="@field.AriaDescribedBy"
@@ -101,7 +101,7 @@
             @if (_request.AccommodationType == "Accessible")
             {
                 <div class="field">
-                    <label>Special requirements
+                    <label>Special requirements <FormidableRequiredIndicator For="() => _request.SpecialRequirements" />
                         <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
                     <FormidableFieldMessage For="() => _request.SpecialRequirements" />
                 </div>

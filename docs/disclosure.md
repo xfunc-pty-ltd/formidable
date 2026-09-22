@@ -282,7 +282,7 @@ checked live the same way it would be for a Formidable-wrapped input:
     <fieldset>
         <legend>Accommodation</legend>
         <FormidableField For="() => _request.AccommodationType" Context="field">
-            <label>Type
+            <label>Type <FormidableRequiredIndicator For="() => _request.AccommodationType" />
                 <select id="@field.ElementId" class="@field.CssClass"
                         aria-invalid="@(field.AriaInvalid ? "true" : null)"
                         aria-describedby="@field.AriaDescribedBy"
@@ -300,7 +300,7 @@ checked live the same way it would be for a Formidable-wrapped input:
         @if (_request.AccommodationType == "Accessible")
         {
             <div class="field">
-                <label>Special requirements
+                <label>Special requirements <FormidableRequiredIndicator For="() => _request.SpecialRequirements" />
                     <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
                 <FormidableFieldMessage For="() => _request.SpecialRequirements" />
             </div>
@@ -310,6 +310,10 @@ checked live the same way it would be for a Formidable-wrapped input:
 ```
 
 <!-- Source: `samples/Formidable.Sample/Pages/Disclosure.razor` -->
+
+The `FormidableRequiredIndicator` inside each label draws nothing here: both presence rules are
+conditional, and a demand the rules cannot settle without a model gets no mark
+([Component kit](component-kit.md#formidablerequiredindicatortvalue)).
 
 ```csharp
 RuleFor(t => t.AccommodationType).NotEmpty().WithMessage("Choose an accommodation type")

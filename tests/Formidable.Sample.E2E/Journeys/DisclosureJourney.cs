@@ -17,6 +17,7 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class DisclosureJourney(SampleAppFixture app)
 {
+    private const string DestinationRequired = "Destination is required";
     private const string TravelerNameRequired = "Traveler name is required";
     private const string HiddenIssueGate =
         "The form cannot be submitted because information that is not currently displayed is invalid.";
@@ -176,5 +177,24 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await variant.GetByRole(AriaRole.Button, new() { Name = "Submit request", Exact = true }).ClickAsync();
         await Expect(MessagesFor(variant, "travelername")).ToHaveTextAsync([TravelerNameRequired]);
         await Expect(modelMessages).ToHaveCountAsync(0);
+    }
+
+    /// <summary>
+    /// The footer under the first form ("use the Submit button rather than pressing Enter") is
+    /// true because of the form's shape: no submit button and, on load, exactly one text box
+    /// (Destination), which is the one case where a browser submits a buttonless form on Enter.
+    /// The submit runs the client's own pipeline, so the empty destination is disclosed. The
+    /// /server page is the other half of the rule: two text boxes, and Enter does nothing.
+    /// </summary>
+    [E2EFact]
+    public async Task Enter_in_the_only_text_box_submits_the_form_implicitly()
+    {
+        await using var session = await app.NewPageAsync("/disclosure");
+        var page = session.Page;
+
+        await Field(page, "destination").First.FocusAsync();
+        await page.Keyboard.PressAsync("Enter");
+
+        await Expect(MessagesFor(page, "destination")).ToHaveTextAsync([DestinationRequired]);
     }
 }

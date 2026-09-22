@@ -127,6 +127,29 @@ public sealed class ServerJourney(SampleAppFixture app)
             .ToHaveTextAsync([SkuRequired], new() { Timeout = AsyncTimeoutMs });
     }
 
+    [E2EFact]
+    public async Task Enter_submits_nothing_on_a_form_with_no_submit_button_and_two_text_boxes()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        // The page's own sentence: both buttons are type="button", and the form always shows at
+        // least two text boxes (the description and the first SKU line), so the browser's
+        // implicit submission has nothing to fire and no client-side submit ever runs. An
+        // implicit submission here would run the submit profile and disclose the empty
+        // description, which is what the absence below rules out. Its sibling on /disclosure
+        // is the positive case: one text box, and Enter does submit.
+        await Field(page, "description").FocusAsync();
+        await page.Keyboard.PressAsync("Enter");
+
+        // Absences pass on their first evaluation, so the wait is what makes the window generous
+        // rather than incidental, the same settle the quickstart journey takes for its own.
+        await page.WaitForTimeoutAsync(300);
+        await Expect(MessagesFor(page, "description")).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
+        await Expect(page.Locator("p[role='status']")).ToHaveTextAsync(string.Empty);
+    }
+
     private static Task SendAsync(IPage page) =>
         page.GetByRole(AriaRole.Button, new() { Name = "Send to server", Exact = true }).ClickAsync();
 }

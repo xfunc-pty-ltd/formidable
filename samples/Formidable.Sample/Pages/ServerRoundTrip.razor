@@ -3,7 +3,7 @@
 
 <PageTitle>Server round-trip</PageTitle>
 <h1>Server round-trip</h1>
-<p>This form deliberately skips client-side submit validation — press Send and watch the server's 400 land on the exact fields. Press "Send to server" rather than Enter — Enter triggers the browser's implicit form submission, which runs the client-side submit pipeline this page deliberately skips.</p>
+<p>This form deliberately skips client-side submit validation: press Send and watch the server's 400 land on the exact fields. Enter does nothing here: with no submit button and more than one text box on the form, the browser never submits it for you, so "Send to server" is the only way in.</p>
 @if (IsHostedDemo)
 {
     <p><small>This hosted demo has no server behind it — an in-browser handler answers with the same validators and the same response shapes the real API would send.</small></p>
