@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Formidable.Sample.E2E.SamplePage;
 using static Microsoft.Playwright.Assertions;
@@ -297,5 +298,81 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
             firstRealOpensAfterMs >= refreshDebounceMs,
             $"expected the first real checking window to open no earlier than {refreshDebounceMs} ms " +
             $"(the refresh window) after the fill, but it opened {firstRealOpensAfterMs:F0} ms after");
+    }
+
+    private static readonly Regex Valid = new(@"\bformidable-valid\b");
+    private static readonly Regex Pending = new(@"\bformidable-pending\b");
+
+    // The Display name sibling of PendingScopedToUsername above, with one more conjunct:
+    // Username must be wearing formidable-valid in the same frame the pending window stands
+    // open on Display name. The conjunction is the discrimination — an engine that withdrew
+    // Username's vouch for the gap never shows both at once, so this wait times out honestly,
+    // where a bare class assertion read after the window would retry until the landing re-earns
+    // the green and pass over a field that had blinked. Armed before the triggering edit, the
+    // same idiom this class uses throughout, so the read cannot race a check that opens and
+    // closes before a poll would ever see it.
+    private const string PendingScopedToDisplayName = $$"""
+        () => {
+            const displayName = document.querySelector("[id$='-displayname']");
+            const username = document.querySelector("[id$='-username']");
+            const indicators = {{OpenIndicators}};
+            const pending = document.querySelectorAll(".formidable-pending");
+            return displayName !== null
+                && username !== null
+                && username.classList.contains("formidable-valid")
+                && indicators.length === 1
+                && indicators[0].closest(".field")?.contains(displayName) === true
+                && pending.length === 1
+                && pending[0] === displayName;
+        }
+        """;
+
+    // Property: an edit to one field withdraws only that field's own vouch for the gap between
+    // the edit and its re-answer — the engine keeps serving the held answer for every OTHER
+    // field while that re-answer is on its way, so the class painted in the browser is a real,
+    // continuous "would still pass submit" rather than a styling artifact bridging a withdrawal
+    // underneath. Username and Display name are both plain top-level Draft rules
+    // on the same validator with no child scopes, so editing Display name silently re-answers
+    // Username's rule too as part of the same pass; that is exactly why this is worth pinning in
+    // the browser rather than trusting the engine-level pin alone — the pending indicator stays
+    // scoped to Display name regardless (the page's own footer names this contract), so a reader
+    // watching only the two boxes sees Username hold its green through a check that, underneath,
+    // touches it as well.
+    [E2EFact]
+    public async Task An_unrelated_fields_confirmed_border_rides_out_a_slow_check()
+    {
+        await using var session = await app.NewPageAsync("/async");
+        var page = session.Page;
+        var username = Field(page, "username");
+        var displayName = Field(page, "displayname");
+
+        // High enough that the mid-window assertions below have room to run before the verdict
+        // lands, yet low enough to keep the test's own wait reasonable — the same figure the
+        // store-reuse tests above use for the same reason.
+        const int delayMs = 900;
+        await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
+
+        // Username turns green and is then left alone: every edit from here on is Display name's.
+        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "tim");
+        await Expect(username).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
+
+        // One committed change rather than a keystroke-by-keystroke type, so there is exactly one
+        // pending window to catch instead of a typing burst the wait could resolve on too early.
+        var pendingOnDisplayName = page.WaitForFunctionAsync(
+            PendingScopedToDisplayName,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
+        await displayName.FillAsync("Ann");
+        await pendingOnDisplayName;
+
+        // Mid-window: the edited field is neutral and pending; the untouched field's confirmed
+        // border is still on screen, not merely a stale paint a moment from being pulled.
+        await Expect(displayName).ToHaveClassAsync(Pending);
+        await Expect(displayName).Not.ToHaveClassAsync(Valid);
+        await Expect(username).ToHaveClassAsync(Valid);
+
+        // The verdict lands: Display name earns its own green the ordinary way, and Username's
+        // held vouch turns out to have been the truth the whole time.
+        await Expect(displayName).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
+        await Expect(username).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
     }
 }

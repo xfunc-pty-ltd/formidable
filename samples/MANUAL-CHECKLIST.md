@@ -286,10 +286,10 @@ Work top to bottom: the steps build on each other.
       keystroke, back to the default (immediate, no batching)
 - [ ] **A confirmed border rides out a slow pass.** Type a free username (`tim`) and let it turn
       green, then click into Display name and type a letter: while that field's 600 ms check
-      runs, Username's confirmation border stays green rather than blinking to neutral and back.
-      The state class itself does come off for that window — the stylesheet's `--confirm-hold`
-      is what keeps the colour across it, and a field that genuinely stops being confirmed
-      settles to neutral once the hold runs out
+      runs, Username's confirmation border stays green the whole time — untouched by this edit,
+      the engine keeps holding its vouch rather than dropping it for the gap. Display name
+      itself goes neutral (with the pending state showing) until its own check lands, then
+      confirms the same way
 - [ ] **Message spacing:** type `admin` into Username and let the verdict land — its message
       sits tight under the Username box and leaves a full field-gap before the *Display name*
       label. It must never sit flush against that label, and the "checking…" line while a pass
@@ -486,8 +486,8 @@ Work top to bottom: the steps build on each other.
       confirms, with no submit anywhere
 - [ ] Type anything into Summary and Tab: it confirms too, the ordinary way
 - [ ] Submit: the status line confirms it
-- [ ] *Start blank*: the boxes empty at once and all three confirmed borders follow a beat behind
-      them — the stylesheet holds any state colour for `--confirm-hold` on its way to neutral.
+- [ ] *Start blank*: the boxes empty and all three confirmed borders — Title's, Contact email's
+      and Summary's — clear with them at once, nothing delaying a border behind its state class.
       *Load saved draft* then replays the whole thing
 - [ ] **Colour check, both schemes:** the confirmed border on Title and the error border on
       Contact email are legible side by side in light AND dark mode
@@ -601,8 +601,9 @@ steps build on each other.
 - [ ] **Union (steps 11-13).** Untick once more: the field goes and takes its inline message
       with it, but the summary keeps the entry. Submit again and it is still listed — once a
       submit has shown a field's error, its entry stands until the answer comes clean, and the
-      field stays watched until the form passes or resets. Re-tick and fill in a note before
-      moving on
+      field stays watched until the form passes or resets. Click that entry: the field it names
+      is off the page, so focus lands on **Include catering** instead, the checkbox whose state
+      is the reason the field is gone. Re-tick and fill in a note before moving on
 - [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
       only, and the malformed address is what it names — the note is back in. Now clear **Event
       name** and Tab: "Event name is required" lands as soon as that edit's live pass does,

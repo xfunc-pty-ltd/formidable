@@ -197,10 +197,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // exactly what the clear just removed.
     private int _storeGeneration;
 
-    // Moves whenever a source the submit-coverage read derives from moves — a pass or probe
-    // landing, the rendered-field-set clear — so the answer below can be cached per state
-    // rather than recomputed per field per render. The edit stamp is the cache key's other
-    // half; nothing else feeds the read.
+    // Moves whenever a source the submit-coverage read derives from moves — a pass ending
+    // however it ends (see EndPass), a probe landing, the rendered-field-set clear — so the
+    // answer below can be cached per state rather than recomputed per field per render. The
+    // edit stamp is the cache key's other half; nothing else feeds the read.
     private int _coverageVersion;
 
     // The cached submit-coverage answer: whether every submit-selected rule has a current
@@ -224,7 +224,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // one member is the whole of what holding an answer means. A rendered-field-set change empties
     // the verdict store and moves that version, which leaves the walk below nothing to read about
     // a model the edit stamp says has not moved; the held answer covers that window, until the
-    // re-answer the change arms lands or an edit strands it. The profile is part of the answer's
+    // re-answer the change arms lands. An edit strands it only conditionally: while a re-answer is
+    // demonstrably on its way (see ServeHeldCoverage's second route) the answer keeps serving the
+    // fields the edit did not touch, and it stops the moment nothing is coming any more — the
+    // serve condition is re-checked on every read — or the pass carrying the promise ends without
+    // landing, which abandons it outright. A superseded pass is not itself a drop — it fails the
+    // version guard the abandon sits behind — and the answer then stands or falls on whether its
+    // displacer, or an arm, still promises a re-answer. The profile is part of the answer's
     // identity and not merely of the cache's: an answer selected under one submit profile says
     // nothing about the rules another selects. Every fresh answer is held, whichever branch
     // produced it, so the field means one thing throughout; only the rule walk has a use for one.
@@ -236,6 +242,34 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private int _heldCoverageStamp = -1;
     private ValidationProfile? _heldCoverageProfile;
     private HashSet<FieldIdentifier>? _heldCoverageErrorFields;
+
+    // Whether the cached answer above was served from the held answer ACROSS an edit —
+    // ServeHeldCoverage's second route. A marked answer needs two things an earned one does not:
+    // the cache short-circuit re-checks on every read that a re-answer is still on its way, and
+    // WouldPassSubmit withholds the vouch from the fields in _editedPastHold. Every recompute
+    // clears it, so an earned answer is never re-checked.
+    private bool _coverageServedAcrossEdit;
+
+    // The fields edited since the held answer was computed — added beside the edit stamp as each
+    // field change arrives, cleared whenever a fresh compute holds a new answer. While an answer
+    // is served across an edit these are the fields it cannot speak for: the edits invalidated
+    // exactly their values, so they paint as they would with no hold anywhere — which is what
+    // keeps a just-emptied required field from wearing green on the strength of a value it no
+    // longer holds. Never pruned on field departure, deliberately: excluding a departed field
+    // affects nothing rendered, an identity that returns was genuinely edited and stays honestly
+    // excluded, and every fresh hold clears the set whole anyway.
+    private readonly HashSet<FieldIdentifier> _editedPastHold = [];
+
+    // How long a pass in flight counts as "a re-answer on its way". A backstop rather than a
+    // knob: it only ever decides anything on a form whose pass has hung — where the held field
+    // shows no pending indicator, since the indicator scopes to the edited fields — and a hung
+    // form should lose its confirmation borders rather than keep them for ever. Generous on
+    // purpose: a rule slower than this loses the held green early, the conservative direction.
+    // The bound is the current pass's age, never the held answer's: each edit against a
+    // validator that hangs again starts a fresh pass, so the same, ever-staler answer can be
+    // re-served for another bound per edit — broken-form territory by design, and the edited
+    // fields themselves are excluded throughout.
+    private static readonly TimeSpan HeldVouchBound = TimeSpan.FromSeconds(30);
 
     // The capability-less coverage source: the edit stamp at which the last whole-model
     // SubmitProfile evaluation this source takes — a COMPLETED submit, refresh or load pass, or a
@@ -472,7 +506,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// coverage can also be a HELD answer: a rendered-field-set change empties the store while the
     /// edit stamp says the model those verdicts described has not moved, and
     /// <see cref="ServeHeldCoverage"/> covers that gap, so green describes the model rather than
-    /// the page's registration churn. The fallback needs no cover of its own — its source is not
+    /// the page's registration churn — and it covers the gap an edit itself opens, while the pass
+    /// re-answering that edit is demonstrably on its way, so one field's edit does not withdraw
+    /// every other field's confirmation for the debounce window plus the rules' flight. An
+    /// answer served across an edit cannot speak for the edited fields themselves — the edits
+    /// invalidated exactly their values — so those are excluded here and paint as they would
+    /// with no hold anywhere. The fallback needs no cover of its own — its source is not
     /// the store, and a field-set change leaves it exactly as current as the edit stamp already
     /// found it.
     /// </summary>
@@ -480,16 +519,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         EnsureSubmitCoverageCurrent();
         return _coverageFresh
-            && (_coverageErrorFields is null || !_coverageErrorFields.Contains(field));
+            && (_coverageErrorFields is null || !_coverageErrorFields.Contains(field))
+            && (!_coverageServedAcrossEdit || !_editedPastHold.Contains(field));
     }
 
     /// <summary>
     /// Recomputes the cached submit-coverage answer when the edit stamp, a coverage source, or
-    /// the submit profile has moved since it was last computed — once per state change rather
-    /// than once per field per render, since the walk selects rules and resolves the failing
-    /// verdicts' issues to fields. A selection that throws (a typo'd ruleset name, say) reads
-    /// as stale coverage rather than taking the render down: the next pass surfaces the same
-    /// exception through its own fault policy, which is where a configuration error belongs.
+    /// the submit profile has moved since it was last computed — or when the cached answer was
+    /// served across an edit and the re-answer it stands on is no longer on its way — once per
+    /// state change rather than once per field per render, since the walk selects rules and
+    /// resolves the failing verdicts' issues to fields. A selection that throws (a typo'd
+    /// ruleset name, say) reads as stale coverage rather than taking the render down: the next
+    /// pass surfaces the same exception through its own fault policy, which is where a
+    /// configuration error belongs.
     /// Nothing held stands in for that one: a selection that cannot be walked leaves nothing
     /// able to vouch for anything.
     /// </summary>
@@ -498,7 +540,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var profile = _options.SubmitProfile;
         if (_coverageCacheEditStamp == _editStamp
             && _coverageCacheVersion == _coverageVersion
-            && ReferenceEquals(_coverageCacheProfile, profile))
+            && ReferenceEquals(_coverageCacheProfile, profile)
+            // An answer served across an edit stands only while the re-answer it was served on
+            // the promise of is still on its way; nothing re-keys this cache while a pass merely
+            // hangs, so the promise is re-checked at the read itself. Once a recompute lands the
+            // flag is clear and the short-circuit is unconditional again.
+            && (!_coverageServedAcrossEdit || ReAnswerOnItsWay()))
         {
             return;
         }
@@ -508,6 +555,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _coverageCacheProfile = profile;
         _coverageFresh = false;
         _coverageErrorFields = null;
+        _coverageServedAcrossEdit = false;
 
         if (_validator is not IRuleLevelValidator<TModel> ruleLevel || !ruleLevel.CanValidateByRule)
         {
@@ -529,11 +577,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             var plan = BuildRulePlan(ruleLevel, profile, executeAll: false, _editStamp);
             if (plan.Remainder.Count > 0)
             {
-                // A rule with no current answer. The held answer stands in for it while it
-                // still answers for the model as it stands — a rendered-field-set change
-                // empties the store without moving the edit stamp, so an answer computed at
-                // that stamp is one nothing since has invalidated. Otherwise coverage is
-                // stale and its fields are moot.
+                // A rule with no current answer. The held answer stands in for it on either of
+                // two grounds — a rendered-field-set change emptied the store without moving
+                // the edit stamp, so an answer computed at that stamp is one nothing since has
+                // invalidated; or an edit moved the stamp while the pass re-answering it is
+                // demonstrably on its way, in which case the held answer serves every field
+                // the edit did not touch. Otherwise coverage is stale and its fields are moot.
                 ServeHeldCoverage(profile);
                 return;
             }
@@ -563,36 +612,147 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// Holds the answer <see cref="EnsureSubmitCoverageCurrent"/> has just computed, together
     /// with the edit stamp and profile it answers for. Called only where the answer came out
     /// fresh: a stale read is not an answer, and holding one would be vouching for nothing.
+    /// Holding also empties the edited-field record: the answer being held is current, so no
+    /// field has been edited past it yet.
     /// </summary>
     private void HoldCoverage(ValidationProfile profile)
     {
         _heldCoverageStamp = _editStamp;
         _heldCoverageProfile = profile;
         _heldCoverageErrorFields = _coverageErrorFields;
+        _editedPastHold.Clear();
     }
 
     /// <summary>
-    /// Serves the held answer in place of a recomputed one, for the single case in which the
-    /// verdicts it was derived from are gone while the model it describes is not: a
-    /// rendered-field-set change empties the store and never moves the edit stamp. Matching that
-    /// stamp is therefore exactly the condition "nothing but the rendered field set has changed
-    /// since this was computed", and the profile match keeps an answer about one selection of
-    /// rules from vouching for another. Nothing else is asked, and nothing needs to be: the
-    /// change that emptied the store also arms the pass that replaces the held answer with an
-    /// earned one, and an edit before that lands moves the stamp past it. Between them they bound
-    /// what a held answer can be wrong about: a field-set change that silently mutated the model
-    /// leaves the vouch answering from the model as it was until that pass lands, which is the
-    /// lag <see cref="IsFormValid"/> has always carried, on the same terms.
+    /// Serves the held answer in place of a recomputed one, on either of two grounds. The first:
+    /// the verdicts it was derived from are gone while the model it describes is not — a
+    /// rendered-field-set change empties the store and never moves the edit stamp, so matching
+    /// that stamp is exactly the condition "nothing but the rendered field set has changed since
+    /// this was computed", and the change that emptied the store also arms the pass that replaces
+    /// the held answer with an earned one. The second: an edit moved the stamp past the held
+    /// answer while a re-answer is demonstrably on its way (<see cref="ReAnswerOnItsWay"/>) —
+    /// without this, one field's edit withdraws every other field's confirmation for the whole
+    /// gap between the edit and the pass's landing, a debounce window plus the rules' flight. An
+    /// answer served on the second ground is marked as such, and two things keep the mark honest:
+    /// <see cref="WouldPassSubmit"/> excludes the fields edited since the hold, so the edited
+    /// field itself paints exactly as it would with no hold anywhere, and
+    /// <see cref="EnsureSubmitCoverageCurrent"/> re-checks the serve condition on every read of
+    /// the marked answer, so a pass that hangs past <see cref="HeldVouchBound"/> — or a promise
+    /// that evaporates — loses the vouch at the next read rather than keeping it for ever. The
+    /// profile match guards both grounds: an answer about one selection of rules never vouches
+    /// for another. What a served answer can be wrong about is bounded the same way it always
+    /// was: it answers from the model state it was computed against until the pass behind it
+    /// lands, the lag <see cref="IsFormValid"/> has always carried, on the same terms.
     /// </summary>
     private void ServeHeldCoverage(ValidationProfile profile)
     {
-        if (_heldCoverageStamp != _editStamp || !ReferenceEquals(_heldCoverageProfile, profile))
+        if (!ReferenceEquals(_heldCoverageProfile, profile))
+        {
+            return;
+        }
+
+        if (_heldCoverageStamp == _editStamp)
+        {
+            _coverageFresh = true;
+            _coverageErrorFields = _heldCoverageErrorFields;
+            _coverageServedAcrossEdit = false;
+            return;
+        }
+
+        if (!ReAnswerOnItsWay())
         {
             return;
         }
 
         _coverageFresh = true;
         _coverageErrorFields = _heldCoverageErrorFields;
+        _coverageServedAcrossEdit = true;
+    }
+
+    /// <summary>
+    /// Whether a re-answer of the submit-selected coverage is demonstrably on its way. A pass in
+    /// flight is asked first, and its age before anything else: past <see cref="HeldVouchBound"/>
+    /// nothing counts, not even what is armed behind it. A hung submit, live or load pass defers
+    /// every armed refresh for as long as it hangs, and a hung refresh is not deferred to but
+    /// displaced by the next refresh fire, which begins a pass with a bound of its own; either
+    /// way, what is armed cannot stand in for a pass past the bound. Within the bound, a pass
+    /// whose landing answers the submit selection is the re-answer itself — submit, refresh and
+    /// load passes run that profile by construction, and a live pass does when the live channel
+    /// resolves to the submit profile instance, compared by reference like every other consumer
+    /// of that resolution. A live pass under a narrowed channel answers for fewer rules, so it is
+    /// not the re-answer; it defers instead to whatever is armed behind it, which is how a
+    /// post-submit refresh sitting behind a narrow pass keeps the vouch through that pass's
+    /// flight and then fires the moment it ends. With no pass in flight — or a narrowed one
+    /// deferring — the scheduled arms decide: an open live-debounce window counts only when
+    /// the live channel resolves to the submit profile, and an armed post-submit refresh counts
+    /// on its own, running the submit profile by construction. Both count only under a debounce
+    /// that can actually fire: <see cref="Timeout.InfiniteTimeSpan"/> arms a timer that never
+    /// does — the documented spelling for turning the refresh off, and the live window's
+    /// degenerate never-closing width — so an accumulator standing behind one promises nothing,
+    /// however many fields it holds. The options are read here, at each ask, per their
+    /// read-at-each-use contract. This is the serve-across-an-edit condition
+    /// <see cref="ServeHeldCoverage"/> asks, and the standing condition
+    /// <see cref="EnsureSubmitCoverageCurrent"/> re-asks on every read of an answer so served.
+    /// The validity probe is deliberately not consulted — it
+    /// is fire-and-forget, with no descriptor to read a start time from — which leaves one
+    /// configuration blinking on an edit exactly as a form with nothing scheduled does: a
+    /// narrowed live channel with <see cref="FormidableOptions.TrackFormValidity"/> on, before
+    /// any submit, re-answers only through the probe, and its vouch waits for that landing.
+    /// </summary>
+    private bool ReAnswerOnItsWay()
+    {
+        var liveAnswersSubmit = ReferenceEquals(
+            _options.LiveProfile ?? _options.SubmitProfile, _options.SubmitProfile);
+
+        if (_currentPass is { } pass)
+        {
+            // A pass past the bound stops vouching whatever is scheduled behind it: a hung
+            // submit, live or load pass defers every armed refresh indefinitely
+            // (RunRefreshPassAsync re-arms behind exactly those kinds), and a hung refresh is
+            // displaced by the next fire rather than deferred to, beginning a pass with a bound
+            // of its own — so at this read the arms below cannot stand in for the pass past it.
+            if (_timeProvider.GetElapsedTime(pass.StartedAt) >= HeldVouchBound)
+            {
+                return false;
+            }
+
+            // A pass whose landing answers the submit selection is itself the re-answer.
+            if (pass.Kind != PassKind.Live || liveAnswersSubmit)
+            {
+                return true;
+            }
+
+            // A narrowed live pass cannot answer the submit selection, but a submit-profile
+            // refresh armed behind it will, the moment this pass ends — deferred, not absent.
+            // Fall through to the arms. Only the refresh arm can answer there: the window arm
+            // carries the same profile conjunct this branch just failed, so however many fields
+            // an edit during this flight puts back in the window, it promises another narrowed
+            // pass and counts for nothing.
+        }
+
+        return (_pendingDebouncedLiveFields.Count > 0
+                && liveAnswersSubmit
+                && _options.LiveDebounce is { } liveDebounce
+                && liveDebounce != Timeout.InfiniteTimeSpan)
+            || (_pendingRefreshFields.Count > 0
+                && _options.RefreshDebounce != Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Drops the held coverage answer outright, so nothing serves it again until a fresh compute
+    /// holds a new one. Two things reach for it: a current pass ending without landing — the
+    /// re-answer any served vouch was standing on the promise of is gone, and retraction must
+    /// not wait out <see cref="HeldVouchBound"/> or a still-armed window — and the whole-model
+    /// adoption <see cref="DiscloseLoadedValuesAsync"/> opens with, which declares the model
+    /// moved out from under everything the hold describes; its own pass re-answers and re-holds.
+    /// Nulling the profile is what closes both serve routes: a stamp of -1 never matches, and
+    /// no profile ever compares equal to none.
+    /// </summary>
+    private void AbandonHeldCoverage()
+    {
+        _heldCoverageStamp = -1;
+        _heldCoverageProfile = null;
+        _heldCoverageErrorFields = null;
     }
 
     /// <summary>
@@ -1364,8 +1524,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // First, before anything here can start a pass: a pass reads this counter as it begins
         // and stamps every verdict it writes with what it read, and a later pass reuses a
         // verdict only while the two stamps agree. Bumping it after a pass had already started
-        // would let that pass's verdicts claim to answer for an edit they never saw.
+        // would let that pass's verdicts claim to answer for an edit they never saw. The field
+        // joins the edited-past-hold record in the same breath: if the held coverage answer is
+        // served across this edit, this is the one field it must not vouch for.
         _editStamp++;
+        _editedPastHold.Add(e.FieldIdentifier);
 
         MarkTouched(e.FieldIdentifier);
 
@@ -1461,7 +1624,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _passCts?.Dispose();
         _passCts = CancellationTokenSource.CreateLinkedTokenSource(external);
         _version++;
-        var pass = new PassScope(kind, _version, _passCts.Token);
+        var pass = new PassScope(kind, _version, _passCts.Token, _timeProvider.GetTimestamp());
         _currentPass = pass;
         return pass;
     }
@@ -1471,13 +1634,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// descriptor naming the pass all clear together, so nothing that runs afterwards can read a
     /// pass that has already ended. The caller establishes that the pass is still the current one —
     /// the verdict dispatch does that with its own version guard, <see cref="SetValidating"/> with
-    /// its.
+    /// its. Ending a pass also moves the coverage version, whatever the outcome: a landing can
+    /// have written verdicts the coverage read derives from, live passes included, and a pass
+    /// that ends WITHOUT landing can no longer be the re-answer a held vouch was being served on
+    /// the promise of — either way the next coverage read must re-decide rather than stand on a
+    /// cache that predates the end.
     /// </summary>
     private void EndPass()
     {
         IsValidating = false;
         _validatingScope = null;
         _currentPass = null;
+        _coverageVersion++;
     }
 
     /// <summary>
@@ -1511,6 +1679,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 }
                 else
                 {
+                    // A current pass clearing the flag here ended without landing, however it
+                    // came to — a fault and a caller's cancellation are the everyday routes —
+                    // so the re-answer any held vouch is being served on the promise of is
+                    // gone, and retraction must be immediate rather than bound-delayed: EndPass
+                    // moves the coverage version out from under the cache, and abandoning the
+                    // held answer keeps the serve route from handing it straight back out for a
+                    // still-armed window or the bound's remainder. A pass that landed ended at
+                    // its verdict dispatch and never reaches this branch, and a superseded pass
+                    // fails the version guard above, so neither costs a hold anything here.
+                    AbandonHeldCoverage();
                     EndPass();
                 }
 
@@ -1657,15 +1835,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // ones included, which is exactly what "would fail submit" needs. A live pass is
                 // excluded by kind rather than by the profile it ran: LiveProfile decides that,
                 // and a narrowed one answers for fewer rules than a submit would.
-                // The coverage version moves for every landing, live passes included: any
-                // landing can have written verdicts the coverage read derives from.
+                // The coverage version moves with EndPass below, for every landing, live
+                // passes included: any landing can have written verdicts the coverage read
+                // derives from.
                 if (kind != PassKind.Live)
                 {
                     _lastSubmitAnswerStamp = editStamp;
                     _lastSubmitAnswerErrorFields = [.. _submitVerdictErrors.Keys];
                 }
-
-                _coverageVersion++;
 
                 // The pass ends here, not only in the finally below: retiring it before
                 // RebuildStore's notification means the verdict and the cleared pending indicator
@@ -2604,6 +2781,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // visitor never had.
         _editStamp++;
 
+        // The held coverage answer describes the values this call just declared gone, and the
+        // serve routes would otherwise keep it standing — this very pass is a re-answer on its
+        // way. Nothing between here and the landing may vouch from values the load replaces;
+        // the pass re-answers and re-holds.
+        AbandonHeldCoverage();
+
         var profile = _options.SubmitProfile;
         HashSet<FieldIdentifier>? adopted = null;
 
@@ -3189,7 +3372,11 @@ internal enum PassKind
 /// <param name="Kind">Which lifecycle this pass is running.</param>
 /// <param name="Version">The engine version this pass took when it began.</param>
 /// <param name="Token">The pass's cancellation token, linked to whatever the caller supplied.</param>
-internal readonly record struct PassScope(PassKind Kind, int Version, CancellationToken Token);
+/// <param name="StartedAt">The timestamp the pass began at, from the engine's own
+/// <see cref="TimeProvider"/> — what bounds how long a held coverage vouch may treat this pass
+/// as the re-answer on its way.</param>
+internal readonly record struct PassScope(
+    PassKind Kind, int Version, CancellationToken Token, long StartedAt);
 
 /// <summary>What one pass may serve from the store, and what it is left to execute.</summary>
 /// <param name="Reused">The stored sets the current selection contains, each answering for every

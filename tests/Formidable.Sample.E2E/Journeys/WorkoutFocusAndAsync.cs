@@ -87,9 +87,9 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         await SubmitRegistrationAsync(page);
 
         // FormidableForm's own auto-focus misses on the first try (no element carries the field's
-        // id yet), falls back through FocusFallback (ScrollToSessionAsync — the identical callback
-        // /workout already hands FormidableSummary), and retries once: the panel scrolls to the row
-        // and focus lands in its Seats box, with no summary click needed. The bUnit pin at
+        // id yet), falls back through FocusFallback (RecoverMissedFocusAsync — the identical
+        // callback /workout already hands FormidableSummary), and retries once: the panel scrolls
+        // to the row and focus lands in its Seats box, with no summary click needed. The bUnit pin at
         // FormidableFormComponentTests.A_blocked_submit_focus_miss_invokes_the_fallback_and_retries_once
         // proves the same try -> fallback -> retry shape at the component level against a stubbed
         // service; this is its browser-level counterpart, with the real scroll and the real DOM.

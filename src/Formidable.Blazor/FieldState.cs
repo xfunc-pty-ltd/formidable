@@ -51,15 +51,28 @@ public readonly record struct FieldState
 
     /// <summary>
     /// The engine can vouch that a submit would not fail this field: every rule the submit profile
-    /// selects has an answer current at the model's edit stamp, and none of those answers carries an
-    /// error-severity issue for this field. This is the conjunct that gates the Valid class (see
+    /// selects has an answer current at the model's edit stamp — or, for the gap an edit opens
+    /// while its re-answer is demonstrably on its way, held from just before it — and none of
+    /// those answers carries an error-severity issue for this field. This is the conjunct that
+    /// gates the Valid class (see
     /// <see cref="FormidableCss.Compute"/>) — "no disclosed issues" alone cannot mean "would pass",
     /// because submit-selected rules that have not run for the value as it stands may yet reject it.
     /// Freshness is judged form-level, deliberately: which fields a PASSING rule speaks for is
     /// unknowable, so per-field freshness attribution does not exist and the form-wide answer is the
     /// honest one. A rendered field set that moves discards those answers without moving the edit
-    /// stamp, and the answer computed at that stamp is held until the pass the move arms replaces it:
-    /// this vouches for the model, not for the page's registration churn. Initialized to
+    /// stamp, and the answer computed at that stamp is held until the pass the move arms replaces
+    /// it: this vouches for the model, not for the page's registration churn. The same held answer
+    /// bridges the gap an edit itself opens: while a re-answer is demonstrably on its way, the
+    /// answer from before the edit keeps vouching for every field the edit did not touch, and the
+    /// edited fields are excluded, painting exactly as they would with nothing held. On its way
+    /// means a pass that runs the submit selection in flight within a bound, or one scheduled —
+    /// by an open live-debounce window on a live channel that runs that selection, or by an armed
+    /// post-submit refresh, which runs it by construction. A live pass narrowed away from that
+    /// selection promises nothing itself, in flight or scheduled: it counts only for a refresh
+    /// armed behind it, and only within that same bound, past which a pass still in flight counts
+    /// for nothing whatever waits behind it. A window or a refresh armed on a debounce that can
+    /// never fire (<see cref="System.Threading.Timeout.InfiniteTimeSpan"/>) promises nothing
+    /// either. Initialized to
     /// <see langword="true"/>, so a state built without an engine — a test double, a hand-rolled
     /// provider — keeps the Valid tier reachable; <c>default(FieldState)</c> never runs that
     /// initializer and zeroes this member with the rest, so a defaulted state cannot vouch — the

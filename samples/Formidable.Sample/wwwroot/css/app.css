@@ -31,24 +31,6 @@
        scheme, and it is what lets a page recolour a glyph at runtime: a data URI cannot read
        a token, but the paint underneath it can. The stroke below is opaque black for that
        reason — it says "draw here", not "draw red". */
-    --message-icon-error: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
-stroke-width='2'/%3E%3Cpath d='M6.5 6.5 13.5 13.5M13.5 6.5 6.5 13.5' stroke='%23000' \
-stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
-    --message-icon-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5 18.5 17.5H1.5Z' fill='none' stroke='%23000' \
-stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10 8V12.5' stroke='%23000' \
-stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='15' r='1' \
-fill='%23000'/%3E%3C/svg%3E");
-    --message-icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' \
-viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
-stroke-width='2'/%3E%3Cpath d='M10 9V14.5' stroke='%23000' stroke-width='2' \
-stroke-linecap='round'/%3E%3Ccircle cx='10' cy='6' r='1.1' fill='%23000'/%3E%3C/svg%3E");
-    --valid-badge: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \
-20 20'%3E%3Ccircle cx='10' cy='10' r='8.5' fill='none' stroke='%23000' \
-stroke-width='2'/%3E%3Cpath d='M6 10.5 8.7 13.5 14.5 7' fill='none' stroke='%23000' \
-stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-
     /* chrome (same in both schemes) */
     --nav-bg: #1a1a2e;
     --nav-active: #f26a2b;
@@ -58,14 +40,6 @@ stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --radius-input: 12px;
     --radius-button: 10px;
     --radius-card: 10px;
-
-    /* How long a field keeps the border its last verdict earned once no verdict applies any
-       more. It covers every state colour on its way to neutral, not the confirmation border
-       alone: a reset clears an error class too, and that border also takes this long to go.
-       Size it to the slowest rule whose gap it has to cover, which here is the simulated
-       600 ms directory call /async makes plus the pass around it. Set it to 0s to have the
-       border follow the class exactly. */
-    --confirm-hold: .8s;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -106,7 +80,7 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: 'Segoe UI', system-ui, sans-serif;
-    font-size: 15px;
+    font-size: 1rem;
     line-height: 1.5;
 }
 
@@ -160,12 +134,12 @@ html {
 }
 
 h1 {
-    font-size: 1.45rem;
+    font-size: 1.75rem;
     margin: 0 0 .5rem;
 }
 
 h2 {
-    font-size: 1.1rem;
+    font-size: 1.25rem;
     margin: 1.5rem 0 .5rem;
 }
 
@@ -219,7 +193,7 @@ code {
 .brand em {
     font-style: normal;
     font-weight: 500;
-    font-size: .8rem;
+    font-size: .75rem;
     color: var(--nav-brand-sub);
     margin-left: .4rem;
 }
@@ -243,7 +217,7 @@ code {
 }
 
 .sidebar h2 {
-    font-size: .7rem;
+    font-size: .75rem;
     text-transform: uppercase;
     letter-spacing: .08em;
     color: var(--muted);
@@ -256,7 +230,7 @@ code {
     border-radius: 8px;
     color: var(--muted);
     text-decoration: none;
-    font-size: .92rem;
+    font-size: .875rem;
 }
 
 .sidebar a:hover {
@@ -301,7 +275,7 @@ main {
 .field > label {
     position: relative;
     display: block;
-    font-size: .9rem;
+    font-size: .875rem;
     font-weight: 600;
     margin-bottom: .1rem;
 }
@@ -359,17 +333,6 @@ main {
     margin: .3rem 0 0;
 }
 
-/* The state border is routed through a registered custom property so that it can be
-   transitioned on its own, without dragging the focus border into the same transition: the
-   :focus rule below writes border-color directly, so focusing and blurring stay instant while
-   the state colour underneath is the only thing the hold applies to. A browser that does not
-   register the property still resolves the value; it just applies it at once. */
-@property --formidable-state-border {
-    syntax: "<color>";
-    inherits: false;
-    initial-value: transparent;
-}
-
 /* .culture is the localization page's language picker: it sits outside the form, so it has to
    ask for the field chrome the form selectors give every other select. */
 form input:where(:not([type=radio]):not([type=checkbox])),
@@ -380,20 +343,14 @@ form textarea,
     width: 100%;
     margin-top: .3rem;
     font: inherit;
-    font-size: .95rem;
+    font-size: .875rem;
     color: var(--text);
     background: var(--field-bg);
     border: 1px solid var(--formidable-state-border);
     border-radius: var(--radius-input);
     padding: .6rem .85rem;
 
-    /* The neutral border, and the one place the hold below is spent: a field arrives here when
-       the engine can no longer vouch for it, which on a form with a slow rule includes the gap
-       between an edit and the pass that re-answers it. Delaying only this arrival keeps the
-       confirmation border across that gap. Every verdict cancels the delay for itself (see the
-       state rules below), so red still paints on the frame it is decided. */
     --formidable-state-border: var(--border);
-    transition: --formidable-state-border 0s linear var(--confirm-hold);
 }
 
 form input:where(:not([type=radio]):not([type=checkbox])):focus,
@@ -422,19 +379,11 @@ form select,
     padding-right: 2.3rem;
 }
 
-form select.formidable-pending {
-    background-image: none;
-}
-
 /* ---------- validation states (FormidableCssClasses defaults) ---------- */
 
-/* Each verdict cancels the hold for its own arrival, so a field that starts failing paints red
-   on the frame it is decided while a field that stops being vouched for keeps its confirmation
-   border for --confirm-hold first. */
 form .formidable-invalid {
     --formidable-state-border: var(--error);
     border-color: var(--formidable-state-border);
-    transition-delay: 0s;
 }
 
 /* The confirmation border is a verdict like the three around it, so it carries a colour of its
@@ -443,19 +392,16 @@ form .formidable-invalid {
 form .formidable-valid {
     --formidable-state-border: var(--valid);
     border-color: var(--formidable-state-border);
-    transition-delay: 0s;
 }
 
 form .formidable-warning {
     --formidable-state-border: var(--warn);
     border-color: var(--formidable-state-border);
-    transition-delay: 0s;
 }
 
 form .formidable-info {
     --formidable-state-border: var(--info);
     border-color: var(--formidable-state-border);
-    transition-delay: 0s;
 }
 
 /* The generic :focus rule above always draws the accent ring, so a field carrying any of the
@@ -465,71 +411,67 @@ form .formidable-info {
    underneath. :focus-visible matches pointer and keyboard focus alike on a text-like input, so
    the coverage matches the generic rule's plain :focus in practice. */
 form .formidable-invalid:focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 16%, transparent);
+    /* the focus ring and the state's own weight, composited — box-shadow is one
+       property, so a focus rule that named only the ring would drop the state. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 16%, transparent),
+                inset 0 0 0 1px var(--formidable-state-border);
 }
 
 form .formidable-warning:focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent);
+    /* the focus ring and the state's own weight, composited — box-shadow is one
+       property, so a focus rule that named only the ring would drop the state. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent),
+                inset 0 0 0 1px var(--formidable-state-border);
 }
 
 form .formidable-info:focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 16%, transparent);
+    /* the focus ring and the state's own weight, composited — box-shadow is one
+       property, so a focus rule that named only the ring would drop the state. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 16%, transparent),
+                inset 0 0 0 1px var(--formidable-state-border);
+}
+
+/* A decided state reads heavier as well as differently coloured, so nothing rests on hue
+   alone. An inset ring rather than a thicker border: the box is unchanged, so a field that
+   gains or loses a state never nudges its own text by a pixel. */
+form .formidable-invalid,
+form .formidable-warning,
+form .formidable-info,
+form .formidable-valid {
+    box-shadow: inset 0 0 0 1px var(--formidable-state-border);
 }
 
 form .formidable-valid:focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--valid) 16%, transparent);
+    /* the focus ring and the state's own weight, composited — box-shadow is one
+       property, so a focus rule that named only the ring would drop the state. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--valid) 16%, transparent),
+                inset 0 0 0 1px var(--formidable-state-border);
 }
 
-form .formidable-pending {
-    padding-right: 2.3rem;
-}
-
-/* CSS-only field-corner state icon: the pending spinner or the confirmed check. Two anchors per
-   state cover both field shapes: label-wrapped inputs (most pages) anchor on the label;
-   unwrapped controls (ForeignControl's select is a direct child of .field) anchor on .field.
-   The child combinator keeps the two anchors from ever both matching at once. */
-@keyframes formidable-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
+/* The spinner sits inside the control, over whatever chrome that control carries. A field
+   being checked cannot be operated while the check runs — a date picker or a chevron is no use
+   mid-flight — so the seconds it is covered cost nothing, which is not true of a state that
+   persists. It is the only mark drawn on a control for that reason. */
 .field > label:has(> .formidable-pending)::after,
-.field:has(> .formidable-pending)::after,
-.field > label:has(> .formidable-valid)::after,
-.field:has(> .formidable-valid)::after {
+.field:has(> .formidable-pending)::after {
     content: "";
     position: absolute;
     right: 12px;
     bottom: 14px;
     width: 14px;
     height: 14px;
-}
-
-.field > label:has(> .formidable-pending)::after,
-.field:has(> .formidable-pending)::after {
     border-radius: 50%;
     border: 2px solid var(--accent);
     border-top-color: transparent;
     animation: formidable-spin .8s linear infinite;
 }
 
-/* Pending appends to whichever state tier already applies (FormidableCss.Assemble), so a field
-   that was clean when a submit pass began can carry both classes for the whole in-flight pass
-   — its cached WouldPassSubmit answer has not yet been retested. The badge is scoped out of
-   that case so the spinner alone shows: a pass in flight is re-testing the very thing the
-   check claims, so "checking" is the honest cue, not the stale "passed". */
-.field > label:has(> .formidable-valid):not(:has(> .formidable-pending))::after,
-.field:has(> .formidable-valid):not(:has(> .formidable-pending))::after {
-    /* var(--valid) rather than currentColor: this anchors on the label or the .field around
-       it, whose colour is body text, not the state colour the border is drawing. */
-    background-color: var(--valid);
-    -webkit-mask-image: var(--valid-badge);
-    mask-image: var(--valid-badge);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: contain;
-    mask-size: contain;
+form .formidable-pending {
+    padding-right: 2.3rem;
+}
+
+form select.formidable-pending {
+    background-image: none;
 }
 
 /* ---------- messages ---------- */
@@ -567,10 +509,7 @@ form .formidable-pending {
 }
 
 .formidable-message {
-    font-size: .85rem;
-    display: flex;
-    align-items: flex-start;
-    gap: .4rem;
+    font-size: .875rem;
 }
 
 /* Only the gap BETWEEN messages needs its own margin - the list's own margin-top above already
@@ -581,54 +520,24 @@ form .formidable-pending {
     margin-top: .15rem;
 }
 
-/* The severity glyph. Colour is not the only thing telling error, warning and info apart: each
-   modifier below points this at its own shape. The shape arrives as a mask and the paint is
-   currentColor, so the glyph takes the colour of the message text beside it rather than carrying
-   a copy of it — including a colour a page has just changed that text to. */
-.formidable-message::before {
-    content: "";
-    flex: none;
-    width: 14px;
-    height: 14px;
-    margin-top: .1rem;
-    background-color: currentColor;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: contain;
-    mask-size: contain;
-}
-
+/* Severity's colour. It is the ONLY thing telling a warning from an info inline, which the
+   summary's own band headings say in words wherever one is rendered — see the backlog. */
 .formidable-message--error {
     color: var(--error-text);
-}
-
-.formidable-message--error::before {
-    -webkit-mask-image: var(--message-icon-error);
-    mask-image: var(--message-icon-error);
 }
 
 .formidable-message--warning {
     color: var(--warn);
 }
 
-.formidable-message--warning::before {
-    -webkit-mask-image: var(--message-icon-warning);
-    mask-image: var(--message-icon-warning);
-}
-
 .formidable-message--info {
     color: var(--info);
-}
-
-.formidable-message--info::before {
-    -webkit-mask-image: var(--message-icon-info);
-    mask-image: var(--message-icon-info);
 }
 
 /* native Blazor ValidationMessage on the vanilla-interop page */
 .validation-message {
     display: block;
-    font-size: .85rem;
+    font-size: .875rem;
     margin-top: .3rem;
     color: var(--error-text);
 }
@@ -637,7 +546,7 @@ form .formidable-pending {
 
 button {
     font: inherit;
-    font-size: .95rem;
+    font-size: .875rem;
     font-weight: 600;
     border-radius: var(--radius-button);
     padding: .55rem 1.3rem;
@@ -742,7 +651,7 @@ button:focus-visible {
 
 .formidable-summary__heading {
     margin: 0 0 .3rem;
-    font-size: .8rem;
+    font-size: .75rem;
     font-weight: 700;
 }
 
@@ -783,7 +692,7 @@ button.formidable-summary__link {
     margin: 0 0 0 -.55rem;
     padding: .35rem .55rem;
     font: inherit;
-    font-size: .9rem;
+    font-size: .875rem;
     font-weight: 500;
     color: var(--error-text);
     cursor: pointer;
@@ -814,7 +723,7 @@ fieldset {
 
 legend {
     font-weight: 600;
-    font-size: .9rem;
+    font-size: .875rem;
     padding: 0 .4rem;
 }
 
@@ -855,12 +764,12 @@ fieldset > label:has(> select) {
 
 p[role=status] {
     color: var(--muted);
-    font-size: .9rem;
+    font-size: .875rem;
 }
 
 em[role=status] {
     font-style: normal;
-    font-size: .85rem;
+    font-size: .75rem;
     color: var(--accent);
 }
 
@@ -881,11 +790,11 @@ em[role=status] {
     border-radius: var(--radius-card);
     padding: 1rem 1.15rem;
     margin: 1.1rem 0 1.4rem;
-    font-size: .92rem;
+    font-size: 1rem;
 }
 
 .teaching h2 {
-    font-size: .8rem;
+    font-size: .75rem;
     text-transform: uppercase;
     letter-spacing: .06em;
     color: var(--muted);
@@ -914,7 +823,7 @@ em[role=status] {
 }
 
 .teaching__code h3 {
-    font-size: .8rem;
+    font-size: .875rem;
     font-family: Consolas, monospace;
     color: var(--muted);
     margin: .8rem 0 .3rem;
@@ -926,7 +835,7 @@ em[role=status] {
     border-radius: 8px;
     padding: .75rem .9rem;
     overflow-x: auto;
-    font-size: .8rem;
+    font-size: .875rem;
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -972,7 +881,7 @@ p[role=status] {
 .state-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: .85rem;
+    font-size: .75rem;
     margin: 1rem 0 1.4rem;
 }
 
@@ -1030,7 +939,7 @@ h1:focus {
     margin: .5rem 0 0;
     padding-top: .45rem;
     border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-    font-size: .85rem;
+    font-size: .75rem;
     color: var(--muted);
 }
 
@@ -1102,7 +1011,7 @@ h1:focus {
 
 .announcement__panel > h2 {
     margin-top: 0;
-    font-size: 1.1rem;
+    font-size: 1.25rem;
 }
 
 /* The panel takes focus when it opens, which is a programmatic move: the ring marks it for a

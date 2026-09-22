@@ -2485,7 +2485,7 @@ makes (see [above](#formidableformtmodel)) can miss the same way a summary click
 
 Same name, same delegate type, same try-fallback-retry-once shape — a page that already wrote a
 fallback for its summary hands the identical method to the form. `/workout` does exactly that: the
-same `ScrollToSessionAsync` that recovers a summary click for an off-screen session row also
+same `RecoverMissedFocusAsync` that recovers a summary click for an off-screen session row also
 recovers the form's own auto-focus on a blocked submit, so a visitor who never clicks the summary
 at all still lands in the row that failed. The one place the two callers diverge is what happens
 with nothing wired: the summary stays silent (a miss just leaves the click without effect), but the

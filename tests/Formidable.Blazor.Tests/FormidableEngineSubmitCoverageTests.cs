@@ -601,6 +601,634 @@ public class FormidableEngineSubmitCoverageTests
     }
 
     // ---------------------------------------------------------------------------------------
+    // The held vouch across an edit (capability path)
+    // ---------------------------------------------------------------------------------------
+
+    private static FieldIdentifier CustomerName(EngineOrder order) =>
+        new(order.Customer!, nameof(EngineCustomer.Name));
+
+    // Mutations this breaks, one per phase plus the exclusion: dropping the open-window arm of
+    // the on-its-way predicate fails the mid-window asserts (the pass has not begun, so only the
+    // window says a re-answer is coming); dropping the in-flight arm fails the in-flight asserts;
+    // dropping the edited-field exclusion paints the edited field green on the strength of a
+    // value it no longer holds, failing the A asserts.
+    [Fact]
+    public async Task An_unrelated_fields_vouch_survives_both_phases_of_the_gap_an_edit_opens()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        // Baseline: both fields committed and answered — the window's one pass runs the whole
+        // submit selection through the released gate, and both wear the vouch.
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // Phase 1, the debounce window: the edit's pass has not begun, so the open window is the
+        // only thing saying a re-answer is on its way. The unrelated field keeps its vouch; the
+        // edited field paints exactly as it would with no hold anywhere.
+        validator.Reset();
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.Equal("formidable-valid", KitClass(engine, b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(a));
+        Assert.Equal(string.Empty, KitClass(engine, a));
+
+        // Phase 2, the rule's flight: the window fired and the pass is parked on the gate.
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        Assert.True(engine.IsValidating);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.Equal("formidable-valid", KitClass(engine, b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // The landing replaces the served answer with an earned one: both vouched.
+        var quiescent = EngineTestSync.Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", KitClass(engine, a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.Equal("formidable-valid", KitClass(engine, b));
+    }
+
+    // Mutation this breaks: a coverage read that keeps serving the held answer past the landing
+    // (skipping the recompute). Once the pass has landed nothing is on its way any more, so the
+    // serve route refuses and the unrelated field's green — earned by the landing in the real
+    // engine — is gone; the landed answer is the only honest source.
+    [Fact]
+    public async Task The_landing_is_honest_about_a_failing_edit()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The edit that will fail: the gated rule's next release answers no.
+        validator.Reset();
+        validator.ShouldPass = false;
+        order.Description = "rejected";
+        editContext.NotifyFieldChanged(a);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        Assert.True(engine.IsValidating);
+
+        // Mid-flight the unrelated field keeps its vouch; the edited one is excluded from it.
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        var quiescent = EngineTestSync.Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        // The landed answer replaces the served one: the edited field carries its error and no
+        // vouch, and the unrelated field's green is earned rather than held.
+        Assert.Equal("formidable-invalid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-invalid", KitClass(engine, a));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.Equal("formidable-valid", KitClass(engine, b));
+        Assert.True(engine.GetFieldState(b).WouldPassSubmit);
+    }
+
+    // Mutations this breaks, separately: dropping EndPass's coverage bump leaves the cached
+    // served answer standing — nothing re-keys the cache when the pass ends, and the unrelated
+    // field keeps a green whose promised re-answer is gone; dropping the fault path's
+    // AbandonHeldCoverage lets the serve route hand the held answer straight back out for the
+    // live window still armed behind the fault, with the same wrong green.
+    [Fact]
+    public async Task A_faulting_pass_retracts_the_served_vouch_at_once()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        // The baseline read is load-bearing: reading the vouch is what computes and holds it,
+        // exactly as the render that paints the class would have.
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // Submitting is what arms a refresh behind every later edit — the shape in which a
+        // fault leaves a scheduled re-answer standing, so the immediate retraction below is
+        // discriminated from "nothing was on its way anyway".
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        validator.Reset();
+        validator.ThrowOnRelease = true;
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The refresh (300 ms) comes due inside the still-open live window (400 ms) and parks
+        // on the re-armed gate.
+        time.Advance(TimeSpan.FromMilliseconds(301));
+        Assert.True(engine.IsValidating);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        var quiescent = EngineTestSync.Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        // The fault consumed the promised re-answer: nothing serves the held green now — not
+        // the bound, and not the live window still armed behind the fault.
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+    }
+
+    // Mutation this breaks: dropping the on-its-way recheck from the coverage cache's
+    // short-circuit. The answer served mid-flight is cached, and nothing re-keys the cache
+    // while a pass merely hangs — so the bound has to bite through the cache itself, not only
+    // through the serve route a recompute would take.
+    [Fact]
+    public void A_hung_pass_holds_the_served_vouch_only_to_the_bound()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The edit's pass parks on a gate nothing ever releases.
+        validator.Reset();
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        Assert.True(engine.IsValidating);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // Past the engine's 30-second bound the pass no longer counts as a re-answer on its
+        // way, however long it technically remains in flight.
+        time.Advance(TimeSpan.FromSeconds(31));
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+    }
+
+    // Mutation this breaks: an on-its-way predicate answering true unconditionally —
+    // serve-while-stale-under-the-bound. With the live channel narrowed away from the submit
+    // selection, no debounce window, no armed refresh and no pass in flight, nothing is coming
+    // to re-answer, and a green served on "recent enough" would stand indefinitely.
+    [Fact]
+    public async Task A_stale_read_with_nothing_on_its_way_serves_nothing()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
+            new FakeTimeProvider());
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        // The load answers the submit selection once — the fresh-coverage route open to a form
+        // whose live channel is narrowed to the empty draft bucket and that must not submit,
+        // since a submit would arm a refresh behind every later edit.
+        validator.Gate.SetResult();
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The edit's narrow live pass selects nothing and lands within this very call: after
+        // it, no window is open, no refresh is armed, and no pass is in flight.
+        order.Description = "changed";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+    }
+
+    // Mutation this breaks: counting the armed refresh without asking whether its debounce can
+    // fire. Timeout.InfiniteTimeSpan arms a timer that never does — the documented spelling for
+    // turning the refresh off — so the accumulator behind it stays non-empty forever, and a
+    // vouch served on its word would stand indefinitely.
+    [Fact]
+    public async Task An_armed_refresh_that_can_never_fire_serves_no_held_vouch()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            // Refresh off, live channel narrowed to the empty draft bucket: after the submit
+            // below, nothing that runs on an edit can ever re-answer the submit selection.
+            new FormidableOptions
+            {
+                RefreshDebounce = Timeout.InfiniteTimeSpan,
+                LiveProfile = ValidationProfile.Draft
+            },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The post-submit edit arms the refresh — onto a timer that never fires. The narrow
+        // live pass selects nothing and lands within this call, so once it has, no re-answer is
+        // coming from anywhere, however full the refresh accumulator stands.
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+    }
+
+    // Mutation this breaks: counting the open live window without asking whether its debounce
+    // can fire. A window armed with Timeout.InfiniteTimeSpan never closes, so the pass it
+    // promises never starts, and a vouch served on its word would stand indefinitely.
+    [Fact]
+    public async Task A_live_window_that_can_never_close_serves_no_held_vouch()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = Timeout.InfiniteTimeSpan },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        // The load is what earns the baseline here: with the window unable to close, no edit
+        // ever produces a pass of its own.
+        validator.Gate.SetResult();
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The edit accumulates into a window that will never elapse; no pass starts here and
+        // none is scheduled anywhere.
+        order.Description = "changed";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+    }
+
+    // Mutations this breaks, one per arm: window and in-flight arms of the on-its-way predicate
+    // that count without asking what the live channel runs. With LiveProfile narrowed to Draft,
+    // the window an edit opens promises only a Draft pass, and the pass it becomes parks in
+    // flight without ever selecting the submit-only rule — a vouch served on either word would
+    // stand through the window and the flight only to be refused at the landing, blanking
+    // uncorrected. Dropping the window arm's profile gate fails the first mid-window asserts.
+    // Dropping the in-flight arm's fails the asserts behind the SECOND edit, and only those: a
+    // refusal, once computed, is cached, and a pass beginning re-keys nothing — so the predicate
+    // is asked with a pass in flight only by a recompute that happens during the flight, which
+    // the second edit forces by moving the stamp.
+    [Fact]
+    public async Task A_narrowed_live_channels_window_and_flight_serve_no_held_vouch()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new GatedDraftTwoFieldValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveProfile = ValidationProfile.Draft,
+                LiveDebounce = TimeSpan.FromMilliseconds(400)
+            },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        // The load answers the submit selection once, through a pre-released gate — the fresh
+        // baseline a narrowed-live form can earn without a submit arming refreshes behind every
+        // later edit.
+        validator.Gate.SetResult();
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The pre-submit edit opens the live window. What that window promises is a Draft pass,
+        // which cannot re-answer the submit-only rule, so nothing serves the held answer.
+        validator.Reset();
+        order.Description = "changed";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // The window fires and the narrow pass parks on the gate: in flight, and worth exactly
+        // what its window was worth. These reads answer from the refusal already cached at the
+        // mid-window read — a pass beginning re-keys nothing.
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        Assert.True(engine.IsValidating);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // A second edit while the pass flies moves the stamp, so the next read recomputes and
+        // asks the serve condition with the narrow pass itself as the candidate re-answer. It
+        // is not one: its selection has not grown because the model moved again.
+        order.Description = "changed again";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // The landing answers the Draft selection alone: the submit-only rule stays stale, no
+        // re-answer is on its way any more, and nothing vouches — the same blank the window and
+        // flight already showed, never a green that lands into a refusal.
+        var quiescent = EngineTestSync.Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+    }
+
+    // Mutation this breaks: an in-flight arm that answers for a narrowed live pass on its own,
+    // without falling through to what is armed behind it. The narrow pass cannot re-answer the
+    // submit selection, but the post-submit refresh armed by the same edit runs the submit
+    // profile and fires the moment the narrow pass ends — deferred, not absent. Withholding
+    // the vouch for the narrow flight and serving it again at the landing is the blink the
+    // hold exists to remove; the mid-flight asserts fail under an arm that early-returns.
+    [Fact]
+    public async Task A_narrowed_live_pass_defers_to_the_refresh_armed_behind_it()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new GatedDraftTwoFieldValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            // A live window narrower than the refresh's, so the narrow pass is the one in
+            // flight when the refresh comes due — and defers to it rather than the reverse.
+            new FormidableOptions
+            {
+                LiveProfile = ValidationProfile.Draft,
+                LiveDebounce = TimeSpan.FromMilliseconds(100)
+            },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The post-submit edit opens the narrow window and arms the refresh behind it. The
+        // window alone promises nothing here; the armed refresh is what keeps the vouch.
+        validator.Reset();
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+
+        Assert.True(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // The narrow pass parks on the gate with the refresh still armed behind it: the vouch
+        // holds through the flight on the refresh's promise, not the narrow pass's.
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.True(engine.IsValidating);
+
+        Assert.True(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+
+        // The narrow landing answers only the draft selection; the refresh is still coming,
+        // so the vouch holds on.
+        var quiescent = EngineTestSync.Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        Assert.True(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The refresh fires and re-answers the whole submit selection: green, earned, on both.
+        time.Advance(TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+    }
+
+    // Mutation this breaks: consulting the arms behind a pass without first asking the pass's
+    // age. A hung submit, live or load pass defers every armed refresh indefinitely — the
+    // refresh re-arms behind exactly those three kinds — so the refresh accumulator stays full
+    // for as long as the hang lasts, and an arm read past the bound would keep the vouch on a
+    // promise the hang itself is blocking.
+    [Fact]
+    public async Task A_hung_narrowed_pass_loses_the_vouch_at_the_bound_despite_an_armed_refresh()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new GatedDraftTwoFieldValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveProfile = ValidationProfile.Draft,
+                LiveDebounce = TimeSpan.FromMilliseconds(100)
+            },
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // The narrow pass parks on a gate nothing releases, with the refresh armed behind it.
+        validator.Reset();
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(a);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.True(engine.IsValidating);
+
+        Assert.True(engine.GetFieldState(b).WouldPassSubmit);
+
+        // Past the engine's 30-second bound the hung pass stops vouching, and the refresh it
+        // keeps deferring cannot stand in for it.
+        time.Advance(TimeSpan.FromSeconds(31));
+
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+    }
+
+    // Mutation this breaks: a load that leaves the held answer standing. DiscloseLoadedValuesAsync
+    // declares the model moved wholesale — no field-changed notification joins the exclusion
+    // set — and its own pass satisfies the in-flight arm, so a hold it did not abandon would
+    // paint every field green from pre-load values for the load's whole flight.
+    [Fact]
+    public async Task A_loads_flight_serves_no_vouch_from_the_values_it_replaces()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            time);
+        var a = Description(order);
+        var b = CustomerName(order);
+        using var registrationA = engine.Registry.Register(a);
+        using var registrationB = engine.Registry.Register(b);
+
+        validator.Gate.SetResult();
+        editContext.NotifyFieldChanged(a);
+        editContext.NotifyFieldChanged(b);
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+
+        // A load against a re-armed gate: its pass parks in flight, and the values it will
+        // answer for are not the ones the held answer described.
+        validator.Reset();
+        var load = engine.DiscloseLoadedValuesAsync();
+
+        Assert.True(engine.IsValidating);
+        Assert.False(engine.GetFieldState(a).WouldPassSubmit);
+        Assert.False(engine.GetFieldState(b).WouldPassSubmit);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(b));
+
+        // The landing re-answers and re-holds: green returns, earned from the loaded values.
+        validator.Gate.SetResult();
+        await load;
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(a));
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(b));
+    }
+
+    // ---------------------------------------------------------------------------------------
     // Honest valid (capability-less path)
     // ---------------------------------------------------------------------------------------
 

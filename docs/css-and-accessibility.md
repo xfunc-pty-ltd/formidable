@@ -107,11 +107,27 @@ post-submit edit, and the one behind any move in the rendered field set. That se
 green's own. A row arriving or a virtualized panel scrolling
 throws away the answers green was resting on, because the markup may have moved together with the
 model and nothing announced the second half. Rather than blink, the engine holds the answer it
-last gave and serves it until the pass that same move arms produces a new one. What bounds the
-hold is the value, not the clock: a committed change to any field retires the held answer on the
-spot, since it describes a model that change has left behind. So markup moving is not on its own
-something green reacts to. A value moving is, and so is a model that was changed alongside the
-markup without saying so, once the refresh lands and says which fields it fails.
+last gave and serves it until the pass that same move arms produces a new one. So markup moving is
+not on its own something green reacts to. A value moving is, for that one field, and so is a model
+that was changed alongside the markup without saying so, once the refresh lands and says which
+fields it fails.
+
+An edit opens a second gap, narrower than the first: the fields edited since the held answer was
+computed lose it, each the moment its change commits, since theirs are the values that answer no
+longer describes. Every other field keeps the answer it already had for as long as a fresh one is
+demonstrably coming: a pass already validating, an open finite live-debounce window on a live
+channel that runs the submit profile, or an armed post-submit refresh whose debounce is finite. A
+window on a narrowed channel promises a pass that cannot answer, so it counts for nothing, and a
+narrowed pass already in flight counts only for the refresh armed behind it; an infinite spelling
+arms a timer that never fires, so a window that cannot close promises nothing either. One
+keystroke does not blank every other field's
+confirmation border for the gap behind it, debounce window plus the rule's own flight. The cover
+is not indefinite. A pass still running past thirty seconds loses it, and a pass that ends without
+landing (a fault, a cancellation) drops the held answer outright rather than riding out whatever
+cover remained. A pass superseded by a newer one is not itself a drop, though: the answer then
+stands or falls on whether the pass that displaced it, or something still armed, promises a fresh
+one. Either gap closes the same way: the pass the hold was waiting on lands, and its own answer is
+what green reads from there.
 
 [`TrackFormValidity`](options.md#trackformvalidity)'s probe covers what is left: a form on which
 nothing has happened at all, one that narrows `LiveProfile` past those rules, and a validator with

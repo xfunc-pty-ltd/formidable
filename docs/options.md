@@ -612,11 +612,15 @@ because green is a promise about submit: a field whose submit-selected rules hav
 the value as it stands, or an answer that fails it without showing why, wears nothing rather than
 a confirmation it has not earned. That answer outlives the page moving underneath it. A row
 arriving or a virtualized panel scrolling throws away the verdicts behind it, so the engine holds
-the answer it last gave until the refresh that same move arms returns a new one, and retires the
-held one as soon as a committed change leaves it describing an older model. `Pending` appends
-alongside whichever of the other four applies rather than replacing it — see [CSS and
-accessibility](css-and-accessibility.md) for how the five compose, and `TrackFormValidity` above
-for what answers it on a form nobody has edited.
+the answer it last gave until the refresh that same move arms returns a new one. It holds across
+an edit too, for every field but the ones edited since it was computed (each further edit joins
+the exclusion), for as long as a fresh answer is demonstrably coming, bounded rather than
+indefinite, and it is dropped outright the moment a pass carrying that promise ends without
+landing (a pass superseded by a newer one is not itself a drop; the answer then stands or falls
+on whether its displacer, or something armed behind it, still promises a fresh one). `Pending`
+appends alongside whichever of the other four applies rather than replacing it — see [CSS and
+accessibility](css-and-accessibility.md#need-to-know) for the hold's two windows and how the five
+compose, and `TrackFormValidity` above for what answers it on a form nobody has edited.
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 

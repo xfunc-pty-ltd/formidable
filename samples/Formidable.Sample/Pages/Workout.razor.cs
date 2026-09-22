@@ -50,6 +50,11 @@ public partial class Workout : IDisposable
     private FormidableForm<EventRegistration>? _form;
     private string _status = string.Empty;
 
+    // Where a click on the Include-catering entry lands once the field it names has left the
+    // page: the checkbox is the control that governs the field's presence, so it is what answers
+    // the click when the field itself no longer can.
+    private ElementReference _includeCateringInput;
+
     private IFormidableEngine? _subscribedEngine;
 
     private FieldIdentifier VenueRegionField => new(_registration, nameof(EventRegistration.VenueRegion));
@@ -197,28 +202,44 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    // FormidableSummary calls this when a clicked issue's element does not take focus — here
-    // because a session outside Virtualize's render window has no element at all — and
-    // FormidableForm calls it the same way when its own
-    // blocked-submit auto-focus misses: scroll the panel to the row's approximate offset, give
-    // Virtualize a moment to render it, then let the caller retry the focus. The retry's own
-    // scrollIntoView centres the row exactly, so the row height only needs to be close.
-    private async ValueTask<bool> ScrollToSessionAsync(FieldIdentifier field)
+    // FormidableSummary calls this when a clicked issue's element does not take focus, and
+    // FormidableForm calls it the same way when its own blocked-submit auto-focus misses. Two
+    // reasons an element can be missing, two different answers:
+    //   - a session row outside Virtualize's render window still has a model, just no element
+    //     yet: scroll the panel to the row's approximate offset, give Virtualize a moment to
+    //     render it, then let the caller retry the focus. The retry's own scrollIntoView centres
+    //     the row exactly, so the row height only needs to be close.
+    //   - the dietary-notes or catering-headcount field, unticked out of the page by its own
+    //     checkbox, has nowhere to reappear: retrying would miss again by construction, so this
+    //     answers the click itself, on the checkbox that governs the field's presence, and tells
+    //     the caller not to retry.
+    private async ValueTask<bool> RecoverMissedFocusAsync(FieldIdentifier field)
     {
-        if (field.Model is not SessionPick session)
+        if (field.Model is SessionPick session)
         {
+            var index = _registration.Sessions.IndexOf(session);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * SessionRowHeight);
+            await Task.Delay(120);
+            return true;
+        }
+
+        // Matches on the field name alone, with no check that field.Model is _registration: this
+        // page has only the one model, and no other field on it is named DietaryNotes or
+        // CateringHeadcount, so the name alone already identifies the field uniquely. A second
+        // model sharing either name would need the model checked too.
+        if (!_registration.IncludeCatering
+            && field.FieldName is nameof(EventRegistration.DietaryNotes) or nameof(EventRegistration.CateringHeadcount))
+        {
+            await _includeCateringInput.FocusAsync();
             return false;
         }
 
-        var index = _registration.Sessions.IndexOf(session);
-        if (index < 0)
-        {
-            return false;
-        }
-
-        await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * SessionRowHeight);
-        await Task.Delay(120);
-        return true;
+        return false;
     }
 
     // The engine notifies the components bound to it, not the page, so the aria-invalid above

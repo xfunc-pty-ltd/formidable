@@ -392,6 +392,15 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
 
+        // The field this entry names is off the page, so a click on it cannot land where the
+        // field used to be: FocusFallback routes the click to the checkbox that governs the
+        // field's presence instead of retrying an input that no longer exists. Blur first —
+        // UncheckAsync above already clicked the checkbox, so without this the assertion below
+        // would pass on that leftover focus rather than on the summary click.
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+        await SummaryEntry(page, DietaryNotesRequired).ClickAsync();
+        await Expect(Field(page, "includecatering")).ToBeFocusedAsync();
+
         // A fresh committed edit right before the submit (a changed value, or the commit is
         // elided) strands every stored verdict at an older stamp, so the submit re-runs the whole
         // selection rather than assembling it from the store. A second address the check has not

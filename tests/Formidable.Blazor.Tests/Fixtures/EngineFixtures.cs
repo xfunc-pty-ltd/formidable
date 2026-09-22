@@ -532,6 +532,81 @@ public sealed class GatedRuleRunCountingValidator : DraftSubmitValidator<EngineO
 }
 
 /// <summary>
+/// The inverse bucket split of <see cref="TwoFieldGatedValidator"/>: the gated asynchronous rule
+/// on <see cref="EngineOrder.Description"/> sits in the DRAFT bucket, so a live channel narrowed
+/// to <see cref="ValidationProfile.Draft"/> still selects it — an edit opens a real debounce
+/// window and the pass it becomes parks on <see cref="Gate"/> in flight — while
+/// <see cref="EngineCustomer.Name"/>'s presence rule is submit-only, so no pass the narrowed
+/// channel can ever run answers the whole submit selection. Exists to observe what a narrowed
+/// live channel's window and flight are worth to the submit-coverage vouch.
+/// </summary>
+public sealed class GatedDraftTwoFieldValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+
+    protected override void ConfigureDraftRules()
+    {
+        RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+        {
+            await Gate.Task.WaitAsync(ct);
+            return true;
+        }).WithMessage("Description failed its async check");
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Customer!.Name)
+            .NotEmpty().WithMessage("Customer name is required")
+            .When(x => x.Customer is not null);
+    }
+
+    public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>
+/// Two independently ruled submit-bucket fields: <see cref="EngineOrder.Description"/>'s rule is
+/// asynchronous and blocks on <see cref="Gate"/> until released, while
+/// <see cref="EngineCustomer.Name"/>'s presence rule answers synchronously — so an edit to the
+/// gated field opens a real gap (a debounce window, then the rule's flight) during which the
+/// OTHER field's vouch is observable. The gated rule's outcome is decided per release:
+/// <see cref="ShouldPass"/> chooses the verdict and <see cref="ThrowOnRelease"/> turns the
+/// release into a validator fault, so one fixture stages the passing landing, the failing
+/// landing, the fault and the never-released hang.
+/// </summary>
+public sealed class TwoFieldGatedValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+
+    /// <summary>The gated rule's verdict once released. Defaults to passing, so setup passes flow
+    /// through a pre-released gate and a test flips it only to stage a failing landing.</summary>
+    public bool ShouldPass { get; set; } = true;
+
+    /// <summary>When set, a release faults the pass instead of answering it.</summary>
+    public bool ThrowOnRelease { get; set; }
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+        {
+            await Gate.Task.WaitAsync(ct);
+            return ThrowOnRelease
+                ? throw new InvalidOperationException("rule blew up")
+                : ShouldPass;
+        }).WithMessage("Description failed its async check");
+
+        RuleFor(x => x.Customer!.Name)
+            .NotEmpty().WithMessage("Customer name is required")
+            .When(x => x.Customer is not null);
+    }
+
+    public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>
 /// Hides an inner validator's rule-level capability behind the bare
 /// <see cref="IModelValidator{TModel}"/> surface — the wrapper implements nothing else, so an
 /// engine's capability test fails and every pass takes the whole-profile fallback. Exists to pin
