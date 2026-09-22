@@ -72,7 +72,7 @@ namespace Formidable.Blazor;
 /// keep the renderer's context throughout their own awaits instead, since those continuations
 /// run in or beside component code that reads it.
 /// </remarks>
-public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IDisposable
+public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IStaleRegistrationReporter, IDisposable
     where TModel : class
 {
     private readonly TModel _model;
@@ -2085,9 +2085,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
         System.Diagnostics.Trace.WriteLine(
-            $"Formidable: issue at '{path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
+            $"Formidable: issue at '{path}' is suppressed - nothing renders its field, or a disclosure override answered no.");
         _logger?.LogWarning(
-            "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
+            "Formidable: issue at '{Path}' is suppressed - nothing renders its field, or a disclosure override answered no.",
             path);
 
         // The callbacks receive the issue as received. The sanitized path above is for the two
@@ -2099,6 +2099,46 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             _options.NeverRegisteredFieldDiagnostic(issue);
         }
+    }
+
+    /// <summary>
+    /// The report a stale registration gets when <see cref="FormidableOptions.ReportStaleRegistrations"/>
+    /// asked for one: the same three channels <see cref="ReportSuppressed"/> writes, in the same
+    /// order — a Trace line for a debugger, a logged warning for the host (WebAssembly's default
+    /// provider is the browser console, so that channel needs no wiring to be seen), and the
+    /// options callback for a page that wants the identifiers themselves. Living here beside the
+    /// other diagnostics, behind one seam every bound component routes through, is what keeps the
+    /// channels from drifting apart. The text names the component, both ends of the divergence
+    /// through the same <see cref="FormidableComponentBase.DescribeChange"/> the row-key throw
+    /// uses, and the fix. The names it echoes come from the component's own accessor expression —
+    /// compiler-written member and type names, never a payload's strings — so unlike the
+    /// suppressed-issue report's path there is nothing here for
+    /// <see cref="DiagnosticPathSanitizer"/> to neutralize.
+    /// </summary>
+    void IStaleRegistrationReporter.Report(StaleRegistrationReport report)
+    {
+        var component = FriendlyTypeName.Of(report.ComponentType);
+        var change = FormidableComponentBase.DescribeChange(report.RegisteredField, report.CurrentField);
+        System.Diagnostics.Trace.WriteLine(
+            $"Formidable: {component} {change}, without having been rebuilt in between - its " +
+            "registration, element id, aria attributes and messages stay with the field it " +
+            "registered. Key the component by the owning object (@key=\"item\" on the element " +
+            "the loop renders) so a replacement rebuilds it. (Reported by " +
+            "FormidableOptions.ReportStaleRegistrations; FormidableOptions.VerifyRowKeys throws " +
+            "for this instead.)");
+        _logger?.LogWarning(
+            "Formidable: {Component} {Change}, without having been rebuilt in between - its " +
+            "registration, element id, aria attributes and messages stay with the field it " +
+            "registered. Key the component by the owning object (@key=\"item\" on the element " +
+            "the loop renders) so a replacement rebuilds it. (Reported by " +
+            "FormidableOptions.ReportStaleRegistrations; FormidableOptions.VerifyRowKeys throws " +
+            "for this instead.)",
+            component, change);
+
+        // The callback receives the identifiers as the component holds them; the composed text
+        // above is the library's own two channels. A page rendering them encodes as any Blazor
+        // render does.
+        _options.StaleRegistrationDiagnostic?.Invoke(report);
     }
 
     /// <summary>

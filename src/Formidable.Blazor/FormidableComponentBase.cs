@@ -31,6 +31,8 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     private readonly FormContextBinding _binding = new();
     private FieldIdentifier _registeredField;
     private bool _verifyRowKeys;
+    private bool _reportStaleRegistrations;
+    private bool _staleReported;
 
     private protected FormidableComponentBase()
     {
@@ -63,8 +65,10 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
     /// re-renders on a validation state change.
     /// The no-op path carries one extra job while
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> is on: it checks that the field this
-    /// component's accessor names is still the one it registered.
+    /// <see cref="FormidableOptions.VerifyRowKeys"/> or
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> is on: it checks that the field
+    /// this component's accessor names is still the one it registered — the first throws on a
+    /// divergence, the second reports it and renders on.
     /// </summary>
     protected override void OnParametersSet()
     {
@@ -80,15 +84,20 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             register: Register,
             stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
 
-        _verifyRowKeys = Context!.Engine.Options.VerifyRowKeys;
-        _registeredField = _verifyRowKeys ? ResolveField() : default;
+        var options = Context!.Engine.Options;
+        _verifyRowKeys = options.VerifyRowKeys;
+        _reportStaleRegistrations = options.ReportStaleRegistrations;
+        _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
+        _staleReported = false;
     }
 
     /// <summary>
     /// The field this component's accessor names <em>right now</em>, resolved afresh rather than
     /// read back from whatever <see cref="Register"/> resolved. Every component that speaks for a
     /// field overrides this and calls it from its own <see cref="Register"/>, so the identifier a
-    /// component registers and the identifier <see cref="FormidableOptions.VerifyRowKeys"/>
+    /// component registers and the identifier the row-key check
+    /// (<see cref="FormidableOptions.VerifyRowKeys"/>,
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/>)
     /// compares against it are the same expression evaluated at two different times — which is the
     /// only thing that comparison is entitled to assume. The default is the empty identifier, for a
     /// component with no accessor to resolve: <c>FormidableSummary</c>, which speaks for the whole
@@ -99,14 +108,25 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     private protected virtual FieldIdentifier ResolveField() => default;
 
     /// <summary>
-    /// Throws when the component's accessor now names a different field than the one it registered
-    /// — see <see cref="FormidableOptions.VerifyRowKeys"/> for what that means and why it is worth
-    /// stopping on. Silent unless that option is on.
+    /// Checks that the component's accessor still names the field it registered, in whichever of
+    /// its two modes is on — see <see cref="FormidableOptions.VerifyRowKeys"/> for what the
+    /// divergence means and why it is worth stopping on. Under <c>VerifyRowKeys</c> it throws, on
+    /// every divergent parameter set; under
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> alone it hands the divergence to
+    /// <see cref="ReportStaleRegistration"/> instead, whose own work never throws — a throwing
+    /// <see cref="FormidableOptions.StaleRegistrationDiagnostic"/> callback is the consumer's,
+    /// and surfaces as any component-lifecycle throw does. With both options on
+    /// the throw wins outright — one divergence is not two findings. Silent when neither is on.
     /// </summary>
     private void VerifyRowKey()
     {
         if (!_verifyRowKeys)
         {
+            if (_reportStaleRegistrations)
+            {
+                ReportStaleRegistration();
+            }
+
             return;
         }
 
@@ -135,10 +155,52 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// The report-never-throw arm of the row-key check: resolves the accessor afresh, and when it
+    /// names a different field than the one registered, hands a
+    /// <see cref="StaleRegistrationReport"/> to the engine's
+    /// <see cref="IStaleRegistrationReporter"/> seam — the same three channels the engine's other
+    /// diagnostics write. One divergence is one report: a latch holds after the first, and it
+    /// resets when the accessor names the registered field again or when the component rebinds,
+    /// so a divergence that heals and then reopens is a fresh finding. An accessor that cannot
+    /// resolve at all — a navigated owner gone null, say — is skipped rather than judged: a
+    /// shape the check cannot answer for must render exactly as it would with no check at all,
+    /// because reporting is this mode's whole severity.
+    /// </summary>
+    private void ReportStaleRegistration()
+    {
+        FieldIdentifier current;
+        try
+        {
+            current = ResolveField();
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (current.Equals(_registeredField))
+        {
+            _staleReported = false;
+            return;
+        }
+
+        if (_staleReported)
+        {
+            return;
+        }
+
+        _staleReported = true;
+        (Context!.Engine as IStaleRegistrationReporter)?.Report(
+            new StaleRegistrationReport(GetType(), _registeredField, current));
+    }
+
+    /// <summary>
     /// Names both ends of the divergence: the same field on a different owner — the row case, where
     /// spelling the identical name twice would say nothing — or two different fields outright.
+    /// Shared by the <see cref="VerifyRowKey"/> throw and the engine's stale-registration report,
+    /// so the two tellings of one divergence cannot drift apart.
     /// </summary>
-    private static string DescribeChange(FieldIdentifier registered, FieldIdentifier current)
+    internal static string DescribeChange(FieldIdentifier registered, FieldIdentifier current)
     {
         var registeredOwner = OwnerName(registered);
         var currentOwner = OwnerName(current);

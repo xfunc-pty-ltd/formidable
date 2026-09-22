@@ -149,6 +149,16 @@ a member added after v1 to any interface a consumer implements — these three s
 `IFormidableEngine` among them — carries a default implementation, and until a
 double overrides it, it answers the conservative default named in the interface's own remarks.
 
+The clock is a fourth stand-in, and it needs no Formidable interface because .NET already ships
+the seam. The engine creates its timers (the refresh window behind
+[`RefreshDebounce`](options.md#refreshdebounce), the live window behind
+[`LiveDebounce`](options.md#livedebounce)) from the `TimeProvider` registered in the container,
+falling back to `TimeProvider.System` when there is none. Register
+`Microsoft.Extensions.Time.Testing.FakeTimeProvider` as `TimeProvider` and every debounced pass
+waits for the test: nothing a timer owes fires until `Advance(...)` crosses its window.
+Registration order doesn't matter for this one — Formidable never registers a `TimeProvider` of
+its own, so there is nothing to get in ahead of.
+
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
 `JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan the calls the form in

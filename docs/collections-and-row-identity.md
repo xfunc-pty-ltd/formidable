@@ -54,7 +54,9 @@ coordinating.
 Forget the `@key` and nothing here throws by default — the mistake just misfiles a message onto
 the wrong row, silently. [`VerifyRowKeys`](options.md#verifyrowkeys) is the development-time
 option that catches it: turned on, it throws the moment a field-bound component's accessor no
-longer names the field it registered.
+longer names the field it registered. Where a throw is the wrong severity — production, say —
+[`ReportStaleRegistrations`](options.md#reportstaleregistrations) reports the same divergence
+through the diagnostic channels rather than throwing, and the form renders on.
 
 The two buttons in that excerpt aren't part of the row-identity story on their own — they're what
 a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a
@@ -74,6 +76,21 @@ own Remove and Move up buttons end up notifying, and its container ends up weari
 whatever row first rendered in that screen slot. `VerifyRowKeys` catches this shape of the mistake
 too: the accessor a `FormidableField` resolved at registration is exactly what it compares against
 on every later render.
+
+A page-driven edit that replaces an owner adds an ordering rule: render before you notify. A
+fresh instance is a fresh field, so the engine publishes state synchronously inside the
+notification itself, and components observing the engine re-render before `NotifyFieldChanged`
+returns: a re-rendering wrapper re-supplies the bound components inside it, whose accessors now
+name the replacement while their registrations still name the old instance. With `VerifyRowKeys`
+on, that is the row-key exception thrown from inside the page's own notify; with it off, those
+components keep speaking for the old instance until something rebuilds them — the silent
+misfiling `VerifyRowKeys` exists to catch. Render first, `row.Child = selected; await
+InvokeAsync(StateHasChanged);`, so the keyed diff rebuilds the bound components against the
+replacement, then notify with `EditContext.NotifyFieldChanged(...)`, its identifier built from
+the accessor at the call. `NotifyChanged()` on a captured field context is the wrong notify
+here: a context carries the `Field` it was handed out with, so one your handler captured before
+the replacement notifies the departed instance instead. The replacement then goes unengaged,
+and nothing rendered diverges for `VerifyRowKeys` to catch.
 
 Neither idiom helps a rule that has no field of its own. `Teams` and `Members` are both `List<T>`
 properties, so nothing renders an input for the list itself. A whole-collection rule like "Add at

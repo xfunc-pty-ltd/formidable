@@ -38,9 +38,10 @@ public static class FormidableBlazorServiceCollectionExtensions
     /// its properties at each use — a pass selecting its profile, a timer arming, a render asking
     /// for a class name — so mutating it at runtime changes behaviour in every live form, not just
     /// the one being looked at. Where a property's own remarks state a coarser read, that
-    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root and
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> once per bound component, so a change to
-    /// either reaches nothing that has already read it.
+    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root, and
+    /// <see cref="FormidableOptions.VerifyRowKeys"/> and
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> once per bound component, so a
+    /// change to any of the three reaches nothing that has already read it.
     /// </remarks>
     public static IServiceCollection AddFormidableBlazor(
         this IServiceCollection services, Action<FormidableOptions> configureDefaults)

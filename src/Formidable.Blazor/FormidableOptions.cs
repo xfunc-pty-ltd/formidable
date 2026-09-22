@@ -70,7 +70,9 @@ public sealed class FormidableOptions
         LiveDisclosure = defaults.LiveDisclosure;
         SuppressedIssueDiagnostic = defaults.SuppressedIssueDiagnostic;
         NeverRegisteredFieldDiagnostic = defaults.NeverRegisteredFieldDiagnostic;
+        StaleRegistrationDiagnostic = defaults.StaleRegistrationDiagnostic;
         VerifyRowKeys = defaults.VerifyRowKeys;
+        ReportStaleRegistrations = defaults.ReportStaleRegistrations;
         InlineMessageLive = defaults.InlineMessageLive;
         DefensiveGateMessage = defaults.DefensiveGateMessage;
         ModelLevelDisplayName = defaults.ModelLevelDisplayName;
@@ -315,8 +317,8 @@ public sealed class FormidableOptions
     public LiveIssueDisclosure LiveDisclosure { get; set; } = LiveIssueDisclosure.Engaged;
 
     /// <summary>
-    /// Invoked once per issue suppressed because no rendered field registration matched and no
-    /// disclosure override applied — usually a missing wrapper or <c>FormidableFieldAnchor</c>.
+    /// Invoked once per issue suppressed because nothing renders its field, or a disclosure
+    /// override answered no — the first usually a missing wrapper or <c>FormidableFieldAnchor</c>.
     /// Two sites report here: a submit, for its own error-severity issues, and
     /// <c>ApplyServerIssues</c>, for the advisories in a server response (a server-declared error
     /// bypasses the registry rather than suppressing). A Trace-output warning is emitted regardless, and
@@ -350,6 +352,25 @@ public sealed class FormidableOptions
     public Action<ValidationIssue>? NeverRegisteredFieldDiagnostic { get; set; }
 
     /// <summary>
+    /// Invoked once per stale registration <see cref="ReportStaleRegistrations"/> detects: a
+    /// bound component whose accessor no longer names the field it registered — the divergence an
+    /// unkeyed row list or a nested object replaced in place produces. It receives the
+    /// <see cref="StaleRegistrationReport"/> as the component holds it: the component's type and
+    /// both field identifiers, the registered end and the one the accessor names now. A
+    /// Trace-output warning is written regardless of whether this callback is set, and so is a
+    /// logged warning when the host resolved an <c>ILoggerFactory</c> — WASM's default logging
+    /// provider is the browser console, so that channel needs no wiring here to be seen.
+    /// Detection is <see cref="ReportStaleRegistrations"/>'s to switch on: while that is off,
+    /// nothing reaches this callback. With <see cref="VerifyRowKeys"/> on, the exception replaces
+    /// the report — a divergence throws, and neither this callback nor the warning channels see
+    /// it. Read at each report, so a change reaches the next divergence detected. Unlike
+    /// <see cref="SuppressedIssueDiagnostic"/>'s issue, nothing handed over here is
+    /// payload-supplied: the identifiers' member names and owning types come from the component's
+    /// own accessor expression.
+    /// </summary>
+    public Action<StaleRegistrationReport>? StaleRegistrationDiagnostic { get; set; }
+
+    /// <summary>
     /// Development-time check that a component still speaks for the field it registered. Defaults
     /// to <see langword="false"/>. When <see langword="true"/>, every component bound to a field
     /// re-reads its accessor on each parameter set and compares the field it now names against the
@@ -362,7 +383,10 @@ public sealed class FormidableOptions
     /// field is resolved once at registration, the registration, the element id, the aria
     /// attributes and the messages all stay with the row that moved away while the input
     /// displays the new row's value. Nothing about that misfiling is visible on screen, which
-    /// is what makes it worth an exception rather than a diagnostic. Replacing a nested object
+    /// is what makes it worth an exception rather than a diagnostic where a developer is
+    /// watching; where a throw is the wrong severity,
+    /// <see cref="ReportStaleRegistrations"/> reports the same divergence through the
+    /// diagnostic channels instead. Replacing a nested object
     /// under a field bound to it produces the same divergence and the same throw with no
     /// collection anywhere on the page.
     /// Correctly keyed rows never trip it, whatever the edit — the three shapes differ only in what
@@ -381,6 +405,42 @@ public sealed class FormidableOptions
     /// read.
     /// </summary>
     public bool VerifyRowKeys { get; set; }
+
+    /// <summary>
+    /// The report-never-throw sibling of <see cref="VerifyRowKeys"/>. Defaults to
+    /// <see langword="false"/>. When <see langword="true"/> and <see cref="VerifyRowKeys"/> is
+    /// off, every component bound to a field re-reads its accessor on each parameter set exactly
+    /// as the throwing check does, and a divergence — the accessor now naming a different field
+    /// than the one registered — is reported rather than thrown: a Trace-output warning, a
+    /// logged warning when the host resolved an <c>ILoggerFactory</c> (WASM's default logging
+    /// provider is the browser console, so that channel needs no wiring to be seen), and
+    /// <see cref="StaleRegistrationDiagnostic"/> when one is set. One divergence is one report:
+    /// it repeats only after the accessor names the registered field again, or after the
+    /// component rebinds — so a divergence that heals and then reopens is a fresh finding. A
+    /// component whose accessor cannot resolve at all — a navigated owner gone null, say — is
+    /// skipped rather than judged, and the check's own path never takes a rendering form down;
+    /// a throwing <see cref="StaleRegistrationDiagnostic"/> callback is consumer code, invoked
+    /// unguarded exactly as <see cref="SuppressedIssueDiagnostic"/> is, and surfaces from the
+    /// component's own parameter-set lifecycle. With
+    /// <see cref="VerifyRowKeys"/> on as well, the exception replaces the report.
+    /// </summary>
+    /// <remarks>
+    /// Off by default because detection is not free: it is the same accessor resolution per
+    /// bound component per parameter set that <see cref="VerifyRowKeys"/> pays, and its cost
+    /// depends on the accessor's shape. One whose owner is a single step from the expression's
+    /// root — <c>() =&gt; member.Alias</c> over a loop-captured row, <c>() =&gt; Order.Total</c>
+    /// on the page — resolves in nanoseconds; one that navigates further —
+    /// <c>() =&gt; Order.Customer.Name</c> — compiles its owner expression on every resolution,
+    /// which costs microseconds and kilobytes each. Budget for the deepest accessors the form
+    /// renders, and turn it on where the answer is worth that — typically the environments
+    /// whose throw would be the wrong severity:
+    /// <c>options.VerifyRowKeys = isDevelopment; options.ReportStaleRegistrations =
+    /// !isDevelopment;</c>.
+    /// Read once per bound component, as it binds to the form's context, so a change mid-form
+    /// governs only components that bind afterwards — those already bound keep the answer they
+    /// read.
+    /// </remarks>
+    public bool ReportStaleRegistrations { get; set; }
 
     /// <summary>
     /// The <c>aria-live</c> politeness applied to every message list — field-, collection- and

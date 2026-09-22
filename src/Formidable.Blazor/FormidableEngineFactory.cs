@@ -32,6 +32,7 @@ internal static class FormidableEngineFactory
             validator ?? ResolveValidator<TModel>(services),
             ResolveIntrospector(services),
             options ?? ResolveOptions(services),
+            timeProvider: ResolveTimeProvider(services),
             renderDispatch: renderDispatch,
             logger: ResolveLogger(services));
 
@@ -105,7 +106,19 @@ internal static class FormidableEngineFactory
         (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
 
     /// <summary>
-    /// Optional, unlike every other resolution above: a direct <see cref="FormidableEngine{TModel}"/>
+    /// Optional, like the logger below: <see langword="null"/> hands the engine's constructor its
+    /// own <see cref="TimeProvider.System"/> default, so a host that registers nothing keeps the
+    /// wall clock. Resolving here is what makes the constructor's parameter reachable from the
+    /// shipped roots at all — every clock the engine keeps (both debounce timers, pass
+    /// timestamps, the held-coverage bound) reads the one provider it was built with, so a
+    /// container that registers a <see cref="TimeProvider"/> (a test's <c>FakeTimeProvider</c>)
+    /// drives them all.
+    /// </summary>
+    private static TimeProvider? ResolveTimeProvider(IServiceProvider services) =>
+        (TimeProvider?)services.GetService(typeof(TimeProvider));
+
+    /// <summary>
+    /// Optional, like the time provider above: a direct <see cref="FormidableEngine{TModel}"/>
     /// construction (no container involved) must stay possible with no logging at all, and a
     /// consumer who never registered <see cref="ILoggerFactory"/> gets the engine's pre-existing
     /// diagnostics (Trace, the callback) exactly as before — logging is additive, never required.

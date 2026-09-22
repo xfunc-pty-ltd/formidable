@@ -23,14 +23,6 @@
     /* the custom select chevron, stroked in the muted colour — a data URI cannot read a
        token, so each scheme carries its own */
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%234a5565' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    /* the severity and confirmed-field glyphs, so shape and colour say the same thing —
-       colour alone is exactly what a stylesheet must not rely on for severity. Unlike the
-       chevron above these are MASKS, not background images: a mask reads the drawing's alpha
-       and nothing else, so the shape carries no colour of its own and the rule applying it
-       supplies one. That is what collapses these to one URI each instead of a copy per
-       scheme, and it is what lets a page recolour a glyph at runtime: a data URI cannot read
-       a token, but the paint underneath it can. The stroke below is opaque black for that
-       reason — it says "draw here", not "draw red". */
     /* chrome (same in both schemes) */
     --nav-bg: #1a1a2e;
     --nav-active: #f26a2b;

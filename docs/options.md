@@ -45,9 +45,10 @@ The engine does keep re-reading that instance's *properties*, though: mutating `
 that property's next read, where a read is a pass selecting its profile, a timer arming, or a
 render asking for a class name or a marker. Where an entry below states a coarser read than that,
 it governs: [`ClickRecovery`](#clickrecovery) is read once per root, on its first interactive
-render, and [`VerifyRowKeys`](#verifyrowkeys) once per bound component as it binds, so a change to
-either reaches nothing that has already read it. A change notifies nothing by itself in any case:
-it shows when something next validates or renders. See
+render, and [`VerifyRowKeys`](#verifyrowkeys) and
+[`ReportStaleRegistrations`](#reportstaleregistrations) once per bound component as it binds, so a
+change to any of the three reaches nothing that has already read it. A change notifies nothing
+by itself in any case: it shows when something next validates or renders. See
 [Recipes](recipes.md#i-want-profiles-of-my-own) for a worked case. Building the
 `FormidableOptions` once, up front, and leaving it alone for the life of the rendered form — as
 the sample further below does — is what the rule asks for.
@@ -96,6 +97,11 @@ its pass this long after the change rather than sliding to the pause in the typi
 evaluates the whole submit profile, async rules included, since the same change emptied the
 verdict store. A burst of field-set changes still collapses to one pass: they share a single
 timer, and each re-arms it.
+
+The timer itself is created from the `TimeProvider` in the DI container when one is registered
+(`TimeProvider.System` otherwise), and so is `LiveDebounce`'s, so a test can register a
+`FakeTimeProvider` and land either window with `Advance` instead of waiting — see
+[Testing](testing.md#the-form-under-bunit).
 
 ### `LiveDebounce`
 
@@ -431,6 +437,25 @@ verdict. What it does rule out is the ambiguous middle — a field that was regi
 unregistered, a visited-then-collapsed section, stays silent here and reports only to
 `SuppressedIssueDiagnostic`.
 
+### `StaleRegistrationDiagnostic`
+
+`Action<StaleRegistrationReport>?`, defaults to `null`. Invoked once per stale registration
+[`ReportStaleRegistrations`](#reportstaleregistrations) detects: a bound component whose accessor
+no longer names the field it registered — the divergence an unkeyed row list or a nested object
+replaced in place produces. The report carries the component's type and both ends of the
+divergence, the registered field and the one the accessor names now, as the component holds them.
+Detection is `ReportStaleRegistrations`' to switch on: while that is off, nothing reaches this
+callback, and with [`VerifyRowKeys`](#verifyrowkeys) on the exception replaces the report
+entirely. A Trace-output warning is written whether or not this callback is set, and so is a
+logged warning when the host resolved an `ILoggerFactory` — WASM's default logging provider is the
+browser console, so that channel needs no consumer wiring at all to be seen. Read at each report,
+so a change reaches the next divergence detected.
+
+Unlike [`SuppressedIssueDiagnostic`](#suppressedissuediagnostic)'s issue, nothing handed over here
+is payload-supplied: the identifiers' member names and owning types come from the component's own
+accessor expression, so telemetry writing them into a log line is writing compiler-shaped names,
+not a server response's strings.
+
 ### `VerifyRowKeys`
 
 `bool`, defaults to `false`. A development-time check that a component still speaks for the field
@@ -451,7 +476,9 @@ something a running form's own page can toggle mid-session.
 The unkeyed-row case in full: remove or reorder a row and Blazor reuses each row's components for
 the next item along, while the registration, element id, aria attributes and messages stay with the
 row that moved away. Nothing about the misfiling shows on screen, which is what earns it an
-exception rather than a diagnostic. Correctly keyed rows never trip it, whatever
+exception rather than a diagnostic where a developer is watching; where a throw is the wrong
+severity, [`ReportStaleRegistrations`](#reportstaleregistrations) reports the same divergence
+through the diagnostic channels instead. Correctly keyed rows never trip it, whatever
 the edit: replacing a row retires its key and builds fresh components for the replacement, removing
 one disposes its components and builds nothing, and adding or reordering disposes nothing at all —
 a keyed diff permutes the components it already has. In all three, anything newly built registers
@@ -470,6 +497,44 @@ with the mistake should misfile a message rather than take the page down.
 [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) is the one exception in
 this corpus: it leaves the check on unconditionally, since demonstrating the guard is the page's
 own point.
+
+### `ReportStaleRegistrations`
+
+`bool`, defaults to `false`. The report-never-throw sibling of [`VerifyRowKeys`](#verifyrowkeys),
+for the environments where a throw is the wrong severity. Turned on, every component bound to a
+field re-reads its accessor on each parameter set exactly as the throwing check does, and a
+divergence is reported rather than thrown: a Trace-output warning, a logged warning when the host
+resolved an `ILoggerFactory` (WASM's default provider is the browser console, so that channel
+needs no wiring to be seen), and [`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic)
+when one is set. The form renders on, misfiled messages and all — reporting is this mode's whole
+severity. With `VerifyRowKeys` on as well, the exception replaces the report.
+
+One divergence is one report. It repeats only after the accessor names the registered field again
+(a healed-then-reopened divergence is a fresh finding) or after the component rebinds. A component
+whose accessor cannot resolve at all — a navigated owner gone null, say — is skipped rather than
+judged, and the check's own path never takes a rendering form down. A throwing
+`StaleRegistrationDiagnostic` callback is your code, invoked unguarded exactly as
+`SuppressedIssueDiagnostic`'s is, and surfaces from the component's own lifecycle.
+
+Off by default because detection is not free: it is the same accessor resolution per bound
+component per parameter set that `VerifyRowKeys` pays, and the cost depends on the accessor's
+shape. An accessor whose owner is a single step from the expression's root — `() => member.Alias`
+over a loop-captured row, `() => _order.Total` on the page — resolves in nanoseconds; one that
+navigates further, `() => Order.Customer.Name`, compiles its owner expression on every resolution,
+which costs microseconds and kilobytes each. Budget for the deepest accessors the form renders.
+The pairing that covers both environments:
+
+```csharp
+builder.Services.AddFormidableBlazor(options =>
+{
+    options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment();
+    options.ReportStaleRegistrations = !builder.HostEnvironment.IsDevelopment();
+});
+```
+
+[Need to know](#need-to-know) names this as one of the coarser reads, and it is the same latch
+`VerifyRowKeys` documents: the answer is captured once, per component, the moment it binds, so
+flipping it mid-session reaches only components that bind afterward.
 
 ### `InlineMessageLive`
 
@@ -802,11 +867,14 @@ that is the smallest page that reproduces the shift.
 `RequiredOverride` has none because every validator the sample ships can be inspected; the recipe
 linked from its entry is its worked example.
 
-Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic` reports into
-your telemetry rather than onto the screen; `OrderIssues` re-sorts a reading order every
-sample page is already content with, since each lays its fields out top to bottom;
-`RefreshDebounce` would demonstrate nothing but a longer wait, since every page runs the
-default cadence; `LiveDisclosure` changes what happens for a field that is engaged but not
+Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`,
+`ReportStaleRegistrations` and `StaleRegistrationDiagnostic` report into your telemetry or the
+console rather than onto the screen — and the last two report a mistake every sample page is
+written not to make, since each keys its rows the way
+[Collections and row identity](collections-and-row-identity.md) teaches; `OrderIssues` re-sorts
+a reading order every sample page is already content with, since each lays its fields out top
+to bottom; `RefreshDebounce` would demonstrate nothing but a longer wait, since every page runs
+the default cadence; `LiveDisclosure` changes what happens for a field that is engaged but not
 rendered, and no page here notifies a change for a field it never renders; and
 `DefensiveGateMessage`, `ModelLevelDisplayName` and `ValidationFaultMessage` replace strings the
 samples are content to show as they ship, in a corpus written in one language. Each one's entry

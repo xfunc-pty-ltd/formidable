@@ -48,6 +48,7 @@ it resolves what it needs from either an argument or the DI container, and refus
             validator ?? ResolveValidator<TModel>(services),
             ResolveIntrospector(services),
             options ?? ResolveOptions(services),
+            timeProvider: ResolveTimeProvider(services),
             renderDispatch: renderDispatch,
             logger: ResolveLogger(services));
 ```
@@ -73,13 +74,16 @@ Three things get resolved, under one rule: what you passed wins.
 - **The options.** An `Options` parameter wins, then an app-wide default registered through
   [`AddFormidableBlazor(...)`](#addformidableblazor), then `new FormidableOptions()`.
 
-A fourth thing is resolved too, on a simpler rule that has no parameter to win: the engine's
+Two more things are resolved, on a simpler rule that has no parameter to win. The engine's
 logger comes from `ILoggerFactory` when one is registered, or stays `null` otherwise. It carries
 the suppressed-issue diagnostic described under
 [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic), and an Information line
 naming a validator that cannot report its own rules, which
 [wrapping a validator](recipes.md#i-want-to-wrap-the-validator-without-losing-what-it-can-do)
-explains.
+explains. And the engine's clock comes from `TimeProvider` when one is registered, or falls back
+to `TimeProvider.System` otherwise. Every timer the engine arms rides that provider, which is
+what lets a test register a `FakeTimeProvider` and drive the debounce windows deterministically —
+[Testing](testing.md#the-form-under-bunit) shows the shape.
 
 The validator's two failures are worth reading in full, because between them they are how a first
 form fails to start:
@@ -672,8 +676,11 @@ set, rebind when the context instance is replaced, release on disposal.
             register: Register,
             stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
 
-        _verifyRowKeys = Context!.Engine.Options.VerifyRowKeys;
-        _registeredField = _verifyRowKeys ? ResolveField() : default;
+        var options = Context!.Engine.Options;
+        _verifyRowKeys = options.VerifyRowKeys;
+        _reportStaleRegistrations = options.ReportStaleRegistrations;
+        _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
+        _staleReported = false;
     }
 ```
 
@@ -681,8 +688,10 @@ set, rebind when the context instance is replaced, release on disposal.
 
 The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
 cascaded context — so a steady-state render returns before it touches the registration or the
-subscription at all. `VerifyRowKey` on that path is the development-time row-key check, and unless
-`FormidableOptions.VerifyRowKeys` asked for it, it tests one bool and returns.
+subscription at all. `VerifyRowKey` on that path is the row-key check, in whichever of its two
+modes is on: `FormidableOptions.VerifyRowKeys` throws on a divergence, and
+[`ReportStaleRegistrations`](options.md#reportstaleregistrations) reports one instead. Unless one
+of them asked for it, it tests two bools and returns.
 `FormidableComponentBase` is public only because a public component cannot
 inherit a less accessible base; its constructor is not, and it is not an extension point —
 `FormidableInputBase` below and `FormidableField` further down are still the two ways to bring a
@@ -2660,9 +2669,10 @@ app-wide default, which every form that omits its own `Options` parameter then u
     /// its properties at each use — a pass selecting its profile, a timer arming, a render asking
     /// for a class name — so mutating it at runtime changes behaviour in every live form, not just
     /// the one being looked at. Where a property's own remarks state a coarser read, that
-    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root and
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> once per bound component, so a change to
-    /// either reaches nothing that has already read it.
+    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root, and
+    /// <see cref="FormidableOptions.VerifyRowKeys"/> and
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> once per bound component, so a
+    /// change to any of the three reaches nothing that has already read it.
     /// </remarks>
     public static IServiceCollection AddFormidableBlazor(
         this IServiceCollection services, Action<FormidableOptions> configureDefaults)
