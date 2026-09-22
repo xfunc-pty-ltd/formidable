@@ -26,6 +26,23 @@ public interface IFormValidationEngine
     /// <summary>True once the submit pipeline has run (and validation failed or succeeded).</summary>
     bool HasSubmitted { get; }
 
+    /// <summary>
+    /// Whether the form would currently pass <see cref="FormidableOptions.SubmitProfile"/> —
+    /// meant for disable-submit scenarios. Meaningful only when
+    /// <see cref="FormidableOptions.TrackFormValidity"/> is turned on; otherwise this always
+    /// reads <see langword="false"/>, and even with tracking on it reads <see langword="false"/>
+    /// until the engine's first probe completes. The probe that keeps this current runs the
+    /// submit profile invisibly — no disclosure, no message-store write, no pending-indicator
+    /// flip — so nothing about it is ever shown to the user. Tracking is opt-in because the
+    /// probe adds a full-model validation on top of the ordinary live pass for every change; see
+    /// <see cref="FormidableOptions.TrackFormValidity"/> for the cadence it runs at. This is a
+    /// client-side answer only — it does not reflect issues a server applied through
+    /// <see cref="ApplyServerIssues"/> — and, like the rest of the engine, it does not see a
+    /// model mutation that never raises the <see cref="EditContext"/>'s field-changed
+    /// notification.
+    /// </summary>
+    bool IsFormValid { get; }
+
     /// <summary>Raised whenever validation or field state changes.</summary>
     event Action? StateChanged;
 

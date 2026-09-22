@@ -9,6 +9,7 @@
         <ul>
             <li><strong>Title</strong> — 60 characters max. A format rule in the Draft profile: enforced always, including while drafting.</li>
             <li><strong>Title</strong> and <strong>Summary</strong> — required. Completeness rules in the Submit profile: enforced only when submitting.</li>
+            <li><strong>Reset</strong> calls <code>_form.ResetAsync()</code> — a named verb for returning the SAME model instance to pristine: touched/modified state, messages and <code>HasSubmitted</code> all clear, without swapping to a different object.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -19,11 +20,12 @@
             <li>Click <em>Submit</em> — now the completeness rules run and Summary is required.</li>
             <li>Fill everything in and submit — the status line below confirms it.</li>
             <li>Click any entry in the error summary — it focuses the offending field.</li>
+            <li>Click <em>Reset</em> — the errors and the typed values are gone; the form is pristine again.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_brief" OnValidSubmit="HandleValid">
+<FormidableForm @ref="_form" Model="_brief" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_brief.Title" /></label>
@@ -34,6 +36,7 @@
     <div class="actions">
         <button type="submit">Submit</button>
         <button type="button" @onclick="SaveDraft">Save draft</button>
+        <button type="button" @onclick="Reset">Reset</button>
     </div>
 </FormidableForm>
 

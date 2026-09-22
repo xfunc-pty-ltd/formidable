@@ -10,9 +10,11 @@ namespace Formidable.Blazor;
 /// </param>
 /// <param name="HasErrors">The field currently has error-severity messages.</param>
 /// <param name="HasWarnings">The field currently has warning-severity issues.</param>
+/// <param name="HasInfos">The field currently has info-severity issues.</param>
 public readonly record struct FieldState(
     bool IsTouched,
     bool IsModified,
     bool IsValidating,
     bool HasErrors,
-    bool HasWarnings);
+    bool HasWarnings,
+    bool HasInfos);

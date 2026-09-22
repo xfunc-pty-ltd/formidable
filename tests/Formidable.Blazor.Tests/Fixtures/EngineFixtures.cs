@@ -1,5 +1,6 @@
 using FluentValidation;
 using Formidable;
+using Formidable.Blazor;
 
 namespace Formidable.Blazor.Tests.Fixtures;
 
@@ -53,6 +54,22 @@ public sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
     public int Started;
     public CancellationToken LastToken { get; private set; }
 
+    /// <summary>
+    /// The rule's outcome once <see cref="Gate"/> releases it — read only after the await, so a
+    /// caller controlling several overlapping gates independently can flip this between releases
+    /// to give each one a distinct, observable answer. Defaults to <see langword="false"/>,
+    /// preserving every pre-existing test's "async says no" expectation unchanged.
+    /// </summary>
+    public bool ShouldPass { get; set; }
+
+    /// <summary>
+    /// Raised right after a gate releases the rule, before it returns — the only observable
+    /// signal a caller has for "this particular gated invocation has reached its answer" when
+    /// the caller that started it (a fire-and-forget probe, say) hands back no awaitable handle
+    /// of its own.
+    /// </summary>
+    public event Action? Released;
+
     protected override void ConfigureDraftRules()
     {
     }
@@ -63,7 +80,8 @@ public sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
             Started++;
             LastToken = ct;
             await Gate.Task.WaitAsync(ct);
-            return false;
+            Released?.Invoke();
+            return ShouldPass;
         }).WithMessage("async says no");
 
     public void Reset() => Gate = new TaskCompletionSource();
@@ -148,4 +166,88 @@ public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
     }
 
     public void Reset() => CustomerNameGate = new TaskCompletionSource();
+}
+
+/// <summary>
+/// Wraps a real validator and counts calls, split out by profile — <see cref="SubmitProfileCallCount"/>
+/// is the signature a <see cref="FormidableOptions.TrackFormValidity"/> probe leaves behind (it
+/// always validates <paramref name="submitProfile"/>, the caller's own configured
+/// <see cref="FormidableOptions.SubmitProfile"/> rather than the <see cref="ValidationProfile.Submit"/>
+/// static — a test that overrides the option would otherwise silently stop being pinned), distinct
+/// from an ordinary live pass validating under <see cref="FormidableOptions.LiveProfile"/> — which
+/// is what lets a test prove the probe never ran without also having to silence the live pass it
+/// rides alongside.
+/// </summary>
+public sealed class CountingValidator(
+    IModelValidator<EngineOrder> inner, ValidationProfile submitProfile) : IModelValidator<EngineOrder>
+{
+    public int CallCount { get; private set; }
+    public int SubmitProfileCallCount { get; private set; }
+
+    public Task<ValidationReport> ValidateAsync(
+        EngineOrder model, ValidationProfile profile, CancellationToken cancellationToken = default)
+    {
+        Count(profile);
+        return inner.ValidateAsync(model, profile, cancellationToken);
+    }
+
+    public ValidationReport Validate(EngineOrder model, ValidationProfile profile)
+    {
+        Count(profile);
+        return inner.Validate(model, profile);
+    }
+
+    private void Count(ValidationProfile profile)
+    {
+        CallCount++;
+        if (profile.Equals(submitProfile))
+        {
+            SubmitProfileCallCount++;
+        }
+    }
+}
+
+/// <summary>
+/// Normalizable model pinning <see cref="FormidableOptions.NormalizeOnSubmit"/>: its
+/// <see cref="Normalize"/> trims <see cref="Description"/>, and the paired validator's rule
+/// fails on the untrimmed value but passes on the trimmed one, so a submit's outcome tells the
+/// test whether normalization ran before the profile did.
+/// </summary>
+public sealed class NormalizableOrder : INormalizableModel
+{
+    public string Description { get; set; } = string.Empty;
+
+    public void Normalize() => Description = Description.Trim();
+}
+
+public sealed class NormalizableOrderValidator : DraftSubmitValidator<NormalizableOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description).MaximumLength(2);
+}
+
+/// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>
+public static class EngineTestSync
+{
+    /// <summary>
+    /// Completes the next time the engine reports it is no longer validating. Call it only once
+    /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
+    /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
+    /// </summary>
+    public static Task Quiescence(FormValidationEngine<EngineOrder> engine)
+    {
+        var quiescent = new TaskCompletionSource();
+        engine.StateChanged += () =>
+        {
+            if (!engine.IsValidating)
+            {
+                quiescent.TrySetResult();
+            }
+        };
+        return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
 }

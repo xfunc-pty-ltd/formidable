@@ -12,6 +12,7 @@ public sealed class FieldRegistry
 {
     private readonly Dictionary<FieldIdentifier, int> _counts = [];
     private readonly HashSet<FieldIdentifier> _kept = [];
+    private readonly HashSet<FieldIdentifier> _everRegistered = [];
 
     /// <summary>
     /// Registers a rendered field. Dispose the returned handle when the field leaves the
@@ -24,11 +25,22 @@ public sealed class FieldRegistry
     public FieldRegistration Register(FieldIdentifier field, bool keepRegistered = false)
     {
         _counts[field] = _counts.TryGetValue(field, out var count) ? count + 1 : 1;
+        _everRegistered.Add(field);
         return new FieldRegistration(this, field, keepRegistered);
     }
 
     /// <summary>True when the field is currently rendered (or retained via keep-registered).</summary>
     public bool IsRevealed(FieldIdentifier field) => _counts.ContainsKey(field) || _kept.Contains(field);
+
+    /// <summary>
+    /// True when the field has been registered at least once since the engine was built, whether
+    /// or not it is still registered now. Never cleared by an unregister — tells apart a field
+    /// that was rendered and later stopped being rendered (unambiguous) from one that has never
+    /// rendered at all, which by itself does not distinguish a disclosure Pattern 2 miswiring
+    /// from a legitimate Pattern 1 section the user has not opened yet — see
+    /// <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/>.
+    /// </summary>
+    internal bool HasEverRegistered(FieldIdentifier field) => _everRegistered.Contains(field);
 
     internal void Unregister(FieldIdentifier field, bool keepRegistered)
     {

@@ -1,7 +1,10 @@
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
+using Formidable.Introspection;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -10,7 +13,10 @@ namespace Formidable.Blazor.Tests;
 // site also logs through ILogger, so WASM's default browser-console provider shows it with zero
 // consumer wiring. This exercises the wiring end to end - through FormidableEngineFactory's
 // optional ILoggerFactory resolution from the same IServiceProvider FormidableForm already
-// injects - rather than just the engine's own call site.
+// injects - rather than just the engine's own call site. The two NeverRegisteredFieldDiagnostic
+// tests below construct the engine directly instead, mirroring FormValidationEngineHardeningTests'
+// shape rather than this file's own DI-through-FormidableForm one - they pin the never-registered
+// vs registered-then-unregistered distinction, not the logging wiring.
 public class SuppressedIssueLoggingTests : BunitContext
 {
     [Fact]
@@ -62,6 +68,59 @@ public class SuppressedIssueLoggingTests : BunitContext
         var exception = await Record.ExceptionAsync(() => cut.InvokeAsync(() => form.Instance.SubmitAsync()));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task Suppressed_issue_at_a_never_registered_field_also_reaches_the_never_registered_diagnostic()
+    {
+        var order = new EngineOrder();
+        var suppressed = new List<ValidationIssue>();
+        var neverRegistered = new List<ValidationIssue>();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                SuppressedIssueDiagnostic = suppressed.Add,
+                NeverRegisteredFieldDiagnostic = neverRegistered.Add,
+            },
+            new FakeTimeProvider());
+        using var reg = engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        // Customer is never registered at all - this is Pattern 2, the miswiring the new callback targets.
+
+        await engine.ValidateForSubmitAsync();
+
+        Assert.Contains(suppressed, i => i.Path == nameof(EngineOrder.Customer));
+        Assert.Contains(neverRegistered, i => i.Path == nameof(EngineOrder.Customer));
+    }
+
+    [Fact]
+    public async Task Suppressed_issue_at_a_registered_then_unregistered_field_does_not_reach_the_never_registered_diagnostic()
+    {
+        var order = new EngineOrder();
+        var suppressed = new List<ValidationIssue>();
+        var neverRegistered = new List<ValidationIssue>();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                SuppressedIssueDiagnostic = suppressed.Add,
+                NeverRegisteredFieldDiagnostic = neverRegistered.Add,
+            },
+            new FakeTimeProvider());
+        using var descReg = engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        // Customer is registered, then unregistered - this is Pattern 1, which stays on the general channel.
+        engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Customer))).Dispose();
+
+        await engine.ValidateForSubmitAsync();
+
+        Assert.Contains(suppressed, i => i.Path == nameof(EngineOrder.Customer));
+        Assert.DoesNotContain(neverRegistered, i => i.Path == nameof(EngineOrder.Customer));
     }
 
     private sealed class CapturingLoggerProvider : ILoggerProvider

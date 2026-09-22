@@ -13,6 +13,48 @@ public sealed class FormidableOptions
     public TimeSpan RefreshDebounce { get; set; } = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
+    /// Debounce for the live pass a field change triggers. Defaults to <see langword="null"/>,
+    /// which runs the live pass immediately on every field change — today's behavior, unchanged.
+    /// When set, a field change arms a single timer instead of running the pass immediately; a
+    /// further change within the window re-arms it rather than starting a second timer, and the
+    /// pass runs once the window elapses with no further edit, scoped to every field changed
+    /// since the window opened. The window is shared across fields rather than tracked per
+    /// field — the same semantics <see cref="RefreshDebounce"/> already has for the post-submit
+    /// refresh.
+    /// </summary>
+    public TimeSpan? LiveDebounce { get; set; }
+
+    /// <summary>
+    /// Opt-in whole-form validity probe for disable-submit scenarios. Defaults to
+    /// <see langword="false"/> — off forever, never default-on: turning it on AT LEAST doubles
+    /// the per-change validation work, and "doubles" is a floor, not a cap — <see cref="SubmitProfile"/>
+    /// is a strict superset of <see cref="LiveProfile"/> (the default rules again, plus the whole
+    /// Submit ruleset, where the more expensive async/server-shaped rules typically live), so this
+    /// probe is usually the more expensive of the two revalidations, not an equal second half.
+    /// When <see langword="true"/>, the engine keeps
+    /// <see cref="IFormValidationEngine.IsFormValid"/> current with a standalone
+    /// <see cref="SubmitProfile"/> validation that is not an engine pass: no disclosure, no
+    /// message-store write, no pending-indicator flip — nothing about it is ever shown. The probe
+    /// runs once at construction (so a pristine, untouched form still reports truthfully) and
+    /// again on every field change afterwards, at the same cadence the live pass itself runs at —
+    /// immediately per change, or once per window when <see cref="LiveDebounce"/> is also set.
+    /// </summary>
+    public bool TrackFormValidity { get; set; }
+
+    /// <summary>
+    /// Opt-in client-side normalization before a submit, mirroring the AspNetCore validation
+    /// filters (which already call <see cref="INormalizableModel.Normalize"/> before validating
+    /// a request body). Defaults to <see langword="false"/>. When <see langword="true"/> and the
+    /// model implements <see cref="INormalizableModel"/>, the submit pass calls
+    /// <c>model.Normalize()</c> in place before running <see cref="SubmitProfile"/>, so the
+    /// profile validates the normalized values rather than whatever the user actually typed. The
+    /// mutation happens before the pass runs, so the submit's own re-render repaints every bound
+    /// input straight from the normalized model — a value normalization changed (trimmed,
+    /// cleared, collapsed) visibly updates on screen with no extra wiring.
+    /// </summary>
+    public bool NormalizeOnSubmit { get; set; }
+
+    /// <summary>
     /// Optional disclosure override. Return true to force an issue visible, false to force it
     /// suppressed, or null to defer to the field registry. Model-level issues (empty path) are
     /// always visible unless this returns false.
@@ -29,6 +71,56 @@ public sealed class FormidableOptions
     /// logging provider is the browser console, so that channel needs no wiring here to be seen.
     /// </summary>
     public Action<ValidationIssue>? SuppressedIssueDiagnostic { get; set; }
+
+    /// <summary>
+    /// Invoked additionally, alongside <see cref="SuppressedIssueDiagnostic"/>, when a suppressed
+    /// issue's field has no registration history at all — it has never been rendered since the
+    /// engine was built. Defaults to <see langword="null"/>. This signal alone cannot tell a
+    /// genuine disclosure Pattern 2 miswiring (a rule's <c>.When(...)</c> condition failing to
+    /// mirror the <c>@if</c> that gates the field's render, so the rule can fail in a state the
+    /// field never renders in) apart from a legitimate Pattern 1 section the user simply has not
+    /// opened yet — both look identical on a first submit, since neither field has ever been
+    /// registered. It stays silent for a field that WAS registered and later unregistered (a
+    /// visited-then-collapsed section), which is unambiguous — that shape is unchanged and still
+    /// reports only to <see cref="SuppressedIssueDiagnostic"/>.
+    /// </summary>
+    public Action<ValidationIssue>? NeverRegisteredFieldDiagnostic { get; set; }
+
+    /// <summary>
+    /// Development-time check that a collection's rows carry a <c>@key</c>. Defaults to
+    /// <see langword="false"/>. When <see langword="true"/>, every component bound to a field
+    /// re-reads its accessor on each parameter set and compares the field it now names against the
+    /// one it registered, throwing an <see cref="InvalidOperationException"/> that names the field
+    /// and the fix when the two diverge without the component having been torn down in between.
+    /// That divergence is the signature of a row list rendered without a <c>@key</c>: removing or
+    /// reordering a row leaves Blazor reusing each row's components for the next item along, and
+    /// since a field is resolved once at registration, the registration, the element id, the aria
+    /// attributes and the messages all stay with the row that moved away while the input displays
+    /// the new row's value. Nothing about that misfiling is visible on screen, which is what makes
+    /// it worth an exception rather than a diagnostic.
+    /// Correctly keyed rows never trip it, whatever the edit — the three shapes differ only in what
+    /// the keyed diff does with the components. Replacing a row keyed by the row object retires
+    /// that row's key and introduces a different one, so its components are disposed and new ones
+    /// built for the replacement. Removing a row disposes that row's components and builds nothing.
+    /// Adding or reordering disposes nothing at all — a keyed diff permutes the components it
+    /// already has, which is the point of <c>@key</c>. What that leaves is the same in all three:
+    /// anything newly built registers the row it was handed, and every retained component keeps
+    /// resolving its accessor to the row it already spoke for, so the comparison passes.
+    /// Recommended in Development builds only. It costs an accessor resolution per bound component
+    /// per render, and a form that reaches production with the mistake should misfile a message
+    /// rather than take the page down.
+    /// </summary>
+    public bool VerifyRowKeys { get; set; }
+
+    /// <summary>
+    /// Role attribute applied to every field- and collection-level message list
+    /// (<c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>). Defaults to
+    /// <see langword="null"/>, which renders no <c>role</c> attribute at all — today's behavior,
+    /// unchanged. Set to <c>"status"</c> to make each list its own polite live region, announced
+    /// to assistive technology as its content changes; recommended on forms that render no
+    /// <see cref="FormidableSummary"/>, which already announces on its own.
+    /// </summary>
+    public string? InlineMessageRole { get; set; }
 
     /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
     public FormidableCssClasses CssClasses { get; set; } = new();

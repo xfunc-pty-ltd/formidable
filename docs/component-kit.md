@@ -197,19 +197,7 @@ never manages that lifecycle itself:
 
         if (!ReferenceEquals(_boundModel, Model))
         {
-            _engine?.Dispose();
-            _boundModel = Model;
-            _boundOptions = Options;
-            _editContext = new EditContext(Model);
-            _engine = FormidableEngineFactory.Create(
-                Model,
-                _editContext,
-                Services,
-                Validator,
-                Options,
-                renderDispatch: work => InvokeAsync(work));
-            _context = new FormidableFormContext(_engine);
-            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+            RebuildEngine(Model);
         }
         else
         {
@@ -224,9 +212,9 @@ never manages that lifecycle itself:
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
-The same method also caches the model-level field's rendered id (`_modelLevelFieldId`) alongside
-the engine it is derived from, rather than recomputing it on every render — the same idea
-`FormidableInputBase<TValue>` applies to its own `ElementId` below.
+The Model-swap branch also caches the model-level field's rendered id (`_modelLevelFieldId`)
+alongside the engine it is derived from, rather than recomputing it on every render — the same
+idea `FormidableInputBase<TValue>` applies to its own `ElementId` below.
 
 The same method carries three guards worth knowing about. `VerifyInteractiveRenderMode()` runs
 first: a page rendered statically with no interactivity coming can render a form but can never
@@ -249,18 +237,34 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 ```csharp
     /// <summary>
     /// Runs the submit pipeline programmatically. Call from the renderer's synchronization
-    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders.
+    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders. If
+    /// <see cref="ResetAsync(TModel?)"/> rebuilds the engine while this call is still awaiting the
+    /// pipeline, the engine that started is gone by the time the verdict lands: neither
+    /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
+    /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
+    /// must not surface as if it were current.
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var outcome = await RequireEngine().ValidateForSubmitAsync();
+        var engine = RequireEngine();
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        if (!ReferenceEquals(_engine, engine))
+        {
+            return outcome;
+        }
+
         if (outcome.CanProceed)
         {
-            await OnValidSubmit.InvokeAsync();
+            await OnValidSubmit.InvokeAsync(outcome);
         }
         else
         {
             await OnInvalidSubmit.InvokeAsync(outcome);
+            if (FocusFirstErrorOnInvalidSubmit)
+            {
+                await FocusFirstVisibleIssueAsync();
+            }
         }
 
         StateHasChanged();
@@ -274,6 +278,21 @@ The engine itself is exposed as a public property: `Engine => _engine`, typed as
 `IFormValidationEngine`. `FormidableForm` also forwards its two overloads directly
 (`_form!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)), and a page
 reads `IsValidating` or `HasSubmitted` off `Engine` without going through a field.
+
+A blocked submit also moves keyboard focus, by default: `FocusFirstErrorOnInvalidSubmit`
+(default `true`) resolves the first entry `Engine.GetVisibleIssues()` would show and focuses its
+element via `IFormidableFocusService` — the same service `FormidableSummary`'s click-to-focus
+uses, so a form with no summary rendered still lands a visitor on the problem instead of leaving
+focus wherever the submit button was. The call is best-effort in both directions a consumer might
+trip on: an app that never registered `IFormidableFocusService` (only `AddFormidable()`, not
+`AddFormidableBlazor()`) gets silence rather than a resolution failure, and a focus miss — no
+element carries the field's id yet — is silent too, exactly like the summary's own click-to-focus.
+Set `FocusFirstErrorOnInvalidSubmit="false"` to choose focus yourself from `OnInvalidSubmit`
+instead.
+
+**Sample:** [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) — a toggle
+above the form flips the parameter, so a submit's automatic focus and the opt-out sit side by
+side.
 
 ## `FormidableInputText` and `FormidableInputBase<TValue>`
 
@@ -294,6 +313,7 @@ set, rebind when the context instance is replaced, release on disposal.
     {
         if (_binding.IsBound(Context))
         {
+            VerifyRowKey();
             return;
         }
 
@@ -302,6 +322,9 @@ set, rebind when the context instance is replaced, release on disposal.
             GetType(),
             register: Register,
             stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
+
+        _verifyRowKeys = Context!.Engine.Options.VerifyRowKeys;
+        _registeredField = _verifyRowKeys ? ResolveField() : default;
     }
 ```
 
@@ -309,7 +332,9 @@ set, rebind when the context instance is replaced, release on disposal.
 
 The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
 cascaded context — so a steady-state render returns before it touches the registration or the
-subscription at all. `FormidableComponentBase` is public only because a public component cannot
+subscription at all. `VerifyRowKey` on that path is the development-time row-key check, and unless
+`FormidableOptions.VerifyRowKeys` asked for it, it tests one bool and returns.
+`FormidableComponentBase` is public only because a public component cannot
 inherit a less accessible base; its constructor is not, and it is not an extension point —
 `FormidableInputBase` below and `FormidableField` further down are still the two ways to bring a
 control of your own to the engine.
@@ -322,7 +347,7 @@ the component stays mounted (see [Disclosure](disclosure.md)):
 ```csharp
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
-        Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
+        Field = ResolveField();
         ElementId = FormidableFieldId.For(Field);
         MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
         return context.Registry.Register(Field, KeepRegistered);
@@ -646,8 +671,8 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
         builder.OpenElement(0, "select");
         AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", formattedValue);
-        AddValueBinding(builder, 6, formattedValue, ApplyStringAsync);
-        builder.AddContent(7, ChildContent);
+        AddValueBinding(builder, 6, formattedValue, TryCommitAsync);
+        builder.AddContent(8, ChildContent);
         builder.CloseElement();
     }
 ```
@@ -655,16 +680,18 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
 *Source: `src/Formidable.Blazor/FormidableInputSelect.cs`*
 
 That is the same `AddValueBinding` the text box calls, in its string-projected overload: the
-control hands over the formatted value it just rendered and the parse-and-commit step to run when
-one comes back, and the base owns the rest — which event to bind, and the
-`SetUpdatesAttributeName("value")` that keeps the rendered `value` frame in step with the browser.
-A binder concern that reaches one kit input therefore reaches them all.
+control hands over the formatted value it just rendered and a try-parse-and-commit step that
+reports whether it actually committed, and the base owns the rest — which event to bind, whether
+to notify the engine once the step returns, and the `SetUpdatesAttributeName("value")` that keeps
+the rendered `value` frame in step with the browser. A binder concern that reaches one kit input
+therefore reaches them all.
 
-The overload is fixed to `change` and ignores `UpdateOn`, which is exactly what a `<select>`
-wants: there is no meaningful `input` event distinct from `change`, the way there is for a text
-box, and no per-segment `change` the way there is for a date input. The parameter is still
-inherited (every `FormidableInputBase<TValue>` descendant has it), so generic code that sets it on
-every kit input doesn't break; it simply has no effect here.
+The overload honours `UpdateOn`, with one coercion: a `<select>` has no meaningful `input` event
+distinct from `change`, the way there is for a text box, so `OnInput` behaves exactly like
+`OnChange` (the default) — both bind `onchange` and notify the moment `TryCommitAsync` reports a
+value committed. `OnBlur` still commits on that same `change` event, but the notification defers
+to `blur` instead — the same commit/notify split every other kit input gives that mode, riding the
+same `onblur` chaining.
 
 Conversion mirrors native closely — the same
 `BindConverter.TryConvertTo<TValue>` native's own `InputSelect` calls internally, with the same
@@ -745,7 +772,9 @@ the property it names:
 *Excerpt from `samples/Formidable.Sample/Pages/CustomProfiles.razor.cs`*
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
-`Category`, required under the `Submit` ruleset exactly like `Slug`, is the select.
+`Category`, required under the `Submit` ruleset exactly like `Slug`, is the select, carrying
+`UpdateOn="OnBlur"` so picking an option commits it at once but the message waits until the
+control is actually left.
 
 ## `FormidableInputTextArea`
 
@@ -844,12 +873,14 @@ native constraint UI for values that mismatch it, the same trade a consumer acce
 any other native constraint attribute.
 
 `type="number"` renders in the component-wins position, after `AddCommonAttributes`' splat, the
-same spot `RatingInput`'s `type="range"` takes above. `AddValueBinding` here is a third overload
-— string-projected like `FormidableInputSelect`'s, but honouring `UpdateOn` (`OnChange`,
-`OnInput`, and the commit-on-change/notify-on-blur split under `OnBlur`) the way the typed
-overload does for a text box, including the same consumer-`@onblur`-chains-first contract. A
-control that needs invariant string conversion without losing `UpdateOn` is what this overload is
-for; `FormidableInputDate` below is the kit's other case.
+same spot `RatingInput`'s `type="range"` takes above. `AddValueBinding` here is a third overload —
+string-projected like `FormidableInputSelect`'s, and honouring `UpdateOn` the same way, but with a
+synchronous try-parse (`StringValueParser`, culture-invariant) in place of `FormidableInputSelect`'s
+async try-commit, and a real `OnInput` rather than a coercion to `OnChange`: a number box fires a
+genuine `input` event per keystroke the way a `<select>` never does, so this overload binds it
+distinctly, including the same consumer-`@onblur`-chains-first contract under `OnBlur`. A control
+that needs invariant string conversion without losing `UpdateOn` is what this overload is for;
+`FormidableInputDate` below is the kit's other case.
 
 A string that fails to parse — including an emptied box when `TValue` is not nullable — leaves
 the field uncommitted: the model stays what it was. The box itself is squared with the model on
@@ -971,13 +1002,17 @@ it's introduced below, once collections are in scope.
 
 ## `FormidableSummary`
 
-Renders a live, severity-grouped list of every currently-visible issue across the form as a
-`role="alert"` region — nothing while the form has no visible issues:
+Renders a live, severity-grouped list of every currently-visible issue across the form — nothing
+while the form has no visible issues. The region's `role` is severity-aware: `alert` when any
+visible issue is error-severity, the politer `status` when the visible issues are advisories only:
 
 ```csharp
+        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+
+        var sequence = 0;
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", "alert");
+        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 ```
 
 *Source: `src/Formidable.Blazor/FormidableSummary.cs`*
@@ -1089,6 +1124,21 @@ public sealed class FormidableFieldContext
         Issues = issues;
         AriaInvalid = state.HasErrors;
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
+
+        var inputAttributes = new Dictionary<string, object>(4)
+        {
+            ["id"] = elementId,
+            ["class"] = cssClass,
+        };
+        if (AriaInvalid)
+        {
+            inputAttributes["aria-invalid"] = "true";
+        }
+        if (AriaDescribedBy is not null)
+        {
+            inputAttributes["aria-describedby"] = AriaDescribedBy;
+        }
+        InputAttributes = inputAttributes;
     }
 
     /// <summary>The field this context describes.</summary>
@@ -1118,6 +1168,17 @@ public sealed class FormidableFieldContext
     public string? AriaDescribedBy { get; }
 
     /// <summary>
+    /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
+    /// applicable — <c>aria-invalid</c> and <c>aria-describedby</c>, bundled exactly as
+    /// <see cref="ElementId"/>, <see cref="CssClass"/>, <see cref="AriaInvalid"/>, and
+    /// <see cref="AriaDescribedBy"/> already report them. Splat it onto the control with
+    /// <c>@attributes="field.InputAttributes"</c>; <see cref="NotifyChanged"/> is still the
+    /// consumer's own wiring, since only the consumer's markup knows which native event commits
+    /// the control's value.
+    /// </summary>
+    public IReadOnlyDictionary<string, object> InputAttributes { get; }
+
+    /// <summary>
     /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
     /// engine's live validation pass — call from a custom input's change handler.
     /// </summary>
@@ -1132,9 +1193,10 @@ public sealed class FormidableFieldContext
 
 Everything a hand-rolled control needs is on that context: `ElementId` for the id to render,
 `CssClass` for the same state class a Formidable input would compute, `AriaInvalid`/
-`AriaDescribedBy` for the same aria pair, and `NotifyChanged()`/`MarkTouched()` to drive the
-engine the way a Formidable input's own change handler does internally. The worked example —
-wrapping a plain `<select>`, including how to label it correctly — is one of the seams below, in
+`AriaDescribedBy` for the same aria pair, `InputAttributes` to splat all four in one go, and
+`NotifyChanged()`/`MarkTouched()` to drive the engine the way a Formidable input's own change
+handler does internally. The worked example — wrapping a plain `<select>`, including how to
+label it correctly — is one of the seams below, in
 [The foreign-control pattern](#the-foreign-control-pattern).
 
 ## `FormidableFieldAnchor<TValue>`
@@ -1161,9 +1223,12 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
     protected override bool ObservesEngineState => false;
 
     /// <inheritdoc />
+    private protected override FieldIdentifier ResolveField() =>
+        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+
+    /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context) =>
-        context.Registry.Register(
-            FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered);
+        context.Registry.Register(ResolveField(), KeepRegistered);
 }
 ```
 
@@ -1189,9 +1254,7 @@ cannot know how to, wrap itself:
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
             <label for="@field.ElementId">Colour</label>
-            <select id="@field.ElementId" class="@field.CssClass"
-                    aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                    aria-describedby="@field.AriaDescribedBy"
+            <select @attributes="field.InputAttributes"
                     value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
                 <option value="">Choose…</option>
                 <option>Red</option>

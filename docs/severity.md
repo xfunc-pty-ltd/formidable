@@ -122,7 +122,8 @@ public sealed record SubmitOutcome(
 *Source: `src/Formidable.Blazor/SubmitOutcome.cs`*
 
 `FormidableForm<TModel>.SubmitAsync()` runs the submit pipeline and routes on exactly that flag:
-`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` (with the full `SubmitOutcome`) otherwise.
+`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` otherwise — both handlers receive the full
+`SubmitOutcome`, so a passing submit's advisories are readable without a separate `Engine` read.
 So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor

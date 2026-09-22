@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Formidable.Sample.E2E.SamplePage;
 using static Microsoft.Playwright.Assertions;
@@ -34,5 +35,22 @@ public sealed class ProfilesJourney(SampleAppFixture app)
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(Summary(page)).ToContainTextAsync("Summary is required to submit");
+    }
+
+    [E2EFact]
+    public async Task Reset_returns_the_form_to_pristine()
+    {
+        await using var session = await app.NewPageAsync("/profiles");
+        var page = session.Page;
+        var title = Field(page, "title");
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
+        await Expect(Summary(page)).ToBeVisibleAsync();
+        await Expect(title).ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Reset", Exact = true }).ClickAsync();
+
+        await Expect(Summary(page)).ToHaveCountAsync(0);
+        await Expect(title).Not.ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
     }
 }

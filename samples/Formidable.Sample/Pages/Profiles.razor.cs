@@ -1,4 +1,5 @@
 using Formidable;
+using Formidable.Blazor;
 using Formidable.Sample.Shared;
 using Microsoft.AspNetCore.Components;
 
@@ -9,6 +10,7 @@ public partial class Profiles
     [Inject] private IModelValidator<DraftedBrief> Validator { get; set; } = default!;
 
     private readonly DraftedBrief _brief = new();
+    private FormidableForm<DraftedBrief>? _form;
     private string _status = string.Empty;
 
     private void HandleValid() =>
@@ -20,5 +22,11 @@ public partial class Profiles
         _status = report.IsValid
             ? "Draft saved — completeness rules were not enforced."
             : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+    }
+
+    private async Task Reset()
+    {
+        await _form!.ResetAsync();
+        _status = string.Empty;
     }
 }

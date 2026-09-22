@@ -148,6 +148,52 @@ public class FormidableInputBaseDerivationTests : BunitContext
         Assert.False(form.Instance.Engine!.Registry.IsRevealed(field));
     }
 
+    // A DisposeCore that throws must not leave the registration behind — the release runs in
+    // Dispose's finally, so it survives whatever a derived control's own cleanup does.
+    [Fact]
+    public void A_throwing_DisposeCore_still_releases_the_registration()
+    {
+        var feedback = new Feedback();
+        var field = new FieldIdentifier(feedback, nameof(Feedback.Rating));
+        RenderFragment child = inner =>
+        {
+            inner.OpenComponent<ThrowingDisposeInput>(0);
+            inner.AddComponentParameter(1, "For", (Expression<Func<int>>)(() => feedback.Rating));
+            inner.AddComponentParameter(2, "Value", feedback.Rating);
+            inner.CloseComponent();
+        };
+
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<Feedback>>(0);
+            builder.AddComponentParameter(1, "Model", feedback);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<ToggleHost>(0);
+                inner.AddComponentParameter(1, nameof(ToggleHost.Show), true);
+                inner.AddComponentParameter(2, nameof(ToggleHost.ChildContent), child);
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        var form = cut.FindComponent<FormidableForm<Feedback>>();
+        Assert.True(form.Instance.Engine!.Registry.IsRevealed(field));
+
+        // bUnit surfaces a disposal exception rather than swallowing it (it propagates from the
+        // render call that triggers the unmount), so the exception itself is part of what this
+        // pins: the registration still has to be released whether or not the caller catches it.
+        var thrown = Assert.Throws<InvalidOperationException>(() =>
+            cut.FindComponent<ToggleHost>().Render(parameters =>
+            {
+                parameters.Add(p => p.Show, false);
+                parameters.Add(p => p.ChildContent, child);
+            }));
+        Assert.Equal("dispose blew up", thrown.Message);
+
+        Assert.False(form.Instance.Engine!.Registry.IsRevealed(field));
+    }
+
     /// <summary>Renders its child only while <see cref="Show"/> is true, so a test can unmount it.</summary>
     private sealed class ToggleHost : ComponentBase
     {
@@ -172,6 +218,12 @@ public class FormidableInputBaseDerivationTests : BunitContext
         public bool HookRan { get; private set; }
 
         protected override void DisposeCore() => HookRan = true;
+    }
+
+    /// <summary>Markup-free derived control whose disposal hook throws.</summary>
+    private sealed class ThrowingDisposeInput : FormidableInputBase<int>
+    {
+        protected override void DisposeCore() => throw new InvalidOperationException("dispose blew up");
     }
 }
 

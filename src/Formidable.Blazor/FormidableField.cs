@@ -34,9 +34,13 @@ public sealed class FormidableField<TValue> : FormidableComponentBase
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
     /// <inheritdoc />
+    private protected override FieldIdentifier ResolveField() =>
+        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+
+    /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context)
     {
-        _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+        _field = ResolveField();
         _elementId = FormidableFieldId.For(_field);
         return context.Registry.Register(_field, KeepRegistered);
     }

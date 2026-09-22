@@ -126,6 +126,8 @@ public class FormidableInputRenderTests : BunitContext
 
         public bool HasSubmitted => inner.HasSubmitted;
 
+        public bool IsFormValid => inner.IsFormValid;
+
         public event Action? StateChanged
         {
             add => inner.StateChanged += value;

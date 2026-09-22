@@ -3,14 +3,15 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Internal fast-path reads for the two <see cref="FieldState"/> members
-/// <see cref="FormidableFieldCssClassProvider"/> needs, without the severity scan the rest of
-/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings the provider
-/// already answers from the <c>EditContext</c> instead. <see cref="FormValidationEngine{TModel}"/>
+/// Internal fast-path reads two engine-adjacent components need without growing the public
+/// <see cref="IFormValidationEngine"/> contract for what only they want:
+/// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/> and
+/// <see cref="IsFieldTouched"/> in place of the severity scan the rest of
+/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings it does not need;
+/// <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide whether
+/// its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
 /// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
-/// does not, so the provider falls back to <see cref="IFormValidationEngine.GetFieldState"/> for
-/// both reads — the capability stays engine-internal rather than growing the public engine
-/// contract for what only this one caller wants.
+/// does not, so each reader falls back to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
 {
@@ -19,6 +20,9 @@ internal interface IValidatingFieldReader
 
     /// <summary>Whether <paramref name="field"/> has been marked touched.</summary>
     bool IsFieldTouched(FieldIdentifier field);
+
+    /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
+    string? InlineMessageRole { get; }
 }
 
 /// <summary>
@@ -72,10 +76,12 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             IsModified: editContext.IsModified(fieldIdentifier),
             IsValidating: pending,
             HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
-            // Compute's rule never looks at HasWarnings (only HasErrors and IsTouched||IsModified
-            // decide Invalid/Valid), so this is a placeholder, not a read -- a future warning-only
-            // class would need its own source for this bit before this synthesis could feed it.
-            HasWarnings: false);
+            // Compute's rule never looks at HasWarnings/HasInfos (only HasErrors and
+            // IsTouched||IsModified decide Invalid/Valid), so these are placeholders, not reads --
+            // a future warning/info-only class would need its own source for these bits before
+            // this synthesis could feed it.
+            HasWarnings: false,
+            HasInfos: false);
 
         return FormidableCss.Compute(state, _classes);
     }

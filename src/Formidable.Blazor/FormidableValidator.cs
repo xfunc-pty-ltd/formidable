@@ -35,6 +35,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
+    /// <summary>The engine view (also cascaded via the form context).</summary>
+    public IFormValidationEngine? Engine => _engine;
+
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
@@ -80,6 +83,48 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 "swap the EditForm's model alongside Options, so a new EditContext rebuilds the engine");
         }
     }
+
+    /// <summary>
+    /// Applies a server response's issues to this form's engine, forwarding
+    /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
+    /// contract whole: the payload is the server's current verdict and replaces what the previous
+    /// call applied, each issue lands at the severity it carries, and applying any also sets
+    /// <see cref="IFormValidationEngine.HasSubmitted"/>, since the payload is treated as a submit
+    /// result. A page holding the form with <c>@ref</c> has everything the round trip needs here,
+    /// without reaching through <see cref="Engine"/> for it. Call from the renderer's
+    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
+    /// validation state and triggers renders.
+    /// </summary>
+    /// <param name="issues">The server's current verdict. Enumerated exactly once.</param>
+    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) =>
+        RequireEngine().ApplyServerIssues(issues);
+
+    /// <summary>
+    /// Applies a deserialized validation ProblemDetails body — the shape an HTTP 400 from
+    /// Formidable.AspNetCore arrives in — by flattening it with
+    /// <see cref="FormidableValidationProblem.ToIssues"/>. Equivalent to the sequence overload in
+    /// every respect, including the <see cref="IFormValidationEngine.HasSubmitted"/> side effect;
+    /// this is the whole client half of the round trip in one call.
+    /// </summary>
+    /// <param name="problem">The deserialized response body.</param>
+    public void ApplyServerIssues(FormidableValidationProblem problem)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        RequireEngine().ApplyServerIssues(problem.ToIssues());
+    }
+
+    /// <summary>
+    /// The engine, or the reason there is not one yet. It is built on binding to the cascaded
+    /// <c>EditContext</c>, so every entry point that runs the pipeline has to answer for a call
+    /// that beats the first render rather than let it surface from inside the component as a null
+    /// reference.
+    /// </summary>
+    private FormValidationEngine<TModel> RequireEngine() =>
+        _engine ?? throw new InvalidOperationException(
+            $"{nameof(FormidableValidator<TModel>)} has no engine yet — one is built when it first " +
+            "binds to its cascaded EditContext, and this call arrived before that. Capture it with " +
+            "@ref and call it from an event handler rather than from a lifecycle method that runs " +
+            "ahead of the first render.");
 
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)

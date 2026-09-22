@@ -121,14 +121,15 @@ up the same configured class names automatically:
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Internal fast-path reads for the two <see cref="FieldState"/> members
-/// <see cref="FormidableFieldCssClassProvider"/> needs, without the severity scan the rest of
-/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings the provider
-/// already answers from the <c>EditContext</c> instead. <see cref="FormValidationEngine{TModel}"/>
+/// Internal fast-path reads two engine-adjacent components need without growing the public
+/// <see cref="IFormValidationEngine"/> contract for what only they want:
+/// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/> and
+/// <see cref="IsFieldTouched"/> in place of the severity scan the rest of
+/// <see cref="IFormValidationEngine.GetFieldState"/> does for errors/warnings it does not need;
+/// <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide whether
+/// its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
 /// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
-/// does not, so the provider falls back to <see cref="IFormValidationEngine.GetFieldState"/> for
-/// both reads — the capability stays engine-internal rather than growing the public engine
-/// contract for what only this one caller wants.
+/// does not, so each reader falls back to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
 {
@@ -137,6 +138,9 @@ internal interface IValidatingFieldReader
 
     /// <summary>Whether <paramref name="field"/> has been marked touched.</summary>
     bool IsFieldTouched(FieldIdentifier field);
+
+    /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
+    string? InlineMessageRole { get; }
 }
 
 /// <summary>
@@ -190,10 +194,12 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             IsModified: editContext.IsModified(fieldIdentifier),
             IsValidating: pending,
             HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
-            // Compute's rule never looks at HasWarnings (only HasErrors and IsTouched||IsModified
-            // decide Invalid/Valid), so this is a placeholder, not a read -- a future warning-only
-            // class would need its own source for this bit before this synthesis could feed it.
-            HasWarnings: false);
+            // Compute's rule never looks at HasWarnings/HasInfos (only HasErrors and
+            // IsTouched||IsModified decide Invalid/Valid), so these are placeholders, not reads --
+            // a future warning/info-only class would need its own source for these bits before
+            // this synthesis could feed it.
+            HasWarnings: false,
+            HasInfos: false);
 
         return FormidableCss.Compute(state, _classes);
     }
@@ -332,20 +338,27 @@ the same inputs, so a hand-rolled control driven by `FormidableField` gets the s
 
 ### `FormidableSummary` as a live region
 
-`FormidableSummary` renders as a `role="alert"` region, so assistive technology announces it
-whenever its content changes — a submit that fails, a live-typed correction that clears an
-error, a server-applied issue landing:
+`FormidableSummary` renders a `role="alert"` region when any visible issue is error-severity, or
+the politer `role="status"` when the visible issues are advisories only, so assistive technology
+announces it whenever its content changes — a submit that fails, a live-typed correction that
+clears an error, a server-applied issue landing:
 
 ```csharp
+        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+
+        var sequence = 0;
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", "alert");
+        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 ```
 
 *Source: `src/Formidable.Blazor/FormidableSummary.cs`*
 
-It subscribes to the engine's `StateChanged` event itself, so the region's content — and the
-alert it triggers — stays current through every kind of update, not just the moment of submit.
+It subscribes to the engine's `StateChanged` event itself, so the region's content — and
+whatever it announces — stays current through every kind of update, not just the moment of
+submit. Content and role change together in the same render, so a follow-up edit that clears the
+last error can flip the region from `alert` to `status` as part of the same update that removes
+the message.
 
 ### Focus service
 

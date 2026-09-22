@@ -59,8 +59,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Switch to *Admin review*: the form RESETS; re-enter all five fields and submit — blocked,
       the review note is now required
 - [ ] Fill Review note and submit again: goes through under admin review
-- [ ] Category is a select (`FormidableInputSelect`): invalid/valid border and message behave
-      exactly like the other fields
+- [ ] Category is a select (`FormidableInputSelect`, `UpdateOn="OnBlur"`): submit with it empty,
+      then pick a category — the "required" message stays exactly as it was until you tab away,
+      then clears
 - [ ] Read minutes is a number input (`FormidableInputNumber`): typing `0` and submitting shows
       the range message; the native spinner chrome matches the theme in both light and dark
 - [ ] Typing `e3` into Read minutes and tabbing away clears the box — text the model never

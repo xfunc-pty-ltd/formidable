@@ -20,10 +20,10 @@ public class FormidableFieldTests : BunitContext
     {
         var options = new FormidableCssClasses();
 
-        Assert.Equal(string.Empty, FormidableCss.Compute(new FieldState(false, false, false, false, false), options));
-        Assert.Equal("formidable-valid", FormidableCss.Compute(new FieldState(true, false, false, false, false), options));
-        Assert.Equal("formidable-invalid", FormidableCss.Compute(new FieldState(true, true, false, true, false), options));
-        Assert.Equal("formidable-invalid formidable-pending", FormidableCss.Compute(new FieldState(true, true, true, true, false), options));
+        Assert.Equal(string.Empty, FormidableCss.Compute(new FieldState(false, false, false, false, false, false), options));
+        Assert.Equal("formidable-valid", FormidableCss.Compute(new FieldState(true, false, false, false, false, false), options));
+        Assert.Equal("formidable-invalid", FormidableCss.Compute(new FieldState(true, true, false, true, false, false), options));
+        Assert.Equal("formidable-invalid formidable-pending", FormidableCss.Compute(new FieldState(true, true, true, true, false, false), options));
     }
 
     [Fact]
@@ -58,6 +58,70 @@ public class FormidableFieldTests : BunitContext
             Assert.True(seen.AriaInvalid);
             Assert.Equal($"{seen.ElementId}-messages", seen.AriaDescribedBy);
         });
+    }
+
+    [Fact]
+    public void InputAttributes_bundles_id_class_and_both_aria_keys_when_invalid()
+    {
+        var order = new EngineOrder { Description = new string('x', 11) };
+        FormidableFieldContext? seen = null;
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<FormidableField<string>>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+                inner.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFieldContext>)(ctx => b => { seen = ctx; }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+        cut.InvokeAsync(() => form.Instance.Engine!.EditContext.NotifyFieldChanged(
+            new FieldIdentifier(order, nameof(EngineOrder.Description))));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(seen);
+            Assert.True(seen!.State.HasErrors);
+            var attributes = seen.InputAttributes;
+            Assert.Equal(4, attributes.Count);
+            Assert.Equal(seen.ElementId, attributes["id"]);
+            Assert.Equal(seen.CssClass, attributes["class"]);
+            Assert.Equal("true", attributes["aria-invalid"]);
+            Assert.Equal(seen.AriaDescribedBy, attributes["aria-describedby"]);
+        });
+    }
+
+    [Fact]
+    public void InputAttributes_omits_aria_keys_when_field_is_valid_and_untouched()
+    {
+        var order = new EngineOrder();
+        FormidableFieldContext? seen = null;
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<FormidableField<string>>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+                inner.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFieldContext>)(ctx => b => { seen = ctx; }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        Assert.NotNull(seen);
+        var attributes = seen!.InputAttributes;
+        Assert.Equal(2, attributes.Count);
+        Assert.Equal(seen.ElementId, attributes["id"]);
+        Assert.Equal(seen.CssClass, attributes["class"]);
+        Assert.False(attributes.ContainsKey("aria-invalid"));
+        Assert.False(attributes.ContainsKey("aria-describedby"));
     }
 
     [Fact]

@@ -27,9 +27,7 @@
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
             <label for="@field.ElementId">Colour</label>
-            <select id="@field.ElementId" class="@field.CssClass"
-                    aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                    aria-describedby="@field.AriaDescribedBy"
+            <select @attributes="field.InputAttributes"
                     value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
                 <option value="">Choose…</option>
                 <option>Red</option>

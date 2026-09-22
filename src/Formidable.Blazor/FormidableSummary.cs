@@ -9,9 +9,12 @@ namespace Formidable.Blazor;
 /// the form, backed by <see cref="IFormValidationEngine.GetVisibleIssues"/> — the same fault-first,
 /// submit-then-live-deduped view <c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>
 /// use per-field, but for the whole form at once. Renders nothing while the form has no visible
-/// issues; otherwise a <c>role="alert"</c> region with one list per non-empty severity group
-/// (errors, then warnings, then infos), each item a button that moves focus to the offending
-/// field via <see cref="IFormidableFocusService"/>. Subscribes to the cascaded engine's
+/// issues; otherwise a region with one list per non-empty severity group (errors, then warnings,
+/// then infos), each item a button that moves focus to the offending field via
+/// <see cref="IFormidableFocusService"/>. The region carries <c>role="alert"</c> when any visible
+/// issue is error-severity, and the politer <c>role="status"</c> when the visible issues are
+/// advisories only — an errors-free submit that surfaces only warnings/infos should not interrupt
+/// the way a blocking error does. Subscribes to the cascaded engine's
 /// <see cref="IFormValidationEngine.StateChanged"/> so the summary stays current through live
 /// edits, refreshes, and server-applied issues — not just at submit time.
 /// </summary>
@@ -61,10 +64,12 @@ public sealed class FormidableSummary : FormidableComponentBase
             .GroupBy(v => v.Issue.Severity)
             .OrderBy(g => g.Key);
 
+        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+
         var sequence = 0;
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", "alert");
+        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 
         foreach (var group in groups)
         {

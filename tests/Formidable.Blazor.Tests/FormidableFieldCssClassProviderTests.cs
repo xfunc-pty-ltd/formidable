@@ -121,7 +121,7 @@ public class FormidableFieldCssClassProviderTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: true, HasErrors: false, HasWarnings: false);
+        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: true, HasErrors: false, HasWarnings: false, HasInfos: false);
         var engine = new FieldStateStubEngine(editContext, state);
         var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
 
@@ -157,6 +157,8 @@ public class FormidableFieldCssClassProviderTests
         public bool IsValidating => state.IsValidating;
 
         public bool HasSubmitted => false;
+
+        public bool IsFormValid => false;
 
         public event Action? StateChanged
         {

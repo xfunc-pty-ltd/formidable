@@ -19,10 +19,17 @@ namespace Formidable.Blazor;
 /// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
 /// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
 /// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _currentPass,
-/// _touched, _pendingRefreshFields, _pendingLiveFields) mutates synchronously on the caller's
-/// context — except on the dispatcher for: _pendingRefreshFields, when a refresh pass snapshots
-/// and clears it as it begins; _pendingLiveFields, when a live pass clears it after writing its
-/// verdicts; and _currentPass, which the pass that recorded it clears alongside IsValidating.
+/// _touched, _pendingRefreshFields, _pendingLiveFields, _pendingDebouncedLiveFields) mutates
+/// synchronously on the caller's context — except on the dispatcher for: _pendingRefreshFields,
+/// when a refresh pass snapshots and clears it as it begins; _pendingLiveFields, when a live
+/// pass clears it after writing its verdicts; _pendingDebouncedLiveFields, when the live
+/// debounce timer fires and snapshots and clears it before starting the live pass those fields
+/// triggered; and _currentPass, which the pass that recorded it clears alongside IsValidating.
+/// A third, independent mechanism covers IsFormValid: _formValidityStamp mutates synchronously
+/// on the caller's context when a probe starts, and IsFormValid itself mutates on the
+/// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
+/// _version gates issue maps with, but the probe is not a pass, so it never touches
+/// _currentPass, _passCts, or any of the pass bookkeeping above.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -41,6 +48,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private readonly HashSet<FieldIdentifier> _touched = [];
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private readonly HashSet<FieldIdentifier> _pendingLiveFields = [];
+    private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitIssues = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
     private HashSet<FieldIdentifier> _submitVisible = [];
@@ -52,11 +60,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
     private ITimer? _refreshTimer;
+    private ITimer? _liveTimer;
     private CancellationTokenSource? _passCts;
+
+    // One token for the probe's whole fire-and-forget lifetime, not per-probe like _passCts:
+    // probes are never superseded by cancellation (the stamp handles that), so the only thing
+    // this token ever needs to mean is "the engine is disposed" - cancelled once, in Dispose.
+    private readonly CancellationTokenSource _probeCts = new();
+
     private bool _disposed;
     private HashSet<FieldIdentifier>? _validatingScope;
 
     private int _version;
+    private int _formValidityStamp;
 
     // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
     // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
@@ -99,6 +115,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         editContext.OnFieldChanged += _fieldChangedHandler;
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses, this));
         Registry = new FieldRegistry();
+
+        if (options.TrackFormValidity)
+        {
+            // A pristine, never-touched form still needs a truthful answer, so tracking gets its
+            // first probe here rather than waiting for a first edit that may never come.
+            _ = ProbeFormValidityAsync();
+        }
     }
 
     /// <inheritdoc />
@@ -117,6 +140,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     public bool HasSubmitted { get; private set; }
 
     /// <inheritdoc />
+    public bool IsFormValid { get; private set; }
+
+    /// <inheritdoc />
     public event Action? StateChanged;
 
     /// <inheritdoc />
@@ -130,20 +156,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // hold anything for the field, and allocates nothing to do it.
         var hasErrors = false;
         var hasWarnings = false;
+        var hasInfos = false;
 
         if (_liveIssues.TryGetValue(field, out var live))
         {
-            ScanSeverities(live, ref hasErrors, ref hasWarnings);
+            ScanSeverities(live, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
-        if (!(hasErrors && hasWarnings) && _submitIssues.TryGetValue(field, out var submit))
+        if (!(hasErrors && hasWarnings && hasInfos) && _submitIssues.TryGetValue(field, out var submit))
         {
-            ScanSeverities(submit, ref hasErrors, ref hasWarnings);
+            ScanSeverities(submit, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
-        if (!(hasErrors && hasWarnings) && _submitAdvisories.TryGetValue(field, out var advisories))
+        if (!(hasErrors && hasWarnings && hasInfos) && _submitAdvisories.TryGetValue(field, out var advisories))
         {
-            ScanSeverities(advisories, ref hasErrors, ref hasWarnings);
+            ScanSeverities(advisories, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
         return new FieldState(
@@ -151,13 +178,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             IsModified: EditContext.IsModified(field),
             IsValidating: IsFieldValidating(field),
             HasErrors: hasErrors,
-            HasWarnings: hasWarnings);
+            HasWarnings: hasWarnings,
+            HasInfos: hasInfos);
     }
 
     /// <summary>
     /// Whether a validation pass in flight currently covers <paramref name="field"/> — form-wide
-    /// for a submit pass, scoped to the changed field for a live pass, scoped to the fields edited
-    /// within the debounce window for a refresh pass. <see cref="GetFieldState"/> folds this into
+    /// for a submit pass, scoped to the field(s) that triggered a live pass (one for an immediate
+    /// edit, every field an open <see cref="FormidableOptions.LiveDebounce"/> window accumulated
+    /// for a debounced one), scoped to the fields edited within the debounce window for a refresh
+    /// pass. <see cref="GetFieldState"/> folds this into
     /// its own read; <see cref="IValidatingFieldReader"/> exposes it standalone for a caller (the
     /// css class provider) that wants only this and not the severity scan the rest of
     /// <see cref="FieldState"/> costs.
@@ -170,6 +200,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldTouched"/>
     bool IValidatingFieldReader.IsFieldTouched(FieldIdentifier field) => _touched.Contains(field);
+
+    /// <inheritdoc cref="IValidatingFieldReader.InlineMessageRole"/>
+    string? IValidatingFieldReader.InlineMessageRole => _options.InlineMessageRole;
 
     /// <inheritdoc />
     /// <remarks>
@@ -274,10 +307,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// Answers whether <paramref name="issues"/> carries an error and whether it carries a warning,
-    /// stopping the moment both are answered.
+    /// Answers whether <paramref name="issues"/> carries an error, a warning, and an info, stopping
+    /// the moment all three are answered.
     /// </summary>
-    private static void ScanSeverities(List<ValidationIssue> issues, ref bool hasErrors, ref bool hasWarnings)
+    private static void ScanSeverities(
+        List<ValidationIssue> issues, ref bool hasErrors, ref bool hasWarnings, ref bool hasInfos)
     {
         foreach (var issue in issues)
         {
@@ -289,8 +323,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             {
                 hasWarnings = true;
             }
+            else if (issue.Severity == ValidationSeverity.Info)
+            {
+                hasInfos = true;
+            }
 
-            if (hasErrors && hasWarnings)
+            if (hasErrors && hasWarnings && hasInfos)
             {
                 return;
             }
@@ -376,7 +414,22 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {
         MarkTouched(e.FieldIdentifier);
-        _ = RunLivePassAsync(e.FieldIdentifier);
+
+        if (_options.LiveDebounce is { } debounce)
+        {
+            _pendingDebouncedLiveFields.Add(e.FieldIdentifier);
+            ScheduleLiveDebounce(debounce);
+        }
+        else
+        {
+            _ = RunLivePassAsync([e.FieldIdentifier]);
+
+            if (_options.TrackFormValidity)
+            {
+                _ = ProbeFormValidityAsync();
+            }
+        }
+
         if (HasSubmitted || SubmitInFlight)
         {
             _pendingRefreshFields.Add(e.FieldIdentifier);
@@ -396,6 +449,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// stand down — submit is the higher-intent operation, and neither ever supersedes it.
     /// </summary>
     private bool SubmitInFlight => _currentPass?.Kind == PassKind.Submit;
+
+    /// <summary>
+    /// Whether the pass currently in flight is a refresh — read only by
+    /// <see cref="RunDebouncedLivePassAsync"/>, which stands down for it. An IMMEDIATE live pass
+    /// never reads this and never has: it is caused by a fresh edit, and that edit re-arms the
+    /// refresh <see cref="ScheduleRefresh"/> already schedules, so cancelling an in-flight refresh
+    /// costs nothing there. A DEBOUNCED live pass is different — the edit that will eventually
+    /// supersede the refresh already happened when the debounce window opened, so nothing else
+    /// re-arms it if this cancels it outright; deferring here is what keeps the refresh's own
+    /// verdict from going permanently stale.
+    /// </summary>
+    private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
 
     /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
@@ -433,10 +498,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
     /// The write is skipped when <paramref name="pass"/> is no longer the current one —
     /// a superseded pass must not stomp a newer pass's state. <paramref name="fields"/> narrows which
-    /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the single field
-    /// that triggered it; a refresh pass passes the fields edited within its debounce window; a
-    /// submit pass passes <see langword="null"/> (form-wide, every field). Only meaningful when
-    /// <paramref name="value"/> is <see langword="true"/> — clearing ends the pass outright (see
+    /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the field(s)
+    /// that triggered it — one field for an immediate edit, every field an open live-debounce
+    /// window accumulated for a debounced one; a refresh pass passes the fields edited within its
+    /// debounce window; a submit pass passes <see langword="null"/> (form-wide, every field). Only
+    /// meaningful when <paramref name="value"/> is <see langword="true"/> — clearing ends the pass outright (see
     /// <see cref="EndPass"/>), scope and descriptor with it.
     /// Also raises the EditContext's own validation-state notification, not just the engine's: a
     /// native InputBase re-renders on that event, not on <see cref="StateChanged"/>, so without it
@@ -583,20 +649,30 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         ValidationFaulted?.Invoke(exception);
     }
 
-    private async Task RunLivePassAsync(FieldIdentifier changedField)
+    /// <summary>
+    /// Runs a live pass triggered by <paramref name="triggeringFields"/> — one field for an
+    /// immediate (non-debounced) edit, or every field an open debounce window accumulated before
+    /// it fired. <paramref name="triggeringFields"/> become this one pass's pending-indicator
+    /// scope, while <see cref="_pendingLiveFields"/> still carries any superseded pass's fields
+    /// into this one's verdict, exactly as it always has.
+    /// </summary>
+    private async Task RunLivePassAsync(IReadOnlyCollection<FieldIdentifier> triggeringFields)
     {
         if (SubmitInFlight)
         {
             return; // submit is the higher-intent operation; live/refresh passes never supersede it
         }
 
-        _pendingLiveFields.Add(changedField);
+        foreach (var field in triggeringFields)
+        {
+            _pendingLiveFields.Add(field);
+        }
 
         await RunPassAsync(
             PassKind.Live,
             _options.LiveProfile,
             CancellationToken.None,
-            () => [changedField],
+            () => new HashSet<FieldIdentifier>(triggeringFields),
             report =>
             {
                 // Every field whose pass this one superseded, not just the field that started it:
@@ -615,6 +691,99 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The whole-form validity probe behind <see cref="FormidableOptions.TrackFormValidity"/>: a
+    /// standalone <see cref="FormidableOptions.SubmitProfile"/> validation, not an engine pass —
+    /// it never calls <see cref="BeginPass"/>, writes nothing to the message store or the field
+    /// registry, and never touches the pending indicator. Its only effect is
+    /// <see cref="IsFormValid"/>, written only when the computed value differs from the current
+    /// one (a flip, not every probe) and only while <c>stamp</c> is still the most recently taken
+    /// one — a probe a newer probe has already superseded discards its own answer rather than
+    /// overwrite a fresher one, the same last-write-wins discipline every pass verdict already
+    /// follows via <c>_version</c>. A submit orders itself ahead of every probe the same way: its
+    /// own verdict apply calls <see cref="AdoptFormValidity"/>, which bumps this same stamp, so a
+    /// probe that started before the submit began cannot land after it and overwrite its answer
+    /// — see <see cref="AdoptFormValidity"/> for why submit (and refresh) can adopt directly
+    /// instead of merely invalidating. A probe never starts while a submit is already in flight,
+    /// for the same reason a live pass never does (see <see cref="RunLivePassAsync"/>): submit is
+    /// about to compute this exact quantity itself moments from now, so racing it buys nothing.
+    /// A probe that faults reports the only way a fire-and-forget pass can: through
+    /// <see cref="ValidationFaulted"/>, exactly as a live or refresh pass's own fault does — never
+    /// a form-level fault issue, which would disclose something an invisible probe promises never
+    /// to. Without this, a validator that throws on the submit profile (the profile a live pass
+    /// never runs, so the two can genuinely disagree on whether a rule throws) would freeze
+    /// <see cref="IsFormValid"/> at its last value with no diagnostic anywhere, silently stranding
+    /// a disable-submit button in whatever state it was last in.
+    /// </summary>
+    private async Task ProbeFormValidityAsync()
+    {
+        if (SubmitInFlight)
+        {
+            return;
+        }
+
+        var stamp = ++_formValidityStamp;
+
+        ValidationReport report;
+        try
+        {
+            report = await _validator.ValidateAsync(_model, _options.SubmitProfile, _probeCts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // disposed mid-probe - nothing left to write into
+        }
+        catch (Exception exception)
+        {
+            ValidationFaulted?.Invoke(exception);
+            return;
+        }
+
+        await _renderDispatch(() =>
+        {
+            if (!_disposed && stamp == _formValidityStamp)
+            {
+                var isFormValid = report.IsValid;
+                if (isFormValid != IsFormValid)
+                {
+                    IsFormValid = isFormValid;
+                    NotifyStateChanged();
+                }
+            }
+
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adopts a whole-model <see cref="FormidableOptions.SubmitProfile"/> report's validity
+    /// directly into <see cref="IsFormValid"/> — called from the submit and refresh verdict
+    /// applies, both of which already compute exactly this quantity as part of their own pass, so
+    /// there is nothing left for a separate probe to add. Bumps <c>_formValidityStamp</c>
+    /// regardless of whether the value actually changes: a pass's own verdict is authoritative
+    /// over any probe that merely happened to start earlier, so any such probe still in flight
+    /// (or one that already finished and is only now reaching its write-back) must discard its
+    /// answer rather than land after this one and overwrite it. A no-op when tracking is off — no
+    /// probe can be in flight to invalidate, and nothing reads <see cref="IsFormValid"/>.
+    /// </summary>
+    private void AdoptFormValidity(ValidationReport report)
+    {
+        if (!_options.TrackFormValidity)
+        {
+            return;
+        }
+
+        _formValidityStamp++;
+
+        var isFormValid = report.IsValid;
+        if (isFormValid != IsFormValid)
+        {
+            IsFormValid = isFormValid;
+            NotifyStateChanged();
+        }
+    }
+
     private FieldIdentifier Resolve(ValidationIssue issue) =>
         _introspector.Resolve(_model, issue.Path).ToFieldIdentifier(_model, issue.Path);
 
@@ -623,7 +792,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// warning for the host (WebAssembly's default provider is the browser console, so that channel
     /// needs no wiring to be seen), and the options callback for a page that wants to show its own
     /// list. Every site that decides an issue is suppressed ends here, so the three channels can
-    /// never drift apart between them.
+    /// never drift apart between them. A never-registered field additionally reaches
+    /// <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> — the general channels above
+    /// fire either way, unchanged.
     /// </summary>
     private void ReportSuppressed(ValidationIssue issue)
     {
@@ -633,6 +804,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
             issue.Path);
         _options.SuppressedIssueDiagnostic?.Invoke(issue);
+
+        if (_options.NeverRegisteredFieldDiagnostic is not null && !Registry.HasEverRegistered(Resolve(issue)))
+        {
+            _options.NeverRegisteredFieldDiagnostic(issue);
+        }
     }
 
     private bool IsVisible(ValidationIssue issue, FieldIdentifier field)
@@ -729,6 +905,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <inheritdoc />
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
+        // Mirrors the AspNetCore filters: normalize before the profile runs, not after, so the
+        // profile - and the messages a blocked submit re-discloses - answer for the same
+        // normalized values the model is left holding once this call returns.
+        if (_options.NormalizeOnSubmit)
+        {
+            (_model as INormalizableModel)?.Normalize();
+        }
+
         var canProceed = false;
         var summary = new List<string>();
 
@@ -746,6 +930,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // nothing left to hand on: its field's verdict is this report's, and any further
                 // edit is revalidated by the refresh that edit arms.
                 _pendingLiveFields.Clear();
+
+                // Submit already IS the whole-model SubmitProfile validation IsFormValid tracks —
+                // adopting it here means a disable-submit button reflects the submit's own answer
+                // the instant it lands, rather than waiting on the next field-change probe.
+                AdoptFormValidity(report);
 
                 if (report.IsValid)
                 {
@@ -919,6 +1108,76 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         _refreshTimer.Change(_options.RefreshDebounce, Timeout.InfiniteTimeSpan);
     }
 
+    /// <summary>
+    /// Arms (or re-arms) the single timer behind <see cref="FormidableOptions.LiveDebounce"/>,
+    /// exactly as <see cref="ScheduleRefresh"/> arms its own — one timer, created lazily and
+    /// re-armed on every call, never one per field, which is what makes the debounce window
+    /// shared across whatever fields change while it is open.
+    /// </summary>
+    private void ScheduleLiveDebounce(TimeSpan debounce)
+    {
+        if (_disposed)
+        {
+            // A debounced live pass whose dispatch was still queued when the owning component
+            // went away re-arms nothing on its own, but a field change notification racing
+            // Dispose could still reach here; re-arming a disposed ITimer throws.
+            return;
+        }
+
+        _liveTimer ??= _timeProvider.CreateTimer(
+            _ => _ = _renderDispatch(RunDebouncedLivePassAsync),
+            state: null,
+            dueTime: Timeout.InfiniteTimeSpan,
+            period: Timeout.InfiniteTimeSpan);
+        _liveTimer.Change(debounce, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// The live debounce timer's fire handler: defers first — mirroring
+    /// <see cref="RunRefreshPassAsync"/>'s own defer-then-snapshot shape — and only once neither a
+    /// submit nor a refresh is in flight does it snapshot and clear the fields accumulated since
+    /// the window opened and run one live pass scoped to all of them.
+    /// </summary>
+    private Task RunDebouncedLivePassAsync()
+    {
+        if (_disposed)
+        {
+            // A dispatched fire can still run after the owning component went away; there is
+            // nothing left here to validate against.
+            return Task.CompletedTask;
+        }
+
+        if (SubmitInFlight || RefreshInFlight)
+        {
+            // Re-arm and try again once the pass in flight finishes, touching neither the
+            // accumulator nor a pass. Snapshotting here regardless (the shape every other fire
+            // handler in this file uses) would still lose the fields: RunLivePassAsync's own
+            // SubmitInFlight guard bails without writing them anywhere, and starting a live pass
+            // against an in-flight refresh would cancel it via BeginPass without anything left to
+            // re-arm it — the edit that would normally do that (see RefreshInFlight's remarks)
+            // already happened when this window opened, so the refresh's own verdict would go
+            // stale with no edit left to fix it. LiveInFlight is deliberately not checked: one
+            // live pass superseding another is the existing, correct contract, and
+            // _pendingLiveFields already carries the superseded pass's fields into the winner's
+            // verdict.
+            ScheduleLiveDebounce(_options.LiveDebounce!.Value);
+            return Task.CompletedTask;
+        }
+
+        var fields = new HashSet<FieldIdentifier>(_pendingDebouncedLiveFields);
+        _pendingDebouncedLiveFields.Clear();
+        var live = RunLivePassAsync(fields);
+
+        if (_options.TrackFormValidity)
+        {
+            // Rides the same debounced cadence as the live pass it fires alongside here, rather
+            // than the raw per-keystroke field-changed event this window exists to collapse.
+            _ = ProbeFormValidityAsync();
+        }
+
+        return live;
+    }
+
     private async Task RunRefreshPassAsync()
     {
         if (SubmitInFlight || LiveInFlight)
@@ -966,6 +1225,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             },
             report =>
             {
+                // A refresh pass validates the whole model under SubmitProfile too (its "scope"
+                // parameter above narrows only the pending indicator, never what gets validated),
+                // so it is exactly as authoritative a source for IsFormValid as a submit is.
+                AdoptFormValidity(report);
+
                 // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
                 // own issues (below) replace both submit channels wholesale.
                 var previouslyApplied = _appliedServerIssues;
@@ -1021,8 +1285,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         _disposed = true;
         EditContext.OnFieldChanged -= _fieldChangedHandler;
         _refreshTimer?.Dispose();
+        _liveTimer?.Dispose();
         _passCts?.Cancel();
         _passCts?.Dispose();
+        _probeCts.Cancel();
+        _probeCts.Dispose();
         _store.Clear();
         EditContext.NotifyValidationStateChanged();
     }

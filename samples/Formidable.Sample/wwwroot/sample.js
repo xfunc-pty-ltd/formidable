@@ -7,10 +7,8 @@ window.formidableSample = {
         }
     },
     // The chosen culture has to outlive the reload that applies it, so it lives in
-    // localStorage rather than in component state.
-    getCulture: function () {
-        return localStorage.getItem('formidable.culture');
-    },
+    // localStorage rather than in component state; FormidableCultureBootstrap reads it back
+    // through the library's own JS module, so this object only needs to write it.
     setCulture: function (culture) {
         localStorage.setItem('formidable.culture', culture);
     },

@@ -27,6 +27,21 @@ public sealed class FormidableFieldContext
         Issues = issues;
         AriaInvalid = state.HasErrors;
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
+
+        var inputAttributes = new Dictionary<string, object>(4)
+        {
+            ["id"] = elementId,
+            ["class"] = cssClass,
+        };
+        if (AriaInvalid)
+        {
+            inputAttributes["aria-invalid"] = "true";
+        }
+        if (AriaDescribedBy is not null)
+        {
+            inputAttributes["aria-describedby"] = AriaDescribedBy;
+        }
+        InputAttributes = inputAttributes;
     }
 
     /// <summary>The field this context describes.</summary>
@@ -54,6 +69,17 @@ public sealed class FormidableFieldContext
     /// for <see cref="Field"/>, the same id the field's message list renders on itself.
     /// </summary>
     public string? AriaDescribedBy { get; }
+
+    /// <summary>
+    /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
+    /// applicable — <c>aria-invalid</c> and <c>aria-describedby</c>, bundled exactly as
+    /// <see cref="ElementId"/>, <see cref="CssClass"/>, <see cref="AriaInvalid"/>, and
+    /// <see cref="AriaDescribedBy"/> already report them. Splat it onto the control with
+    /// <c>@attributes="field.InputAttributes"</c>; <see cref="NotifyChanged"/> is still the
+    /// consumer's own wiring, since only the consumer's markup knows which native event commits
+    /// the control's value.
+    /// </summary>
+    public IReadOnlyDictionary<string, object> InputAttributes { get; }
 
     /// <summary>
     /// Notifies the EditContext that the field changed, which is what marks it touched and runs the

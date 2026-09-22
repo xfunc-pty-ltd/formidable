@@ -84,4 +84,19 @@ public class FieldRegistryTests
 
         Assert.False(_registry.IsRevealed(Field("Description")));
     }
+
+    [Fact]
+    public void Never_seen_field_has_never_registered()
+    {
+        Assert.False(_registry.HasEverRegistered(Field("Description")));
+    }
+
+    [Fact]
+    public void Registered_then_unregistered_field_has_ever_registered()
+    {
+        var registration = _registry.Register(Field("Description"));
+        registration.Dispose();
+
+        Assert.True(_registry.HasEverRegistered(Field("Description")));
+    }
 }

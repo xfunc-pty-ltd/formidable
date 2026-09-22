@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor;
 
@@ -28,6 +29,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter, EditorRequired]
     public TModel Model { get; set; } = default!;
 
+    /// <summary>
+    /// Notified when <see cref="ResetAsync(TModel?)"/> is called with a new model — the platform's
+    /// own two-way-binding shape, so <c>@bind-Model="_order"</c> works. Binding it is what makes a
+    /// programmatic swap durable: <see cref="Model"/> is a <c>[Parameter]</c>, and Blazor re-supplies
+    /// a component's parameters from whatever the PARENT still holds on every one of the parent's
+    /// own renders — not just this component's — so a swap this component makes to its own copy of
+    /// <see cref="Model"/> is silently overwritten the next time anything up there re-renders,
+    /// unless the parent's own field was updated too. This callback is that update.
+    /// </summary>
+    [Parameter]
+    public EventCallback<TModel> ModelChanged { get; set; }
+
     /// <summary>Validator override; resolved from DI when omitted.</summary>
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
@@ -40,13 +53,32 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
-    /// <summary>Invoked when the submit pipeline passes.</summary>
+    /// <summary>
+    /// Invoked when the submit pipeline passes. A passing submit can still carry advisories, so
+    /// the valid branch hands its handler the same <see cref="SubmitOutcome"/> the invalid branch
+    /// always received — mirroring <c>EditForm.OnValidSubmit</c>'s own typed precedent — rather
+    /// than leave a handler that wants them digging through <see cref="Engine"/> instead. A
+    /// parameterless handler still binds: Blazor's own <see cref="EventCallback{TValue}"/>
+    /// conversion accepts an <see cref="Action"/> or <see cref="Func{TResult}"/> wherever a typed
+    /// callback is declared, exactly as it does for <c>EditForm.OnValidSubmit</c> today.
+    /// </summary>
     [Parameter]
-    public EventCallback OnValidSubmit { get; set; }
+    public EventCallback<SubmitOutcome> OnValidSubmit { get; set; }
 
     /// <summary>Invoked with the outcome when the submit pipeline blocks.</summary>
     [Parameter]
     public EventCallback<SubmitOutcome> OnInvalidSubmit { get; set; }
+
+    /// <summary>
+    /// On a blocked submit, best-effort auto-focuses the first visible issue's field via
+    /// <see cref="IFormidableFocusService"/>, immediately after <see cref="OnInvalidSubmit"/> runs.
+    /// Default <see langword="true"/>. The service is resolved lazily and may be unregistered; a
+    /// null service or a focus miss (e.g. no element carries the field's id yet) is silent, the
+    /// same best-effort contract <see cref="FormidableSummary"/>'s click-to-focus already has. Set
+    /// <see langword="false"/> to choose focus yourself, e.g. from <see cref="OnInvalidSubmit"/>.
+    /// </summary>
+    [Parameter]
+    public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
     /// <summary>
     /// Additional attributes splatted onto the rendered form element. A consumer-supplied
@@ -78,19 +110,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
         if (!ReferenceEquals(_boundModel, Model))
         {
-            _engine?.Dispose();
-            _boundModel = Model;
-            _boundOptions = Options;
-            _editContext = new EditContext(Model);
-            _engine = FormidableEngineFactory.Create(
-                Model,
-                _editContext,
-                Services,
-                Validator,
-                Options,
-                renderDispatch: work => InvokeAsync(work));
-            _context = new FormidableFormContext(_engine);
-            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+            RebuildEngine(Model);
         }
         else
         {
@@ -103,23 +123,139 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// Disposes the current engine, if any, and builds a fresh engine and <c>EditContext</c> over
+    /// <paramref name="model"/> — including a brand new <see cref="FormidableFormContext"/>
+    /// instance, not merely a new engine reference inside the old one. That is what
+    /// <see cref="BuildRenderTree"/>'s region key relies on: a new context instance is what turns
+    /// the swap into a fresh mount for every descendant, rather than leaving already-bound
+    /// components pointed at whatever the old context still refers to. Shared by the
+    /// parameter-driven Model swap in <see cref="OnParametersSet"/> and by <see cref="ResetAsync"/>.
+    /// </summary>
+    private void RebuildEngine(TModel model)
+    {
+        _engine?.Dispose();
+        _boundModel = model;
+        _boundOptions = Options;
+        _editContext = new EditContext(model);
+        _engine = FormidableEngineFactory.Create(
+            model,
+            _editContext,
+            Services,
+            Validator,
+            Options,
+            renderDispatch: work => InvokeAsync(work));
+        _context = new FormidableFormContext(_engine);
+        _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+    }
+
+    /// <summary>
+    /// Returns the form to pristine. Omitted <paramref name="newModel"/>: rebuilds the engine and
+    /// <c>EditContext</c> over the SAME model instance currently bound, without waiting for a
+    /// parameter-driven swap to do it. Touched/modified state, the message store, the advisory
+    /// buckets and <see cref="IFormValidationEngine.HasSubmitted"/> all clear, and any pending
+    /// refresh is cancelled — none of it survives the engine it belonged to. An in-flight
+    /// <see cref="SubmitAsync"/> is abandoned along with it: its callbacks never fire once the
+    /// engine that started it is gone (see <see cref="SubmitAsync"/>'s own remarks).
+    /// Supplied: swaps to the new instance — but doing that from inside this component is not
+    /// enough on its own to make the swap stick, because <see cref="Model"/> is a
+    /// <c>[Parameter]</c> and Blazor re-supplies it from whatever the PARENT still holds on every
+    /// one of the parent's own renders. This call also invokes <see cref="ModelChanged"/>, so a
+    /// parent bound with <c>@bind-Model</c> updates its own field before that can happen — which is
+    /// why supplying <paramref name="newModel"/> with no <see cref="ModelChanged"/> delegate bound
+    /// throws instead of swapping to a state the very next unrelated render could silently revert.
+    /// Call from the renderer's synchronization context (a Blazor event handler or
+    /// <c>InvokeAsync</c>) — it triggers renders.
+    /// </summary>
+    /// <param name="newModel">
+    /// The model to bind instead — requires <see cref="ModelChanged"/> to be bound — or null to
+    /// rebuild over the current one.
+    /// </param>
+    public async Task ResetAsync(TModel? newModel = null)
+    {
+        RequireEngine();
+
+        if (newModel is null)
+        {
+            RebuildEngine(Model);
+            StateHasChanged();
+            return;
+        }
+
+        if (!ModelChanged.HasDelegate)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(FormidableForm<TModel>)}.{nameof(ResetAsync)} was called with a new model, but no " +
+                $"{nameof(ModelChanged)} delegate is bound — a swap this component makes to its own copy of " +
+                $"{nameof(Model)} cannot survive the parent's next render on its own: Blazor re-supplies the " +
+                $"parent's own Model value on every one of THAT component's renders, not just this one, silently " +
+                "reverting the swap the next time anything up there re-renders. Bind with " +
+                "<FormidableForm @bind-Model=\"_order\"> (this enables ModelChanged automatically), or swap the " +
+                "Model parameter from the parent instead of calling ResetAsync with a new model.");
+        }
+
+        Model = newModel;
+        RebuildEngine(newModel);
+        StateHasChanged();
+        await ModelChanged.InvokeAsync(newModel);
+    }
+
+    /// <summary>
     /// Runs the submit pipeline programmatically. Call from the renderer's synchronization
-    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders.
+    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders. If
+    /// <see cref="ResetAsync(TModel?)"/> rebuilds the engine while this call is still awaiting the
+    /// pipeline, the engine that started is gone by the time the verdict lands: neither
+    /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
+    /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
+    /// must not surface as if it were current.
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var outcome = await RequireEngine().ValidateForSubmitAsync();
+        var engine = RequireEngine();
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        if (!ReferenceEquals(_engine, engine))
+        {
+            return outcome;
+        }
+
         if (outcome.CanProceed)
         {
-            await OnValidSubmit.InvokeAsync();
+            await OnValidSubmit.InvokeAsync(outcome);
         }
         else
         {
             await OnInvalidSubmit.InvokeAsync(outcome);
+            if (FocusFirstErrorOnInvalidSubmit)
+            {
+                await FocusFirstVisibleIssueAsync();
+            }
         }
 
         StateHasChanged();
         return outcome;
+    }
+
+    /// <summary>
+    /// Best-effort: a consumer who never registered <see cref="IFormidableFocusService"/> (or whose
+    /// form has, unusually, no visible issue to focus right after a blocked submit) gets silence
+    /// rather than an exception here — the same tolerance <see cref="FormidableSummary"/>'s own
+    /// click-to-focus applies.
+    /// </summary>
+    private async Task FocusFirstVisibleIssueAsync()
+    {
+        var focusService = Services.GetService<IFormidableFocusService>();
+        if (focusService is null)
+        {
+            return;
+        }
+
+        var firstIssue = RequireEngine().GetVisibleIssues().FirstOrDefault();
+        if (firstIssue is null)
+        {
+            return;
+        }
+
+        await focusService.FocusAsync(firstIssue.Field);
     }
 
     /// <summary>

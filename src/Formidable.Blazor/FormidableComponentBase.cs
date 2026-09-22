@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
@@ -24,6 +25,8 @@ namespace Formidable.Blazor;
 public abstract class FormidableComponentBase : ComponentBase, IDisposable
 {
     private readonly FormContextBinding _binding = new();
+    private FieldIdentifier _registeredField;
+    private bool _verifyRowKeys;
 
     private protected FormidableComponentBase()
     {
@@ -55,11 +58,15 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <see cref="Register"/> and re-subscribing against the new one. A derived component that
     /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
     /// re-renders on a validation state change.
+    /// The no-op path carries one extra job while
+    /// <see cref="FormidableOptions.VerifyRowKeys"/> is on: it checks that the field this
+    /// component's accessor names is still the one it registered.
     /// </summary>
     protected override void OnParametersSet()
     {
         if (_binding.IsBound(Context))
         {
+            VerifyRowKey();
             return;
         }
 
@@ -68,6 +75,68 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             GetType(),
             register: Register,
             stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
+
+        _verifyRowKeys = Context!.Engine.Options.VerifyRowKeys;
+        _registeredField = _verifyRowKeys ? ResolveField() : default;
+    }
+
+    /// <summary>
+    /// The field this component's accessor names <em>right now</em>, resolved afresh rather than
+    /// read back from whatever <see cref="Register"/> resolved. Every component that speaks for a
+    /// field overrides this and calls it from its own <see cref="Register"/>, so the identifier a
+    /// component registers and the identifier <see cref="FormidableOptions.VerifyRowKeys"/>
+    /// compares against it are the same expression evaluated at two different times — which is the
+    /// only thing that comparison is entitled to assume. The default is the empty identifier, for a
+    /// component that speaks for the whole form rather than for a field (<c>FormidableSummary</c>):
+    /// it matches itself on every render, so such a component is simply never a candidate.
+    /// </summary>
+    private protected virtual FieldIdentifier ResolveField() => default;
+
+    /// <summary>
+    /// Throws when the component's accessor now names a different field than the one it registered
+    /// — see <see cref="FormidableOptions.VerifyRowKeys"/> for what that means and why it is worth
+    /// stopping on. Silent unless that option is on.
+    /// </summary>
+    private void VerifyRowKey()
+    {
+        if (!_verifyRowKeys)
+        {
+            return;
+        }
+
+        var current = ResolveField();
+        if (current.Equals(_registeredField))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, without having been " +
+            "rebuilt in between. A list rendered without @key does exactly that: remove or reorder a row, and Blazor " +
+            "reuses each row's components for the next item along — the field registration, the element id, the aria " +
+            "attributes and the messages stay with the row that moved away, while the input shows the new row's " +
+            "value. Key each row by the row object — @key=\"item\" on the element the loop renders — so a row's " +
+            "components travel with it. If the list is already keyed that way, something else re-pointed the " +
+            "accessor: a key taken from the row's id while the row object itself was replaced, or a For that now " +
+            $"names another field. (Reported by {nameof(FormidableOptions)}.{nameof(FormidableOptions.VerifyRowKeys)}.)");
+    }
+
+    /// <summary>
+    /// Names both ends of the divergence: the same field on a different owner — the row case, where
+    /// spelling the identical name twice would say nothing — or two different fields outright.
+    /// </summary>
+    private static string DescribeChange(FieldIdentifier registered, FieldIdentifier current)
+    {
+        var registeredOwner = OwnerName(registered);
+        var currentOwner = OwnerName(current);
+
+        return string.Equals(registered.FieldName, current.FieldName, StringComparison.Ordinal)
+            && string.Equals(registeredOwner, currentOwner, StringComparison.Ordinal)
+                ? $"registered the field '{registeredOwner}.{registered.FieldName}' and is now bound to the same field on a different {currentOwner}"
+                : $"registered the field '{registeredOwner}.{registered.FieldName}' and is now bound to '{currentOwner}.{current.FieldName}'";
+
+        static string OwnerName(FieldIdentifier field) =>
+            field.Model is { } owner ? FriendlyTypeName.Of(owner.GetType()) : "nothing";
     }
 
     /// <summary>
@@ -92,12 +161,20 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <summary>
     /// Runs <see cref="DisposeCore"/>, then releases the field registration and the engine
     /// subscription. Deliberately not virtual: the base's cleanup is not a derived control's to
-    /// forget, so a removed field cannot stay revealed because someone missed a base call.
+    /// forget, so a removed field cannot stay revealed because someone missed a base call. The
+    /// release runs in a <see langword="finally"/>, so a throwing <see cref="DisposeCore"/> no
+    /// longer skips it.
     /// </summary>
     public void Dispose()
     {
-        DisposeCore();
-        _binding.Dispose();
+        try
+        {
+            DisposeCore();
+        }
+        finally
+        {
+            _binding.Dispose();
+        }
     }
 
     /// <summary>

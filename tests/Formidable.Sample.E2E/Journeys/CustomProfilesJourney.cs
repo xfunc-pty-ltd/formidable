@@ -53,6 +53,29 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
             .ToHaveTextAsync("Submitted under Standard submit — accepted.");
     }
 
+    // Category carries UpdateOn="OnBlur": picking an option commits it at once, but a stale
+    // verdict already on screen (from the blocked submit below) survives until the control is
+    // actually left, proving the notification really did defer to blur rather than change.
+    [E2EFact]
+    public async Task Category_select_holds_its_stale_verdict_until_blur()
+    {
+        await using var session = await app.NewPageAsync("/custom-profiles");
+        var page = session.Page;
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
+        await Expect(MessagesFor(page, "category")).ToHaveTextAsync(["Category is required"]);
+
+        // Blocked submit auto-focuses the first failing field (Title), not Category, so focus is
+        // put on the select explicitly before picking — otherwise Tab below would blur whichever
+        // field the auto-focus landed on instead.
+        await Field(page, "category").FocusAsync();
+        await Field(page, "category").SelectOptionAsync("Tutorial");
+        await Expect(MessagesFor(page, "category")).ToHaveTextAsync(["Category is required"]);
+
+        await TabAsync(page);
+        await Expect(MessagesFor(page, "category")).ToHaveCountAsync(0);
+    }
+
     [E2EFact]
     public async Task Admin_review_resets_the_form_and_demands_the_note()
     {

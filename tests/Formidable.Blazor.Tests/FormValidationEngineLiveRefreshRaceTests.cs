@@ -2,6 +2,7 @@ using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -129,23 +130,5 @@ public class FormValidationEngineLiveRefreshRaceTests
 
         Assert.Contains(engine.GetIssues(customerName), i => i.Message == "Customer name is too long");
         Assert.Contains(engine.GetIssues(sku), i => i.Message == "SKU is too long");
-    }
-
-    /// <summary>
-    /// Completes the next time the engine reports it is no longer validating. Call it only once
-    /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
-    /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
-    /// </summary>
-    private static Task Quiescence(FormValidationEngine<EngineOrder> engine)
-    {
-        var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
-        {
-            if (!engine.IsValidating)
-            {
-                quiescent.TrySetResult();
-            }
-        };
-        return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 }

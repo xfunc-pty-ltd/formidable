@@ -15,3 +15,7 @@ export function syncValue(id, value) {
         element.value = value ?? "";
     }
 }
+
+export function getStoredCulture(key) {
+    return window.localStorage.getItem(key);
+}

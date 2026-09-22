@@ -139,6 +139,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// </remarks>
     protected string CssClass => ComputeCssClass(State);
 
+    /// <inheritdoc />
+    private protected sealed override FieldIdentifier ResolveField() =>
+        FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
+
     /// <summary>
     /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, computes the
     /// ids that address it, and registers it with the cascaded context's field registry. Called by
@@ -155,7 +159,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
-        Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
+        Field = ResolveField();
         ElementId = FormidableFieldId.For(Field);
         MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
         return context.Registry.Register(Field, KeepRegistered);
@@ -323,33 +327,60 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
 
     /// <summary>
     /// The string-projected value binding, for a control whose DOM value is always a string while
-    /// its field is not — a <c>&lt;select&gt;</c> being the kit's own case. Binds <c>onchange</c>
-    /// with <paramref name="formattedValue"/> as the currently-rendered string and
-    /// <paramref name="setValueAsync"/> as the parse-and-commit step, and marks <c>value</c> as
-    /// the attribute the handler updates, exactly as the
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> overload does — one policy for both,
-    /// so a change to how the kit binds values or patches the <c>value</c> frame reaches every
-    /// input. It consumes <paramref name="sequence"/> only.
+    /// its field is not — a <c>&lt;select&gt;</c> being the kit's own case. Honours
+    /// <see cref="UpdateOn"/>, with one coercion: a <c>&lt;select&gt;</c> has no meaningful
+    /// <c>input</c> event distinct from <c>change</c> the way a text box does, so
+    /// <see cref="InputUpdateMode.OnInput"/> behaves exactly like
+    /// <see cref="InputUpdateMode.OnChange"/> (the default) — both bind <c>onchange</c> and, once
+    /// <paramref name="tryCommitAsync"/> reports a value was committed, notify the engine
+    /// immediately. Under <see cref="InputUpdateMode.OnBlur"/> the same <c>change</c> event still
+    /// commits the value, but the notification defers to <c>blur</c> instead, riding the same
+    /// <see cref="HandleBlurAsync"/> the typed overload uses — including the
+    /// consumer-splatted-<c>onblur</c> chaining. Also marks <c>value</c> as the attribute the
+    /// commit handler updates, exactly as <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
+    /// does. It consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 under
+    /// <see cref="InputUpdateMode.OnBlur"/>.
     /// </summary>
-    /// <remarks>
-    /// This overload is deliberately fixed to <c>change</c> and ignores <see cref="UpdateOn"/>:
-    /// the controls it serves have no meaningful <c>input</c> event distinct from <c>change</c>,
-    /// and nothing to defer to <c>blur</c>. A control that wants the mode honoured takes the typed
-    /// overload — or the <see cref="StringValueParser"/> one to keep its own formatting — instead.
-    /// A consumer-splatted <c>@onblur</c> therefore passes straight through here — the library
-    /// binds no <c>onblur</c> of its own to chain with.
-    /// </remarks>
+    /// <param name="builder">The render tree being built.</param>
+    /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <param name="formattedValue">The field's current value, already formatted as a string.</param>
+    /// <param name="tryCommitAsync">
+    /// Parses the DOM-committed string and, on success, commits it (see
+    /// <see cref="CommitValueAsync"/>) and returns <see langword="true"/>; returns
+    /// <see langword="false"/> without committing when the string does not parse. Whether to
+    /// notify the engine afterwards is this call's decision, not the delegate's — see the mode
+    /// split above.
+    /// </param>
     protected void AddValueBinding(
         RenderTreeBuilder builder,
         int sequence,
         string? formattedValue,
-        Func<string?, Task> setValueAsync)
+        Func<string?, Task<bool>> tryCommitAsync)
     {
+        if (UpdateOn == InputUpdateMode.OnBlur)
+        {
+            builder.AddAttribute(
+                sequence,
+                "onchange",
+                EventCallback.Factory.CreateBinder<string?>(this, v => tryCommitAsync(v), formattedValue));
+            builder.SetUpdatesAttributeName("value");
+            AddBlurBinding(builder, sequence + 1);
+            return;
+        }
+
         builder.AddAttribute(
             sequence,
             "onchange",
-            EventCallback.Factory.CreateBinder<string?>(this, setValueAsync, formattedValue));
+            EventCallback.Factory.CreateBinder<string?>(this, v => CommitAndNotifyAsync(tryCommitAsync, v), formattedValue));
         builder.SetUpdatesAttributeName("value");
+    }
+
+    private async Task CommitAndNotifyAsync(Func<string?, Task<bool>> tryCommitAsync, string? value)
+    {
+        if (await tryCommitAsync(value))
+        {
+            NotifyChanged();
+        }
     }
 
     /// <summary>

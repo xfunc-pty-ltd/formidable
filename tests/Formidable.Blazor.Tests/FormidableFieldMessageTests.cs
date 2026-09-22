@@ -15,13 +15,13 @@ public class FormidableFieldMessageTests : BunitContext
     }
 
     private IRenderedComponent<FormidableForm<EngineOrder>> RenderWithMessage(
-        EngineOrder order, RenderFragment inner)
+        EngineOrder order, RenderFragment inner, FormidableOptions? options = null)
     {
         var cut = Render(builder =>
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "Options", new FormidableOptions { DisclosureOverride = _ => true });
+            builder.AddComponentParameter(2, "Options", options ?? new FormidableOptions { DisclosureOverride = _ => true });
             builder.AddComponentParameter(3, "ChildContent", inner);
             builder.CloseComponent();
         });
@@ -52,6 +52,41 @@ public class FormidableFieldMessageTests : BunitContext
                 $"{FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description)))}-messages",
                 list.GetAttribute("id"));
         });
+    }
+
+    [Fact]
+    public void Default_options_render_no_role_attribute_on_the_list()
+    {
+        var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
+        var form = RenderWithMessage(order, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.CloseComponent();
+        });
+
+        form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() => Assert.Null(form.Find("ul.formidable-messages").GetAttribute("role")));
+    }
+
+    [Fact]
+    public void InlineMessageRole_option_adds_role_attribute_to_the_list()
+    {
+        var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
+        var form = RenderWithMessage(
+            order,
+            inner =>
+            {
+                inner.OpenComponent<FormidableFieldMessage<string>>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+                inner.CloseComponent();
+            },
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+
+        form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() => Assert.Equal("status", form.Find("ul.formidable-messages").GetAttribute("role")));
     }
 
     [Fact]

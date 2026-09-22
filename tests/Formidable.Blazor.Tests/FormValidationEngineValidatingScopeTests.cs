@@ -2,6 +2,7 @@ using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -329,21 +330,158 @@ public class FormValidationEngineValidatingScopeTests
         Assert.False(engine.GetFieldState(fieldB).IsValidating);
     }
 
-    /// <summary>
-    /// Completes the next time the engine reports it is no longer validating. Call it only once
-    /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
-    /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
-    /// </summary>
-    private static Task Quiescence(FormValidationEngine<EngineOrder> engine)
+    [Fact]
+    public async Task LiveDebounce_pending_fields_survive_a_submit_that_starts_inside_the_window()
     {
-        var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
-        {
-            if (!engine.IsValidating)
-            {
-                quiescent.TrySetResult();
-            }
-        };
-        return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The debounce timer is a plain ITimer, independent of pass supersession (like the
+        // refresh timer) - it keeps counting through the submit and fires afterward, running
+        // the live pass its own accumulator collected. This is "the deferred pass" landing:
+        // the field was never added to _pendingRefreshFields (HasSubmitted/SubmitInFlight were
+        // both false at edit time), so the post-submit refresh set is not what saves it here.
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+
+        var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        editContext.NotifyFieldChanged(descriptionField); // opens the debounce window
+        time.Advance(TimeSpan.FromMilliseconds(100));      // window still open
+
+        // Submit starts and completes fully inside the open window, while Description is still
+        // valid for both the Submit ruleset and the (IncludeDefaultRules) draft rule it also
+        // runs, so nothing here masks the assertion below.
+        var outcome = await engine.ValidateForSubmitAsync();
+        Assert.True(outcome.CanProceed);
+
+        // Made invalid AFTER the submit that read it - the deferred pass below reads the
+        // model's current value, not a snapshot taken when the edit that armed it happened.
+        order.Description = new string('x', 11);
+
+        time.Advance(TimeSpan.FromMilliseconds(300)); // 400ms since the edit: the deferred pass runs
+
+        // The live pass the original edit armed still fires and catches the draft rule's
+        // MaximumLength(10) failure - the pending field was not silently dropped by the submit.
+        Assert.NotEmpty(editContext.GetValidationMessages(descriptionField));
+    }
+
+    [Fact]
+    public async Task Debounced_live_pass_defers_to_an_in_flight_refresh_and_still_lands_afterward()
+    {
+        // A single IsValidating/scope assertion cannot fail-distinguish deferral from the bug:
+        // both a wrongly-superseding live pass and a correctly-deferring one leave the same
+        // field flagged validating right after the fire. What differs is whether the refresh
+        // that was in flight ever gets to write its own verdict - so this asserts the SUBMIT
+        // channel content the refresh owns, and (via a field the refresh could never resurface
+        // on its own) that the deferred live pass still lands once it is finally let through.
+        var customer = new EngineCustomer { Name = "far too long" };
+        var item = new EngineItem();
+        var order = new EngineOrder { Customer = customer, Items = [item] };
+        var validator = new SlowLiveRuleValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400), DisclosureOverride = _ => true },
+            time);
+
+        var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var sku = new FieldIdentifier(item, nameof(EngineItem.Sku));
+
+        // Submit with Customer.Name failing (Sku starts empty - passes), so Customer.Name
+        // becomes the field only the post-submit refresh can resurface; Sku never becomes a
+        // submit-error site, so only a live pass could ever show it.
+        var submit = engine.ValidateForSubmitAsync();
+        validator.Gate.SetResult();
+        await submit;
+        Assert.NotEmpty(editContext.GetValidationMessages(customerName));
+        validator.Reset();
+
+        // Fix Customer.Name (arms the refresh, since HasSubmitted is true) and, within the same
+        // debounce window, also break Sku.
+        customer.Name = "ok";
+        editContext.NotifyFieldChanged(customerName);
+        item.Sku = "far too long";
+        editContext.NotifyFieldChanged(sku);
+
+        time.Advance(TimeSpan.FromMilliseconds(300)); // refresh fires first: refresh in flight, gated
+        time.Advance(TimeSpan.FromMilliseconds(100)); // 400ms since the edits: the debounced live pass fires
+
+        // Deferred, not clobbered: the refresh is still the pass in flight, uninterrupted.
+        Assert.True(engine.IsValidating);
+
+        var refreshSettled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await refreshSettled;
+
+        // The refresh's own verdict landed - had the debounced pass cancelled it instead, this
+        // stays stuck on the stale submit-time message forever (nothing left re-arms a
+        // cancelled refresh under LiveDebounce - see RefreshInFlight's remarks).
+        Assert.Empty(editContext.GetValidationMessages(customerName));
+
+        // The debounced live pass was deferred, not dropped: it re-armed itself and still owes
+        // Sku a verdict - the field the refresh was never allowed to resurface on its own.
+        validator.Reset();
+        var liveSettled = Quiescence(engine);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        validator.Gate.SetResult();
+        await liveSettled;
+
+        Assert.Contains(engine.GetIssues(sku), i => i.Message == "SKU is too long");
+    }
+
+    [Fact]
+    public async Task Debounced_live_pass_defers_while_a_submit_is_in_flight_and_still_lands_afterward()
+    {
+        var customer = new EngineCustomer();
+        var order = new EngineOrder { Customer = customer };
+        var validator = new SlowLiveRuleValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400), DisclosureOverride = _ => true },
+            time);
+
+        var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+
+        editContext.NotifyFieldChanged(customerName); // opens the debounce window; Name is still valid
+
+        // A submit starts and holds itself open - Submit's IncludeDefaultRules runs the same
+        // gated Description rule, so releasing it is what lets the submit (and later the live
+        // pass) finish.
+        var submit = engine.ValidateForSubmitAsync();
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // window closes while the submit is in flight
+
+        // Deferred, not dropped: SubmitInFlight is still true, so the fire re-arms itself
+        // instead of snapshotting the accumulator or starting a pass.
+        Assert.True(engine.IsValidating); // the submit, uninterrupted
+
+        validator.Gate.SetResult();
+        await submit; // Name was "" throughout - the submit's own report has nothing to say about it
+        validator.Reset();
+
+        // Mutated only after the submit fully finished reading it, so this failure can only
+        // ever reach the store through the deferred live pass, not the submit's own
+        // (already-complete) report.
+        customer.Name = "far too long";
+
+        // The re-armed debounce still owes Customer.Name a verdict.
+        var liveSettled = Quiescence(engine);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+        validator.Gate.SetResult();
+        await liveSettled;
+
+        Assert.Contains(engine.GetIssues(customerName), i => i.Message == "Customer name is too long");
     }
 }

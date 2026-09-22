@@ -75,6 +75,42 @@ public class FormidableValidatorComponentTests : BunitContext
         Assert.NotNull(seen.Engine);
     }
 
+    // FormidableValidator's Engine/ApplyServerIssues forwarders exist so attach mode has the same
+    // round-trip surface FormidableForm gives a page holding it with @ref — reaching through
+    // Context.Engine should not be the only way to get there.
+    [Fact]
+    public async Task Engine_and_ApplyServerIssues_forwarders_mirror_FormidableForm()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var cut = RenderForm(order, new FormidableOptions { DisclosureOverride = _ => true });
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+
+        Assert.NotNull(validator.Instance.Engine);
+
+        await cut.InvokeAsync(() => validator.Instance.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "server says no")]));
+
+        Assert.Contains(
+            validator.Instance.Engine!.GetVisibleIssues(),
+            v => v.Issue.Message == "server says no");
+    }
+
+    // Mirrors FormidableForm's identical guard test: both forwarders beat the engine's first
+    // build the same way, and say so by name rather than a bare NullReferenceException.
+    [Fact]
+    public void Calls_before_the_engine_exists_name_the_component_and_the_reference()
+    {
+        var validator = new FormidableValidator<EngineOrder>();
+
+        var byIssues = Assert.Throws<InvalidOperationException>(() => validator.ApplyServerIssues([]));
+        var byProblem = Assert.Throws<InvalidOperationException>(
+            () => validator.ApplyServerIssues(new FormidableValidationProblem()));
+
+        Assert.Contains("FormidableValidator", byIssues.Message);
+        Assert.Contains("@ref", byIssues.Message);
+        Assert.Equal(byIssues.Message, byProblem.Message);
+    }
+
     [Fact]
     public void Missing_cascading_edit_context_throws_clearly()
     {

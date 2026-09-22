@@ -9,6 +9,7 @@ public partial class ScrollFocus
 
     private readonly Roster _roster = BuildRoster();
 
+    private bool _focusFirstError = true;
     private string _status = string.Empty;
 
     private void HandleValid() => _status = "Submitted — every row reachable, every row valid.";

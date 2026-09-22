@@ -11,4 +11,9 @@
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
         <Using Include="Formidable.Shared" />
     </ItemGroup>
+    <ItemGroup>
+        <!-- Lets the test project pin internal engine-only mechanics (e.g. FieldRegistry's
+             ever-registered tracking) directly, rather than only through public surface. -->
+        <InternalsVisibleTo Include="Formidable.Blazor.Tests" />
+    </ItemGroup>
 </Project>

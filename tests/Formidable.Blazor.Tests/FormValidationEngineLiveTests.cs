@@ -2,6 +2,7 @@ using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
@@ -92,5 +93,76 @@ public class FormValidationEngineLiveTests
         _editContext.NotifyFieldChanged(DescriptionField);
 
         Assert.Empty(_editContext.GetValidationMessages(DescriptionField));
+    }
+
+    [Fact]
+    public void LiveDebounce_defers_the_live_pass_until_the_window_closes()
+    {
+        var editContext = new EditContext(_order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            _order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            _time);
+
+        _order.Description = new string('x', 11); // draft rule fails once the deferred pass runs
+
+        editContext.NotifyFieldChanged(DescriptionField);
+        Assert.False(engine.IsValidating); // nothing started yet - the window is open
+
+        _time.Advance(TimeSpan.FromMilliseconds(399));
+        Assert.False(engine.IsValidating);
+
+        _time.Advance(TimeSpan.FromMilliseconds(1)); // window closes -> the deferred pass runs
+
+        Assert.NotEmpty(editContext.GetValidationMessages(DescriptionField));
+    }
+
+    [Fact]
+    public async Task LiveDebounce_edit_within_window_extends_it_and_widens_the_scope()
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var validator = new SlowLiveRuleValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            _time);
+
+        var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerNameField = new FieldIdentifier(order.Customer!, nameof(EngineCustomer.Name));
+
+        editContext.NotifyFieldChanged(descriptionField);
+        _time.Advance(TimeSpan.FromMilliseconds(300));
+        editContext.NotifyFieldChanged(customerNameField); // re-arms and widens the pending scope
+        _time.Advance(TimeSpan.FromMilliseconds(300));     // 600ms after the first edit: still deferred
+        Assert.False(engine.IsValidating);
+
+        _time.Advance(TimeSpan.FromMilliseconds(100)); // 400ms after the second edit: window closes
+
+        // Both fields are scoped to the SAME pass - the second edit widened it rather than
+        // starting a second one.
+        Assert.True(engine.GetFieldState(descriptionField).IsValidating);
+        Assert.True(engine.GetFieldState(customerNameField).IsValidating);
+
+        var quiescent = Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        Assert.False(engine.GetFieldState(descriptionField).IsValidating);
+        Assert.False(engine.GetFieldState(customerNameField).IsValidating);
+    }
+
+    [Fact]
+    public void Null_LiveDebounce_keeps_the_immediate_live_pass()
+    {
+        _order.Description = new string('x', 11);
+
+        _editContext.NotifyFieldChanged(DescriptionField);
+
+        Assert.NotEmpty(_editContext.GetValidationMessages(DescriptionField));
     }
 }

@@ -73,6 +73,31 @@ public class FormValidationEngineIssueAccessTests
     }
 
     [Fact]
+    public void GetFieldState_reports_HasInfos_for_an_info_only_issue()
+    {
+        var field = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        _engine.ApplyServerIssues([new ValidationIssue(nameof(EngineOrder.Description), "fyi", ValidationSeverity.Info)]);
+
+        var state = _engine.GetFieldState(field);
+
+        Assert.True(state.HasInfos);
+        Assert.False(state.HasErrors);
+        Assert.False(state.HasWarnings);
+    }
+
+    [Fact]
+    public void GetFieldState_HasInfos_is_false_when_only_errors_exist()
+    {
+        var field = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        _engine.ApplyServerIssues([new ValidationIssue(nameof(EngineOrder.Description), "required")]);
+
+        var state = _engine.GetFieldState(field);
+
+        Assert.True(state.HasErrors);
+        Assert.False(state.HasInfos);
+    }
+
+    [Fact]
     public void One_message_failing_twice_in_the_live_channel_is_shown_once()
     {
         var order = new EngineOrder();

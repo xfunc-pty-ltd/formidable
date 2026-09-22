@@ -31,7 +31,10 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
     protected override bool ObservesEngineState => false;
 
     /// <inheritdoc />
+    private protected override FieldIdentifier ResolveField() =>
+        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+
+    /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context) =>
-        context.Registry.Register(
-            FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered);
+        context.Registry.Register(ResolveField(), KeepRegistered);
 }

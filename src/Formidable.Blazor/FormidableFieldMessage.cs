@@ -50,6 +50,10 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     /// </summary>
     private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 
+    /// <inheritdoc />
+    private protected sealed override FieldIdentifier ResolveField() =>
+        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+
     /// <summary>
     /// Resolves <see cref="For"/> to the field these messages speak for, computes the id the list
     /// renders — the target every <c>aria-describedby</c> for that field points at — and then
@@ -60,7 +64,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     /// <returns>Whatever <see cref="RegisterField"/> returns.</returns>
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
-        _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+        _field = ResolveField();
         _messagesElementId = FormidableFieldId.MessagesFor(FormidableFieldId.For(_field));
         return RegisterField(context, _field);
     }
@@ -79,10 +83,16 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
             return;
         }
 
+        var role = (Context.Engine as IValidatingFieldReader)?.InlineMessageRole;
+
         var sequence = 0;
         builder.OpenElement(sequence++, "ul");
         builder.AddAttribute(sequence++, "id", _messagesElementId);
         builder.AddAttribute(sequence++, "class", "formidable-messages");
+        if (role is not null)
+        {
+            builder.AddAttribute(sequence++, "role", role);
+        }
 
         foreach (var issue in issues)
         {

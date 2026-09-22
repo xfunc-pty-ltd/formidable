@@ -156,9 +156,7 @@
         <FormidableField For="() => _registration.TicketTier" Context="field">
             <div class="field">
                 <label for="@field.ElementId">Ticket tier (foreign select)</label>
-                <select id="@field.ElementId" class="@field.CssClass"
-                        aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                        aria-describedby="@field.AriaDescribedBy"
+                <select @attributes="field.InputAttributes"
                         value="@_registration.TicketTier" @onchange="args => ChangeTicketTier(args, field)">
                     <option value="">Choose…</option>
                     <option>General admission</option>

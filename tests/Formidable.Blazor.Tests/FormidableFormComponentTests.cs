@@ -17,7 +17,9 @@ public class FormidableFormComponentTests : BunitContext
     private IRenderedComponent<FormidableForm<EngineOrder>> RenderForm(
         EngineOrder order,
         Action<SubmitOutcome>? onInvalid = null,
-        Action? onValid = null)
+        Action? onValid = null,
+        bool? focusFirstErrorOnInvalidSubmit = null,
+        Action<EngineOrder>? onModelChanged = null)
     {
         var container = Render(builder =>
         {
@@ -34,11 +36,25 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 4,
                 nameof(FormidableForm<EngineOrder>.OnValidSubmit),
-                EventCallback.Factory.Create(this, () => onValid?.Invoke()));
+                EventCallback.Factory.Create<SubmitOutcome>(this, () => onValid?.Invoke()));
             builder.AddComponentParameter(
                 5,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
                 (RenderFragment)(inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+            if (focusFirstErrorOnInvalidSubmit is { } focusParameter)
+            {
+                builder.AddComponentParameter(
+                    6, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), focusParameter);
+            }
+
+            if (onModelChanged is not null)
+            {
+                builder.AddComponentParameter(
+                    7,
+                    nameof(FormidableForm<EngineOrder>.ModelChanged),
+                    EventCallback.Factory.Create<EngineOrder>(this, onModelChanged));
+            }
+
             builder.CloseComponent();
         });
 
@@ -71,6 +87,55 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
+    public async Task Blocked_submit_focuses_the_first_visible_issues_field_by_default()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var cut = RenderForm(order);
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Customer))),
+            module.Invocations["focusField"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task FocusFirstErrorOnInvalidSubmit_false_skips_the_focus_call()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        var cut = RenderForm(new EngineOrder(), focusFirstErrorOnInvalidSubmit: false);
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Valid_submit_does_not_focus_anything()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var cut = RenderForm(order);
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
     public void Valid_submit_invokes_valid_callback()
     {
         var valid = false;
@@ -80,6 +145,23 @@ public class FormidableFormComponentTests : BunitContext
         cut.Find("form").Submit();
 
         cut.WaitForAssertion(() => Assert.True(valid));
+    }
+
+    [Fact]
+    public async Task Valid_submit_passes_the_outcome_to_OnValidSubmit()
+    {
+        SubmitOutcome? received = null;
+        var model = new EngineOrder { Description = "Valid desc", Customer = new EngineCustomer() };
+        var cut = Render<FormidableForm<EngineOrder>>(ps => ps
+            .Add(p => p.Model, model)
+            .Add(p => p.OnValidSubmit, (SubmitOutcome o) => { received = o; }));
+
+        SubmitOutcome? outcome = null;
+        await cut.InvokeAsync(async () => outcome = await cut.Instance.SubmitAsync());
+
+        Assert.NotNull(received);
+        Assert.True(received!.CanProceed);
+        Assert.Same(outcome, received);
     }
 
     [Fact]
@@ -148,6 +230,159 @@ public class FormidableFormComponentTests : BunitContext
             EventCallback.Factory.Create<string?>(receiver, v => order.Description = v ?? string.Empty));
         inner.CloseComponent();
     };
+
+    [Fact]
+    public async Task ResetAsync_returns_the_same_instance_to_pristine()
+    {
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+        var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        cut.Instance.Engine!.MarkTouched(descriptionField);
+        Assert.True(cut.Instance.Engine!.GetFieldState(descriptionField).IsTouched);
+
+        cut.Find("form").Submit();
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.Engine!.HasSubmitted));
+        Assert.NotEmpty(cut.Instance.Engine!.GetVisibleIssues());
+
+        await cut.InvokeAsync(() => cut.Instance.ResetAsync());
+
+        Assert.Empty(cut.Instance.Engine!.GetVisibleIssues());
+        Assert.False(cut.Instance.Engine!.HasSubmitted);
+        Assert.False(cut.Instance.Engine!.GetFieldState(descriptionField).IsTouched);
+        Assert.Same(order, cut.Instance.Engine.EditContext.Model);
+    }
+
+    [Fact]
+    public async Task ResetAsync_with_a_new_model_swaps_the_instance()
+    {
+        var first = new EngineOrder();
+        var cut = RenderForm(first, onModelChanged: _ => { });
+
+        var second = new EngineOrder();
+        await cut.InvokeAsync(() => cut.Instance.ResetAsync(second));
+
+        Assert.Same(second, cut.Instance.Engine!.EditContext.Model);
+    }
+
+    // The swap above alone is not proof the swap is durable: Model is a [Parameter], and Blazor
+    // re-supplies it from whatever the PARENT still holds on every one of the PARENT's own
+    // renders — not just this component's. A ResetAsync that only assigned its own Model property
+    // (never telling the parent) would look identical to the test above right up until the next
+    // unrelated render came along and silently reverted it. This test is that next render.
+    [Fact]
+    public async Task ResetAsync_with_a_new_model_survives_the_parents_next_render()
+    {
+        var current = new EngineOrder();
+        var cut = RenderForm(current, onModelChanged: m => current = m);
+
+        var second = new EngineOrder();
+        await cut.InvokeAsync(() => cut.Instance.ResetAsync(second));
+        Assert.Same(second, cut.Instance.Engine!.EditContext.Model);
+
+        // Stands in for the parent's own re-render, re-supplying whatever ITS field holds now.
+        // `current` was updated above only because ResetAsync invoked ModelChanged before
+        // returning — that is the entire mechanism this test pins.
+        cut.Render(parameters => parameters.Add(p => p.Model, current));
+
+        Assert.Same(second, cut.Instance.Engine!.EditContext.Model);
+    }
+
+    [Fact]
+    public async Task ResetAsync_with_a_new_model_and_no_ModelChanged_throws()
+    {
+        var cut = RenderForm(new EngineOrder());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => cut.InvokeAsync(() => cut.Instance.ResetAsync(new EngineOrder())));
+
+        Assert.Contains("@bind-Model", ex.Message);
+    }
+
+    // Safety verification for VerifyRowKeys across ResetAsync: the rebuild must replace _context
+    // with a NEW instance (not merely rebuild the engine underneath the same one), because
+    // FormidableComponentBase's row-key check only re-registers a field when its cascade binding
+    // sees a new context instance. Reusing the old one would leave every already-mounted field
+    // component bound to it, comparing against a registration nothing rebuilt.
+    [Fact]
+    public async Task ResetAsync_does_not_trip_VerifyRowKeys_on_a_rendered_field()
+    {
+        var order = new EngineOrder();
+        var options = new FormidableOptions { VerifyRowKeys = true };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "Options", options);
+            builder.AddComponentParameter(3, "ChildContent", InputBoundTo(order, this));
+            builder.CloseComponent();
+        });
+
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+        var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await form.InvokeAsync(() => form.Instance.ResetAsync());
+
+        // Proves the rebuild is a genuine rebind, not merely silent: the field is freshly
+        // registered against the NEW engine's own registry (a reused context would leave the
+        // input still bound to the OLD, disposed engine, so Register() never runs again and
+        // this reads false).
+        Assert.True(form.Instance.Engine!.Registry.IsRevealed(descriptionField));
+
+        // A second render over the now-stable (post-reset) context, Model/Options unchanged,
+        // takes the rebuilt input's OnParametersSet down the VerifyRowKey no-op path rather
+        // than its first-bind path.
+        form.Render(parameters => parameters
+            .Add(p => p.Model, order)
+            .Add(p => p.Options, options)
+            .Add(p => p.ChildContent, InputBoundTo(order, this)));
+
+        Assert.NotNull(cut.Find("input"));
+        Assert.True(form.Instance.Engine!.Registry.IsRevealed(descriptionField));
+    }
+
+    // A submit awaiting the engine's pipeline can still be in flight when ResetAsync disposes
+    // that very engine out from under it (the disposal cancels the pass, so the orphaned
+    // ValidateForSubmitAsync call completes rather than hanging — see FormValidationEngine's own
+    // "superseded, not cancelled by the caller" handling). Its verdict belongs to an abandoned
+    // engine and must not surface as if it were current.
+    [Fact]
+    public async Task SubmitAsync_suppresses_callbacks_when_ResetAsync_disposes_its_engine_mid_flight()
+    {
+        var order = new EngineOrder();
+        var validator = new GatedValidator();
+        var validSeen = false;
+        var invalidSeen = false;
+
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
+            builder.AddComponentParameter(
+                3,
+                "OnValidSubmit",
+                EventCallback.Factory.Create<SubmitOutcome>(this, () => validSeen = true));
+            builder.AddComponentParameter(
+                4,
+                "OnInvalidSubmit",
+                EventCallback.Factory.Create<SubmitOutcome>(this, _ => invalidSeen = true));
+            builder.CloseComponent();
+        });
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+
+        SubmitOutcome? outcome = null;
+        var submitTask = form.InvokeAsync(async () => outcome = await form.Instance.SubmitAsync());
+        form.WaitForAssertion(() => Assert.True(validator.Started >= 1));
+
+        await form.InvokeAsync(() => form.Instance.ResetAsync());
+        await submitTask;
+
+        Assert.NotNull(outcome);
+        Assert.False(outcome!.CanProceed);
+        Assert.False(validSeen);
+        Assert.False(invalidSeen);
+    }
 
     [Fact]
     public async Task SubmitAsync_is_available_programmatically()

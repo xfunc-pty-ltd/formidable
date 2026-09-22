@@ -34,13 +34,16 @@ namespace Formidable.Blazor;
 /// land back on the right value.
 /// </para>
 /// <para>
-/// <see cref="FormidableInputBase{TValue}.UpdateOn"/> is inherited for parameter-shape
-/// consistency with the rest of the kit but has no effect here: a <c>&lt;select&gt;</c> commits
-/// on its <c>change</c> event only — there is no meaningful "input" event distinct from it, the
-/// way there is for a text box — so this component always binds <c>onchange</c>, the same event
-/// native <c>InputSelect</c> binds. That is the string-projected
-/// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, Func{string, Task})"/>
-/// overload's own contract, not a local exception to the kit's binding policy.
+/// <see cref="FormidableInputBase{TValue}.UpdateOn"/> is honoured, with one coercion: a
+/// <c>&lt;select&gt;</c> commits on its <c>change</c> event only — there is no meaningful "input"
+/// event distinct from it, the way there is for a text box — so
+/// <see cref="InputUpdateMode.OnInput"/> behaves exactly like <see cref="InputUpdateMode.OnChange"/>
+/// (the default): both bind <c>onchange</c> and notify the engine the moment a value commits.
+/// <see cref="InputUpdateMode.OnBlur"/> still commits the value on <c>change</c>, but the
+/// validation notification defers to <c>blur</c> instead, the same commit/notify split every
+/// other kit input gives that mode. That is the string-projected
+/// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, Func{string, Task{bool}})"/>
+/// overload's own contract, honoured here rather than worked around.
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply otherwise: a
@@ -64,13 +67,21 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
         builder.OpenElement(0, "select");
         AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", formattedValue);
-        AddValueBinding(builder, 6, formattedValue, ApplyStringAsync);
-        builder.AddContent(7, ChildContent);
+        AddValueBinding(builder, 6, formattedValue, TryCommitAsync);
+        builder.AddContent(8, ChildContent);
         builder.CloseElement();
     }
 
-    private Task ApplyStringAsync(string? value) =>
-        TryParseValue(value, out var parsed) ? SetCurrentValueAsync(parsed) : Task.CompletedTask;
+    private async Task<bool> TryCommitAsync(string? value)
+    {
+        if (!TryParseValue(value, out var parsed))
+        {
+            return false;
+        }
+
+        await CommitValueAsync(parsed);
+        return true;
+    }
 
     /// <summary>
     /// Formats <paramref name="value"/> the same way native <c>InputSelect&lt;TValue&gt;</c>

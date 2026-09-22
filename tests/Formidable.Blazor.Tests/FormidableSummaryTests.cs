@@ -39,7 +39,12 @@ public class FormidableSummaryTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Options", new FormidableOptions { DisclosureOverride = _ => true });
-            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            // The form's own default auto-focus (FocusFirstErrorOnInvalidSubmit) would add a
+            // focusField call on every blocked submit alongside the summary's click-triggered
+            // ones this file pins exact counts for; opted out here so those counts stay about the
+            // summary alone.
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
             {
                 inner.OpenComponent<FormidableSummary>(0);
                 if (focusFallback is not null)
@@ -80,6 +85,19 @@ public class FormidableSummaryTests : BunitContext
             Assert.Contains("--warning", groups[1].GetAttribute("class"));
             Assert.Equal("alert", form.Find(".formidable-summary").GetAttribute("role"));
         });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Advisory_only_visible_issues_announce_politely()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = new EngineCustomer() }; // warning (hyphens) only; no errors
+        var form = RenderWithSummary(order);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() => Assert.Equal("status", form.Find(".formidable-summary").GetAttribute("role")));
 
         await Services.DisposeAsync();
     }

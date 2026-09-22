@@ -170,17 +170,48 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void UpdateOn_has_no_effect_select_always_binds_onchange()
+    public void Input_mode_coerces_to_change_and_still_triggers_live_validation()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, InputUpdateMode.OnInput);
 
-        // A <select> has no meaningful "input" event distinct from "change"; the component always
-        // wires onchange regardless of UpdateOn, so triggering the DOM "change" event is what
-        // actually commits the value even when OnInput was requested.
-        form.Find("select").Change("Red");
+        // A <select> has no meaningful "input" event distinct from "change"; OnInput coerces to
+        // OnChange, so firing the DOM "change" event both commits the value and starts the live
+        // pass immediately, exactly as the default mode does.
+        form.Find("select").Change(new string('x', 11));
 
-        Assert.Equal("Red", order.Description);
+        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
+    }
+
+    // Pins the split OnBlur adds: the value commits on change alone, with no engine notification
+    // riding along — so a value that fails the live rule (11 chars, past EngineOrderValidator's
+    // max) commits to the model but starts no live pass, and the class stays exactly what an
+    // untouched field renders (empty; see FormidableCss.Compute).
+    [Fact]
+    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    {
+        var order = new EngineOrder();
+        var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
+
+        form.Find("select").Change(new string('x', 11));
+
+        Assert.Equal(new string('x', 11), order.Description);
+        Assert.Equal(string.Empty, form.Find("select").GetAttribute("class"));
+    }
+
+    // The other half: once the committed value above is followed by blur, the engine is notified
+    // and the live pass that was withheld on change now runs.
+    [Fact]
+    public void Blur_mode_notifies_the_engine_on_blur()
+    {
+        var order = new EngineOrder();
+        var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
+
+        form.Find("select").Change(new string('x', 11));
+        form.Find("select").Blur();
+
+        form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
     }
 
     [Fact]

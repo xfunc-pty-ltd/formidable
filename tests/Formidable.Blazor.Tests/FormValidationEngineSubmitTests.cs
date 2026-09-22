@@ -149,4 +149,36 @@ public class FormValidationEngineSubmitTests
         _time.Advance(TimeSpan.FromMilliseconds(151));
         Assert.Empty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
     }
+
+    [Fact]
+    public async Task NormalizeOnSubmit_true_validates_the_normalized_model()
+    {
+        var model = new NormalizableOrder { Description = "  ok  " }; // 6 chars raw, 2 trimmed
+        var editContext = new EditContext(model);
+        using var engine = new FormValidationEngine<NormalizableOrder>(
+            model, editContext,
+            new FluentValidationModelValidator<NormalizableOrder>(new NormalizableOrderValidator()),
+            new ReflectionModelIntrospector(), new FormidableOptions { NormalizeOnSubmit = true }, _time);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.True(outcome.CanProceed); // MaximumLength(2) fails raw, passes trimmed
+        Assert.Equal("ok", model.Description);
+    }
+
+    [Fact]
+    public async Task NormalizeOnSubmit_defaults_false_and_leaves_the_model_untouched()
+    {
+        var model = new NormalizableOrder { Description = "  ok  " };
+        var editContext = new EditContext(model);
+        using var engine = new FormValidationEngine<NormalizableOrder>(
+            model, editContext,
+            new FluentValidationModelValidator<NormalizableOrder>(new NormalizableOrderValidator()),
+            new ReflectionModelIntrospector(), new FormidableOptions(), _time);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed); // raw value still exceeds MaximumLength(2)
+        Assert.Equal("  ok  ", model.Description);
+    }
 }
