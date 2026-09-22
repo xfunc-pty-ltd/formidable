@@ -1,0 +1,28 @@
+@page "/"
+
+<PageTitle>Quickstart</PageTitle>
+<h1>Quickstart</h1>
+<p>One model, one plain FluentValidation validator, three components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
+
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+    <FormSummary />
+
+    <p><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+        <FieldMessage For="() => _contact.Name" /></p>
+    <p><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
+        <FieldMessage For="() => _contact.Email" /></p>
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@if (_submitted)
+{
+    <p role="status">Submitted — thanks, @_contact.Name!</p>
+}
+
+@code {
+    private readonly QuickContact _contact = new();
+    private bool _submitted;
+
+    private void HandleValid() => _submitted = true;
+}

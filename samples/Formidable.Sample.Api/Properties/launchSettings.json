@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Formidable.Sample.Api": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5180",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

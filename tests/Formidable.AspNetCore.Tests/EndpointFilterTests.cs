@@ -102,4 +102,22 @@ public class EndpointFilterTests
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Group_level_validate_filters_every_endpoint_in_the_group()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            var group = a.MapGroup("/grouped").Validate<SampleOrder>();
+            group.MapPost("/orders", (SampleOrder order) => Results.Ok(order));
+        });
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/grouped/orders",
+            new SampleOrder { Description = "", Items = [new SampleItem()] });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Required", problem!.Errors["Description"]);
+    }
 }

@@ -1,0 +1,37 @@
+@page "/foreign"
+
+<PageTitle>Wrapping a foreign control</PageTitle>
+<h1>Wrapping a foreign control</h1>
+<p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> instead of wrapping the control in a label — wrapping isn't possible because the label must target the foreign element's own id, which only the field context supplies; every other page in this sample wraps.</p>
+
+<FormidableForm Model="_order">
+    <FormSummary />
+
+    <FormidableField For="() => _order.Colour" Context="field">
+        <p>
+            <label for="@field.ElementId">Colour</label>
+            <select id="@field.ElementId" class="@field.CssClass"
+                    aria-invalid="@(field.AriaInvalid ? "true" : null)"
+                    aria-describedby="@field.AriaDescribedBy"
+                    value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
+                <option value="">Choose…</option>
+                <option>Red</option>
+                <option>Green</option>
+                <option>Blue</option>
+            </select>
+        </p>
+        <FieldMessage For="() => _order.Colour" />
+    </FormidableField>
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@code {
+    private readonly GadgetOrder _order = new() { Nickname = "sample" };
+
+    private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
+    {
+        _order.Colour = args.Value?.ToString() ?? string.Empty;
+        field.NotifyChanged();
+    }
+}

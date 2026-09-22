@@ -1,0 +1,33 @@
+@page "/profiles"
+@inject IModelValidator<DraftedBrief> Validator
+
+<PageTitle>Draft vs Submit</PageTitle>
+<h1>Draft vs Submit profiles</h1>
+<p>Live typing runs the Draft profile (format rules only). Submit runs the Submit profile (completeness). Save Draft validates leniently with the same validator.</p>
+
+<FormidableForm Model="_brief">
+    <FormSummary />
+
+    <p><label>Title <FormidableInputText For="() => _brief.Title" @bind-Value="_brief.Title" /></label>
+        <FieldMessage For="() => _brief.Title" /></p>
+    <p><label>Summary <FormidableInputText For="() => _brief.Summary" @bind-Value="_brief.Summary" /></label>
+        <FieldMessage For="() => _brief.Summary" /></p>
+
+    <button type="submit">Submit</button>
+    <button type="button" @onclick="SaveDraft">Save draft</button>
+</FormidableForm>
+
+<p role="status">@_status</p>
+
+@code {
+    private readonly DraftedBrief _brief = new();
+    private string _status = string.Empty;
+
+    private async Task SaveDraft()
+    {
+        var report = await Validator.ValidateAsync(_brief, ValidationProfile.Draft);
+        _status = report.IsValid
+            ? "Draft saved — completeness rules were not enforced."
+            : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+    }
+}

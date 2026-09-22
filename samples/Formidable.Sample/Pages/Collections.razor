@@ -1,0 +1,59 @@
+@page "/collections"
+
+<PageTitle>Nested collections</PageTitle>
+<h1>Nested collections — row-stable errors</h1>
+<p>Submit with gaps, then reorder or delete rows: each error stays glued to its row because identity follows the object instance, not the index.</p>
+
+<FormidableForm Model="_roster">
+    <FormSummary />
+    <CollectionMessage For="() => _roster.Teams" />
+
+    @foreach (var team in _roster.Teams)
+    {
+        <fieldset @key="team">
+            <legend>Team</legend>
+            <p><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                <FieldMessage For="() => team.Name" /></p>
+
+            <CollectionMessage For="() => team.Members" />
+            <ul>
+                @foreach (var member in team.Members)
+                {
+                    <li @key="member">
+                        <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
+                        <FieldMessage For="() => member.Alias" />
+                        <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
+                        <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                    </li>
+                }
+            </ul>
+            <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
+            <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
+            <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+        </fieldset>
+    }
+
+    <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@code {
+    private readonly Roster _roster = new()
+    {
+        Teams =
+        [
+            new Team { Name = "Alpha", Members = [new Member { Alias = "ace" }, new Member()] },
+            new Team { Members = [new Member()] }
+        ]
+    };
+
+    private static void MoveUp<T>(List<T> list, T item)
+    {
+        var index = list.IndexOf(item);
+        if (index > 0)
+        {
+            list.RemoveAt(index);
+            list.Insert(index - 1, item);
+        }
+    }
+}

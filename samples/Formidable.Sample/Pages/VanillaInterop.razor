@@ -1,0 +1,22 @@
+@page "/vanilla"
+
+<PageTitle>Vanilla interop</PageTitle>
+<h1>Vanilla interop</h1>
+<p>A native InputText and ValidationMessage working beside a Formidable input in the same form — the css provider even gives the native input the same state classes.</p>
+
+<FormidableForm Model="_order">
+    <FormSummary />
+
+    <p><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
+        <ValidationMessage For="() => _order.Nickname" />
+        <FieldAnchor For="() => _order.Nickname" /></p>
+
+    <p><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+        <FieldMessage For="() => _order.Colour" /></p>
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@code {
+    private readonly GadgetOrder _order = new();
+}

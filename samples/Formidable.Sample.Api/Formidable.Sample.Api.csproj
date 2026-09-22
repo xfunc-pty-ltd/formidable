@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Formidable.AspNetCore\Formidable.AspNetCore.csproj" />
+        <ProjectReference Include="..\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
+    </ItemGroup>
+</Project>

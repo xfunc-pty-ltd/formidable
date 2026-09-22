@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Formidable\Formidable.csproj" />
+    </ItemGroup>
+</Project>

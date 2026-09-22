@@ -59,6 +59,23 @@ public sealed class ExplicitModelValidator : IModelValidator<ExplicitModel>
         new([new ValidationIssue(nameof(ExplicitModel.Name), "Custom error")]);
 }
 
+[ApiController]
+[Route("mvc2")]
+[Validate]
+public sealed class ScopedController : ControllerBase
+{
+    [HttpPost("class-level")]
+    public IActionResult ClassLevel([FromBody] SampleOrder order) => Ok(order);
+
+    [HttpPost("multi")]
+    public IActionResult Multi([FromBody] SampleOrder order, [FromQuery] SampleFilter filter) =>
+        Ok(new { order.Description, filter.Region });
+
+    [HttpPost("escalated")]
+    [Validate(typeof(EscalatedNote), Profile = "Escalated")]
+    public IActionResult Escalated([FromBody] EscalatedNote note) => Ok(note);
+}
+
 public class ValidateAttributeTests
 {
     private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartMvcAppAsync() =>
@@ -68,6 +85,16 @@ public class ValidateAttributeTests
             {
                 services.AddControllers().AddApplicationPart(typeof(OrdersController).Assembly);
                 services.AddSingleton<IModelValidator<ExplicitModel>>(new ExplicitModelValidator());
+            });
+
+    private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartMvc2AppAsync() =>
+        TestApp.StartAsync(
+            app => app.MapControllers(),
+            services =>
+            {
+                services.AddScoped<FluentValidation.IValidator<SampleFilter>, SampleFilterValidator>();
+                services.AddScoped<FluentValidation.IValidator<EscalatedNote>, EscalatedNoteValidator>();
+                services.AddControllers().AddApplicationPart(typeof(ScopedController).Assembly);
             });
 
     [Fact]
@@ -190,5 +217,44 @@ public class ValidateAttributeTests
         Assert.Contains("IModelValidator<SampleOrder>", exception.Message);
         Assert.Contains("services.AddFormidable()", exception.Message);
         Assert.NotNull(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task Class_level_validate_applies_to_actions()
+    {
+        await using var app = await StartMvc2AppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc2/class-level", new SampleOrder { Description = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Multiple_validatable_arguments_aggregate_into_one_problem()
+    {
+        await using var app = await StartMvc2AppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc2/multi?Region=",
+            new SampleOrder { Description = "", Items = [new SampleItem { Sku = "A" }] });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Required", problem!.Errors["Description"]);
+        Assert.Contains("Region is required", problem.Errors["Region"]);
+    }
+
+    [Fact]
+    public async Task Custom_profile_name_runs_the_same_named_ruleset()
+    {
+        await using var app = await StartMvc2AppAsync();
+        var client = app.GetTestClient();
+
+        var blocked = await client.PostAsJsonAsync("mvc2/escalated", new EscalatedNote { Reason = "" });
+        var allowed = await client.PostAsJsonAsync("mvc2/escalated", new EscalatedNote { Reason = "fraud" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
     }
 }

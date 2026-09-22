@@ -1,0 +1,28 @@
+@page "/async"
+
+<PageTitle>Async rules</PageTitle>
+<h1>Async rules</h1>
+<p>Type "admin" and pause: the uniqueness check runs after the debounce, shows a pending state, and a new keystroke cancels the in-flight check.</p>
+
+<FormidableForm Model="_handle">
+    <FormSummary />
+
+    <FormidableField For="() => _handle.Username" Context="field">
+        <p>
+            <label>Username <FormidableInputText For="() => _handle.Username" @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
+            @if (field.State.IsValidating)
+            {
+                <em role="status">checking…</em>
+            }
+        </p>
+        <FieldMessage For="() => _handle.Username" />
+    </FormidableField>
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+<p><small>Note: the pending flag is engine-wide in this release — with a single async field the effect is identical to a per-field flag.</small></p>
+
+@code {
+    private readonly Handle _handle = new();
+}

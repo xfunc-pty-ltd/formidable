@@ -42,6 +42,48 @@ public class SampleOrderValidator : DraftSubmitValidator<SampleOrder>
     }
 }
 
+// Region is deliberately nullable: ASP.NET Core infers an implicit [Required] for non-nullable
+// reference-type properties on [ApiController] actions, and — for [FromQuery] complex-type
+// binding specifically — an empty-but-present query value ("Region=") binds to null, tripping
+// that implicit check. That fires the framework's own automatic-400 short-circuit (an action
+// filter — ModelStateInvalidFilter, order -2000) BEFORE the Formidable [Validate] action filter
+// ever runs, so the response carries ASP.NET Core's built-in "The Region field is required."
+// message instead of Formidable's, and
+// SampleOrder is never validated at all. A nullable property opts out of the implicit inference
+// so FluentValidation's NotEmpty() rule below is what actually enforces "required" here.
+public class SampleFilter
+{
+    public string? Region { get; set; }
+}
+
+public class SampleFilterValidator : DraftSubmitValidator<SampleFilter>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(f => f.Region).NotEmpty().WithMessage("Region is required");
+    }
+}
+
+public class EscalatedNote
+{
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class EscalatedNoteValidator : ProfiledValidator<EscalatedNote>
+{
+    protected override void ConfigureCommonRules()
+    {
+    }
+
+    protected override void ConfigureProfiles() =>
+        Profile("Escalated", () =>
+            RuleFor(n => n.Reason).NotEmpty().WithMessage("Escalations must state a reason"));
+}
+
 public static class TestApp
 {
     /// <summary>Builds and starts an in-memory app; the caller maps endpoints and disposes it.</summary>
@@ -67,9 +109,10 @@ public static class TestApp
             {
                 await next(context);
             }
-            catch (Exception) when (!context.Response.HasStarted)
+            catch (Exception ex) when (!context.Response.HasStarted)
             {
                 context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                await context.Response.WriteAsync($"{ex.GetType().Name}: {ex.Message}");
             }
         });
 
