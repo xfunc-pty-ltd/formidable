@@ -1180,6 +1180,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private async Task RunRefreshPassAsync()
     {
+        if (_disposed)
+        {
+            // A dispatched fire can still run after the owning component went away; there is
+            // nothing left here to validate against, and BeginPass would cancel a _passCts that
+            // Dispose already disposed.
+            return;
+        }
+
         if (SubmitInFlight || LiveInFlight)
         {
             // Defer and re-arm — the edit must still be revalidated once the pass in flight

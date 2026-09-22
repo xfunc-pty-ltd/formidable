@@ -33,6 +33,12 @@ write each `For` lambda as a closure over that same instance:
 The engine resolves `line.Sku` to the same object on the validator side, independently, with
 nothing coordinating the two — they just both start from the object, never the position.
 
+The same resolution walks plain nesting, which is why depth needs no special handling at all:
+`() => _invoice.BillTo.Street` is one field owned by the `BillTo` object, exactly as a row's field
+is owned by its row. Compose the validators with `SetValidator` (or `ChildRules`) and the paths
+line up on their own — see
+[Recipes](recipes.md#i-want-to-validate-a-nested-object) for the worked pair.
+
 `FormidableFieldMessage` and `FormidableCollectionMessage` split one job.
 `FormidableFieldMessage` renders a field's own issues but registers nothing itself — it needs a
 nearby input (or a `FormidableField`, or a `FormidableFieldAnchor`) to register that path, or its
@@ -54,8 +60,9 @@ select being the common example.
 
 ```razor
 <FormidableField For="() => _invoice.PaymentTerms" Context="field">
-    <select id="@field.ElementId" class="@field.CssClass"
-            @onchange="args => OnTermsChanged(args, field)">
+    <label for="@field.ElementId">Payment terms</label>
+    <select @attributes="field.InputAttributes"
+            value="@_invoice.PaymentTerms" @onchange="args => OnTermsChanged(args, field)">
         <option value="">Choose…</option>
         <option>Net 30</option>
         <option>Net 60</option>
@@ -71,11 +78,14 @@ private void OnTermsChanged(ChangeEventArgs args, FormidableFieldContext field)
 }
 ```
 
-`field.NotifyChanged()` does what a Formidable input's own change handler does automatically —
-mark the field touched, tell the `EditContext` it changed — just spelled out by hand, because
-there's no base class here to hide it inside. The full pattern, including how to label a
-foreign element correctly and how a native input reads the same context for its aria
-attributes, lives in
+`field.InputAttributes` is the wiring in one splat: the element id, the state class, and the
+`aria-invalid`/`aria-describedby` pair whenever they apply. `field.NotifyChanged()` stays yours to
+call, because only your markup knows which event commits the control's value — and it does what a
+Formidable input's own change handler does automatically: mark the field touched, tell the
+`EditContext` it changed. Call `MarkTouched()` instead and the field goes touched without a live
+pass ever running, which looks like validation silently doing nothing. The full pattern, including
+why the label targets `field.ElementId` rather than wrapping the control and how a native input
+reads the same context for its aria attributes, lives in
 [Component kit](component-kit.md#the-foreign-control-pattern).
 
 ## A curated set of typed inputs, on purpose

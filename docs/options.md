@@ -42,8 +42,8 @@ takes effect starting with the next validation pass. See
 `FormidableOptions` once, up front, and leaving it alone for the life of the rendered form — as
 the sample further below does — is what the rule asks for.
 
-That's the contract. What follows is every property, what it defaults to, and where the sample
-demonstrates it.
+That's the contract. What follows is every property, what it defaults to, and — for the ones a page
+can show — where the sample demonstrates it.
 
 ## Properties
 
@@ -63,6 +63,80 @@ validates against, and the profile the debounced post-submit refresh re-validate
 `TimeSpan`, defaults to 300 ms. How long the engine waits, after a field change once a submit
 has happened, before re-running `SubmitProfile` to refresh inline errors.
 
+### `LiveDebounce`
+
+`TimeSpan?`, defaults to `null` — a live pass runs immediately on every field change. Set it and a
+field change arms a single timer instead: another change inside the window re-arms that timer
+rather than starting a second pass, and when the window elapses quietly one pass runs, scoped to
+every field the window collected. The window is shared across fields rather than tracked per field,
+the same shape `RefreshDebounce` already has.
+
+Reach for it when live rules are expensive enough that one per keystroke is the wrong trade — an
+async availability check being the obvious case. It changes how often live passes run — and, when
+`TrackFormValidity` is also on, how often its validity probe runs too, since the probe rides this
+same window rather than firing on a schedule of its own (see below). After a submit, each keystroke
+still arms the post-submit refresh on `RefreshDebounce`'s own schedule regardless, so that window
+stays independent of this one.
+
+**Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps
+between the immediate default and a 400 ms window, with the "checking…" indicator showing the
+difference.
+
+### `TrackFormValidity`
+
+`bool`, defaults to `false`. Turns on the whole-form validity probe behind
+`IFormValidationEngine.IsFormValid` — the answer a disabled Submit button needs.
+
+Opt-in, and off by default for a reason: the probe is a full extra `SubmitProfile` validation on
+every field change, on top of the live pass. That at least doubles the per-change work, and
+"doubles" is a floor rather than a cap: by default `SubmitProfile` is a superset of `LiveProfile`,
+the default rules again plus the whole Submit ruleset, where the expensive async rules usually
+live.
+
+What the probe is not is an engine pass: no disclosure, no message-store write, no pending
+indicator, nothing about it ever reaches the screen. It runs once when the engine is built, so a
+pristine form answers truthfully before anyone has typed, and again on every field change
+afterwards at whatever cadence the live pass runs at — per change, or once per window when
+`LiveDebounce` is set too. With tracking off, `IsFormValid` always reads `false`; with it on, it
+reads `false` until that first probe completes. The answer is client-side only: issues a server
+applied through `ApplyServerIssues` are not part of it.
+
+A probe in flight doesn't cancel one already running from an earlier change — they overlap rather
+than the newer one replacing the older, with only their finishing order deciding which answer
+sticks. That's mostly a cost concern, not a correctness one, unless `SubmitProfile` itself carries
+a slow async rule: without `LiveDebounce`, ten keystrokes can then mean ten concurrent validations
+in flight together.
+
+```razor
+<button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
+```
+
+**Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor) — a
+live "Form valid" readout above a Submit button that stays disabled until the probe says yes.
+
+### `NormalizeOnSubmit`
+
+`bool`, defaults to `false`. When `true` and the model implements `INormalizableModel`, the submit
+pass calls `model.Normalize()` in place before running `SubmitProfile`, so the profile judges the
+cleaned values rather than whatever was typed. That mirrors the ASP.NET Core validation filters,
+which have always normalized a request body before validating it — this is the client-side half,
+and it is the only automatic client-side invocation there is (page code is otherwise free to call
+`model.Normalize()` itself, which is what several samples do).
+
+Calling it yourself outside the submit path takes one more step this option does for free: the
+mutation changes the model directly, and the engine only re-judges a field once it hears
+`EditContext.NotifyFieldChanged` for it — call that per field the mutation actually changed (the
+`/normalize` sample's own "Normalize now" button does exactly this), or a message already on
+screen keeps judging the stale value until the next edit or submit.
+
+Because the mutation happens before the pass, the submit's own re-render repaints every bound input
+straight from the normalized model: a value that normalization trimmed, cleared or collapsed
+visibly updates on screen with no extra wiring.
+
+**Sample:** [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) — a checkbox, and a
+plain Submit button that never calls `Normalize()` itself, so the option is the only thing that can
+clean the model.
+
 ### `DisclosureOverride`
 
 `Func<ValidationIssue, bool?>?`, defaults to `null`. A tri-state override consulted per issue:
@@ -80,6 +154,61 @@ telemetry, not the only place they get recorded. When the host resolved an `ILog
 (both Blazor components do so automatically when one is registered), the same suppression also
 logs a `LogWarning` — WASM's default logging provider is the browser console, so this is the
 channel that needs no consumer wiring at all to be seen.
+
+### `NeverRegisteredFieldDiagnostic`
+
+`Action<ValidationIssue>?`, defaults to `null`. Invoked alongside `SuppressedIssueDiagnostic`, for
+the narrower half of what it reports: a suppressed issue whose field has no registration history at
+all — nothing has rendered it since the engine was built.
+
+That is the signature of a rule whose `.When(...)` fails to mirror the `@if` gating its field, so
+the rule can fail in a state the field never renders in. It is *also* the signature of a perfectly
+correct section the visitor simply has not opened yet, and this signal cannot tell the two apart:
+on a first submit neither field has ever been registered. Treat it as a place to look, not a
+verdict. What it does rule out is the ambiguous middle — a field that was registered and later
+unregistered, a visited-then-collapsed section, stays silent here and reports only to
+`SuppressedIssueDiagnostic`.
+
+### `VerifyRowKeys`
+
+`bool`, defaults to `false`. A development-time check that a collection's rows carry a `@key`. When
+`true`, every component bound to a field re-reads its accessor on each parameter set and compares
+the field it now names against the one it registered, throwing an `InvalidOperationException` that
+names the field and the fix when the two diverge with no teardown in between.
+
+Unlike the properties [Need to know](#need-to-know) says the engine re-reads on every pass, this
+one is captured once, per component, the moment it binds — flipping it on a `FormidableOptions`
+instance already in use does nothing for a component already bound, only for one that binds
+afterward. Treat it as a startup switch decided at app configuration time, not something a running
+form's own page can toggle mid-session.
+
+That divergence is what an unkeyed row list produces: remove or reorder a row and Blazor reuses
+each row's components for the next item along, while the registration, element id, aria attributes
+and messages stay with the row that moved away. Nothing about the misfiling shows on screen, which
+is what earns it an exception rather than a diagnostic. Correctly keyed rows never trip it, whatever
+the edit: replacing a row retires its key and builds fresh components for the replacement, removing
+one disposes its components and builds nothing, and adding or reordering disposes nothing at all —
+a keyed diff permutes the components it already has. In all three, anything newly built registers
+the row it was handed and everything retained still resolves to the row it already spoke for. See
+[Collections and row identity](collections-and-row-identity.md) for the `@key` habit itself.
+
+Recommended in Development builds only, which the app-wide overload states in one place:
+
+```csharp
+builder.Services.AddFormidableBlazor(options =>
+    options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment());
+```
+
+It costs an accessor resolution per bound component per render, and a form that reaches production
+with the mistake should misfile a message rather than take the page down.
+
+### `InlineMessageRole`
+
+`string?`, defaults to `null`, which renders no `role` attribute at all. Set it to `"status"` and
+every field- and collection-level message list becomes its own polite live region, announced as its
+content changes. Recommended on forms that render no `FormidableSummary` — the summary already
+announces on its own, and two live regions saying the same thing is worse than one. See
+[CSS and accessibility](css-and-accessibility.md) for how the summary's own role is chosen.
 
 ### `CssClasses`
 
@@ -194,12 +323,38 @@ that resolved it, not the one on screen.
 
 ## Where each option is demonstrated
 
-- `SuppressedIssueDiagnostic` and `DisclosureOverride` — the progressive disclosure sample
-  (`/disclosure`) and [Disclosure](disclosure.md).
+- `LiveProfile` / `SubmitProfile` — [Profiles](profiles.md) and the
+  [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) sample (which relies on the
+  defaults rather than overriding them);
+  [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) points
+  `SubmitProfile` at a profile of its own.
+- `LiveDebounce` — [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor), toggled against
+  the immediate default.
+- `TrackFormValidity` (and `IsFormValid` with it) —
+  [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor), driving a
+  disabled Submit button.
+- `NormalizeOnSubmit` — [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor), beside
+  the two buttons that call `Normalize()` by hand.
+- `SuppressedIssueDiagnostic` and `DisclosureOverride` —
+  [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) and
+  [Disclosure](disclosure.md).
 - `CssClasses` — [CSS and accessibility](css-and-accessibility.md); remapped onto a UI
-  library's own classes (`/bootstrap`) and recoloured live via CSS custom properties
-  (`/css-colours`).
-- `LiveProfile` / `SubmitProfile` — [Profiles](profiles.md) and the `/profiles`
-  sample (the sample relies on the defaults; it doesn't override them).
+  library's own classes ([`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor))
+  and recoloured live via CSS custom properties
+  ([`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor)).
 
-**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)
+Three have no sample page, deliberately. `VerifyRowKeys` is a switch you flip in your own
+Development configuration and never see again unless it fires; `NeverRegisteredFieldDiagnostic`
+reports into your telemetry rather than onto the screen; `InlineMessageRole` changes only what a
+screen reader announces, which a page cannot demonstrate visually. Each one's entry above is its
+worked example.
+
+Two components carry behaviour this page's options don't reach:
+[`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) toggles
+`FormidableForm.FocusFirstErrorOnInvalidSubmit`, and
+[`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)'s Reset button calls
+`ResetAsync()` — both are parameters and verbs on the component rather than engine settings, so
+they live in [Component kit](component-kit.md#formidableformtmodel).
+
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the page this
+one quotes for the shape of a well-behaved `Options` field.

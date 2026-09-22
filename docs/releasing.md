@@ -76,7 +76,14 @@ derives the package version from the nearest git tag reachable from the commit b
 `src/Directory.Build.props` sets `MinVerTagPrefix` to `v` — so MinVer looks for tags shaped
 `v<version>`, not bare `<version>`.
 
-1. **Tag the release commit** on `main`, using the `v0.x.y-preview.N` shape while the project is
+1. **Roll `CHANGELOG.md` forward** on `main`, in the commit you're about to tag. Retitle
+   `## [Unreleased]` to the version you're about to tag plus today's date
+   (`## [0.1.0-preview.1] - 2026-08-21`, Keep a Changelog's own dated-release shape), then add a
+   fresh, empty `## [Unreleased]` above it for whatever lands next. Commit that on its own
+   (`docs: release 0.1.0-preview.1` or similar) before tagging — the tag then points at a
+   commit whose CHANGELOG already reads correctly for the version it's tagging.
+
+2. **Tag the release commit** on `main`, using the `v0.x.y-preview.N` shape while the project is
    pre-1.0 (adjust `0.x.y` and drop `-preview.N` once the project leaves preview):
 
    ```bash
@@ -85,13 +92,13 @@ derives the package version from the nearest git tag reachable from the commit b
    git tag v0.1.0-preview.1
    ```
 
-2. **Push the tag** — this is the trigger; nothing publishes on push to `main` itself:
+3. **Push the tag** — this is the trigger; nothing publishes on push to `main` itself:
 
    ```bash
    git push origin v0.1.0-preview.1
    ```
 
-3. **The `Release` workflow runs** (`.github/workflows/release.yml`), triggered by `push: tags:
+4. **The `Release` workflow runs** (`.github/workflows/release.yml`), triggered by `push: tags:
    ['v*']`. Step by step, it:
    - Checks out the repository with `fetch-depth: 0` — MinVer needs the full tag history, not a
      shallow clone, to find the tag and compute the commit height from it.
@@ -113,7 +120,7 @@ derives the package version from the nearest git tag reachable from the commit b
    If any step fails — build, test, or a pack — the workflow stops before the push step runs, so
    a failing test suite can never publish a package.
 
-4. All three packages publish with the **same version number**, because MinVer resolves the same
+5. All three packages publish with the **same version number**, because MinVer resolves the same
    tag for every project in the solution — there's no scenario where `Formidable` and
    `Formidable.Blazor` ship at different versions from the same release.
 

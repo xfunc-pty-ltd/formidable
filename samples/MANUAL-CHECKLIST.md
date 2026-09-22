@@ -24,6 +24,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       accordion containing the page's real source
 - [ ] Buttons sit in a spaced actions row; nothing touches a message
 - [ ] Valid submit produces a status line with breathing room below the buttons
+- [ ] A blocked submit focuses the first visible error automatically, with no click needed
+      (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is the one page
+      that lets you turn it off)
 
 ## Navigation
 
@@ -31,6 +34,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       collections, Async & server, Presentation, Model & data, Workout
 - [ ] All eighteen links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
+- [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
+      carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
+      to assistive technology, not as an unrelated heading floating above a plain list
 
 ---
 
@@ -51,6 +57,8 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Panel states the 60-char Title rule; 61 chars shows it live
 - [ ] Save draft: blocked by format only; Submit: completeness kicks in
 - [ ] Valid submit: status line confirms
+- [ ] Type into both fields, submit (blocked or not), then click *Reset*: the typed values and
+      any errors both clear — the SAME form, pristine again, no page reload
 
 ### Custom profiles
 
@@ -150,6 +158,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       cancel the stale check mid-flight — only the final value gets a verdict
 - [ ] At 0 ms: verdicts land effectively instantly and no spinner is left behind
 - [ ] Restore the slider to 600 ms before leaving the page
+- [ ] Tick *Debounce live checks* and type `formidable` quickly: no "checking…" flash appears
+      mid-keystroke — the indicator lights only once, after you pause typing
+- [ ] Untick it again and type the same word quickly: the indicator flashes on the very first
+      keystroke, back to today's default (immediate, no batching)
 - [ ] **Message spacing:** type `admin` into Username and let the verdict land — its message
       sits tight under the Username box and leaves a full field-gap before the *Display name*
       label. It must never sit flush against that label, and the "checking…" line while a pass
@@ -209,6 +221,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       row, centred, and focuses it
 - [ ] Fix that field, submit, click another far entry: same ride back
 - [ ] No focus miss anywhere on this page (every row is in the DOM — contrast Virtualize)
+- [ ] With the toggle above the form ticked (its default): submit and focus jumps straight to
+      the first error with no click needed
+- [ ] Untick the toggle and submit again: the summary appears but focus stays put — nothing
+      moves until you click an entry yourself
 
 ---
 
@@ -227,6 +243,12 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Submit: BOTH rows' Validating flip together — submit is a form-wide pass
 - [ ] **Message spacing:** Username's message sits tight under its box and clear of the
       *Display name* label — never flush against it
+- [ ] Load the page fresh: Submit is DISABLED and the readout above it reads "Form valid: No" —
+      the empty model already fails the required-Username rule, before anything is typed
+- [ ] Type `admin`: Submit stays disabled once the check lands (Form valid stays "No") — a
+      taken username still fails
+- [ ] Clear Username and type `ada` instead: once the check clears, the readout flips to
+      "Form valid: Yes" and Submit enables itself with no click needed
 
 ### Normalize
 
@@ -240,9 +262,14 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       the cleaned value, and the submit SUCCEEDS (status line confirms)
 - [ ] All-spaces Title + *Normalize + submit*: trims to empty and ONLY "Title is required"
       shows — no length message stacked alongside it, whatever the number of spaces
-- [ ] Both buttons fire on the FIRST click every time — no mid-click layout shift swallowing
-      the press
+- [ ] All three buttons fire on the FIRST click every time — no mid-click layout shift
+      swallowing the press
 - [ ] Body is a textarea; chrome and focus ring match the other fields, light + dark
+- [ ] Tick *Normalize automatically on submit*, type `"    Meeting notes about the Q3 rollout    "`
+      (42 raw, 34 trimmed) and click plain *Submit* (not *Normalize + submit*): it succeeds with
+      no manual step — the option trimmed it first
+- [ ] Untick the box, type the same text, and click *Submit* again: BLOCKED — "Title is 40
+      characters max" — the raw 42-character value is judged as typed, since nothing trimmed it
 
 ### Localization
 
@@ -362,8 +389,8 @@ A reading check, not a browser check — do it from the repo.
 - [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, plus a
       symptom-to-fix troubleshooting table* linking to `docs/recipes.md`; follow the link and it
       resolves
-- [ ] `docs/recipes.md` opens with ten unnumbered `### I want to…` headings, then a
-      troubleshooting table of eight rows
+- [ ] `docs/recipes.md` opens with twelve unnumbered `### I want to…` headings, then a
+      troubleshooting table of twelve rows
 - [ ] Spot-check the recipe titled **"I want every summary entry to land somewhere"** against
       what you just saw on /workout, /vanilla, /collections and /disclosure — the ids, the
       containers and the outline story match the pages
@@ -373,6 +400,20 @@ A reading check, not a browser check — do it from the repo.
       typed"* matches the workout's date behaviour you just walked
 - [ ] Every recipe answers with code first, then links to the doc that explains it in full and
       the sample page that demonstrates it, and no recipe contradicts the page it names
+
+### Quickstart and testing
+
+Also reading checks, done from the repo.
+
+- [ ] `docs/quickstart.md` builds a form out of three files — one page holding the model, the
+      validator and the markup together, one `_Imports.razor` line, two `Program.cs`
+      registrations — and its closing section says how to split that page up as the form grows
+- [ ] The README's *5-minute quickstart* teaches the same three files, in the same order, and
+      links on to `docs/quickstart.md` and the sample's Quickstart page (the app's home page)
+- [ ] `docs/testing.md`'s **Testing your forms** section comes before the suite walk and covers
+      three things in order: validating a model with no renderer, rendering the form under bUnit
+      with doubles for the focus and DOM-sync services, and waiting for a verdict that lands a
+      render later
 
 ---
 

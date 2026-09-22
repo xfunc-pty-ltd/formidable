@@ -142,7 +142,9 @@ A field's relevance is driven by another field's value, and the rule's `.When(..
 mirrors the same condition the `@if` uses to render it. The accommodation type is a native
 `<select>` — nothing Formidable would otherwise wrap — so it renders inside `FormidableField`.
 Its context supplies the plumbing the control needs: `ElementId`, `AriaInvalid`,
-`AriaDescribedBy`, `CssClass`. It also exposes the `NotifyChanged()` the `@onchange` handler calls
+`AriaDescribedBy`, `CssClass` — spelled out one attribute at a time here, though
+`@attributes="field.InputAttributes"` splats the same four in one go. It also exposes the
+`NotifyChanged()` the `@onchange` handler calls
 explicitly, so the engine's live pass runs on every change the same way it would for a
 Formidable-wrapped input:
 

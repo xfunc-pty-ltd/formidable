@@ -66,20 +66,10 @@ carrying `@rendermode InteractiveServer` or `@rendermode InteractiveWebAssembly`
 `FormidableForm` refuses to render on a statically rendered page, since a form there could be
 filled in but never submitted.
 
-Install the Blazor package:
+Install the Blazor package — it carries the core `Formidable` package with it:
 
 ```bash
 dotnet add package Formidable.Blazor
-```
-
-Register it and your FluentValidation validators in `Program.cs`, `using` directives included:
-
-```csharp
-using FluentValidation;
-using Formidable.Blazor;
-
-builder.Services.AddFormidableBlazor();
-builder.Services.AddScoped<IValidator<QuickContact>, QuickContactValidator>();
 ```
 
 One line in `_Imports.razor` brings every component below into scope:
@@ -88,65 +78,72 @@ One line in `_Imports.razor` brings every component below into scope:
 @using Formidable.Blazor
 ```
 
-The model and validator — a plain `AbstractValidator<T>`, no profiles required:
+Then one page file — `Pages/Signup.razor`, whose name is the `Signup` the registration below names
+its types through — holds the model, the validator, and the form. A plain `AbstractValidator<T>`,
+no profiles required:
 
-```csharp
-using FluentValidation;
+```razor
+@page "/signup"
+@using FluentValidation
 
-namespace Formidable.Sample.Shared;
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+    <FormidableSummary />
 
-public class QuickContact
-{
-    public string Name { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
-}
+    <label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+    <FormidableFieldMessage For="() => _contact.Name" />
 
-// The five-minute experience: one plain FluentValidation validator, no profiles.
-// Formidable's Draft/Submit profiles both include default rules, so an ordinary
-// AbstractValidator works unchanged. Email field uses Cascade.Stop so a missing value
-// shows one message; invalid format shows another.
-public class QuickContactValidator : AbstractValidator<QuickContact>
-{
-    public QuickContactValidator()
+    <label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
+    <FormidableFieldMessage For="() => _contact.Email" />
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@code {
+    private readonly Contact _contact = new();
+
+    private void HandleValid()
     {
-        RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
-        RuleFor(c => c.Email).Cascade(CascadeMode.Stop)
-            .NotEmpty().WithMessage("Email is required")
-            .EmailAddress().WithMessage("A valid email is required");
+        // Save it.
+    }
+
+    public class Contact
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+    }
+
+    public class ContactValidator : AbstractValidator<Contact>
+    {
+        public ContactValidator()
+        {
+            RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
+            RuleFor(c => c.Email).Cascade(CascadeMode.Stop)
+                .NotEmpty().WithMessage("Email is required")
+                .EmailAddress().WithMessage("A valid email is required");
+        }
     }
 }
 ```
 
-*Source: `samples/Formidable.Sample.Shared/QuickContact.cs`*
+Two registrations in `Program.cs` finish it, `using` directives included — the model and
+validator are nested in the page class, so they are named through it:
 
-The page — routed at `@page "/"` in the sample:
+```csharp
+using FluentValidation;
+using Formidable.Blazor;
+using YourApp.Pages;
 
-```razor
-<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
-    <FormidableSummary />
-
-    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
-        <FormidableFieldMessage For="() => _contact.Name" /></div>
-    <div class="field"><label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
-        <FormidableFieldMessage For="() => _contact.Email" /></div>
-
-    <div class="actions"><button type="submit">Submit</button></div>
-</FormidableForm>
-
-@if (_submitted)
-{
-    <p role="status">Submitted — thanks, @_contact.Name!</p>
-}
+builder.Services.AddFormidableBlazor();
+builder.Services.AddScoped<IValidator<Signup.Contact>, Signup.ContactValidator>();
 ```
-
-*Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor`* — the `_contact` field and
-`HandleValid` handler live alongside in `Quickstart.razor.cs`. The `class` attributes are the
-sample app's own styling; the library ships none.
 
 That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
 registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
 `FormidableSummary` render whatever the validator reports. The same four pieces taken slowly, with
-each line explained and a run at the end, are in [Quickstart](docs/quickstart.md).
+each line explained and a run at the end, are in [Quickstart](docs/quickstart.md); the sample app's
+[Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor), which is its home page, is
+this same form grown up a little, with the model in a shared project and the handler in a
+code-behind.
 
 ## Server validation in two lines
 
@@ -205,9 +202,10 @@ The deep dives, grouped the way the concepts stack.
 | Presentation | [CSS and accessibility](docs/css-and-accessibility.md) | Formidable computes the class names and wires the ARIA; both are yours to override. |
 | Presentation | [Options](docs/options.md) | `FormidableOptions` property by property, from the debounce to the CSS class map. |
 | Project | [Migration guide](docs/migration-guide.md) | Moving an existing FluentValidation and `EditForm` integration across. |
-| Project | [Testing](docs/testing.md) | The suite's shape, how to run each layer, and the gate a release has to pass. |
+| Project | [Testing](docs/testing.md) | Testing the forms you build, then the suite's own shape and the gate a release has to pass. |
 | Project | [Releasing](docs/releasing.md) | The maintainer's runbook for cutting a version. |
 | Project | [Manual checklist](samples/MANUAL-CHECKLIST.md) | The eyes-on walkthrough of the sample app, one check per behaviour. |
+| Project | [Changelog](CHANGELOG.md) | What shipped, release by release. |
 
 ## Run the sample locally
 

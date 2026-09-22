@@ -87,6 +87,31 @@ public sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
     public void Reset() => Gate = new TaskCompletionSource();
 }
 
+/// <summary>
+/// Submit validator whose async rule blocks on <see cref="Gate"/> without observing the
+/// cancellation token it is handed — unlike <see cref="GatedValidator"/>, cancelling that token
+/// does nothing here: the rule only resolves once <see cref="Gate"/> is released, and it always
+/// passes. Exists to exercise the one case a token-honoring validator (every other fixture in
+/// this file) cannot: a stale pass that outruns Dispose instead of being cut short by it.
+/// </summary>
+public sealed class CancellationIgnoringValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; } = new();
+    public int Started;
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description).MustAsync(async (_, _) =>
+        {
+            Started++;
+            await Gate.Task;
+            return true;
+        });
+}
+
 /// <summary>Draft validator whose rule throws when <see cref="Throw"/> is true, for exercising fault-handling paths.</summary>
 public sealed class ThrowingValidator : DraftSubmitValidator<EngineOrder>
 {

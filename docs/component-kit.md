@@ -178,9 +178,10 @@ same reason a consumer-splatted `id` on `FormidableInputText` is: the value has 
 deterministic for the focus service to find it. `FormidableValidator<TModel>` renders no `<form>`
 of its own — see its section below for the attach-mode equivalent.
 
-Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset — is
-the one thing that rebuilds the `EditContext` and engine; a component consuming `FormidableForm`
-never manages that lifecycle itself:
+Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset —
+rebuilds the `EditContext` and engine; a component consuming `FormidableForm` never manages that
+lifecycle itself. (`ResetAsync` below is the same rebuild asked for directly, rather than through a
+parameter change.)
 
 ```csharp
     /// <inheritdoc />
@@ -242,7 +243,10 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
     /// pipeline, the engine that started is gone by the time the verdict lands: neither
     /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
     /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
-    /// must not surface as if it were current.
+    /// must not surface as if it were current. That includes the return value: cancelling the
+    /// abandoned pass's token is what usually stops it short, but a validator that does not honour
+    /// the token can still run to completion, so the blocked <see cref="SubmitOutcome"/> below is
+    /// returned instead of whatever that pass actually decided.
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
@@ -251,7 +255,10 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 
         if (!ReferenceEquals(_engine, engine))
         {
-            return outcome;
+            // The dead engine's own verdict — even a passing one, if its validator outran
+            // cancellation — must not surface as current; mirrors FormValidationEngine's own
+            // precedent for a superseded pass with nothing to report.
+            return new SubmitOutcome(false, ValidationReport.Empty, []);
         }
 
         if (outcome.CanProceed)
@@ -274,10 +281,22 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
+Both branches hand their handler the same payload. `OnValidSubmit` is an
+`EventCallback<SubmitOutcome>`, exactly as `OnInvalidSubmit` has always been: a passing submit can
+still carry advisories, and a handler that wants them shouldn't have to reach through `Engine` to
+find them. A parameterless handler still binds — Blazor's own `EventCallback<TValue>` conversion
+accepts an `Action` or a `Func<TResult>` wherever a typed callback is declared, the same way it does
+for `EditForm.OnValidSubmit` — which is why `OnValidSubmit="HandleValid"` over a `void
+HandleValid()` is still the shape every sample page uses. Take the parameter when the outcome is
+what you're after: `CanProceed`, the full `Report`, and `VisibleErrorSummary` for a dialog (see
+[Severity](severity.md)).
+
 The engine itself is exposed as a public property: `Engine => _engine`, typed as the non-generic
 `IFormValidationEngine`. `FormidableForm` also forwards its two overloads directly
 (`_form!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)), and a page
-reads `IsValidating` or `HasSubmitted` off `Engine` without going through a field.
+reads `IsValidating`, `HasSubmitted` or `IsFormValid` off `Engine` without going through a field.
+The last of those needs [`TrackFormValidity`](options.md#trackformvalidity) turned on to mean
+anything; the other two are always current.
 
 A blocked submit also moves keyboard focus, by default: `FocusFirstErrorOnInvalidSubmit`
 (default `true`) resolves the first entry `Engine.GetVisibleIssues()` would show and focuses its
@@ -293,6 +312,41 @@ instead.
 **Sample:** [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) — a toggle
 above the form flips the parameter, so a submit's automatic focus and the opt-out sit side by
 side.
+
+### Returning the form to pristine
+
+`ResetAsync` is the named verb for "start over" — the clean slate a `Model` swap produces, without
+needing a different object to get it:
+
+```csharp
+await _form!.ResetAsync();                // same instance, back to pristine
+await _form!.ResetAsync(new Order());     // a different instance — needs @bind-Model
+```
+
+Called with nothing, it rebuilds the engine and the `EditContext` over the model instance already
+bound. Touched and modified state, the message store, the advisory buckets and `HasSubmitted` all
+clear, and any pending refresh is cancelled — none of it survives the engine it belonged to. An
+in-flight `SubmitAsync` is abandoned with that engine too, exactly as its own remarks above
+describe: the verdict of a submit the reset already walked away from never surfaces.
+
+Called with a model, it swaps to that instance — and that swap needs the parent's cooperation,
+which the form insists on rather than hopes for. `Model` is a `[Parameter]`, and Blazor re-supplies
+a component's parameters from whatever the parent still holds on every one of the *parent's* own
+renders, not just this component's. So a swap the form makes to its own copy is silently reverted
+the next time anything up there re-renders, unless the parent's field moved too. `ResetAsync`
+invokes `ModelChanged` to make that happen, and `@bind-Model` is how a page binds it:
+
+```razor
+<FormidableForm @bind-Model="_order" @ref="_form" OnValidSubmit="HandleValid">
+```
+
+Supplying a new model with no `ModelChanged` delegate bound throws instead, naming that fix — a
+targeted exception beats a swap that appears to work until an unrelated re-render undoes it. Both
+shapes trigger renders, so call them from the renderer's synchronization context: a Blazor event
+handler, or `InvokeAsync`.
+
+**Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — a Reset button
+calling the no-argument shape, beside the draft and submit buttons whose state it clears.
 
 ## `FormidableInputText` and `FormidableInputBase<TValue>`
 
@@ -1039,9 +1093,13 @@ alternative root, `FormidableValidator<TModel>`, for exactly that case; the full
 including when to reach for it over `FormidableForm`, is covered in
 [Migration guide](migration-guide.md).
 
-Attach mode's one gap against `FormidableForm`: `FormidableValidator` renders no `<form>` element
-of its own — it attaches to whatever `EditForm` the page already owns — so it has nowhere to put
-the model-level gate id automatically. A page in attach mode still wants the all-suppressed
+Attach mode owns the engine, not the form, so the verbs that come with owning an `EditForm` stay
+with `FormidableForm`: `SubmitAsync`, `ResetAsync`, `FocusFirstErrorOnInvalidSubmit`, the typed
+submit callbacks and the `Model` parameter whose swap rebuilds everything all belong to the
+component that renders the `<form>`. A page in attach mode keeps its own `EditForm`'s handlers for
+that half. One gap needs markup rather than a different call: `FormidableValidator` renders no
+`<form>` element of its own — it attaches to whatever `EditForm` the page already owns — so it has
+nowhere to put the model-level gate id automatically. A page in attach mode still wants the all-suppressed
 defensive gate's summary entry to land somewhere, so it renders that id itself, on the `EditForm`
 it already has:
 
@@ -1058,6 +1116,25 @@ private string GateId => FormidableFieldId.For(new FieldIdentifier(_model, strin
 
 This is the same pattern every `FormidableForm`-rooted page rendered by hand before the form took
 it over; attach mode is the one place it still applies.
+
+What attach mode gives up nothing on is the server round trip. `FormidableValidator` exposes the
+same `Engine` property, typed as `IFormValidationEngine`, and forwards both `ApplyServerIssues`
+overloads itself — the sequence of issues, and the deserialized `FormidableValidationProblem` an
+HTTP 400 arrives in:
+
+```csharp
+var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+_validator!.ApplyServerIssues(problem!);
+```
+
+So the server round trip is the same one line here as under `FormidableForm`, with no reaching
+through `Engine` to reach it, and the same contract applies either way: each apply replaces the
+previous server verdict, every issue lands at the severity it carries, and applying any of them
+sets `HasSubmitted`, since a server response is treated as a submit result (see
+[Server integration](server-integration.md)). Capture the component with `@ref`, and call from the
+renderer's synchronization context. The engine exists from the moment the component binds to its
+cascaded `EditContext`, so a call that beats the first render throws a message saying exactly that
+rather than surfacing as a null reference from inside the component.
 
 ## `FormidableCollectionMessage<TValue>`
 
@@ -1389,6 +1466,45 @@ That is the second step of the three-step options order stated in [Need to
 know](#need-to-know): parameter, then this, then `new FormidableOptions()`. A design system's
 class names belong here rather than on every page — see [Engine
 options](options.md#app-wide-defaults).
+
+## `FormidableCultureBootstrap`
+
+A WebAssembly app downloads its satellite resource assemblies for whatever culture is current when
+`RunAsync()` is called, and never again. So an app that lets a visitor choose a language has to
+apply the stored choice *before* that line, not from a page afterwards — which is a small piece of
+startup plumbing every localized WASM app writes the same way. `FormidableCultureBootstrap` is that
+plumbing, ready-made:
+
+```csharp
+var host = builder.Build();
+
+var js = host.Services.GetRequiredService<IJSRuntime>();
+await FormidableCultureBootstrap.ApplyStoredCultureAsync(js, fallback: CultureInfo.GetCultureInfo("en-AU"));
+
+await host.RunAsync();
+```
+
+It reads a culture name from `localStorage` (the key defaults to `formidable.culture`) and, when
+the value names a culture the runtime recognises, sets both `CultureInfo.DefaultThreadCurrentCulture`
+and `DefaultThreadCurrentUICulture` to it. A missing, blank, or unrecognisable value applies the
+`fallback` instead; pass no fallback and the app simply keeps the culture it booted with. A stale
+or corrupted stored value therefore cannot stop the app from starting.
+
+A second overload takes a `Func<Task<string?>>` rather than an `IJSRuntime`, for storage that isn't
+`localStorage` — a cookie, a user profile fetched from the server, a test's canned value:
+
+```csharp
+await FormidableCultureBootstrap.ApplyStoredCultureAsync(
+    () => Task.FromResult<string?>(preferences.Language));
+```
+
+Neither overload has anything to do with validation, and both are WebAssembly-specific: a Blazor
+Server host sets culture from the request instead, and does not use this class. FluentValidation's
+own message translations follow `CultureInfo.CurrentUICulture` from there with no further wiring —
+see [Profiles](profiles.md) for the localization story and the display-name half of it.
+
+**Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor) — stores the
+choice and reloads, which is what makes the boot-time read the only place the culture can change.
 
 ## Virtualize and `KeepRegistered`
 

@@ -51,6 +51,11 @@ index, so its focus, scroll position, and any in-progress edit travel with the r
 resolves independently on the validator side. Both sides arrive at the same object without
 coordinating.
 
+Forget the `@key` and nothing here throws by default — the mistake just misfiles a message onto
+the wrong row, silently. [`VerifyRowKeys`](options.md#verifyrowkeys) is the development-time
+option that catches it: turned on, it throws the moment a field-bound component's accessor no
+longer names the row it registered.
+
 Neither idiom helps a rule that has no field of its own. `Teams` and `Members` are both `List<T>`
 properties, so nothing renders an input for the list itself. A whole-collection rule like "Add at
 least one team" would have nowhere to register and nowhere to become visible.

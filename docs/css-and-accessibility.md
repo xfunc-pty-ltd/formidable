@@ -363,7 +363,11 @@ the message.
 ### Focus service
 
 Every entry in `FormidableSummary` is a button that calls `IFormidableFocusService.FocusAsync`, which
-locates and focuses the DOM element carrying a field's deterministic id:
+locates and focuses the DOM element carrying a field's deterministic id. The summary is not its
+only caller: `FormidableForm` moves focus to the first visible issue through the same service on
+every blocked submit, unless `FocusFirstErrorOnInvalidSubmit="false"` says otherwise (see
+[Component kit](component-kit.md#formidableformtmodel)). Both callers treat a miss the same way,
+which the service's own contract explains:
 
 ```csharp
 namespace Formidable.Blazor;
@@ -422,8 +426,9 @@ cases documented elsewhere. The first is a field scrolled out of a `Virtualize` 
 current DOM element: the click-to-focus miss that `FormidableSummary`'s `FocusFallback`
 parameter exists to recover from (see [Component kit](component-kit.md)). The second is a raw
 or foreign control whose markup never actually rendered `field.ElementId` as its `id` attribute,
-which is why `FormidableField`'s `ForeignControl.razor` sample sets `id="@field.ElementId"`
-explicitly (see [Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
+which is why `FormidableField`'s `ForeignControl.razor` sample splats
+`@attributes="field.InputAttributes"` onto its `<select>` — the id, the state class and the aria
+pair in one go (see [Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
 with no id on the control it anchors has nothing for the focus service to find. The samples now
 close that gap rather than illustrate it, giving their native `InputText`s the field's id
 alongside the anchor.

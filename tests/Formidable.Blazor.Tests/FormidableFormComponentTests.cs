@@ -342,15 +342,17 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     // A submit awaiting the engine's pipeline can still be in flight when ResetAsync disposes
-    // that very engine out from under it (the disposal cancels the pass, so the orphaned
-    // ValidateForSubmitAsync call completes rather than hanging — see FormValidationEngine's own
-    // "superseded, not cancelled by the caller" handling). Its verdict belongs to an abandoned
-    // engine and must not surface as if it were current.
+    // that very engine out from under it. Cancelling the abandoned pass's token is what usually
+    // ends it early (see FormValidationEngine's own "superseded, not cancelled by the caller"
+    // handling), but this validator does not observe its token at all — the pass runs to
+    // completion and would pass, proving that what blocks this outcome is FormidableForm's own
+    // dead-engine guard, not supersession inside the engine. Its verdict belongs to an abandoned
+    // engine and must not surface as if it were current — CanProceed included.
     [Fact]
     public async Task SubmitAsync_suppresses_callbacks_when_ResetAsync_disposes_its_engine_mid_flight()
     {
         var order = new EngineOrder();
-        var validator = new GatedValidator();
+        var validator = new CancellationIgnoringValidator();
         var validSeen = false;
         var invalidSeen = false;
 
@@ -376,10 +378,12 @@ public class FormidableFormComponentTests : BunitContext
         form.WaitForAssertion(() => Assert.True(validator.Started >= 1));
 
         await form.InvokeAsync(() => form.Instance.ResetAsync());
+        validator.Gate.SetResult(); // resolves — and passes — despite the pass's own token being cancelled
         await submitTask;
 
         Assert.NotNull(outcome);
-        Assert.False(outcome!.CanProceed);
+        Assert.False(outcome!.CanProceed); // would be true here if the raw (passing) outcome leaked through
+        Assert.Empty(outcome.VisibleErrorSummary);
         Assert.False(validSeen);
         Assert.False(invalidSeen);
     }

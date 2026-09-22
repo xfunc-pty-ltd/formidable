@@ -206,7 +206,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// pipeline, the engine that started is gone by the time the verdict lands: neither
     /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
     /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
-    /// must not surface as if it were current.
+    /// must not surface as if it were current. That includes the return value: cancelling the
+    /// abandoned pass's token is what usually stops it short, but a validator that does not honour
+    /// the token can still run to completion, so the blocked <see cref="SubmitOutcome"/> below is
+    /// returned instead of whatever that pass actually decided.
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
@@ -215,7 +218,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
         if (!ReferenceEquals(_engine, engine))
         {
-            return outcome;
+            // The dead engine's own verdict — even a passing one, if its validator outran
+            // cancellation — must not surface as current; mirrors FormValidationEngine's own
+            // precedent for a superseded pass with nothing to report.
+            return new SubmitOutcome(false, ValidationReport.Empty, []);
         }
 
         if (outcome.CanProceed)

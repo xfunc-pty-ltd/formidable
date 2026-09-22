@@ -24,6 +24,7 @@ how results reach the UI.
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle — swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you; `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure — a field's visibility is a side effect of whether something registered it while mounted, not code you write per form. See [Disclosure](disclosure.md) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine — there's no second store to keep synchronized. See [Component kit](component-kit.md)'s `FormidableForm` section |
+| Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a pass is currently running | `<FormidableValidator>` exposes the engine as `Engine` and forwards both `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same pipeline `FormidableForm` does, in the same one line. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
 
 ### Two ways to attach
 
@@ -33,7 +34,8 @@ yet, `<FormidableValidator>` attaches to the cascaded `EditContext` the same way
 running validation against it. `<FormidableForm>` is the alternative for new forms or forms
 you're willing to restructure: it renders its own `EditForm` and owns the `EditContext`
 outright, which is what unlocks automatic rebuild-on-model-swap. Both attach modes share the
-same engine underneath, so the mapping table above applies to either.
+same engine underneath, so the mapping table above applies to either — and both expose it the same
+way, so a server round trip is written identically whichever root the page ended up with.
 
 ## What to check after migrating
 

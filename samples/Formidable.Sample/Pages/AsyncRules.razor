@@ -10,6 +10,7 @@
             <li><strong>Username</strong> and <strong>Display name</strong> — checked for uniqueness asynchronously while you type (a delay stands in for the server — 600&nbsp;ms by default, adjustable below). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
             <li><strong>Username</strong> — also required at submit.</li>
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
+            <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -19,6 +20,7 @@
             <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
             <li>Clear Username and submit — the required rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the pending state lingers long enough to watch supersession cancel a stale check mid-flight.</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke, only one pass starts after you pause.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
@@ -30,7 +32,11 @@
     @HandleValidator.SimulatedDelayMs ms
 </p>
 
-<FormidableForm Model="_handle" OnValidSubmit="HandleValid">
+<p>
+    <label><input type="checkbox" @bind="LiveDebounceEnabled" /> Debounce live checks (batch fast typing into one pass)</label>
+</p>
+
+<FormidableForm Model="_handle" Options="_options" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">

@@ -13,18 +13,20 @@
             <li><strong>Blur</strong> marks touched on this page: it wires <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. The built-in inputs mark touched on the first value commit, so without this wiring, tabbing through never touches.</li>
             <li><strong>Errors</strong> — the field currently carries error-severity messages.</li>
             <li><strong>Warnings</strong> — the field currently carries warning-severity messages.</li>
+            <li><strong>Form valid</strong> — the readout above Submit, kept live by <code>FormidableOptions.TrackFormValidity</code>: an invisible Submit-profile probe that reruns on every change and disables Submit until it says the whole form would pass.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>Tab into Username and out — Touched flips to True, Modified stays False.</li>
-            <li>Type <code>admin</code> — Modified and Validating flip to True, then Errors flips once the taken-check lands.</li>
+            <li>Tab into Username and out — Touched flips to True, Modified stays False. Submit stays disabled and Form valid reads No — the pristine model already fails the Submit profile's required-Username rule.</li>
+            <li>Type <code>admin</code> — Modified and Validating flip to True, then Errors flips once the taken-check lands. Submit stays disabled: a taken username still fails the probe.</li>
+            <li>Clear Username and type <code>ada</code> instead — once the async check clears, Form valid flips to Yes and Submit enables itself, no click needed.</li>
             <li>Submit — both rows' Validating flip together: submit is a form-wide pass, not a per-field one.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_handle" OnValidSubmit="HandleValid">
+<FormidableForm @ref="_form" Model="_handle" Options="_options" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">
@@ -61,8 +63,10 @@
         </tbody>
     </table>
 
+    <p>Form valid: <strong>@(_form?.Engine?.IsFormValid == true ? "Yes" : "No")</strong></p>
+
     <div class="actions">
-        <button type="submit">Submit</button>
+        <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
     </div>
 </FormidableForm>
 

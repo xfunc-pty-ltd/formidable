@@ -7,6 +7,7 @@ namespace Formidable.Sample.Pages;
 public partial class Normalize
 {
     private readonly TrimmedNote _note = new();
+    private readonly FormidableOptions _options = new();
     private FormidableForm<TrimmedNote>? _form;
     private string _status = string.Empty;
 
@@ -36,6 +37,17 @@ public partial class Normalize
         var outcome = await _form!.SubmitAsync();
         _status = outcome.CanProceed
             ? "Submitted — the raw values above are exactly what the server would receive."
+            : "Blocked by errors — fix them and resubmit.";
+    }
+
+    // No manual Normalize() call here — this is the plain submit path, so whether the raw
+    // values below get cleaned before validation depends entirely on the NormalizeOnSubmit
+    // toggle above the form.
+    private async Task Submit()
+    {
+        var outcome = await _form!.SubmitAsync();
+        _status = outcome.CanProceed
+            ? "Submitted — see whether the raw values below changed."
             : "Blocked by errors — fix them and resubmit.";
     }
 }

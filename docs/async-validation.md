@@ -160,6 +160,10 @@ flowchart TD
     P --> Q["HasSubmitted set true"]
 ```
 
+The diagram traces the default cadence, where an edit's live pass starts on the keystroke itself.
+`FormidableOptions.LiveDebounce` puts a timer in front of that first step, described under
+[The live pass starts](#the-live-pass-starts); everything downstream of it is unchanged.
+
 ### An edit commits
 
 A keystroke is a small event with a large blast radius. The engine decides, at the moment the
@@ -189,6 +193,22 @@ characters and moved on before anything told them the first three were a problem
 
 With no submit in flight, the edit starts its own pass immediately, for the field that changed.
 There is no timer sitting in front of a live pass — it begins on the keystroke itself.
+
+Unless you ask for one. `FormidableOptions.LiveDebounce` is `null` by default, which is the cadence
+just described; set it and a field change arms a single shared timer instead of starting a pass.
+Another edit inside the window re-arms that timer rather than opening a second one, and when the
+window elapses quietly, one live pass runs, scoped to every field the window collected. It is worth
+reaching for when the live rules are expensive enough that one pass per keystroke is the wrong
+trade — an async availability check being the obvious case, since supersession still costs a
+started-and-cancelled request per keystroke.
+
+A debounced live pass is a little more deferential than an immediate one: with a submit *or* a
+refresh already running, it re-arms its timer instead of starting, because the edit that would
+normally re-arm the refresh has already happened, and cancelling the refresh outright would leave
+its verdict stale with nothing left to fix it. What the option does not touch is the refresh's own
+cadence. After a submit, every keystroke still lands in the pending-refresh set and still arms the
+refresh on `RefreshDebounce`'s schedule, whatever `LiveDebounce` says — the two windows are
+independent, and the option reduces live passes, not refresh passes.
 
 ### A newer pass supersedes an older one
 
@@ -220,9 +240,9 @@ nothing else.
 A refresh should follow the user's pauses, not their keystrokes.
 
 The timer fires after `FormidableOptions.RefreshDebounce` of quiet (300 ms by default; see
-[Options](options.md)). This is the one place a genuine timer-based debounce exists in
-the engine. A live pass has none — it starts on the keystroke and resolves a burst by
-supersession instead of by waiting.
+[Options](options.md)). This is the one timer-based debounce a form gets without asking. A live
+pass has none unless [`LiveDebounce`](options.md#livedebounce) puts one there: by default it starts
+on the keystroke and resolves a burst by supersession instead of by waiting.
 
 ### The refresh defers to whatever is running
 

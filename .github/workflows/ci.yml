@@ -20,3 +20,14 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
+
+  hosted-demo-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true

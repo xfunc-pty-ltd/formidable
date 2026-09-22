@@ -595,6 +595,11 @@ string, shared by any other string-typed configuration surface too:
 shaped the same way `Submit` itself is built — default rules plus one ruleset with the same name.
 The minimal-API filter takes a `ValidationProfile` value directly instead of a name string, since
 `Validate<TModel>(profile?)` is a compile-time call site, not a request-time attribute property.
+That is the whole reason the two entry points name the same thing in two types: an attribute
+argument has to be a compile-time constant, and a `ValidationProfile` is a value built at runtime.
+So `[Validate(Profile = "Submit")]` and `Validate<Order>(ValidationProfile.Submit)` select exactly
+the same rules — read the string as the name of the profile the value names directly, and the same
+pairing holds for `"Draft"` and for any custom profile name.
 
 ## Normalize pipeline
 

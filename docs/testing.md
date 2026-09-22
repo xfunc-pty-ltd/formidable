@@ -31,11 +31,117 @@ run: that's expected, not a problem. Skipped there means the browser tier below,
 run reporting fewer tests than usual — that's a signal an environment variable or a build step
 didn't do what it was supposed to, not that the suite shrank on its own.
 
+Testing a form you built rather than the library itself? [Testing your forms](#testing-your-forms)
+is the next section, and it's the only one written for that audience; everything after it is this
+repo's own suite.
+
 A PR is expected to pin new behaviour with a test at the tier that would actually exercise it —
 unit/bUnit for engine and component logic, browser for anything only a real rendered page can
 show — keep the plain suite green, and produce a clean Release build. See the
 [contributing guide](../CONTRIBUTING.md) for dev setup and the full PR checklist, and
 [Recipes](recipes.md) for a task-oriented index of *behaviour* rather than tests.
+
+## Testing your forms
+
+Everything else on this page is about Formidable's own suite. This section is the other audience:
+the tests you write over a form you built with it. Two layers cover almost all of it — the rules
+without a renderer, and the rendered form under bUnit — and the third thing worth knowing is how
+to wait for an answer that arrives asynchronously.
+
+### The rules, without Blazor
+
+A validator is a plain FluentValidation class and a profile is a value you pass, so the rules
+answer to a test with no renderer anywhere in it:
+
+```csharp
+var validator = new FluentValidationModelValidator<Brief>(new BriefValidator());
+var blank = new Brief();
+
+var draft = await validator.ValidateAsync(blank, ValidationProfile.Draft);
+var submit = await validator.ValidateAsync(blank, ValidationProfile.Submit);
+
+Assert.True(draft.IsValid);                             // a blank draft is fine
+Assert.Contains(submit.Errors, i => i.Path == "Title"); // submitting it is not
+```
+
+`IModelValidator<T>` is the seam the engine validates through, so a test driving it directly runs
+exactly what a form runs — one profile at a time, which is the pairing worth pinning: a presence
+rule stays quiet under `Draft` and blocks under `Submit`. `ValidationReport` splits the answer by
+severity (`Errors`, `Warnings`, `Infos`, and `Advisories` for the two non-error buckets together),
+and `IsValid` counts errors only, so a warning-only report is valid. `ValidationIssue.Path` is
+FluentValidation's own property path, indexes included (`Lines[0].Sku`).
+
+All of that lives in the core `Formidable` package, which has no Blazor dependency — a plain xunit
+project referencing it is enough. Resolve `IModelValidator<T>` from a container if the test already
+has one; `new FluentValidationModelValidator<T>(...)` is the shortcut when it doesn't.
+
+### The form, under bUnit
+
+The kit renders under [bUnit](https://bunit.dev) like any other component set. Two of its services
+talk to JavaScript, so a component test supplies its own stand-ins for them: register the doubles
+*before* `AddFormidableBlazor()`, which respects registrations that are already there.
+
+```csharp
+public class SignupFormTests : BunitContext
+{
+    private readonly RecordingFocusService _focus = new();       // your recording doubles
+    private readonly RecordingDomValueSync _domSync = new();
+
+    public SignupFormTests()
+    {
+        Services.AddSingleton<IFormidableFocusService>(_focus);
+        Services.AddSingleton<IFormidableDomValueSync>(_domSync);
+        Services.AddFormidableBlazor();
+        Services.AddSingleton<IValidator<Signup>>(new SignupValidator());
+    }
+
+    [Fact]
+    public void Blocked_submit_shows_the_message_where_the_field_renders()
+    {
+        var cut = Render<SignupPage>();
+
+        cut.Find("form").Submit();
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Name is required", cut.Find("ul.formidable-messages").TextContent));
+    }
+}
+```
+
+`IFormidableFocusService` is the one to register first: `FormidableSummary` injects it outright, so
+a form rendering a summary needs *something* there. A recording double also makes focus assertable,
+and which field a blocked submit moved to is worth pinning, since
+`FocusFirstErrorOnInvalidSubmit` moves it on every blocked submit by default.
+`IFormidableDomValueSync` matters as soon as a `FormidableInputNumber` or `FormidableInputDate` is
+on the form: both inject it and call it on blur. Formidable's own
+[`RecordingDomValueSync`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingDomValueSync.cs) is a
+twenty-line class recording every call, and a focus double is the same shape over `FocusAsync`.
+
+There is an alternative to doubling the interfaces: let the real services run and stand in for the
+JavaScript instead, with bUnit's
+`JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. That is what Formidable's
+own `FocusServiceTests` do, because there the service *is* the thing under test. For a form test,
+the interface doubles are less machinery.
+
+### Waiting for the answer
+
+A verdict lands a render or two after the event that asked for it, and an async rule lands later
+still. Two habits cover it:
+
+- **Assert through `WaitForAssertion`.** It retries until the assertion passes or the timeout ends,
+  which is what makes a message that arrives one render later a pass rather than a race.
+  `WaitForState` does the same for a predicate.
+- **Call the form's own methods through `InvokeAsync`.** `SubmitAsync()`, `ResetAsync()` and
+  `ApplyServerIssues(...)` all mutate validation state and trigger renders, so they belong on the
+  renderer's synchronization context. Reach the component with `FindComponent`:
+  `var form = cut.FindComponent<FormidableForm<Signup>>();` then
+  `await form.InvokeAsync(() => form.Instance.SubmitAsync());`.
+
+Pinning a *pending* state needs one more thing, because "checking…" is by definition gone by the
+time the rule answers. Hold the rule open with a `TaskCompletionSource` the test controls: assert
+`IsValidating` (engine-wide) or `GetFieldState(field).IsValidating` (field-scoped) while the gate
+is closed, then complete it and wait for the verdict. Formidable's own engine tests use exactly
+that gate, and [Async validation](async-validation.md) explains which scope each pass reports.
 
 ## Unit and component tests
 

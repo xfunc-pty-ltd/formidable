@@ -144,9 +144,12 @@ if (!response.IsSuccessStatusCode)
 Call `problem!.ToIssues()` first and pass the flattened list instead when the page wants the issues
 for something of its own; the two overloads are otherwise identical.
 
-Call `model.Normalize()` before posting when the model implements `INormalizableModel`: the
-filters normalize too, so cleaning first keeps the paths in the response lined up with the rows on
-screen (there is no automatic client-side hook). Each apply replaces the previous server verdict
+Clean the model before posting when it implements `INormalizableModel`: the filters normalize too,
+so cleaning first keeps the paths in the response lined up with the rows on screen. Either call
+`model.Normalize()` yourself, or set
+[`FormidableOptions.NormalizeOnSubmit`](options.md#normalizeonsubmit) and the submit pass does it
+before the profile runs — which, since the POST goes out from `OnValidSubmit`, is before the model
+reaches the wire. Each apply replaces the previous server verdict
 instead of accumulating, and the verdict applies at the severity it carries: a rejection's
 `advisories` extension lands on its fields as warnings and infos, blocking nothing. Server-declared
 errors bypass the disclosure registry, since the server judged what was actually submitted;
@@ -255,8 +258,8 @@ the context supplies `ElementId`, `CssClass`, `AriaInvalid`, `AriaDescribedBy` a
 `MarkTouched()`.
 
 ```razor
-<select value="@Model.Colour" @onchange="OnColourChanged" id="@field.ElementId"
-        class="@field.CssClass" aria-invalid="@field.AriaInvalid" />
+<select @attributes="field.InputAttributes"
+        value="@Model.Colour" @onchange="args => OnColourChanged(args, field)" />
 ```
 
 ```csharp
@@ -359,6 +362,81 @@ host runs.
 **Read:** [Profiles](profiles.md) (localization and display names).
 **Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor).
 
+### I want to validate a nested object
+
+**Set:** `SetValidator` on the parent property's rule (or `ChildRules` to write them inline), and
+name the nested field with its full path in `For` or `@bind-Value`.
+
+```csharp
+public class OrderValidator : AbstractValidator<Order>
+{
+    public OrderValidator() =>
+        RuleFor(o => o.ShippingAddress).SetValidator(new AddressValidator());
+}
+
+public class AddressValidator : AbstractValidator<Address>
+{
+    public AddressValidator() =>
+        RuleFor(a => a.Street).NotEmpty().WithMessage("Street is required");
+}
+```
+
+```razor
+<FormidableInputText @bind-Value="Model.ShippingAddress.Street" />
+<FormidableFieldMessage For="() => Model.ShippingAddress.Street" />
+```
+
+Depth needs no special handling. FluentValidation reports the issue at `ShippingAddress.Street`,
+and Formidable walks that path down to the `Address` instance and keys the issue to *that object* —
+the same resolution a collection row gets, for the same reason. Another level down changes nothing:
+`() => Model.ShippingAddress.Region.Code` is still one field, owned by the `Region` instance.
+Nested and indexed segments mix freely too, so `RuleForEach(o => o.Lines).SetValidator(...)`
+produces `Lines[0].Sku` and lands on the row object.
+
+Give the nested object a value the markup can reach — `public Address ShippingAddress { get; set; }
+= new();` — since `() => Model.ShippingAddress.Street` dereferences it while rendering. The engine
+itself is defensive about a null on the way down (the issue falls back to the deepest object that
+does exist, carrying the rest of the path), but the page's own lambda runs first.
+
+**Read:** [Collections and row identity](collections-and-row-identity.md) (path resolution in
+full), [Fields and collections](fields-and-collections.md).
+**Sample:** [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — teams holding
+members, nested one level inside a collection.
+
+### I want to unit-test my form
+
+**Set:** for the rules, drive `IModelValidator<T>` directly — no renderer involved. For the form,
+render it under bUnit with test doubles registered *before* `AddFormidableBlazor()`.
+
+```csharp
+var validator = new FluentValidationModelValidator<Brief>(new BriefValidator());
+
+var report = await validator.ValidateAsync(new Brief(), ValidationProfile.Submit);
+
+Assert.Contains(report.Errors, i => i.Path == "Title");
+```
+
+```csharp
+Services.AddSingleton<IFormidableFocusService>(_focus);      // your recording double
+Services.AddSingleton<IFormidableDomValueSync>(_domSync);    // ditto
+Services.AddFormidableBlazor();                              // respects both
+Services.AddSingleton<IValidator<Signup>>(new SignupValidator());
+```
+
+Those two services are the only pieces of the kit that talk to JavaScript, and doubling them makes
+focus assertable as a side benefit. `FormidableSummary` injects the focus service outright, so a
+form rendering one needs it present either way.
+
+Assert through bUnit's `WaitForAssertion`, since a verdict lands a render later than the event that
+asked for it, and call the form's own methods — `SubmitAsync()`, `ResetAsync()`,
+`ApplyServerIssues(...)` — through `InvokeAsync`, since all three trigger renders.
+
+**Read:** [Testing](testing.md#testing-your-forms) (the same ground in full, including how to pin a
+pending state), [Component kit](component-kit.md).
+**Sample:** no page. The worked examples are Formidable's own component tests, such as
+[`FormidableFormComponentTests.cs`](../tests/Formidable.Blazor.Tests/FormidableFormComponentTests.cs),
+which render the kit exactly this way.
+
 ## Part 2 — Troubleshooting
 
 | Symptom | Why | Fix |
@@ -367,6 +445,7 @@ host runs.
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
 | A field says nothing until Submit is pressed. | Presence rules live in the `"Submit"` ruleset by convention, and live passes run the Draft profile. | Working as designed — move the rule into the draft bucket if it should answer live. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
+| A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — so no live pass ever runs for it, and a touched field with no errors is styled valid. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |

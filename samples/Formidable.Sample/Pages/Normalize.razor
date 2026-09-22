@@ -9,8 +9,9 @@
         <ul>
             <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces. <strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed the same way.</li>
             <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
-            <li>Client code has no automatic hook — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
+            <li>Client code has no automatic hook unless you ask for one — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
             <li>The engine listens for field-change notifications, not the model itself — code that mutates the model tells the engine which fields changed (<code>EditContext.NotifyFieldChanged</code>, one call per changed field), the same wiring a foreign control uses. <em>Normalize now</em> does exactly that, so a message already on screen re-judges the cleaned value immediately.</li>
+            <li><strong>NormalizeOnSubmit</strong> is the automatic hook the bullet above says client code lacks: tick the checkbox below and the plain <em>Submit</em> button (unlike the two above, it never calls <code>Normalize()</code> itself) trims the model before the profile judges it.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -19,11 +20,16 @@
             <li>Pad Title with spaces until it passes 40 characters — "Title is 40 characters max" appears as you type. <em>Normalize now</em> trims it back under the limit and the message clears at once: the notification re-judged the cleaned value.</li>
             <li>Type <code>"    Meeting notes about the Q3 rollout    "</code> — 42 characters raw, 34 trimmed. <em>Normalize + submit</em>: trimming runs BEFORE validation, the length rule judges the cleaned value, and the submit succeeds.</li>
             <li>Leave Title all spaces and click <em>Normalize + submit</em> — it trims to empty and "Title is required" fires.</li>
+            <li>Tick <em>Normalize automatically on submit</em>, type <code>"    Meeting notes about the Q3 rollout    "</code> and click plain <em>Submit</em> — the option trims it before the profile runs, with no manual call, and the submit succeeds (the box now shows the trimmed 34-character value, same as a manual Normalize would leave it). Untick the box, retype the same raw text, and click <em>Submit</em> again — this time the raw 42-character value fails the 40-character rule, since nothing trimmed it first.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm @ref="_form" Model="_note">
+<p>
+    <label><input type="checkbox" @bind="_options.NormalizeOnSubmit" /> Normalize automatically on submit</label>
+</p>
+
+<FormidableForm @ref="_form" Model="_note" Options="_options">
     <FormidableSummary />
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
@@ -33,6 +39,7 @@
 
     <div class="actions">
         <button type="button" @onclick="NormalizeNow">Normalize now</button>
+        <button type="button" @onclick="Submit">Submit</button>
         <button type="button" class="primary" @onclick="NormalizeAndSubmit">Normalize + submit</button>
     </div>
 </FormidableForm>

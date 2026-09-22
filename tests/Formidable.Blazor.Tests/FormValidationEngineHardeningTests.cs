@@ -95,6 +95,52 @@ public class FormValidationEngineHardeningTests
         Assert.Contains(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
     }
 
+    // RunRefreshPassAsync's own entry guard, pinned the same way its debounced-live-pass sibling
+    // already is: a timer fire dispatches RunRefreshPassAsync through _renderDispatch, and that
+    // dispatch can still be QUEUED — not yet run — when Dispose() tears the engine down. Without
+    // an entry guard, the queued call reaches BeginPass and cancels a _passCts Dispose() already
+    // cancelled and disposed, throwing ObjectDisposedException into a discarded task. LiveDebounce
+    // is set wider than the window advanced here so the live pass NotifyFieldChanged would
+    // otherwise start immediately stays merely armed, never run — isolating the refresh timer's
+    // own dispatch as the one this test intercepts.
+    [Fact]
+    public async Task Refresh_dispatch_still_queued_when_engine_is_disposed_does_not_throw()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var interceptNext = false;
+        Func<Task>? queued = null;
+        var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(500) },
+            time,
+            renderDispatch: work =>
+            {
+                if (interceptNext)
+                {
+                    interceptNext = false;
+                    queued = work;
+                    return Task.CompletedTask;
+                }
+
+                return work();
+            });
+
+        await engine.ValidateForSubmitAsync(); // report.IsValid -> HasSubmitted, no errors to chase
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        interceptNext = true;
+        time.Advance(TimeSpan.FromMilliseconds(301)); // arms + fires the refresh timer only
+        Assert.NotNull(queued);
+
+        engine.Dispose();
+
+        await queued!(); // the queued dispatch finally runs against the now-disposed engine
+    }
+
     [Fact]
     public async Task ApplyServerIssues_clears_a_prior_fault()
     {
