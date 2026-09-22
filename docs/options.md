@@ -188,9 +188,9 @@ an error.
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
 ```
 
-With tracking off `IsFormValid` always reads `false`; with it on, `false` until a whole-form check
-has answered once (a validity check, a submit, a load, or the whole-form re-check). Issues a server
-applied through `ApplyServerIssues` are not part of the answer.
+With tracking off `IsFormValid` keeps its last answer, `false` on a form that has never tracked; with
+it on, `false` until a whole-form check has answered once (a validity check, a submit, a load, or the
+whole-form re-check). Issues a server applied through `ApplyServerIssues` are not part of the answer.
 
 Tracking also feeds the `Valid` class, so it can put green on a field a narrowed live check could
 not ([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:

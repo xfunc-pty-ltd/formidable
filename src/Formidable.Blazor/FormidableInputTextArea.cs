@@ -2,28 +2,11 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Reference validated multiline text input: a plain <c>&lt;textarea&gt;</c> bound to a
-/// <see cref="string"/> field, wired through <see cref="FormidableInputBase{TValue}"/> exactly
-/// like <see cref="FormidableInputText"/> — registration, css class, aria output, pending state,
-/// and identity all apply unchanged. Mirrors native <c>InputTextArea</c>'s markup and value
-/// semantics (a plain string, no parsing); the only difference from <see cref="FormidableInputText"/>
-/// is the element tag.
-/// </summary>
-/// <remarks>
-/// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted
-/// <c>class</c> merges with the computed state class, a consumer-splatted
-/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
-/// the field has issues, and a consumer-supplied <c>id</c> is
-/// ignored in favour of the deterministic <see cref="FormidableFieldId"/>. <see cref="FormidableInputBase{TValue}.UpdateOn"/>
-/// applies exactly as it does for <see cref="FormidableInputText"/>: <c>OnChange</c> (default)
-/// commits on the element's <c>change</c> event, <c>OnInput</c> commits on every keystroke, and
-/// <c>OnBlur</c> commits on <c>change</c> while deferring the engine notification to <c>blur</c>,
-/// delivered only when a commit has occurred since the last one.
-/// </remarks>
+/// <summary>A validated <c>&lt;textarea&gt;</c> for a <see cref="string"/> field, identical to <see cref="FormidableInputText"/> but for the element tag.</summary>
 public sealed class FormidableInputTextArea : FormidableInputBase<string?>
 {
-    /// <inheritdoc />
+    /// <summary>Renders the <c>&lt;textarea&gt;</c>: the shared attributes, the <c>value</c>, then the commit binding.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "textarea");

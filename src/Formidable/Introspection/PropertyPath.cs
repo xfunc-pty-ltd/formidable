@@ -1,25 +1,24 @@
 namespace Formidable.Introspection;
 
-/// <summary>Parses FluentValidation property paths (e.g. <c>LineItems[0].Sku</c>) into segments.</summary>
+/// <summary>Parses a FluentValidation property path such as <c>LineItems[0].Sku</c> into segments.</summary>
 /// <remarks>
 /// Accepted grammar:
 /// <code>
 ///   path      := property ( '.' property | '.'? indexer )*
 ///   property  := any run of characters except '.', '[', ']'
-///   indexer   := '[' token ']'   — numeric index or dictionary key; consecutive
-///                indexers chain without a separating dot (e.g. "A[0][1]"), and a
-///                redundant '.' before an indexer is accepted (e.g. "A.[0]")
+///   indexer   := '[' token ']'   (a numeric index or a dictionary key)
 /// </code>
-/// Rejected: blank paths, leading/trailing/doubled dots, unclosed or empty brackets,
-/// a leading indexer, ']' inside a name, and a property directly after ']' without a dot.
+/// Consecutive indexers chain without a dot (<c>A[0][1]</c>), and a redundant dot before an
+/// indexer is accepted (<c>A.[0]</c>). Rejected: a blank path, a leading, trailing or doubled dot,
+/// an unclosed or empty bracket pair, a leading indexer, ']' inside a name, and a property
+/// directly after ']' without a dot.
 /// </remarks>
 public static class PropertyPath
 {
-    /// <summary>
-    /// Parses <paramref name="path"/> into segments. Returns false for malformed paths
-    /// (blank, unbalanced brackets, empty segments, missing separators) — callers fall back to
-    /// treating the whole path as a single property name.
-    /// </summary>
+    /// <summary>Parses <paramref name="path"/> into segments, returning <see langword="false"/> for a malformed path.</summary>
+    /// <param name="path">The property path.</param>
+    /// <param name="segments">The segments in order; empty when the parse fails.</param>
+    /// <returns><see langword="true"/> when <paramref name="path"/> matches the grammar in the class remarks.</returns>
     public static bool TryParse(string path, out IReadOnlyList<PathSegment> segments)
     {
         segments = [];
@@ -72,7 +71,10 @@ public static class PropertyPath
         return true;
     }
 
-    /// <summary>Consumes a single '.' separator. Rejects a leading, trailing, or doubled dot.</summary>
+    /// <summary>Consumes one '.' separator, rejecting a leading, trailing or doubled dot.</summary>
+    /// <param name="remaining">The unparsed rest of the path, starting at the dot.</param>
+    /// <param name="segmentsSoFar">How many segments precede the dot; zero makes it a leading dot.</param>
+    /// <returns><see langword="true"/> when the dot was consumed and something other than a dot follows it.</returns>
     private static bool TryConsumeSeparator(ref ReadOnlySpan<char> remaining, int segmentsSoFar)
     {
         if (segmentsSoFar == 0)
@@ -91,6 +93,9 @@ public static class PropertyPath
     }
 
     /// <summary>Consumes a '[token]' indexer and appends it to <paramref name="result"/>.</summary>
+    /// <param name="remaining">The unparsed rest of the path, starting at the '['.</param>
+    /// <param name="result">The segments parsed so far; empty makes this a leading indexer, which is rejected.</param>
+    /// <returns><see langword="true"/> when a closed, non-empty bracket pair was consumed and it is not the first segment.</returns>
     private static bool TryConsumeIndexer(ref ReadOnlySpan<char> remaining, List<PathSegment> result)
     {
         var close = remaining.IndexOf(']');
@@ -104,7 +109,10 @@ public static class PropertyPath
         return true;
     }
 
-    /// <summary>Consumes a bare property name up to the next '.', '[', or end of input.</summary>
+    /// <summary>Consumes a bare property name up to the next '.', '[' or the end of the input.</summary>
+    /// <param name="remaining">The unparsed rest of the path, starting at the name.</param>
+    /// <param name="result">The segments parsed so far, which the name is appended to.</param>
+    /// <returns><see langword="true"/> when the name holds no ']'.</returns>
     private static bool TryConsumeProperty(ref ReadOnlySpan<char> remaining, List<PathSegment> result)
     {
         // One scan for either separator. Searching for each in turn re-reads the whole

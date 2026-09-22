@@ -1,23 +1,18 @@
 namespace Formidable.AspNetCore;
 
-/// <summary>
-/// Maps a <see cref="ValidationReport"/> to the wire shape shared with the client:
-/// error messages keyed by property path plus non-error issues for the
-/// <see cref="AdvisoriesExtensionKey"/> ProblemDetails extension.
-/// </summary>
+/// <summary>Maps a <see cref="ValidationReport"/> to the 400 wire shape the client reads: errors keyed by property path and advisories under <see cref="AdvisoriesExtensionKey"/>.</summary>
 public static class ValidationReportProblemMapper
 {
-    /// <summary>The ProblemDetails extension key carrying non-error issues.</summary>
+    /// <summary>The ProblemDetails extension key that carries a report's non-error issues: <c>"advisories"</c>.</summary>
     public const string AdvisoriesExtensionKey = "advisories";
 
-    /// <summary>
-    /// Error messages grouped by path, preserving issue order within each path. A
-    /// <see langword="null"/> path reads as <c>""</c>, the model-level path, and a
-    /// <see langword="null"/> message as <c>""</c> — the same tolerance
-    /// <see cref="FormidableValidationProblem.ToIssues"/> applies on the client, because
-    /// <see cref="IModelValidator{TModel}"/> is a consumer-implementable seam and a hand-rolled
-    /// one can hand back either however the type is annotated.
-    /// </summary>
+    /// <summary>Error messages of <paramref name="report"/> grouped by property path, in report order within each path.</summary>
+    /// <param name="report">The report to map.</param>
+    /// <returns>One entry per path with an error, keyed case-sensitively; a <see langword="null"/> path reads as <c>""</c> (the model-level path) and a <see langword="null"/> message as <c>""</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    // The null tolerance matches FormidableValidationProblem.ToIssues on the client:
+    // IModelValidator<TModel> is a consumer-implementable seam, and a hand-rolled one can hand
+    // back a null path or message however the type is annotated.
     public static Dictionary<string, string[]> ToErrorDictionary(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -26,19 +21,11 @@ public static class ValidationReportProblemMapper
             .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message ?? string.Empty).ToArray());
     }
 
-    /// <summary>
-    /// Non-error issues as the advisories-extension payload, in issue order. Null paths and
-    /// messages are tolerated exactly as in <see cref="ToErrorDictionary"/>.
-    /// </summary>
-    /// <exception cref="ArgumentException">
-    /// An issue carries a <see cref="ValidationSeverity"/> value no member defines. The wire
-    /// field is a member NAME, so there is nothing honest to write: the value's own
-    /// <c>ToString</c> would put a number there, which the client reads as
-    /// <see cref="ValidationSeverity.Warning"/> — relabelling a caller's bug rather than
-    /// reporting it. Nothing shipped can produce one (the FluentValidation adapter maps
-    /// exhaustively), so the value comes from a cast in a hand-rolled validator, and naming it
-    /// is the only way its author learns of it.
-    /// </exception>
+    /// <summary>Non-error issues of <paramref name="report"/> as the advisories-extension payload, in report order.</summary>
+    /// <param name="report">The report to map.</param>
+    /// <returns>One advisory per non-error issue, its severity as the member name; a <see langword="null"/> path or message reads as <c>""</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">An issue carries a <see cref="ValidationSeverity"/> value no member defines; the wire field is a member name, so there is none to write.</exception>
     public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -52,6 +39,11 @@ public static class ValidationReportProblemMapper
             .ToList();
     }
 
+    // Throwing is the only honest answer to an undefined severity: the value's own ToString would
+    // put a number on the wire, which the client reads as Warning, relabelling a caller's bug
+    // rather than reporting it. Nothing shipped produces one (the FluentValidation adapter maps
+    // exhaustively), so the value comes from a cast in a hand-rolled validator, and naming it is
+    // the only way its author learns of it.
     private static string SeverityName(ValidationIssue issue, string parameterName) =>
         Enum.IsDefined(issue.Severity)
             ? issue.Severity.ToString()

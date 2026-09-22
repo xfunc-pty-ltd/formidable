@@ -5,16 +5,16 @@ public sealed class ValidationReport
 {
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
-    /// <summary>A shared valid, issue-free report.</summary>
+    /// <summary>A shared report with no issues.</summary>
     public static ValidationReport Empty { get; } = new([]);
 
-    /// <summary>Creates a report from the given issues.</summary>
+    /// <summary>Creates a report over <paramref name="issues"/>, partitioning them by severity once.</summary>
+    /// <param name="issues">The issues in validator order; the report keeps this instance.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The report keeps the caller's list itself — <see cref="Issues"/> returns exactly what
-    /// was handed in — while the severity views partition it here, in one pass: an issue added
-    /// to or removed from that list afterwards shows through <see cref="Issues"/>, never
-    /// through a view, and never through <see cref="IsValid"/>, which answers from
-    /// <see cref="Errors"/>.
+    /// <see cref="Issues"/> returns exactly the list handed in, while <see cref="Errors"/>,
+    /// <see cref="Warnings"/>, <see cref="Infos"/> and <see cref="Advisories"/> are fixed here,
+    /// so a later change to that list shows through <see cref="Issues"/> alone.
     /// </remarks>
     public ValidationReport(IReadOnlyList<ValidationIssue> issues)
     {
@@ -25,6 +25,10 @@ public sealed class ValidationReport
         List<ValidationIssue>? warnings = null;
         List<ValidationIssue>? infos = null;
         List<ValidationIssue>? advisories = null;
+        // The caller's list is aliased rather than copied, and the severity views are built once
+        // here rather than on each read: an issue added to or removed from that list afterwards
+        // shows through Issues, never through a view, and never through IsValid, which answers
+        // from Errors.
         foreach (var issue in issues)
         {
             switch (issue.Severity)
@@ -58,10 +62,7 @@ public sealed class ValidationReport
     /// <summary>All issues, in validator order.</summary>
     public IReadOnlyList<ValidationIssue> Issues { get; }
 
-    /// <summary>
-    /// True when there are no <see cref="ValidationSeverity.Error"/> issues.
-    /// Warnings and infos do not affect validity.
-    /// </summary>
+    /// <summary>True when the report carries no <see cref="ValidationSeverity.Error"/> issue; warnings and infos do not affect validity.</summary>
     public bool IsValid => Errors.Count == 0;
 
     /// <summary>Error-severity issues, in issue order.</summary>
@@ -73,11 +74,7 @@ public sealed class ValidationReport
     /// <summary>Info-severity issues, in issue order.</summary>
     public IReadOnlyList<ValidationIssue> Infos { get; }
 
-    /// <summary>
-    /// Non-error issues — warnings, infos, and any severity outside those two named members —
-    /// in issue order. Mirrors the ASP.NET Core package's wire-level
-    /// <c>ValidationReportProblemMapper.ToAdvisories</c> mapping for a client that holds the
-    /// report directly instead of a parsed problem response.
-    /// </summary>
+    /// <summary>Every non-error issue, in issue order: warnings, infos and any severity outside the named members.</summary>
+    /// <remarks>What a client holding the report reads where one parsing a problem response reads the <c>advisories</c> extension: the set the ASP.NET Core package's <c>ValidationReportProblemMapper.ToAdvisories</c> writes there, refusing an issue whose severity no member defines.</remarks>
     public IReadOnlyList<ValidationIssue> Advisories { get; }
 }

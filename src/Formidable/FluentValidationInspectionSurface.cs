@@ -5,19 +5,20 @@ using FluentValidation.Validators;
 
 namespace Formidable;
 
-/// <summary>
-/// Answers, once per process, whether the loaded FluentValidation assembly still carries the
-/// members the rule-inspection walk reads by name:
-/// <c>ChildValidatorAdaptor&lt;T, TProperty&gt;</c>'s <c>GetValidator</c> and <c>RuleSets</c>,
-/// and <c>ICollectionRule&lt;T, TElement&gt;</c>'s <c>Filter</c> and <c>AsyncFilter</c>. The
-/// compile-bound FluentValidation surface fails loudly when a release removes what it binds
-/// to; these four reads fail quietly, each degrading its own answer — a lost row-filter read
-/// turns "conditionally required" into a flat "required" — so a FluentValidation resolved
-/// above the range this package declares could put wrong requiredness claims on a form with no
-/// signal anywhere. This check turns that silence into an honest
-/// <see cref="IRuleInspectingValidator{TModel}.CanInspectRules"/> "cannot tell", plus one
-/// Trace line naming the cause.
-/// </summary>
+/// <summary>Checks once per process that the loaded FluentValidation assembly carries the four members rule inspection reads by name.</summary>
+/// <remarks>
+/// The members are <c>ChildValidatorAdaptor&lt;T, TProperty&gt;</c>'s <c>GetValidator</c> and
+/// <c>RuleSets</c> and <c>ICollectionRule&lt;T, TElement&gt;</c>'s <c>Filter</c> and
+/// <c>AsyncFilter</c>. A missing one makes
+/// <see cref="IRuleInspectingValidator{TModel}.CanInspectRules"/> answer <see langword="false"/>
+/// and writes one Trace line naming the cause, instead of letting a lost by-name read degrade a
+/// requirement answer silently.
+/// </remarks>
+// The compile-bound FluentValidation surface fails loudly when a release removes what it binds
+// to; these four reads fail quietly, each degrading its own answer (a lost row-filter read turns
+// "conditionally required" into a flat "required"), so a FluentValidation resolved above the
+// range this package declares could put wrong requiredness claims on a form with no signal
+// anywhere. This check turns that silence into an honest "cannot tell".
 internal static class FluentValidationInspectionSurface
 {
     // The four by-name reads the inspection walk performs, named once here and shared with the
@@ -36,12 +37,10 @@ internal static class FluentValidationInspectionSurface
     /// <summary>Whether every member the inspection walk reads by name was found.</summary>
     internal static bool Intact => Verified.Value;
 
-    /// <summary>
-    /// The check itself: one lookup per by-name read the walk performs, each against the
-    /// literal open generic type the walk closes before reading — the same route, so what this
-    /// finds is what the walk will find. A lookup that throws counts as not found: a member
-    /// the reflection cannot single out is one the walk cannot read, whatever the reason.
-    /// </summary>
+    /// <summary>Looks each by-name member up on the open generic type the walk closes, counting a lookup that throws as not found.</summary>
+    /// <returns><see langword="true"/> when all four members were found.</returns>
+    // The same route the walk takes, so what this finds is what the walk will find; a member
+    // the reflection cannot single out is one the walk cannot read, whatever the reason.
     internal static bool Verify()
     {
         bool intact;

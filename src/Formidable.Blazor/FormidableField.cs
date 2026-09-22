@@ -4,35 +4,24 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Renderless field component: hands any UI library a fresh <see cref="FormidableFieldContext"/>
-/// on every render via <see cref="ChildContent"/> (state, issues, computed CSS class, aria ids),
-/// and registers with the form's <see cref="FieldRegistry"/> so automatic disclosure stays
-/// truthful for whatever markup <see cref="ChildContent"/> renders. <see cref="FormidableAccessorComponentBase{TValue}.For"/> is
-/// (re-)read whenever the cascaded <see cref="FormidableFormContext"/> is a new instance —
-/// including the first render and again after a host such as <c>FormidableForm</c>/
-/// <c>FormidableValidator</c> swaps its model and rebuilds its engine and registry — so the
-/// registration and the engine subscription always target the currently-active context.
-/// </summary>
-/// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
-/// <c>object</c> where a shared component forwards an
-/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
-/// </typeparam>
+/// <summary>A renderless field for markup Formidable does not wrap: it registers the field and hands <see cref="ChildContent"/> a fresh <see cref="FormidableFieldContext"/> on every render.</summary>
+/// <typeparam name="TValue">The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or <c>object</c> where a shared component forwards an <c>Expression&lt;Func&lt;object&gt;&gt;</c>.</typeparam>
 public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TValue>
 {
     private FieldIdentifier _field;
     private string _elementId = string.Empty;
 
-    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
+    /// <summary>Whether the field stays registered after this component is disposed, for rows a <c>Virtualize</c> container disposes while they remain in the form. Defaults to <see langword="false"/>.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    /// <summary>Renders with the field's current <see cref="FormidableFieldContext"/>.</summary>
+    /// <summary>The markup to render, handed the field's current <see cref="FormidableFieldContext"/>. Required.</summary>
     [Parameter, EditorRequired]
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
-    /// <inheritdoc />
+    /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names and its element id, and registers it with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/>.</summary>
+    /// <param name="context">The context being bound.</param>
+    /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
     protected override FieldRegistration? Register(FormidableFormContext context)
     {
         _field = ResolveField();
@@ -40,7 +29,8 @@ public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TV
         return context.Registry.Register(_field, KeepRegistered);
     }
 
-    /// <inheritdoc />
+    /// <summary>Renders <see cref="ChildContent"/> with a context built from the field's current state, class and issues; renders nothing before the first bind.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         if (Context is null)

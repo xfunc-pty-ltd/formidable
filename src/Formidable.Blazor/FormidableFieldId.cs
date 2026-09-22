@@ -5,64 +5,19 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Deterministic DOM element ids for fields, shared by inputs (element id), messages
-/// (aria-describedby target), and the focus service. An id is keyed by the owning object
-/// instance and the field name together, and the name reaches it twice: once as a hash, which
-/// is what makes two names differ, and once sanitized, which is what makes the id legible.
-/// </summary>
+/// <summary>Deterministic element ids for fields, keyed by the owning object instance and the field name, shared by the kit's inputs, the message lists and the focus service.</summary>
 public static class FormidableFieldId
 {
     private const string MessagesSuffix = "-messages";
 
-    /// <summary>
-    /// The id for a field: <c>formidable-{owner-hash}-{name-hash}-{sanitized-name}</c>; the
-    /// model-level field uses <c>form</c> as its name segment.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The name hash sits before the sanitized name so that the name stays the id's suffix. The
-    /// owner segment is an object-identity hash, which is opaque rather than addressable: it
-    /// names the instance, so a different model or a different collection row gives a different
-    /// one (all but certainly — the last paragraph is the exception), and its value is drawn
-    /// from a sequence the runtime advances on each first identity-hash request, so anything
-    /// the app asks about earlier moves it along. Nothing a consumer writes can name it. The
-    /// suffix is the part that stays put, and it is what a consumer's CSS and a hand-written
-    /// browser locator select on (<c>[id$='-description']</c>).
-    /// </para>
-    /// <para>
-    /// Sanitization lowercases letters and digits and replaces every other character with
-    /// <c>-</c>, so names that differ only in case or in punctuation — <c>Url</c> and <c>URL</c>,
-    /// <c>Address.City</c> and <c>Address_City</c> — sanitize alike. The hash is taken from the
-    /// original name, case and all, which is what separates them again. It is spelled out here
-    /// rather than taken from <see cref="string.GetHashCode()"/>, which — unlike the identity
-    /// hash beside it — really is randomized per process: a stylesheet, a locator, or a test
-    /// computing the expected id independently would otherwise get a different answer on every
-    /// run of the app. Thirty-two bits over the field names one object owns makes two ids
-    /// overwhelmingly likely to differ rather than certain to — where the sanitizer collision it
-    /// replaces is structural, and happens every time.
-    /// </para>
-    /// <para>
-    /// The owner segment prints in the same eight hex digits and is narrower than it looks. The
-    /// runtime keeps an object's identity hash in part of the object's header rather than in a
-    /// full <see cref="int"/> — twenty-six bits of it on CoreCLR, the runtime under Blazor
-    /// Server and every server-side render — so among enough owner objects rendered at once two
-    /// can draw the same value, and their same-named fields then render the same id. The odds
-    /// climb with the square of the count: negligible for the hundreds of rows a form usually
-    /// shows, under one percent at a thousand rendered at once, about one in six at five
-    /// thousand. Validation is untouched, since the engine tells fields apart by the owner
-    /// reference and never by this hash; what a duplicate id disturbs is whatever is keyed by
-    /// the id. A site that reaches an element through it reaches the first of the two in the
-    /// document: a summary click or a blocked submit's focus lands on the first row, the second
-    /// row's <c>aria-describedby</c> names the first row's message list, and the value sync on
-    /// blur writes into the first row's box. The field-order service keys its answer by id as
-    /// well, and there a shared id can name only one field: the one the registry lists later
-    /// keeps it and takes the first row's place in the resolved order, and the other never
-    /// enters that order, so its issues sort after every placed field's. Virtualizing a form
-    /// that large keeps the rendered set to the rows in view, which is the count that matters.
-    /// </para>
-    /// </remarks>
+    /// <summary>The field's element id, <c>formidable-{owner-hash}-{name-hash}-{sanitized-name}</c>, with <c>form</c> as the model-level field's name segment.</summary>
     /// <param name="field">The field whose element id is being computed.</param>
+    /// <returns>The id, the same for one instance and name for as long as the instance lives; its two name segments are the same on every run of the app, its owner segment is not.</returns>
+    /// <remarks>
+    /// The sanitized name (letters and digits lowercased, everything else <c>-</c>) is the suffix
+    /// a stylesheet or a locator selects on; the owner segment names the instance and is nothing
+    /// a consumer can write.
+    /// </remarks>
     public static string For(FieldIdentifier field)
     {
         var name = field.FieldName.Length == 0
@@ -71,10 +26,14 @@ public static class FormidableFieldId
         return $"formidable-{RuntimeHelpers.GetHashCode(field.Model):x8}-{NameHash(field.FieldName):x8}-{name}";
     }
 
-    /// <summary>
-    /// FNV-1a over the name's UTF-16 code units. Spelled out rather than delegated: see the
-    /// remarks on <see cref="For(FieldIdentifier)"/> for why a per-process hash cannot serve here.
-    /// </summary>
+    /// <summary>FNV-1a over the name's UTF-16 code units, stable across processes.</summary>
+    /// <param name="name">The field name, case and punctuation intact.</param>
+    /// <returns>The 32-bit hash.</returns>
+    // Spelled out rather than taken from string.GetHashCode(), which is randomized per process: a
+    // stylesheet, a locator or a test computing the expected id on its own would otherwise get a
+    // different answer on every run of the app. Thirty-two bits over the names one object owns
+    // makes two ids overwhelmingly likely to differ, where the sanitizer collision it separates
+    // (Url and URL; Address.City and Address_City) is structural and happens every time.
     private static uint NameHash(string name)
     {
         const uint offsetBasis = 2166136261;
@@ -93,38 +52,22 @@ public static class FormidableFieldId
         return hash;
     }
 
-    /// <summary>
-    /// The id for a field named by a member-access expression, e.g. <c>o =&gt; o.Description</c> —
-    /// the same id <see cref="For(FieldIdentifier)"/> gives for the field that expression names,
-    /// without the stringly-typed <c>nameof</c> step. There is no expression shape for the
-    /// model-level field (an empty field name): construct that <see cref="FieldIdentifier"/>
-    /// directly and pass it to <see cref="For(FieldIdentifier)"/> instead.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The object part is evaluated, the way <see cref="FieldIdentifier.Create{TField}"/>
-    /// evaluates its own: <c>o =&gt; o.Address.City</c> names the field the component rendering
-    /// <c>Address.City</c> owns — <c>(model.Address, "City")</c> — rather than
-    /// <c>(model, "City")</c>, which nothing renders. Reading through a null on the way there
-    /// throws, because the field has no owner yet; so does a body that is not a member access,
-    /// which is why <c>o =&gt; !o.Flag</c> is rejected rather than read as <c>Flag</c>.
-    /// </para>
-    /// <para>
-    /// A member chain rooted at the lambda's parameter is walked by reflection and compiles
-    /// nothing, so the shape every caller writes today — an id computed in a property getter,
-    /// once per render — stays cheap. An object part that is not such a chain (an indexer, a
-    /// method call) is compiled instead, which costs orders of magnitude more; hold that id in a
-    /// field rather than recomputing it per render.
-    /// </para>
-    /// </remarks>
+    /// <summary>The element id for the field a member-access expression names, such as <c>o =&gt; o.Description</c>, with the object part evaluated against <paramref name="model"/> as <see cref="FieldIdentifier.Create{TField}"/> evaluates its own.</summary>
     /// <typeparam name="TModel">The type the accessor starts from: the field's owner, or the root of the path to it.</typeparam>
-    /// <typeparam name="TValue">
-    /// The accessor's type: the field's own value type, or <c>object</c> where a caller forwards
-    /// an <c>Expression&lt;Func&lt;TModel, object&gt;&gt;</c>, whose boxing convert this method
-    /// reads past.
-    /// </typeparam>
+    /// <typeparam name="TValue">The accessor's type: the field's own value type, or <c>object</c> where a caller forwards an <c>Expression&lt;Func&lt;TModel, object&gt;&gt;</c>, whose boxing convert is read past.</typeparam>
     /// <param name="model">The instance the accessor is evaluated against.</param>
-    /// <param name="accessor">A member-access expression naming the field, e.g. <c>o =&gt; o.Description</c>.</param>
+    /// <param name="accessor">A member-access expression naming the field.</param>
+    /// <returns>The id <see cref="For(FieldIdentifier)"/> gives for that field.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/> or <paramref name="accessor"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The body is not a member access (<c>o =&gt; !o.Flag</c>), names a static member, or the field's owner reads as <see langword="null"/>; a plain property-or-field chain reports a <see langword="null"/> met on the way the same way, where an object part holding an indexer or a method call throws <see cref="NullReferenceException"/> for one.</exception>
+    /// <remarks>
+    /// There is no expression shape for the model-level field: construct
+    /// <c>new FieldIdentifier(model, string.Empty)</c> and pass it to
+    /// <see cref="For(FieldIdentifier)"/>. A member chain rooted at the lambda's parameter is read
+    /// by reflection; an object part holding an indexer or a method call compiles the accessor,
+    /// which costs orders of magnitude more, so hold that id in a field rather than computing it
+    /// per render.
+    /// </remarks>
     public static string For<TModel, TValue>(TModel model, Expression<Func<TModel, TValue>> accessor)
         where TModel : class
     {
@@ -148,7 +91,14 @@ public static class FormidableFieldId
         return For(new FieldIdentifier(OwnerOf(member, model, accessor), member.Member.Name));
     }
 
-    /// <summary>The instance the named member is read from — the field's owner, and half of its id.</summary>
+    /// <summary>The instance the named member is read from: the field's owner, and half of its id.</summary>
+    /// <typeparam name="TModel">The type the accessor starts from.</typeparam>
+    /// <typeparam name="TValue">The accessor's type.</typeparam>
+    /// <param name="member">The member access the accessor's body is.</param>
+    /// <param name="model">The instance the accessor is evaluated against.</param>
+    /// <param name="accessor">The whole accessor, for the message and the parameter of a compiled read.</param>
+    /// <returns>The owner, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentException">The member is static, or the object part reads through a <see langword="null"/>.</exception>
     private static object OwnerOf<TModel, TValue>(
         MemberExpression member,
         TModel model,
@@ -176,11 +126,12 @@ public static class FormidableFieldId
             nameof(accessor));
     }
 
-    /// <summary>
-    /// Reads <c>o.A.B</c> off <paramref name="model"/> by reflection. Answers
-    /// <see langword="false"/> — leaving the caller to compile — when the chain is rooted anywhere
-    /// but the lambda's parameter, or passes through anything but a property or a field.
-    /// </summary>
+    /// <summary>Reads a property-or-field chain such as <c>o.A.B</c> off <paramref name="model"/> by reflection, or answers <see langword="false"/> for any other shape, leaving the caller to compile.</summary>
+    /// <typeparam name="TModel">The type the chain starts from.</typeparam>
+    /// <param name="objectPart">The accessor body's object part.</param>
+    /// <param name="model">The instance the chain is read off.</param>
+    /// <param name="owner">The object the chain reaches, or <see langword="null"/> where it reads through one.</param>
+    /// <returns><see langword="false"/> when the chain is rooted anywhere but the lambda's parameter or passes through anything but a property or a field.</returns>
     private static bool TryWalkMemberChain<TModel>(Expression objectPart, TModel model, out object? owner)
         where TModel : class
     {
@@ -221,24 +172,20 @@ public static class FormidableFieldId
         return true;
     }
 
-    /// <summary>
-    /// The id of the element listing a field's messages: <see cref="For(FieldIdentifier)"/> with a
-    /// <c>-messages</c> suffix. This is the <c>aria-describedby</c> contract, and this method owns
-    /// it: <see cref="FormidableFieldMessage{TValue}"/>,
-    /// <see cref="FormidableCollectionMessage{TValue}"/> and <see cref="FormidableModelMessage"/>
-    /// render this id on their lists, every kit
-    /// input points <c>aria-describedby</c> at it while the field has issues, and
-    /// <see cref="FormidableFieldContext.AriaDescribedBy"/> hands it to a hand-rolled control.
-    /// Call this rather than concatenating the suffix, so a control wired by hand and the message
-    /// list it describes cannot drift apart.
-    /// </summary>
+    /// <summary>The id of the element listing a field's messages, which the message components render and a kit input's <c>aria-describedby</c> targets: <see cref="For(FieldIdentifier)"/> plus <c>-messages</c>.</summary>
     /// <param name="field">The field whose message list is being addressed.</param>
+    /// <returns>The message-list id.</returns>
+    /// <remarks>
+    /// Call it rather than appending the suffix yourself, so a control wired by hand and the list
+    /// it describes cannot drift apart; <see cref="FormidableFieldContext.AriaDescribedBy"/> hands
+    /// the same string to a hand-rolled control.
+    /// </remarks>
     public static string MessagesFor(FieldIdentifier field) => MessagesFor(For(field));
 
-    /// <summary>
-    /// The same contract, for a caller that already holds the field's element id — the id and its
-    /// message-list id are computed together at registration, so the suffix is appended without
-    /// re-deriving the id.
-    /// </summary>
+    /// <summary>The message-list id for a caller that already holds the field's element id.</summary>
+    /// <param name="elementId">The element id <see cref="For(FieldIdentifier)"/> gave.</param>
+    /// <returns>That id plus <c>-messages</c>.</returns>
+    // The id and its message-list id are computed together at registration, so the suffix is
+    // appended without deriving the id a second time.
     internal static string MessagesFor(string elementId) => elementId + MessagesSuffix;
 }

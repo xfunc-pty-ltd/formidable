@@ -5,25 +5,20 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Formidable;
 
-/// <summary>Dependency-injection registration for Formidable core services.</summary>
+/// <summary>Dependency-injection registration for Formidable's core services.</summary>
 public static class FormidableServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers the model introspector and the FluentValidation adapter (open generic).
-    /// Validators themselves (<c>IValidator&lt;T&gt;</c>) are registered by the consumer.
-    /// Existing registrations are respected.
-    /// </summary>
+    /// <summary>Registers the model introspector and the FluentValidation adapter, leaving any registration already present in place.</summary>
+    /// <param name="services">The service collection to register into.</param>
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The adapter is registered transient so it can consume validators of any lifetime.
-    /// FluentValidation's <c>AddValidatorsFromAssembly</c> registers validators Scoped by
-    /// default; a singleton adapter would capture a Scoped validator as a captive dependency,
-    /// which throws under scope validation in ASP.NET Core hosts.
-    /// <para>
-    /// <see cref="IModelIntrospector"/> is a swappable seam: register your own implementation
-    /// before calling this method (respected via <c>TryAdd</c>) to replace the reflection-based
-    /// default — the seam a consumer publishing with full assembly trimming needs, since the
-    /// default walks <c>TModel</c>'s members via reflection.
-    /// </para>
+    /// The adapter, <see cref="FluentValidationModelValidator{TModel}"/>, is registered transient
+    /// as the open generic <see cref="IModelValidator{TModel}"/> and resolves the consumer's own
+    /// <c>IValidator&lt;T&gt;</c> registration. The introspector is registered as a singleton
+    /// <see cref="IModelIntrospector"/>; register your own before calling this to replace the
+    /// reflection-based <see cref="ReflectionModelIntrospector"/>, the replacement a publish with full
+    /// assembly trimming requires.
     /// </remarks>
     [UnconditionalSuppressMessage(
         "Trimming",
@@ -37,6 +32,10 @@ public static class FormidableServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IModelIntrospector, ReflectionModelIntrospector>();
+        // Transient so the adapter can consume a validator of any lifetime: FluentValidation's
+        // AddValidatorsFromAssembly registers validators Scoped by default, and a singleton
+        // adapter would capture a Scoped validator as a captive dependency, which throws under
+        // scope validation in ASP.NET Core hosts.
         services.TryAddTransient(typeof(IModelValidator<>), typeof(FluentValidationModelValidator<>));
         return services;
     }

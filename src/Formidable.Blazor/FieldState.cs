@@ -1,82 +1,45 @@
 namespace Formidable.Blazor;
 
-/// <summary>Per-field state exposed to field components for CSS and pending-UI decisions.</summary>
+/// <summary>One field's state as a component reads it: touched, modified, checking, which severities it carries, and whether it would pass submit.</summary>
 /// <remarks>
-/// Built with an object initializer over init-only properties — members added later arrive as
-/// further init-only properties, leaving every construction site and the parameterless
-/// constructor's binary shape intact, and are understood to fold into the record's synthesized
-/// equality. Any construction that runs the parameterless constructor — <c>new FieldState()</c>,
-/// with or without an object initializer — runs the property initializers;
-/// <c>default(FieldState)</c> bypasses constructors and initializers entirely and zeroes every
-/// member, <see cref="WouldPassSubmit"/> included.
+/// Build one with <c>new FieldState { ... }</c>, which runs the property initializers;
+/// <c>default(FieldState)</c> zeroes every member, <see cref="WouldPassSubmit"/> included. The
+/// type grows by init-only properties, so code constructing it keeps compiling.
 /// </remarks>
 public readonly record struct FieldState
 {
-    /// <summary>
-    /// Creates a state with every flag clear except <see cref="WouldPassSubmit"/>, whose
-    /// initializer this constructor runs.
-    /// </summary>
+    /// <summary>Creates a state with every flag clear except <see cref="WouldPassSubmit"/>, which starts <see langword="true"/>.</summary>
     public FieldState()
     {
     }
 
-    /// <summary>
-    /// The field has been interacted with: marked by a field component on a blur or a commit, or by
-    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> for a field whose loaded value it
-    /// decided for.
-    /// </summary>
+    /// <summary>Whether the field has been committed, marked touched through <see cref="IFormidableEngine.MarkTouched"/> (which <see cref="FormidableFieldContext.MarkTouched"/> wraps), or adopted by <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/>.</summary>
     public bool IsTouched { get; init; }
 
-    /// <summary>The EditContext reports the field as modified.</summary>
+    /// <summary>Whether the <c>EditContext</c> reports the field as modified.</summary>
     public bool IsModified { get; init; }
 
-    /// <summary>
-    /// A validation pass involving this field is in flight — scoped to the changed field for live
-    /// passes, scoped to whichever fields were edited within its debounce window for refresh
-    /// passes, and form-wide for a submit, the pass the visitor asked for. The pass
-    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> runs covers no field at all: it
-    /// answers for the whole model, so <see cref="IFormidableEngine.IsValidating"/> reports it for
-    /// a page-level spinner, but nobody asked for it and no field is waiting on it.
-    /// </summary>
+    /// <summary>Whether a check with this field in its scope is running: a live check for a change or loaded value of it, a submit, or the whole-form re-check an edit of it started after a submit.</summary>
+    /// <remarks>
+    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> covers no field while it runs;
+    /// only <see cref="IFormidableEngine.IsValidating"/> reports it, for a page-level spinner.
+    /// </remarks>
     public bool IsValidating { get; init; }
 
-    /// <summary>The field currently has error-severity messages.</summary>
+    /// <summary>Whether the field currently has an error-severity issue.</summary>
     public bool HasErrors { get; init; }
 
-    /// <summary>The field currently has warning-severity issues.</summary>
+    /// <summary>Whether the field currently has a warning-severity issue.</summary>
     public bool HasWarnings { get; init; }
 
-    /// <summary>The field currently has info-severity issues.</summary>
+    /// <summary>Whether the field currently has an info-severity issue.</summary>
     public bool HasInfos { get; init; }
 
-    /// <summary>
-    /// The engine can vouch that a submit would not fail this field: every rule the submit profile
-    /// selects has an answer current at the model's edit stamp — or, for the gap an edit opens
-    /// while its re-answer is demonstrably on its way, held from just before it — and none of
-    /// those answers carries an error-severity issue for this field. This is the conjunct that
-    /// gates the Valid class (see
-    /// <see cref="FormidableCss.Compute"/>) — "no disclosed issues" alone cannot mean "would pass",
-    /// because submit-selected rules that have not run for the value as it stands may yet reject it.
-    /// Freshness is judged form-level, deliberately: which fields a PASSING rule speaks for is
-    /// unknowable, so per-field freshness attribution does not exist and the form-wide answer is the
-    /// honest one. A rendered field set that moves discards those answers without moving the edit
-    /// stamp, and the answer computed at that stamp is held until the pass the move arms replaces
-    /// it: this vouches for the model, not for the page's registration churn. The same held answer
-    /// bridges the gap an edit itself opens: while a re-answer is demonstrably on its way, the
-    /// answer from before the edit keeps vouching for every field the edit did not touch, and the
-    /// edited fields are excluded, painting exactly as they would with nothing held. On its way
-    /// means a pass that runs the submit selection in flight within a bound, or one scheduled —
-    /// by an open live-debounce window on a live channel that runs that selection, or by an armed
-    /// post-submit refresh, which runs it by construction. A live pass narrowed away from that
-    /// selection promises nothing itself, in flight or scheduled: it counts only for a refresh
-    /// armed behind it, and only within that same bound, past which a pass still in flight counts
-    /// for nothing whatever waits behind it. A window or a refresh armed on a debounce that can
-    /// never fire (<see cref="System.Threading.Timeout.InfiniteTimeSpan"/>) promises nothing
-    /// either. Initialized to
-    /// <see langword="true"/>, so a state built without an engine — a test double, a hand-rolled
-    /// provider — keeps the Valid tier reachable; <c>default(FieldState)</c> never runs that
-    /// initializer and zeroes this member with the rest, so a defaulted state cannot vouch — the
-    /// safe direction for a state nobody built.
-    /// </summary>
+    /// <summary>Whether a submit would not fail this field: every submit rule has a current answer and none reports an error for it. Defaults to <see langword="true"/>.</summary>
+    /// <remarks>
+    /// <see cref="IFormidableEngine.IsFormValid"/> is the whole-form counterpart, kept current
+    /// only under <see cref="FormidableOptions.TrackFormValidity"/>. A <c>default(FieldState)</c>
+    /// reads <see langword="false"/> here.
+    /// </remarks>
     public bool WouldPassSubmit { get; init; } = true;
 }

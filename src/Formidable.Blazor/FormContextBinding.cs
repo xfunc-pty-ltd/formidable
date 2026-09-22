@@ -1,36 +1,28 @@
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Owns a component's binding to the cascaded <see cref="FormidableFormContext"/>: the
-/// field registration and/or <c>Engine.StateChanged</c> subscription that must be released
-/// and re-established whenever the host rebuilds its engine and registry (model swap).
-/// Without the rebind, a surviving component keeps a dead subscription to the disposed old
-/// engine and an orphaned registration in the old registry — it stops updating and its
-/// submit errors are suppressed as unrevealed.
-/// </summary>
+/// <summary>A component's registration and <c>StateChanged</c> subscription against the cascaded <see cref="FormidableFormContext"/>, re-established whenever that context is a new instance.</summary>
 internal sealed class FormContextBinding : IDisposable
 {
     private FormidableFormContext? _context;
     private FieldRegistration? _registration;
     private EventHandler<FormidableStateChangedEventArgs>? _stateChangedHandler;
 
-    /// <summary>The currently bound context, or null before the first <see cref="Update"/>.</summary>
+    /// <summary>The bound context, or <see langword="null"/> before the first <see cref="Update"/>.</summary>
     public FormidableFormContext? Context => _context;
 
-    /// <summary>
-    /// True when <paramref name="context"/> is non-null and already the bound instance — the
-    /// same no-op condition <see cref="Update"/> applies internally, exposed so a caller can
-    /// skip building the <c>register</c>/<c>stateChanged</c> delegates <see cref="Update"/>
-    /// would otherwise discard unused on every steady-state render.
-    /// </summary>
+    /// <summary>Whether <paramref name="context"/> is non-null and already the bound instance.</summary>
+    /// <param name="context">The cascaded context the component sees.</param>
+    /// <returns><see langword="true"/> when <see cref="Update"/> would do nothing for it.</returns>
+    // The same no-op condition Update applies, exposed so a caller can skip building the
+    // delegates Update would otherwise discard unused on every steady-state render.
     public bool IsBound(FormidableFormContext? context) => context is not null && ReferenceEquals(context, _context);
 
-    /// <summary>
-    /// Ensures the binding targets <paramref name="context"/>. Throws when no context is
-    /// cascaded; no-ops when the instance is unchanged; otherwise releases the previous
-    /// registration and subscription, then invokes <paramref name="register"/> (when given)
-    /// and subscribes <paramref name="stateChanged"/> (when given) against the new context.
-    /// </summary>
+    /// <summary>Binds to <paramref name="context"/>: does nothing for the bound instance, otherwise releases the old binding and registers and subscribes against the new.</summary>
+    /// <param name="context">The cascaded context, or <see langword="null"/> when none is cascaded.</param>
+    /// <param name="componentType">The component's type, named in the exception.</param>
+    /// <param name="register">Registers the component's field with the context, or <see langword="null"/> to register nothing.</param>
+    /// <param name="stateChanged">The handler to subscribe to the engine's <c>StateChanged</c>, or <see langword="null"/> to subscribe nothing.</param>
+    /// <exception cref="InvalidOperationException"><paramref name="context"/> is <see langword="null"/>: the component sits inside no <c>FormidableForm</c> or <c>FormidableValidator</c>.</exception>
     public void Update(
         FormidableFormContext? context,
         Type componentType,

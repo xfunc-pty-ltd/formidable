@@ -3,7 +3,7 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
-/// <summary>JS-module-backed focus/scroll for fields, addressed by <see cref="FormidableFieldId"/>.</summary>
+/// <summary>The JS-backed <see cref="IFormidableFocusService"/>: formidable.js scrolls the field's message list (or the element itself) into view, focuses the element carrying the field's id, and reports whether it took focus.</summary>
 internal sealed class FormidableFocusService : FormidableJsBackedService, IFormidableFocusService
 {
     public FormidableFocusService(IJSRuntime jsRuntime) : base(jsRuntime)

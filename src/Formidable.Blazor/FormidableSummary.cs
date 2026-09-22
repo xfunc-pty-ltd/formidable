@@ -4,35 +4,7 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Renders a live, severity-grouped summary of the currently-visible validation issues across
-/// the form — all of them unless <see cref="Show"/>, <see cref="GroupByField"/> or
-/// <see cref="MaxItems"/> narrows what is listed — backed by
-/// <see cref="IFormidableEngine.GetVisibleIssues"/>: the same
-/// submit-then-live-deduped view <c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>
-/// use per-field, but for the whole form at once, and in the order that view reports: where the
-/// fields sit on the page, once the host has resolved that. The markup is one persistent
-/// <c>&lt;div class="formidable-summary"&gt;</c> wrapper holding fixed-role region elements that
-/// render from the first paint and stand empty while the form has nothing to show:
-/// <c>formidable-summary__region--errors</c> carries <c>role="alert"</c> and receives the error
-/// band, and <c>formidable-summary__region--advisories</c> carries the politer
-/// <c>role="status"</c> and receives the warning and info bands — an errors-free submit that
-/// surfaces only warnings/infos should not interrupt the way a blocking error does. No role ever
-/// changes on any element, and every band that arrives after a region's own first render inserts
-/// under a role the DOM already carried, which is what makes the insertion reliable for assistive
-/// technology to announce — the same persistent-element reasoning behind
-/// <c>FormidableFieldMessage</c>'s always-rendered list. <see cref="Show"/> decides which of the
-/// two regions exist at all, and it is a parameter: changing it at runtime while matching issues
-/// are already showing renders an added region in the same pass as that region's first band.
-/// Inside a region, each non-empty severity group renders one band (errors, then warnings, then
-/// infos), each item a button that moves focus to the offending field via
-/// <see cref="IFormidableFocusService"/>. A band lists one entry per issue it holds, unless
-/// <see cref="GroupByField"/> collapses the issues sharing a field into a single entry or
-/// <see cref="MaxItems"/> caps how many entries that band renders; an entry reads as its own
-/// issue's message unless <see cref="ItemTemplate"/> supplies something else. Subscribes to the
-/// cascaded engine's <see cref="IFormidableEngine.StateChanged"/> so the summary stays
-/// current through live edits, refreshes, and server-applied issues — not just at submit time.
-/// </summary>
+/// <summary>Lists the form's currently showing issues, grouped by severity into fixed-role live regions, each entry a button that moves focus to its field; <see cref="Show"/>, <see cref="GroupByField"/> and <see cref="MaxItems"/> narrow what is listed.</summary>
 public sealed class FormidableSummary : FormidableComponentBase
 {
     private const string ErrorsRegionClass = "formidable-summary__region formidable-summary__region--errors";
@@ -49,232 +21,110 @@ public sealed class FormidableSummary : FormidableComponentBase
     [Inject]
     private IFormidableFocusService FocusService { get; set; } = default!;
 
-    /// <summary>Additional attributes splatted onto the persistent wrapper element.</summary>
-    /// <remarks>
-    /// The splat lands on the wrapper (<c>formidable-summary</c>) and reaches nothing below it:
-    /// the fixed-role regions, and every element this component builds inside them, are contract,
-    /// so a consumer cannot re-role a region — or decorate anything under one — by splatting. On
-    /// the wrapper the kit's usual ordering applies: the splat enters the render tree first and
-    /// the computed values after, so a consumer-splatted <c>class</c> is merged rather than
-    /// replaced — the splatted value first, then <c>formidable-summary</c>.
-    /// </remarks>
+    /// <summary>Attributes splatted onto the wrapper element only, ahead of its computed values: <c>class</c> merges (the splatted value first, then <c>formidable-summary</c>); nothing reaches the regions inside.</summary>
     [Parameter(CaptureUnmatchedValues = true)]
+    // The regions, and every element this component builds inside them, are contract, so a
+    // consumer cannot re-role a region, or decorate anything under one, by splatting.
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    /// <summary>
-    /// Invoked when a clicked issue's element does not take focus (focus miss) — nothing on the
-    /// page carries the field's id, as for a virtualized row outside the render window, or the
-    /// element that carries it will not take focus, as one inside a collapsed section will not.
-    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
-    /// that section) and the summary retries the focus exactly once; return <c>false</c> to leave
-    /// the miss as-is. When unset, a miss is silently ignored, matching the component's
-    /// pre-fallback behaviour.
-    /// </summary>
+    /// <summary>Called once when a clicked entry's field does not take focus; return <see langword="true"/> after making it reachable and the click retries once, <see langword="false"/> to leave the miss.</summary>
+    /// <remarks>
+    /// Unset, a miss is ignored and the click has no effect, where the roots report a
+    /// diagnostic. The same delegate shape as <see cref="FormidableForm{TModel}.FocusFallback"/> and
+    /// <see cref="FormidableValidator{TModel}.FocusFallback"/>, so one callback serves all three.
+    /// </remarks>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
-    /// <summary>
-    /// Invoked and awaited before a clicked entry's focus is attempted, so the page can make the
-    /// target reachable first: dismissing a modal that covers it, expanding a collapsed section,
-    /// switching to the tab it sits on. Receives the field about to be focused. Distinct from
-    /// <see cref="FocusFallback"/>, which runs only after an attempt has already missed: this runs
-    /// whether or not the element is reachable, and the try-fallback-retry pipeline behind it is
-    /// unchanged. Same delegate shape as <c>FormidableForm</c>'s and <c>FormidableValidator</c>'s
-    /// parameters of the same name, so one page callback wires to all three.
-    /// </summary>
+    /// <summary>Awaited before a clicked entry's focus move, with the field about to be focused, so the page can make it reachable first.</summary>
     /// <remarks>
-    /// The callback must complete when the page is ready to be focused, not when it has begun
-    /// getting ready — a dialog is the case that makes the difference visible. Closing one runs a
-    /// transition, removes an overlay, and hands focus back to whatever opened it. That last step
-    /// is what takes a premature focus move straight back, leaving the visitor somewhere neither
-    /// they nor the summary chose; the transition and the overlay are why a target focused ahead
-    /// of them is not yet one the visitor can use. So a dismissal callback completes on the
-    /// dialog's own closed event, not on the state change that starts the close.
-    /// <para>
-    /// This callback runs once per click, before the first attempt: a fallback's retry does not
-    /// run it a second time. A throw is treated exactly as one from <see cref="FocusFallback"/>
-    /// is — it faults the click handler's task and the renderer surfaces it — so a page that
-    /// wires both parameters gets one behaviour rather than two.
-    /// </para>
-    /// <para>
-    /// A <see cref="Func{T, TResult}"/> rather than an <see cref="EventCallback{TValue}"/>,
-    /// because invoking one of those routes through <see cref="IHandleEvent"/> on the component
-    /// that supplied the handler, and <see cref="ComponentBase"/>'s implementation calls
-    /// <c>StateHasChanged</c> for it: once for a handler that completes synchronously, and a
-    /// second time once an asynchronous one completes. This hook is awaited in the middle of a
-    /// click's focus move — after the entry's field is chosen, before its element is addressed —
-    /// and a render of the page belongs to what the page changed, not to its having been asked
-    /// to make the target reachable.
-    /// </para>
+    /// Complete it when the page is ready to take focus: on a dialog's closed event, not on the
+    /// state change that starts the close. It runs once per click, ahead of the first attempt
+    /// and not again before a <see cref="FocusFallback"/> retry; a throw surfaces out of the
+    /// click. The same delegate shape as <see cref="FormidableForm{TModel}.PrepareFocus"/> and
+    /// <see cref="FormidableValidator{TModel}.PrepareFocus"/>.
     /// </remarks>
     [Parameter]
+    // A Func rather than an EventCallback, because invoking one of those routes through
+    // IHandleEvent on the component that supplied the handler, and ComponentBase's implementation
+    // calls StateHasChanged for it: once for a handler that completes synchronously, and a second
+    // time once an asynchronous one completes. This hook is awaited in the middle of a click's
+    // focus move (after the entry's field is chosen, before its element is addressed), and a
+    // render of the page belongs to what the page changed, not to its having been asked to make
+    // the target reachable.
     public Func<FieldIdentifier, ValueTask>? PrepareFocus { get; set; }
 
-    /// <summary>
-    /// Which severities this summary renders — and with it, which fixed-role regions its
-    /// wrapper holds. Defaults to <see cref="SummaryFilter.All"/>, which renders both regions —
-    /// the single combined summary. <see cref="SummaryFilter.Errors"/> renders the
-    /// <c>role="alert"</c> region alone; the advisory filters (<see cref="SummaryFilter.Advisories"/>,
-    /// <see cref="SummaryFilter.Warnings"/>, <see cref="SummaryFilter.Infos"/>) render the
-    /// <c>role="status"</c> region alone — e.g. a page that shows errors and advisories as two
-    /// separate summaries. A filter that matches nothing renders its region empty, the same as a
-    /// clean form: the region persists so that whatever arrives in it later is announced from an
-    /// element already carrying its role.
-    /// </summary>
+    /// <summary>Which severities this summary lists, and so which regions it renders: <see cref="SummaryFilter.All"/> both, <see cref="SummaryFilter.Errors"/> the <c>alert</c> region alone, the three advisory filters the <c>status</c> region alone. Defaults to <see cref="SummaryFilter.All"/>.</summary>
     [Parameter]
     public SummaryFilter Show { get; set; } = SummaryFilter.All;
 
-    /// <summary>
-    /// Heading for the error band, rendered as a <c>formidable-summary__heading</c> element and
-    /// wired to that band's list via <c>aria-labelledby</c> — the id relationship is minted and
-    /// applied by this component, not left for a consumer to get right. Null (the default) omits
-    /// the heading and the <c>aria-labelledby</c> attribute entirely, leaving output unchanged
-    /// for anyone who does not opt in. No English default stands in for it: a band's label is the
-    /// page's own wording in the page's own language, neither of which a component can guess.
-    /// Pass a localized string to label the band.
-    /// </summary>
+    /// <summary>The heading rendered above the error band as an <c>h{HeadingLevel}</c> with class <c>formidable-summary__heading</c>, wired to the band's list by <c>aria-labelledby</c>. Defaults to <see langword="null"/>, which renders neither.</summary>
     [Parameter]
+    // No English default stands in for it: a band's label is the page's own wording in the
+    // page's own language, neither of which a component can guess.
     public string? ErrorsHeading { get; set; }
 
-    /// <summary>Heading for the warning band. See <see cref="ErrorsHeading"/> for the contract.</summary>
+    /// <summary>The heading above the warning band, on <see cref="ErrorsHeading"/>'s terms. Defaults to <see langword="null"/>.</summary>
     [Parameter]
     public string? WarningsHeading { get; set; }
 
-    /// <summary>Heading for the info band. See <see cref="ErrorsHeading"/> for the contract.</summary>
+    /// <summary>The heading above the info band, on <see cref="ErrorsHeading"/>'s terms. Defaults to <see langword="null"/>.</summary>
     [Parameter]
     public string? InfosHeading { get; set; }
 
-    /// <summary>
-    /// The HTML heading level (1-6) rendered for whichever band(s) currently carry a heading — see
-    /// <see cref="ErrorsHeading"/>. Defaults to 2. This component has no visibility into where a
-    /// consumer's summary sits inside their page's own heading outline, so it cannot pick a level
-    /// that is guaranteed to stay monotonic there; because <see cref="ErrorsHeading"/> and its
-    /// siblings are strings rather than a <c>RenderFragment</c>, a consumer has no other way to
-    /// supply their own heading element either, so this is the correction. Must be between 1 and 6
-    /// inclusive; an out-of-range value throws from <see cref="OnParametersSet"/> rather than being
-    /// silently clamped to the nearest valid level, so a mistake here is visible immediately
-    /// instead of shipping a heading level nobody chose.
-    /// </summary>
-    /// <remarks>
-    /// An <see langword="int"/> deliberately, not an enum of the six valid levels: heading
-    /// levels are arithmetic at both ends. The value becomes the digit in the <c>h1</c>-<c>h6</c>
-    /// tag name this component renders, and a summary slotted into a page's own outline computes
-    /// <c>HeadingLevel="@(parentLevel + 1)"</c>, which an enum would turn into a cast. The loud
-    /// throw is the guard that arithmetic needs.
-    /// </remarks>
+    /// <summary>The HTML heading level, 1 to 6, the band headings render at; a value outside that range throws from <see cref="OnParametersSet"/>. Defaults to 2.</summary>
     [Parameter]
+    // An int rather than an enum of the six levels, because heading levels are arithmetic at
+    // both ends: the value becomes the digit in the h1-h6 tag name, and a summary slotted into a
+    // page's own outline computes HeadingLevel="@(parentLevel + 1)", which an enum would turn
+    // into a cast. The component cannot see where it sits in the page's outline, and the heading
+    // parameters are strings rather than fragments, so this is the one way to supply the level;
+    // the loud throw, rather than a clamp, is the guard that arithmetic needs.
     public int HeadingLevel { get; set; } = 2;
 
-    /// <summary>
-    /// Replaces what each entry's button CONTAINS, and nothing else about the entry. The fragment
-    /// receives that entry's <see cref="VisibleIssue"/>, the field and the issue together, so it
-    /// can render the issue's <see cref="ValidationIssue.DisplayName"/> in place of the
-    /// <see cref="ValidationIssue.Message"/> the default renders. Left unset, every entry renders
-    /// that message.
-    /// </summary>
-    /// <remarks>
-    /// The button around the fragment is not a template and is not meant to become one: its
-    /// element and its <c>formidable-summary__link</c> class stay this component's, so an entry
-    /// whose wording a page rewrote still reads to assistive technology as the button its list
-    /// item promises, and still matches a stylesheet written against the kit's structural class
-    /// names. What a click on that button does stays this component's too, so rewording an entry
-    /// changes what it reads as and nothing about where the click takes the visitor. A summary
-    /// that needs different markup around the entries is a summary a page builds for itself out
-    /// of <see cref="IFormidableEngine.GetVisibleIssues"/> and
-    /// <see cref="IFormidableFocusService"/>, which this component does not stand in the way of.
-    /// </remarks>
+    /// <summary>The content of each entry's button, handed the entry's <see cref="VisibleIssue"/>; the button, its <c>formidable-summary__link</c> class and its click stay the component's. Defaults to <see langword="null"/>, which renders the issue's <see cref="ValidationIssue.Message"/>.</summary>
     [Parameter]
+    // The button is not a template and is not meant to become one: a reworded entry still reads
+    // to assistive technology as the button its list item promises, still matches a stylesheet
+    // written against the structural class names, and still takes the visitor to the field. A
+    // summary that needs different markup around the entries is one a page builds for itself out
+    // of GetVisibleIssues and IFormidableFocusService.
     public RenderFragment<VisibleIssue>? ItemTemplate { get; set; }
 
-    /// <summary>
-    /// Collapses each severity band's entries to one per field. <see langword="false"/>, the
-    /// default, renders one entry per issue, so a field failing two rules is listed twice.
-    /// <see langword="true"/> keeps the first issue of each distinct
-    /// <see cref="VisibleIssue.Field"/> within the band and drops the rest — which also makes
-    /// <see cref="MaxItems"/> a count of fields rather than of findings, the difference between
-    /// "the first four problems" and "the first four fields with a problem".
-    /// </summary>
-    /// <remarks>
-    /// Grouping is by field identity rather than by the issues' display names, though showing
-    /// names is the usual reason to switch it on: two genuinely different fields are free to
-    /// carry the same <c>WithName(...)</c>, and merging those would drop one of them from a list
-    /// whose whole job is to be complete. Field identity is also what a click has to resolve, so
-    /// it is the key already required to be unambiguous. The surviving issue carries its own
-    /// display name for <see cref="ItemTemplate"/> to render.
-    /// <para>
-    /// It groups within a band and never across the summary, because a band is the grouping this
-    /// component already imposes: a field carrying an error and a warning is listed
-    /// once in each, which is one field described two ways rather than one description repeated.
-    /// Entries hold the position of each field's first issue, so a grouped band is still in the
-    /// order <see cref="IFormidableEngine.GetVisibleIssues"/> reported. Every model-level
-    /// issue shares one field identifier, so a band holding more than one of them renders a
-    /// single entry for the lot.
-    /// </para>
-    /// </remarks>
+    /// <summary>Whether each band lists one entry per field (the field's first issue) rather than one per issue, which makes <see cref="MaxItems"/> a count of fields. Defaults to <see langword="false"/>.</summary>
     [Parameter]
+    // By field identity rather than by display name, though showing names is the usual reason
+    // to switch it on: two different fields are free to carry the same WithName(...), and merging
+    // those would drop one from a list whose whole job is to be complete. Field identity is also
+    // what a click has to resolve, so it is the key already required to be unambiguous.
     public bool GroupByField { get; set; }
 
-    /// <summary>
-    /// The most entries a severity band renders, or <see langword="null"/> — the default — for as
-    /// many as the band has. What it counts is entries, which is issues by default and fields
-    /// under <see cref="GroupByField"/>. Whatever the cap holds back is what
-    /// <see cref="OverflowTemplate"/> receives.
-    /// </summary>
-    /// <remarks>
-    /// The cap is per band, not per summary: a band is a list of its own with a heading of its
-    /// own, and capping across the summary would let a run of warnings decide how many errors a
-    /// visitor gets to read. A value at or above a band's entry count leaves that band exactly as
-    /// an uncapped summary renders it. <c>0</c> is legal and renders the band's list with no
-    /// entries in it, which — with an <see cref="OverflowTemplate"/> — is how a summary hands that
-    /// fragment the band whole and lists none of it itself, and without one is an empty list and
-    /// nothing else. A negative value throws from <see cref="OnParametersSet"/> instead of being
-    /// read as <c>0</c>: this is a number pages arrive at by arithmetic, and arithmetic that has
-    /// gone below zero is a mistake worth seeing rather than a list that quietly empties itself.
-    /// </remarks>
+    /// <summary>The most entries a band lists, or <see langword="null"/> for all of them; per band, never per summary. <c>0</c> lists none, and a negative value throws from <see cref="OnParametersSet"/>. Defaults to <see langword="null"/>.</summary>
     [Parameter]
+    // Per band because a band is a list of its own with a heading of its own, and capping across
+    // the summary would let a run of warnings decide how many errors a visitor gets to read. A
+    // negative value throws rather than reading as 0: this is a number pages arrive at by
+    // arithmetic, and arithmetic that has gone below zero is a mistake worth seeing rather than
+    // a list that quietly empties itself.
     public int? MaxItems { get; set; }
 
-    /// <summary>
-    /// Renders after a band's last shown entry when <see cref="MaxItems"/> held entries back,
-    /// receiving the entries that band held back: the ones it would have listed, minus the ones it
-    /// did list, in the order it would have listed them. That list is never empty, because a band
-    /// that held nothing back does not reach the fragment at all, so the list's <c>Count</c> is
-    /// always one or more and is the whole of what a line that only counts the remainder needs.
-    /// This component supplies the list item and its <c>formidable-summary__overflow</c> class;
-    /// the fragment supplies what goes inside it.
-    /// </summary>
-    /// <remarks>
-    /// The entries themselves, not their number, because a number answers only the questions that
-    /// are about how many. An expander that reveals what was dropped, a tooltip listing it, a line
-    /// that names the fields rather than counting them: each of those needs the entries. Each entry
-    /// is a <see cref="VisibleIssue"/>, the same field-and-issue pair <see cref="ItemTemplate"/> is
-    /// handed for a shown entry, so a page can render a held-back entry exactly as it renders a
-    /// shown one.
-    /// <para>
-    /// What a band held back is that band's own, because <see cref="MaxItems"/> is counted per
-    /// band: a band offers this fragment its own entries and no other band's, so a summary showing
-    /// more than one band renders this fragment once for each band that held anything back.
-    /// </para>
-    /// <para>
-    /// Left unset, a capped band renders nothing whatever in place of what it dropped. That is
-    /// deliberate rather than an omission: what stands in for dropped entries is a sentence, and
-    /// a sentence has a language and a plural rule behind it that this component cannot pick. A
-    /// page that wants the line writes it here, in its own words.
-    /// </para>
-    /// </remarks>
+    /// <summary>What a band renders after its last shown entry when <see cref="MaxItems"/> held entries back, handed those entries in order (never an empty list) inside the component's <c>li.formidable-summary__overflow</c>. Defaults to <see langword="null"/>, which renders nothing there.</summary>
     [Parameter]
+    // The entries themselves, not their number, because a number answers only the questions that
+    // are about how many: an expander that reveals what was dropped, a tooltip listing it, a line
+    // that names the fields, each needs the entries, and a line that only counts reads Count.
+    // Unset, a capped band renders nothing in place of what it dropped, deliberately: what stands
+    // in for dropped entries is a sentence, and a sentence has a language and a plural rule
+    // behind it that this component cannot pick.
     public RenderFragment<IReadOnlyList<VisibleIssue>>? OverflowTemplate { get; set; }
 
-    /// <summary>
-    /// Null: the summary speaks for the whole form rather than for one field, so it registers
-    /// nothing — it reads the engine's already-visible issues and has no field of its own to
-    /// reveal.
-    /// </summary>
-    /// <param name="context">The context now being bound.</param>
-    /// <returns>Always null.</returns>
+    /// <summary>Registers nothing: the summary speaks for the whole form and reads the engine's visible issues.</summary>
+    /// <param name="context">The context being bound.</param>
+    /// <returns>Always <see langword="null"/>.</returns>
     protected override FieldRegistration? Register(FormidableFormContext context) => null;
 
-    /// <inheritdoc />
+    /// <summary>Checks <see cref="HeadingLevel"/> and <see cref="MaxItems"/>, then binds through the base.</summary>
+    /// <exception cref="InvalidOperationException"><see cref="HeadingLevel"/> is outside 1 to 6, <see cref="MaxItems"/> is negative, or no <see cref="FormidableFormContext"/> is cascaded.</exception>
     protected override void OnParametersSet()
     {
         if (HeadingLevel is < 1 or > 6)
@@ -294,7 +144,8 @@ public sealed class FormidableSummary : FormidableComponentBase
         base.OnParametersSet();
     }
 
-    /// <inheritdoc />
+    /// <summary>Renders the wrapper and, per <see cref="Show"/>, the errors region and the advisories region, each banding the issues <see cref="IFormidableEngine.GetVisibleIssues"/> reports; renders nothing before the first bind.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         if (Context is null)

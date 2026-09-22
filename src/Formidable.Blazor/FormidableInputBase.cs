@@ -7,71 +7,21 @@ using Microsoft.AspNetCore.Components.Web;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Base class for validated input components, and the kit's extension point for controls it does
-/// not ship: it wires field registration, the engine state subscription, touch/notify plumbing,
-/// the computed CSS class, the deterministic element id, and the aria attributes, so a derived
-/// control only has to render markup and make two calls:
-/// <see cref="AddCommonAttributes(RenderTreeBuilder, int)"/> for the shared attributes in the order
-/// the kit's guarantees depend on, and <see cref="AddValueBinding(RenderTreeBuilder, int)"/> for
-/// its value-commit attribute(s) — the one call that honours <see cref="UpdateOn"/> for
-/// every mode, present and future, instead of a derived control re-deciding which DOM event to
-/// bind. The field the input edits comes from <see cref="For"/> or from the
-/// <see cref="ValueExpression"/> that <c>@bind-Value</c> supplies, and is (re-)read whenever the
-/// cascaded <see cref="FormidableFormContext"/> is a new instance — including the first render and
-/// again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c> swaps its model and
-/// rebuilds its engine and registry — so the registration and the engine subscription always
-/// target the currently-active context.
-/// </summary>
-/// <remarks>
-/// Three guarantees a derived control inherits and should not work around: a consumer-splatted
-/// <c>class</c> is merged with the computed state class rather than replaced (see
-/// <see cref="CssClass"/>); a consumer-splatted <c>aria-describedby</c> is likewise merged —
-/// while the field has issues, the computed messages id is appended after the splatted ids, so a
-/// persistent hint keeps its association through the field's whole issue lifecycle; and a
-/// consumer-supplied <c>id</c> is ignored — the rendered id is
-/// always <see cref="ElementId"/>, because message lists, <c>aria-describedby</c> and
-/// <see cref="IFormidableFocusService"/> all address the field by it. All three follow from rendering
-/// <see cref="AdditionalAttributes"/> first and the computed values after, which is what
-/// <see cref="AddCommonAttributes(RenderTreeBuilder, int)"/> does — the order is that call's to
-/// keep, not a sequence a derived control transcribes.
-/// The same race catches event handlers, not just attributes:
-/// <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s own <c>oninput</c>/<c>onchange</c> are
-/// rendered after <see cref="AdditionalAttributes"/> as well, and win outright — a consumer
-/// splatting either of those is competing with the value binding itself. The <c>onblur</c> the
-/// kit binds is the exception: rather than clobber a handler the consumer wrote for a different
-/// purpose, it chains — the splatted handler runs first, and the kit's own work follows once it
-/// completes: the DOM value sync for a control that opts in, then the delivery of any
-/// notification a value commit has left pending. That delivery happens only under
-/// <see cref="InputUpdateMode.OnBlur"/>, the one mode that binds blur on every input; a control
-/// that syncs its DOM value on blur (<see cref="FormidableInputNumber{TValue}"/> and
-/// <see cref="FormidableInputDate{TValue}"/>, via <see cref="IFormidableDomValueSync"/>) binds
-/// it in every mode.
-/// </remarks>
+/// <summary>The base of the kit's validated inputs and its extension point: a derived control renders its element and calls <see cref="AddCommonAttributes"/> and one of the <see cref="AddValueBinding(RenderTreeBuilder, int)"/> overloads; the base wires the field, the state class, the id and the aria attributes.</summary>
 /// <typeparam name="TValue">The field's value type.</typeparam>
 public abstract class FormidableInputBase<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableComponentBase
 {
     private const string BlurAttributeName = "onblur";
 
-    /// <summary>
-    /// Whether a value commit has occurred since the engine was last notified — armed by
-    /// <see cref="CommitValueAsync"/>, consumed by <see cref="NotifyChanged"/>, cleared on
-    /// rebind. Under <see cref="InputUpdateMode.OnBlur"/> this is what makes blur a delivery
-    /// rather than a trigger: <see cref="HandleBlurAsync"/> notifies only while one is pending.
-    /// </summary>
+    /// <summary>Whether a commit has happened after the engine was last told; set by <see cref="CommitValueAsync"/>, cleared by <see cref="NotifyChanged"/> and on rebind, and what a blur under <see cref="InputUpdateMode.OnBlur"/> delivers.</summary>
     private bool _notificationPending;
 
-    /// <summary>
-    /// Accessor for the field this input edits, e.g. <c>() => Model.Description</c> — the
-    /// explicit spelling, and optional: <c>@bind-Value</c> names the same field through
-    /// <see cref="ValueExpression"/>, so ordinary markup writes it once rather than twice. Supply
-    /// this when the input has no <c>@bind-Value</c> at all, or to deliberately override which
-    /// field the input registers, validates and renders messages for — an explicit <c>For</c>
-    /// wins over <see cref="ValueExpression"/> whenever both are present, silently and by design.
-    /// With neither, the input throws from <see cref="FormidableComponentBase.OnParametersSet"/>:
-    /// it has no field to speak for.
-    /// </summary>
+    /// <summary>The field this input speaks for when <c>@bind-Value</c> does not name it, or when another field should; wins over <see cref="ValueExpression"/>. Defaults to <see langword="null"/>, which leaves <see cref="ValueExpression"/> to name the field.</summary>
+    /// <remarks>
+    /// With neither this nor <c>@bind-Value</c>, the input throws from
+    /// <see cref="FormidableComponentBase.OnParametersSet"/>, naming itself and both spellings.
+    /// </remarks>
     [Parameter]
     public Expression<Func<TValue>>? For { get; set; }
 
@@ -83,96 +33,52 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     [Parameter]
     public EventCallback<TValue?> ValueChanged { get; set; }
 
-    /// <summary>
-    /// The accessor behind <see cref="Value"/>, supplied by the Razor compiler for every
-    /// <c>@bind-Value</c> usage — the third of the framework's <c>Value</c>/<c>ValueChanged</c>/
-    /// <c>ValueExpression</c> parameter triple, the same convention native <c>InputBase</c>
-    /// follows. Consumers do not set this by hand: writing
-    /// <c>@bind-Value="_order.Description"</c> is what fills it in, and that is how an input with
-    /// no <see cref="For"/> still knows which field it edits. Ignored when <see cref="For"/> is
-    /// also present.
-    /// </summary>
+    /// <summary>The accessor <c>@bind-Value</c> supplies, which names the field when <see cref="For"/> is absent; not one you set by hand.</summary>
     [Parameter]
     public Expression<Func<TValue>>? ValueExpression { get; set; }
 
-    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
+    /// <summary>Whether the field stays registered after this input is disposed, for rows a <c>Virtualize</c> container disposes while they remain in the form. Defaults to <see langword="false"/>.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 
-    /// <summary>Which native DOM event commits the value. Defaults to <see cref="InputUpdateMode.OnChange"/>.</summary>
+    /// <summary>Which native event commits the value, and whether the engine hears about it then or on the next blur. Defaults to <see cref="InputUpdateMode.OnChange"/>.</summary>
     [Parameter]
     public InputUpdateMode UpdateOn { get; set; } = InputUpdateMode.OnChange;
 
-    /// <summary>Additional attributes splatted onto the rendered element.</summary>
+    /// <summary>Attributes splatted onto the element ahead of the computed values: <c>class</c> and <c>aria-describedby</c> merge (splatted first), <c>id</c> is dropped, the commit event <see cref="UpdateOn"/> binds loses to the binding, and <c>onblur</c> runs ahead of the kit's blur work.</summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    /// <summary>The resolved field identifier for <see cref="For"/> or <see cref="ValueExpression"/>.</summary>
+    /// <summary>The field resolved from <see cref="For"/> or <see cref="ValueExpression"/> as the input registered.</summary>
     protected FieldIdentifier Field { get; private set; }
 
-    /// <summary>
-    /// The deterministic element id for this field (see <see cref="FormidableFieldId"/>). Message
-    /// lists, <c>aria-describedby</c> and <see cref="IFormidableFocusService"/> all address the
-    /// field by this id, so a concrete input must render it as written and must not let a
-    /// consumer-splatted <c>id</c> replace it.
-    /// </summary>
+    /// <summary>The field's element id, as <see cref="FormidableFieldId.For(FieldIdentifier)"/> derives it; render it as written, because message lists, <c>aria-describedby</c> and <see cref="IFormidableFocusService"/> address the field by it.</summary>
     protected string ElementId { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// The id of the element listing this field's messages — <see cref="ElementId"/> plus the
-    /// suffix <see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/> owns, computed once
-    /// alongside <see cref="ElementId"/> at registration rather than per render. This is what
-    /// <see cref="AddCommonAttributes"/> renders as <c>aria-describedby</c> (appended after any
-    /// consumer-splatted value), and what a control rendering that attribute by hand should
-    /// point at.
-    /// </summary>
+    /// <summary>The id of the field's message list, as <see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/> derives it; what <see cref="AddCommonAttributes"/> renders as <c>aria-describedby</c> while the field has issues.</summary>
     protected string MessagesElementId { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// The field's current state (touched, modified, validating, errors, warnings). Each read asks
-    /// the engine again; <see cref="AddCommonAttributes"/> reads it once and answers the class and
-    /// <c>aria-invalid</c> from that one read. The other two attributes it renders come from
-    /// elsewhere: <c>aria-describedby</c> from the field's issues, <c>aria-required</c> from what
-    /// the submit profile's rules demand.
-    /// </summary>
+    /// <summary>The field's current <see cref="FieldState"/>, read from the engine on each access.</summary>
     protected FieldState State => Context!.Engine.GetFieldState(Field);
 
-    /// <summary>
-    /// The CSS class string to render: any <c>class</c> the consumer splatted through
-    /// <see cref="AdditionalAttributes"/> first, then the computed state class (see
-    /// <see cref="FormidableCss"/>). Merging rather than replacing mirrors the framework's own
-    /// <c>InputBase.CssClass</c>, and means a consumer writing <c>class="form-control"</c> keeps
-    /// their styling without silently discarding the invalid/warning/info/valid/pending state
-    /// class. Render this
-    /// <em>after</em> splatting <see cref="AdditionalAttributes"/> so it wins the duplicate-attribute
-    /// race (Blazor applies last-write-wins) — or let <see cref="AddCommonAttributes"/> render both
-    /// in that order for you.
-    /// </summary>
-    /// <remarks>
-    /// Returns the merged class string: any consumer-splatted <c>class</c> attribute first,
-    /// then the computed state class. Wrapper authors needing the pure state class can call
-    /// <see cref="FormidableCss.Compute"/> directly.
-    /// </remarks>
+    /// <summary>The class to render: any splatted <c>class</c> first, then the state class <see cref="FormidableCss.Compute"/> builds.</summary>
+    // Merging rather than replacing mirrors the framework's own InputBase.CssClass, so a consumer
+    // writing class="form-control" keeps their styling and still gets the state class.
     protected string CssClass => ComputeCssClass(State);
 
-    /// <inheritdoc />
+    /// <summary>The field <see cref="For"/> names, else the one <see cref="ValueExpression"/> names.</summary>
+    /// <returns>The identifier <see cref="FieldIdentifier.Create{TField}"/> builds from whichever accessor is present.</returns>
+    /// <exception cref="InvalidOperationException">Neither <see cref="For"/> nor <see cref="ValueExpression"/> is set; the message names the input and both spellings.</exception>
     private protected sealed override FieldIdentifier ResolveField() =>
         FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
 
-    /// <summary>
-    /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, computes the
-    /// ids that address it, and registers it with the cascaded context's field registry. Called by
-    /// <see cref="FormidableComponentBase.OnParametersSet"/> whenever the cascaded context is a new
-    /// instance, so a derived control that overrides that method must call
-    /// <c>base.OnParametersSet()</c>, or it registers nothing and never re-renders on a validation
-    /// state change.
-    /// Sealed: an input that resolved a different field here, or none, would have no id to render,
-    /// nothing registered for disclosure, and no field to read state or issues for. What a derived
-    /// control is meant to change is the markup, and the behaviour it drives through
-    /// <see cref="FormidableComponentBase.Context"/> — not which field the control speaks for.
-    /// </summary>
-    /// <param name="context">The context now being bound.</param>
+    /// <summary>Resolves the field, computes its two ids and registers it with <paramref name="context"/>'s registry; sealed so every input speaks for the field its accessor names.</summary>
+    /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
+    // Sealed: an input that resolved a different field here, or none, would have no id to
+    // render, nothing registered for disclosure, and no field to read state or issues for. What
+    // a derived control is meant to change is the markup, and the behaviour it drives through
+    // Context, not which field the control speaks for.
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
         // A commit made against the outgoing context is not delivered to its successor.
@@ -183,42 +89,20 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         return context.Registry.Register(Field, KeepRegistered);
     }
 
-    /// <summary>
-    /// Adds the attributes every validated input shares, in the order that makes the kit's
-    /// guarantees hold: <see cref="AdditionalAttributes"/> first, then <see cref="ElementId"/> as
-    /// <c>id</c>, then <see cref="CssClass"/>, then the aria attributes —
-    /// <c>aria-invalid="true"</c> while the field has error-severity issues,
-    /// <c>aria-describedby</c> while it has issues of any severity — any consumer-splatted
-    /// <c>aria-describedby</c> first, then <see cref="MessagesElementId"/> appended, the same
-    /// merge the <c>class</c> gets — and <c>aria-required="true"</c> while
-    /// <see cref="IFormidableEngine.GetFieldRequirement"/> reports the submit profile
-    /// demands a value for it. Because the computed
-    /// values enter the render tree after the splat, they win the duplicate-attribute race (Blazor
-    /// applies last-write-wins): a consumer's <c>class</c> and <c>aria-describedby</c> merge with
-    /// the computed values, and a
-    /// consumer's <c>id</c> is ignored in favour of the id messages, <c>aria-describedby</c> and
-    /// <see cref="IFormidableFocusService"/> all address the field by. Call it once, immediately
-    /// after opening the element: it consumes <paramref name="sequence"/> through
-    /// <paramref name="sequence"/> + 3, so the control's own attributes take
-    /// <paramref name="sequence"/> + 4 onwards.
-    /// </summary>
-    /// <remarks>
-    /// The ordering is a guarantee, not a convention a derived control transcribes: writing these
-    /// frames by hand is what a control does when it needs them somewhere this call cannot put
-    /// them, and it takes the ordering — and a second engine read per property — on itself. This
-    /// call reads the field's state and issues once each, and the class, <c>aria-invalid</c> and
-    /// <c>aria-describedby</c> all answer from that one read, so an element renders one
-    /// consistent view of the field. <c>aria-required</c> is asked separately, because what the
-    /// rules demand of a field is not part of what the current values are doing — the engine
-    /// answers it from the submit profile's declared rules, cached, so the extra ask is a
-    /// dictionary lookup. The exception is <see cref="FormidableOptions.RequiredOverride"/>:
-    /// where one is set it is invoked on every ask, ahead of the cached map, because its answer
-    /// can change without the validator or the profile changing.
-    /// </remarks>
+    /// <summary>Adds the attributes every validated input shares, in this order: the splat, then <c>id</c>, <c>class</c> and the aria attributes <see cref="FormidableFieldContext.InputAttributes"/> bundles, using four sequence numbers from <paramref name="sequence"/>.</summary>
     /// <param name="builder">The render tree being built.</param>
-    /// <param name="sequence">The first of the four sequence numbers this call consumes.</param>
+    /// <param name="sequence">The first of the four sequence numbers this call consumes; call it once, immediately after opening the element, and start the control's own attributes at <paramref name="sequence"/> + 4.</param>
+    // The ordering is a guarantee, not a convention a derived control transcribes: the splat
+    // enters first and the computed values after, so under Blazor's last-write-wins a consumer's
+    // class and aria-describedby merge with the computed values and a consumer's id is ignored.
+    // Writing these frames by hand is what a control does when it needs them somewhere this call
+    // cannot put them, and it takes the ordering, and a second engine read per property, on
+    // itself.
     protected void AddCommonAttributes(RenderTreeBuilder builder, int sequence)
     {
+        // State and issues are read once each, so the class, aria-invalid and aria-describedby
+        // render one consistent view of the field. aria-required is asked separately because what
+        // the rules demand is not part of what the current values are doing.
         var state = State;
         var issues = Context!.Engine.GetIssues(Field);
 
@@ -245,49 +129,26 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         }
     }
 
-    /// <summary>
-    /// The <c>aria-describedby</c> value <see cref="AddCommonAttributes"/> renders while the
-    /// field has issues: any consumer-splatted <c>aria-describedby</c> merged with
-    /// <see cref="MessagesElementId"/> through <see cref="FormidableCss.CombineSplatted"/> — the
-    /// same method <see cref="ComputeCssClass"/> calls for <c>class</c>, so the two merges are
-    /// identical by construction rather than by coincidence. Splatted first because the splatted
-    /// ids are the only ones present while the field is clean: appending the messages id when
-    /// issues arrive adds to the end of the announced sequence, where prepending would reshuffle
-    /// the consumer's hint at the exact moment an error joins it.
-    /// </summary>
+    /// <summary>The <c>aria-describedby</c> value while the field has issues: any splatted ids first, then <see cref="MessagesElementId"/>.</summary>
+    /// <returns>The space-joined ids, or <see cref="MessagesElementId"/> alone.</returns>
+    // Through CombineSplatted, the same method ComputeCssClass calls for class, so the two merges
+    // are identical by construction rather than by coincidence. Splatted first because the
+    // splatted ids are the only ones present while the field is clean: appending the messages id
+    // when issues arrive adds to the end of the announced sequence, where prepending would
+    // reshuffle the consumer's hint at the exact moment an error joins it.
     private string ComputeAriaDescribedBy() =>
         FormidableCss.CombineSplatted(AdditionalAttributes, "aria-describedby", MessagesElementId);
 
-    /// <summary>
-    /// Assigns <see cref="Value"/>, invokes <see cref="ValueChanged"/>, marks the field touched,
-    /// and notifies the EditContext so the engine's live validation pass runs —
-    /// <see cref="CommitValueAsync"/> followed by <see cref="NotifyChanged"/>, in one call. Right
-    /// for <see cref="InputUpdateMode.OnChange"/>/<see cref="InputUpdateMode.OnInput"/>, where a
-    /// single DOM event both commits the value and should start validation; call the two halves
-    /// separately instead when an event should do only one (see
-    /// <see cref="InputUpdateMode.OnBlur"/>, which
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> implements that
-    /// way). A concrete input rendering its own markup can still call this directly from a change
-    /// handler for the two combined modes. The commit arms a pending notification and the
-    /// immediate <see cref="NotifyChanged"/> consumes it, so the two-call sequence leaves nothing
-    /// pending for a later blur to deliver.
-    /// </summary>
+    /// <summary>Commits <paramref name="value"/> and tells the engine in one call (<see cref="CommitValueAsync"/> then <see cref="NotifyChanged"/>), for a control driving a commit from a handler of its own; the same two steps <see cref="InputUpdateMode.OnChange"/> and <see cref="InputUpdateMode.OnInput"/> take.</summary>
+    /// <param name="value">The value to commit.</param>
     protected async Task SetCurrentValueAsync(TValue? value)
     {
         await CommitValueAsync(value);
         NotifyChanged();
     }
 
-    /// <summary>
-    /// Assigns <see cref="Value"/> and invokes <see cref="ValueChanged"/> — the value-commit half
-    /// of <see cref="SetCurrentValueAsync"/>, without marking the field touched or notifying the
-    /// EditContext. Pairs with <see cref="NotifyChanged"/> under
-    /// <see cref="InputUpdateMode.OnBlur"/>: the model updates on <c>change</c> even though the
-    /// value may not have settled yet (a date input firing per date-segment, for instance), and no
-    /// live pass starts until the paired <see cref="NotifyChanged"/> call says it should. Each
-    /// call also arms the pending notification that mode's blur delivers — however many commits
-    /// accumulate before the blur, <see cref="NotifyChanged"/> consumes them as one.
-    /// </summary>
+    /// <summary>Assigns <see cref="Value"/> and raises <see cref="ValueChanged"/> without telling the engine; the next <see cref="NotifyChanged"/> delivers one notification for any number of commits.</summary>
+    /// <param name="value">The value to commit.</param>
     protected Task CommitValueAsync(TValue? value)
     {
         _notificationPending = true;
@@ -295,132 +156,43 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         return ValueChanged.HasDelegate ? ValueChanged.InvokeAsync(value) : Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
-    /// engine's live validation pass — the notify half of <see cref="SetCurrentValueAsync"/>,
-    /// without touching <see cref="Value"/>. Pairs with <see cref="CommitValueAsync"/> under
-    /// <see cref="InputUpdateMode.OnBlur"/>: call this once the value committed earlier has had a
-    /// chance to settle. Delivering the notification consumes any pending one a commit armed,
-    /// whichever path calls it, so a following blur under <see cref="InputUpdateMode.OnBlur"/>
-    /// delivers nothing of its own. Named to match
-    /// <see cref="FormidableFieldContext.NotifyChanged"/>, which does the same for a foreign
-    /// control with no base class to call it from.
-    /// </summary>
+    /// <summary>Tells the engine the field's value was committed: the field is marked touched, engaged and checked live from then on; any commit waiting for a blur is delivered by this call instead.</summary>
+    // Named to match FormidableFieldContext.NotifyChanged, which does the same for a foreign
+    // control with no base class to call it from.
     protected void NotifyChanged()
     {
         _notificationPending = false;
         Context!.EditContext.NotifyFieldChanged(Field);
     }
 
-    /// <summary>
-    /// Whether the value binding — <see cref="AddValueBinding(RenderTreeBuilder, int)"/> in any of
-    /// its overloads, since one implementation answers for all three — binds <c>blur</c> in every
-    /// <see cref="UpdateOn"/> mode so <see cref="SyncDomValueAsync"/> can run there. False by
-    /// default: a control whose DOM always displays exactly what it reports has nothing to
-    /// reconcile. The kit's number and date inputs opt in, because their native elements can keep
-    /// displaying text they report as empty — which no render-tree diff can overwrite, since the
-    /// rendered value and the reported value already agree. A derived control whose element has
-    /// the same property makes the identical two-override opt-in: return
-    /// <see langword="true"/> here, and put the write in <see cref="SyncDomValueAsync"/>. The
-    /// base owns the blur binding this flag turns on, and the ordering guarantees that come with
-    /// it — nothing else is the deriver's to wire.
-    /// </summary>
+    /// <summary>Whether the input binds <c>blur</c> in every <see cref="UpdateOn"/> mode so <see cref="SyncDomValueAsync"/> can rewrite an element that displays text it reports as empty; the number and date inputs return <see langword="true"/>. Defaults to <see langword="false"/>.</summary>
+    // No render-tree diff can overwrite such text, because the rendered value and the reported
+    // value already agree. The base owns the blur binding this flag turns on and the ordering
+    // that comes with it; the override is the write alone.
     protected virtual bool SyncsDomValueOnBlur => false;
 
-    /// <summary>
-    /// Writes the field's authoritative value into the DOM element on <c>blur</c> — a no-op by
-    /// default; a control opting in via <see cref="SyncsDomValueOnBlur"/> overrides this to pass
-    /// its currently-formatted <see cref="Value"/> to <see cref="IFormidableDomValueSync"/>
-    /// (injected into the derived class; addressed by <see cref="ElementId"/>). Runs
-    /// on every blur, whether or not anything committed — the box must revert either way — and
-    /// the base guarantees where in the blur chain it runs: after
-    /// any consumer-splatted <c>onblur</c> and, under <see cref="InputUpdateMode.OnBlur"/>,
-    /// before any engine notification the blur delivers, so the live pass renders against a box
-    /// that already matches the model. The override is the write alone — binding <c>blur</c>,
-    /// chaining the splatted handler, and delivering the pending notification all stay the
-    /// base's (see <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s remarks for the
-    /// chain).
-    /// </summary>
+    /// <summary>Rewrites the element's value from <see cref="Value"/> on every blur while <see cref="SyncsDomValueOnBlur"/> is <see langword="true"/>, after any splatted <c>onblur</c> and before the notification <see cref="InputUpdateMode.OnBlur"/> delivers; does nothing by default.</summary>
+    // The kit's number and date inputs write through IFormidableDomValueSync, addressed by
+    // ElementId; binding blur, chaining the splatted handler and delivering the pending
+    // notification all stay the base's.
     protected virtual ValueTask SyncDomValueAsync() => ValueTask.CompletedTask;
 
-    /// <summary>
-    /// Adds the attribute(s) that commit a value change, honouring <see cref="UpdateOn"/>: under
-    /// <see cref="InputUpdateMode.OnChange"/> (default) or <see cref="InputUpdateMode.OnInput"/> a
-    /// single event both commits the value and notifies the engine — the two steps
-    /// <see cref="SetCurrentValueAsync"/> performs in one call; under
-    /// <see cref="InputUpdateMode.OnBlur"/> the two split across two events instead — the value
-    /// commits on <c>change</c> via <see cref="CommitValueAsync"/>, arming a pending notification
-    /// that the next <c>blur</c> delivers via <see cref="NotifyChanged"/>, once the value has had
-    /// a chance to settle; a blur with no commit pending delivers nothing. Reads
-    /// <see cref="Value"/> directly rather than taking it as a parameter, since the base already
-    /// owns it. Call this last, immediately before <see cref="RenderTreeBuilder.CloseElement"/>:
-    /// it consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever it
-    /// also binds <c>blur</c> — under <see cref="InputUpdateMode.OnBlur"/>, or in any mode for a
-    /// control that syncs its DOM value on blur — so nothing else in the render tree should
-    /// reuse either number. Also marks <c>value</c> as the attribute the just-added commit handler
-    /// updates (<see cref="RenderTreeBuilder.SetUpdatesAttributeName(string)"/>), mirroring native
-    /// <c>InputText</c>/<c>InputSelect</c>: before the handler runs, the renderer patches the
-    /// current render tree's <c>value</c> frame to match what the browser already holds, so the
-    /// following diff emits no edit when nothing actually changed.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This description covers all three overloads, because all three are one implementation
-    /// reached with a different commit step: each hands over a step that commits whatever the DOM
-    /// sent and reports whether it committed anything, and the shared implementation settles what
-    /// <see cref="UpdateOn"/> decides at render time — which event carries the commit, whether the
-    /// report earns a notification at once or leaves one pending for <c>blur</c>, and whether
-    /// <c>blur</c> is bound at all. Where the three agree they agree by running the same code,
-    /// rather than by three descriptions of them matching; where one differs, as the
-    /// string-projected overload does in coercing <see cref="InputUpdateMode.OnInput"/> for a
-    /// <c>&lt;select&gt;</c>, the difference is an argument to that implementation and not a
-    /// second copy of it.
-    /// </para>
-    /// <para>
-    /// The <c>onblur</c> this adds chains rather than clobbers: a consumer-splatted
-    /// <c>@onblur</c> handler is invoked first and awaited, and the kit's own blur work — the DOM
-    /// value sync for a control that opts in, then under <see cref="InputUpdateMode.OnBlur"/> the
-    /// delivery of a pending commit notification — follows. A splatted value that is not a .NET
-    /// handler at all — a raw attribute string, say — has nothing to invoke, so only the kit's
-    /// work runs. If the consumer handler throws, it propagates as an unhandled component
-    /// exception and neither the sync nor the notification runs — the value itself was already
-    /// committed on the earlier <c>change</c> event either way, and its notification stays
-    /// pending for the next blur to deliver.
-    /// </para>
-    /// </remarks>
+    /// <summary>Adds the event that commits the value under <see cref="UpdateOn"/>, and <c>onblur</c> where the mode or <see cref="SyncsDomValueOnBlur"/> calls for it, using <paramref name="sequence"/> and, for the blur, <paramref name="sequence"/> + 1.</summary>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <remarks>
+    /// Call it last, immediately before closing the element. A splatted <c>onblur</c> runs first
+    /// and is awaited; a throw from it skips the kit's own blur work, so a value already committed
+    /// stays, and under <see cref="InputUpdateMode.OnBlur"/> its notification waits for the next blur.
+    /// </remarks>
     protected void AddValueBinding(RenderTreeBuilder builder, int sequence) =>
         AddCommitBinding<TValue?>(builder, sequence, Value, CommitTypedAsync, inputEventAvailable: true);
 
-    /// <summary>
-    /// The string-projected value binding, for a control whose DOM value is always a string while
-    /// its field is not — a <c>&lt;select&gt;</c> being the kit's own case. Honours
-    /// <see cref="UpdateOn"/>, with one coercion: a <c>&lt;select&gt;</c> has no meaningful
-    /// <c>input</c> event distinct from <c>change</c> the way a text box does, so
-    /// <see cref="InputUpdateMode.OnInput"/> behaves exactly like
-    /// <see cref="InputUpdateMode.OnChange"/> (the default) — both bind <c>onchange</c> and, once
-    /// <paramref name="tryCommitAsync"/> reports a value was committed, notify the engine
-    /// immediately. Under <see cref="InputUpdateMode.OnBlur"/> the same <c>change</c> event still
-    /// commits the value, but the notification the commit arms defers to <c>blur</c> instead; a
-    /// string that fails to parse commits nothing and arms nothing: a blur then delivers only
-    /// what an earlier commit had already armed, and with nothing armed, nothing. Beyond the
-    /// string projection and that coercion this overload settles nothing of its own: the blur
-    /// chaining, the <c>value</c> attribute marking and the sequence
-    /// budget — <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever
-    /// <c>blur</c> is bound — are <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s
-    /// description.
-    /// </summary>
+    /// <summary>The string-projected value binding, for a control whose DOM value is a string while its field is not (a <c>&lt;select&gt;</c>); under it <see cref="InputUpdateMode.OnInput"/> behaves as <see cref="InputUpdateMode.OnChange"/>, a select having no <c>input</c> event distinct from <c>change</c>.</summary>
     /// <param name="builder">The render tree being built.</param>
-    /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <param name="sequence">The first sequence number this call consumes, as for <see cref="AddValueBinding(RenderTreeBuilder, int)"/>.</param>
     /// <param name="formattedValue">The field's current value, already formatted as a string.</param>
-    /// <param name="tryCommitAsync">
-    /// Parses the DOM-committed string and, on success, commits it (see
-    /// <see cref="CommitValueAsync"/>) and returns <see langword="true"/>; returns
-    /// <see langword="false"/> without committing when the string does not parse. Whether to
-    /// notify the engine afterwards is this call's decision, not the delegate's — see the mode
-    /// split above.
-    /// </param>
+    /// <param name="tryCommitAsync">Parses the string the DOM committed and commits it, returning <see langword="true"/>; <see langword="false"/> when the string does not parse, in which case nothing commits and no blur notification is armed.</param>
     protected void AddValueBinding(
         RenderTreeBuilder builder,
         int sequence,
@@ -428,42 +200,23 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         Func<string?, Task<bool>> tryCommitAsync) =>
         AddCommitBinding<string?>(builder, sequence, formattedValue, tryCommitAsync, inputEventAvailable: false);
 
-    /// <summary>
-    /// Parses a DOM-committed string into <typeparamref name="TValue"/> for the
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int, string, StringValueParser)"/> overload —
-    /// <see langword="false"/> when <paramref name="value"/> cannot become a
-    /// <typeparamref name="TValue"/>, in which case the caller leaves the field uncommitted (the
-    /// silent-revert contract every kit input shares).
-    /// </summary>
+    /// <summary>Parses the string the DOM committed into <typeparamref name="TValue"/>; <see langword="false"/> leaves the field as it was.</summary>
     /// <param name="value">The string the DOM committed, exactly as the browser sent it.</param>
     /// <param name="result">The parsed value when parsing succeeds; undefined otherwise.</param>
+    /// <returns><see langword="true"/> when <paramref name="value"/> parsed.</returns>
     protected delegate bool StringValueParser(string? value, out TValue? result);
 
-    /// <summary>
-    /// The string-projected value binding that also honours <see cref="UpdateOn"/> — for a
-    /// control whose DOM value must round-trip through a culture-invariant string rather than
-    /// the culture-sensitive conversion <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
-    /// performs. A native <c>&lt;input type="number"&gt;</c> or <c>&lt;input type="date"&gt;</c>
-    /// always reports its <c>value</c> in a fixed, period-decimal or ISO <c>yyyy-MM-dd</c> form
-    /// regardless of the browser's locale, but that overload's binder resolves
-    /// <see cref="System.Globalization.CultureInfo.CurrentCulture"/> when none is supplied —
-    /// under a comma-decimal culture it silently misreads <c>"12.5"</c> as <c>125</c> rather than
-    /// failing loudly, and under a non-Gregorian calendar culture it can misread a year outright.
-    /// This overload exists so a control can supply its own <see cref="StringValueParser"/> doing
-    /// invariant, format-exact parsing (<see cref="FormidableInputNumber{TValue}"/> and
-    /// <see cref="FormidableInputDate{TValue}"/> are the kit's two cases) while still getting
-    /// <see cref="InputUpdateMode.OnInput"/> and the commit/notify split
-    /// <see cref="InputUpdateMode.OnBlur"/> needs — a string the parser rejects commits nothing,
-    /// so it arms no blur-delivered notification. Beyond the parser it takes, this overload
-    /// settles nothing of its own: which event carries the commit, the blur chaining, the
-    /// <c>value</c> attribute marking and the sequence budget — <paramref name="sequence"/>, and
-    /// <paramref name="sequence"/> + 1 whenever <c>blur</c> is bound — are
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s description.
-    /// </summary>
+    /// <summary>The string-projected value binding with a parser of the control's own, for a native number or date input whose DOM value keeps one fixed form whatever the browser's culture.</summary>
     /// <param name="builder">The render tree being built.</param>
-    /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <param name="sequence">The first sequence number this call consumes, as for <see cref="AddValueBinding(RenderTreeBuilder, int)"/>.</param>
     /// <param name="formattedValue">The field's current value, already formatted as a string.</param>
-    /// <param name="tryParseValue">Parses a DOM-committed string back into <typeparamref name="TValue"/>.</param>
+    /// <param name="tryParseValue">Parses the string the DOM committed; a string it rejects commits nothing and arms no blur notification.</param>
+    // The typed overload's binder resolves CultureInfo.CurrentCulture, while a native number or
+    // date input always reports its value period-decimal or as ISO yyyy-MM-dd: under a
+    // comma-decimal culture that binder silently misreads "12.5" as 125 rather than failing
+    // loudly, and under a non-Gregorian calendar culture it can misread a year outright. This
+    // overload exists so a control can parse invariantly and format-exactly (the number and date
+    // inputs are the kit's two cases) while still getting every UpdateOn mode.
     protected void AddValueBinding(
         RenderTreeBuilder builder,
         int sequence,
@@ -476,35 +229,19 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             value => CommitParsedAsync(tryParseValue, value),
             inputEventAvailable: true);
 
-    /// <summary>
-    /// The one implementation behind all three <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
-    /// overloads: it renders the commit attribute, marks <c>value</c> as what that handler updates,
-    /// and binds <c>blur</c> where the mode or the control calls for it. What
-    /// <see cref="UpdateOn"/> decides at render time is decided here and nowhere else, so two
-    /// overloads cannot drift into answering a mode differently; what an overload brings is the
-    /// commit step and whether the element has an <c>input</c> event worth binding. The mode's one
-    /// remaining consequence lives at event time instead, in <see cref="HandleBlurAsync"/>'s gate
-    /// on delivering a pending notification.
-    /// </summary>
-    /// <typeparam name="TBound">
-    /// The type the binder round-trips: the field's own type where the DOM value converts
-    /// directly, <see cref="string"/> where the control projects it through one. Annotated for
-    /// trimming because the binder converts through reflection, the same reason
-    /// <typeparamref name="TValue"/> is.
-    /// </typeparam>
+    /// <summary>The one implementation behind the three <see cref="AddValueBinding(RenderTreeBuilder, int)"/> overloads: the commit event, the <c>value</c> marking, and the blur binding where the mode or the control calls for it.</summary>
+    /// <typeparam name="TBound">The type the binder round-trips: the field's own type where the DOM value converts directly, <see cref="string"/> where the control projects it through one.</typeparam>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first sequence number this call consumes.</param>
     /// <param name="current">The value already rendered, which the binder compares against.</param>
-    /// <param name="commitAsync">
-    /// Commits what the DOM sent and reports whether it committed anything — false for a string
-    /// the control's own parsing rejects, which is the silent-revert contract every kit input
-    /// shares.
-    /// </param>
-    /// <param name="inputEventAvailable">
-    /// Whether the element has an <c>input</c> event distinct from <c>change</c>. False coerces
-    /// <see cref="InputUpdateMode.OnInput"/> onto <c>onchange</c>, for an element such as
-    /// <c>&lt;select&gt;</c> where the two would mean the same thing.
-    /// </param>
+    /// <param name="commitAsync">Commits what the DOM sent and reports whether it committed anything; <see langword="false"/> for a string the control's own parsing rejects.</param>
+    /// <param name="inputEventAvailable">Whether the element has an <c>input</c> event distinct from <c>change</c>; <see langword="false"/> binds <c>onchange</c> under <see cref="InputUpdateMode.OnInput"/> too.</param>
+    // What UpdateOn decides at render time is decided here and nowhere else, so two overloads
+    // cannot drift into answering a mode differently; what an overload brings is the commit step
+    // and whether the element has an input event worth binding. The mode's one remaining
+    // consequence lives at event time instead, in HandleBlurAsync's gate on delivering a pending
+    // notification. TBound is annotated for trimming because the binder converts through
+    // reflection, the same reason TValue is.
     private void AddCommitBinding<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TBound>(
         RenderTreeBuilder builder,
         int sequence,
@@ -522,7 +259,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             EventCallback.Factory.CreateBinder<TBound>(this, value => CommitThenNotifyAsync(value), current));
 
         // Marks the attribute just added, so it has to follow that AddAttribute and precede the
-        // blur binding below.
+        // blur binding below. Mirroring native InputText and InputSelect: before the handler
+        // runs, the renderer patches the current render tree's value frame to match what the
+        // browser already holds, so the following diff emits no edit when nothing changed.
         builder.SetUpdatesAttributeName("value");
 
         if (deferNotification || SyncsDomValueOnBlur)
@@ -540,32 +279,28 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         }
     }
 
-    /// <summary>
-    /// Binds <see cref="HandleBlurAsync"/> as the element's <c>onblur</c> — after the splat, so it
-    /// wins the duplicate-attribute race and chains any consumer handler itself.
-    /// </summary>
+    /// <summary>Binds <see cref="HandleBlurAsync"/> as the element's <c>onblur</c>, after the splat, so it wins the duplicate-attribute race and chains a splatted handler itself.</summary>
+    /// <param name="builder">The render tree being built.</param>
+    /// <param name="sequence">The sequence number the blur binding takes.</param>
     private void AddBlurBinding(RenderTreeBuilder builder, int sequence) =>
         builder.AddAttribute(
             sequence,
             BlurAttributeName,
             EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
 
-    /// <summary>
-    /// The commit step behind the typed overload: the binder has already converted the DOM's
-    /// string into <typeparamref name="TValue"/>, so this step has no parse of its own to fail
-    /// and always reports a commit.
-    /// </summary>
+    /// <summary>The typed overload's commit step: the binder already converted the string, so it always reports a commit.</summary>
+    /// <param name="value">The converted value.</param>
+    /// <returns>Always <see langword="true"/>.</returns>
     private async Task<bool> CommitTypedAsync(TValue? value)
     {
         await CommitValueAsync(value);
         return true;
     }
 
-    /// <summary>
-    /// The commit step behind the <see cref="StringValueParser"/> overload: a string the parser
-    /// rejects leaves the field exactly as it was and reports no commit, so nothing notifies now
-    /// and no notification waits for <c>blur</c>.
-    /// </summary>
+    /// <summary>The parser overload's commit step: a string <paramref name="tryParseValue"/> rejects commits nothing and reports <see langword="false"/>.</summary>
+    /// <param name="tryParseValue">The control's parser.</param>
+    /// <param name="value">The string the DOM committed.</param>
+    /// <returns><see langword="true"/> when the string parsed and the value was committed.</returns>
     private async Task<bool> CommitParsedAsync(StringValueParser tryParseValue, string? value)
     {
         if (!tryParseValue(value, out var parsed))
@@ -577,16 +312,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         return true;
     }
 
-    /// <summary>
-    /// Runs a consumer-splatted <c>onblur</c> handler, then the control's DOM value sync, then —
-    /// under <see cref="InputUpdateMode.OnBlur"/>, and only while a value commit has left a
-    /// notification pending — notifies the engine, consuming that notification. The chain exists
-    /// so that the kit wanting the <c>blur</c> event does not quietly take it away from the
-    /// consumer; the mode gate keeps the notification a blur-mode behaviour even for controls
-    /// whose sync binds blur in every mode; the commit gate makes blur a delivery rather than a
-    /// trigger, so a focus-then-leave with nothing committed notifies nothing, and however many
-    /// commits precede a blur, it delivers exactly one notification.
-    /// </summary>
+    /// <summary>Runs a splatted <c>onblur</c>, then the DOM value sync where the control opts in, then, under <see cref="InputUpdateMode.OnBlur"/> with a commit pending, one notification.</summary>
+    /// <param name="args">The blur event's arguments, handed to the splatted handler.</param>
+    // The chain exists so that the kit wanting the blur event does not quietly take it away from
+    // the consumer; the mode gate keeps the notification a blur-mode behaviour even for controls
+    // whose sync binds blur in every mode; the commit gate makes blur a delivery rather than a
+    // trigger, so a focus-then-leave with nothing committed notifies nothing, and however many
+    // commits precede a blur, it delivers exactly one notification.
     private async Task HandleBlurAsync(FocusEventArgs args)
     {
         await InvokeSplattedBlurAsync(args);
@@ -602,13 +334,11 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         }
     }
 
-    /// <summary>
-    /// Invokes whatever a consumer splatted as <c>onblur</c>, in whichever shape it arrived:
-    /// <c>@onblur</c> in Razor markup compiles to an <see cref="EventCallback{TValue}"/> of
-    /// <see cref="FocusEventArgs"/>, while markup built by hand can pass a plain delegate.
-    /// Anything else — a string meant as a literal HTML attribute, most plausibly — is not
-    /// callable from here and is left alone.
-    /// </summary>
+    /// <summary>Invokes whatever a consumer splatted as <c>onblur</c>, in any callable shape, and ignores a value that is not callable.</summary>
+    /// <param name="args">The blur event's arguments.</param>
+    // @onblur in Razor markup compiles to an EventCallback<FocusEventArgs>, while markup built by
+    // hand can pass a plain delegate; a string meant as a literal HTML attribute is not callable
+    // from here and is left alone.
     private Task InvokeSplattedBlurAsync(FocusEventArgs args)
     {
         if (AdditionalAttributes is null || !AdditionalAttributes.TryGetValue(BlurAttributeName, out var splatted))
@@ -634,11 +364,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         }
     }
 
-    /// <summary>
-    /// The merged class string for a state already read — the one implementation behind
-    /// <see cref="CssClass"/> and <see cref="AddCommonAttributes"/>, so the class a control renders
-    /// by hand and the class the shared call renders are the same string by construction.
-    /// </summary>
+    /// <summary>The merged class string for a state already read, the one implementation behind <see cref="CssClass"/> and <see cref="AddCommonAttributes"/>: any splatted <c>class</c>, then the state class <see cref="FormidableCss.Compute"/> builds.</summary>
+    /// <param name="state">The field state the class is computed from.</param>
+    /// <returns>Both class strings space-joined, or whichever one is present.</returns>
     private string ComputeCssClass(FieldState state) =>
         FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 }

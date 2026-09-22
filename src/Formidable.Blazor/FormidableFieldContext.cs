@@ -2,11 +2,7 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Per-field context handed to <see cref="FormidableField{TValue}"/>'s child content each render:
-/// the field's current state, issues, computed CSS class, and the aria ids a custom input should
-/// bind to. Lets any UI library build its own field markup without re-deriving engine wiring.
-/// </summary>
+/// <summary>What <see cref="FormidableField{TValue}"/> hands its child content each render: the field's state, issues, class and the attributes a custom input binds.</summary>
 public sealed class FormidableFieldContext
 {
     private readonly IFormidableEngine _engine;
@@ -52,70 +48,42 @@ public sealed class FormidableFieldContext
     /// <summary>The field this context describes.</summary>
     public FieldIdentifier Field { get; }
 
-    /// <summary>The deterministic element id for the field's input (see <see cref="FormidableFieldId"/>).</summary>
+    /// <summary>The element id for the field's input, as <see cref="FormidableFieldId.For(FieldIdentifier)"/> derives it.</summary>
     public string ElementId { get; }
 
-    /// <summary>
-    /// The field's current <see cref="FieldState"/>: the interaction and in-flight flags, the
-    /// issue severities it carries, and <see cref="FieldState.WouldPassSubmit"/> — the engine's
-    /// vouch that a submit would not fail this field.
-    /// </summary>
+    /// <summary>The field's current <see cref="FieldState"/>: touched, modified, being checked, the severities it carries, and <see cref="FieldState.WouldPassSubmit"/>.</summary>
     public FieldState State { get; }
 
-    /// <summary>The computed CSS class string for the field's current state (see <see cref="FormidableCss"/>).</summary>
+    /// <summary>The state class string for the field, as <see cref="FormidableCss.Compute"/> builds it.</summary>
     public string CssClass { get; }
 
     /// <summary>The field's current issues, any severity.</summary>
     public IReadOnlyList<ValidationIssue> Issues { get; }
 
-    /// <summary>True when the field currently has error-severity issues — bind to the input's <c>aria-invalid</c>.</summary>
+    /// <summary>Whether the field has error-severity issues; bind it to the input's <c>aria-invalid</c>.</summary>
     public bool AriaInvalid { get; }
 
-    /// <summary>
-    /// The id of the element holding the field's messages, or null when it has none — bind to
-    /// the input's <c>aria-describedby</c>. It is
-    /// <see cref="FormidableFieldId.MessagesFor(Microsoft.AspNetCore.Components.Forms.FieldIdentifier)"/>
-    /// for <see cref="Field"/>, the same id the field's message list renders on itself.
-    /// Deliberately a single id, never a merged list: the consumer composes the markup here, so
-    /// a control that also carries its own hint writes
-    /// <c>aria-describedby="@($"my-hint {field.AriaDescribedBy}")"</c> itself — the same
-    /// splatted-first, messages-id-after order the kit's inputs merge a splatted
-    /// <c>aria-describedby</c> in.
-    /// </summary>
+    /// <summary>The id of the field's message list while the field has issues, else <see langword="null"/>; bind it to the input's <c>aria-describedby</c>.</summary>
+    /// <remarks>
+    /// A single id, never a merged list: a control with a hint of its own composes both, hint
+    /// first, as <c>aria-describedby="@($"my-hint {field.AriaDescribedBy}")"</c>.
+    /// </remarks>
     public string? AriaDescribedBy { get; }
 
-    /// <summary>
-    /// How firmly the submit profile's rules demand that the field carry a value — see
-    /// <see cref="IFormidableEngine.GetFieldRequirement"/> for where the answer comes from
-    /// and what it cannot see. <see cref="FieldRequirement.Required"/> is what
-    /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
-    /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
-    /// here and decides for itself, which is the only way to draw anything for
-    /// <see cref="FieldRequirement.ConditionallyRequired"/>.
-    /// </summary>
+    /// <summary>How firmly the submit profile requires the field's value, as <see cref="IFormidableEngine.GetFieldRequirement"/> answers it; <see cref="FieldRequirement.Required"/> puts <c>aria-required</c> in <see cref="InputAttributes"/>.</summary>
     public FieldRequirement Requirement { get; }
 
-    /// <summary>
-    /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
-    /// applicable — <c>aria-invalid</c>, <c>aria-describedby</c> and <c>aria-required</c>,
-    /// bundled exactly as <see cref="ElementId"/>, <see cref="CssClass"/>,
-    /// <see cref="AriaInvalid"/>, <see cref="AriaDescribedBy"/> and <see cref="Requirement"/>
-    /// already report them. Splat it onto the control with
-    /// <c>@attributes="field.InputAttributes"</c>; <see cref="NotifyChanged"/> is still the
-    /// consumer's own wiring, since only the consumer's markup knows which native event commits
-    /// the control's value.
-    /// </summary>
+    /// <summary>The attributes a custom input splats: <c>id</c>, <c>class</c>, and <c>aria-invalid</c>, <c>aria-describedby</c> and <c>aria-required</c> where each applies.</summary>
+    /// <remarks>
+    /// Splat them with <c>@attributes="field.InputAttributes"</c>. Wiring
+    /// <see cref="NotifyChanged"/> stays the consumer's, because only the markup knows which
+    /// event commits the value.
+    /// </remarks>
     public IReadOnlyDictionary<string, object> InputAttributes { get; }
 
-    /// <summary>
-    /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
-    /// engine's live validation pass — call from a custom input's change handler. Calling it is the
-    /// consumer's statement that a committed value change happened: it engages the field, and every
-    /// subsequent live pass answers an engaged field's verdict, not only the pass this call
-    /// triggers.
-    /// </summary>
+    /// <summary>Reports a committed value change from a custom input's change handler: the field is marked touched, engaged, and checked live from then on.</summary>
     public void NotifyChanged() => _engine.EditContext.NotifyFieldChanged(Field);
 
-    /// <summary>Marks the field touched without notifying a value change — call from a custom input's blur/focus-out handler.</summary>
+    /// <summary>Marks the field touched from a custom input's blur handler, without reporting a value change, so its classes update and no check runs.</summary>
     public void MarkTouched() => _engine.MarkTouched(Field);
 }

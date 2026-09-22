@@ -4,16 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.AspNetCore;
 
-/// <summary>
-/// Runs normalize + profile validation for one endpoint argument type, stashing the computed
-/// report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-/// Fails closed on wiring and never on a declaration: an unresolvable
-/// <see cref="IModelValidator{TModel}"/> throws, and an endpoint with no parameter of this type
-/// at all never reaches the filter — the endpoint filter factory in
-/// <see cref="FormidableEndpointFilterExtensions"/> throws for it while the endpoint's request
-/// pipeline is being built. A parameter bound to <see langword="null"/> is the platform's
-/// decision, not this filter's: it is passed on, and only the refusal is enriched.
-/// </summary>
+/// <summary>Endpoint filter that validates the first argument bound as a <typeparamref name="TModel"/> with one profile and records the report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.</summary>
+/// <typeparam name="TModel">The model type the endpoint declares.</typeparam>
 internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
     where TModel : class
 {

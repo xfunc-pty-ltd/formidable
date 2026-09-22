@@ -3,12 +3,9 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Loader for the library's JS module (formidable.js): imports it on first use, caches only a
-/// successful import, and owns both disposal shapes. Each JS-backed service holds its own
-/// instance rather than sharing one, so disposal ownership stays with the service the container
-/// disposes.
-/// </summary>
+/// <summary>Loads the library's script module (formidable.js) on the first invocation, keeps only a successful import (a prerender's failed one is retried on the next call), and releases it under either disposal shape.</summary>
+// Each JS-backed service and each root holds its own instance rather than sharing one, so
+// disposal ownership stays with whoever the container or the renderer disposes.
 internal sealed class FormidableJsModule
 {
     private readonly IJSRuntime _jsRuntime;
@@ -20,27 +17,26 @@ internal sealed class FormidableJsModule
     // cached - see the catch in ImportAsync.
     private Task<IJSObjectReference>? _moduleTask;
 
+    /// <summary>Creates a loader over <paramref name="jsRuntime"/>; nothing is imported until the first invocation.</summary>
+    /// <param name="jsRuntime">The runtime the import and every invocation go through.</param>
     public FormidableJsModule(IJSRuntime jsRuntime) => _jsRuntime = jsRuntime;
 
-    /// <summary>
-    /// Whether an exception is the interop boundary failing rather than the code behind it: the
-    /// JS side throwing or the runtime being unreachable (<see cref="JSException"/>,
-    /// <see cref="JSDisconnectedException"/>), the runtime already disposed, or the call cancelled
-    /// — an interop timeout on a server circuit arrives as the last of those.
-    /// </summary>
-    /// <remarks>
-    /// Stated once, because every caller that catches on it is drawing the same line: a boundary
-    /// that is gone, disconnected or never loaded costs the page whatever that call would have
-    /// bought and nothing else, where an implementation failing on its own terms is a bug for
-    /// someone to see rather than one to swallow.
-    /// </remarks>
+    /// <summary>Whether an exception is the interop boundary failing (the script throwing, the runtime disconnected, disposed or cancelled) rather than the code behind it.</summary>
     /// <param name="exception">The exception to judge.</param>
-    /// <returns><see langword="true"/> when the boundary itself is what failed.</returns>
+    /// <returns><see langword="true"/> for <see cref="JSException"/>, <see cref="JSDisconnectedException"/>, <see cref="ObjectDisposedException"/> and <see cref="OperationCanceledException"/>; an interop timeout on a server circuit arrives as the last.</returns>
+    // Stated once, because every caller that catches on it draws the same line: a boundary that
+    // is gone, disconnected or never loaded costs the page whatever that call would have bought
+    // and nothing else, where an implementation failing on its own terms is a bug for someone to
+    // see rather than one to swallow.
     internal static bool IsInteropFailure(Exception exception) =>
         exception is JSException or JSDisconnectedException or ObjectDisposedException
             or OperationCanceledException;
 
-    /// <summary>Invokes <paramref name="identifier"/> on the module and returns its result.</summary>
+    /// <summary>Invokes the named export on the module and returns its result.</summary>
+    /// <typeparam name="T">The type the result deserializes to.</typeparam>
+    /// <param name="identifier">The export's name.</param>
+    /// <param name="args">The arguments to pass.</param>
+    /// <returns>The export's answer.</returns>
     public async ValueTask<T> InvokeAsync<
         [DynamicallyAccessedMembers(
             DynamicallyAccessedMemberTypes.PublicConstructors |
@@ -51,18 +47,18 @@ internal sealed class FormidableJsModule
         return await module.InvokeAsync<T>(identifier, args);
     }
 
-    /// <summary>Invokes <paramref name="identifier"/> on the module, discarding any result.</summary>
+    /// <summary>Invokes the named export on the module, discarding any result.</summary>
+    /// <param name="identifier">The export's name.</param>
+    /// <param name="args">The arguments to pass.</param>
+    /// <returns>A task that completes when the export has returned.</returns>
     public async ValueTask InvokeVoidAsync(string identifier, params object?[] args)
     {
         var module = await ImportAsync();
         await module.InvokeVoidAsync(identifier, args);
     }
 
-    /// <summary>
-    /// The import itself, and the one place the cache is written: the in-flight task is installed
-    /// before the first await, so concurrent first callers share it, and a faulted import is
-    /// dropped again so the next call re-imports rather than inheriting the failure.
-    /// </summary>
+    /// <summary>Imports the module once, sharing the in-flight import with concurrent callers and forgetting a failed one so the next call re-imports.</summary>
+    /// <returns>The imported module.</returns>
     private async Task<IJSObjectReference> ImportAsync()
     {
         var moduleTask = _moduleTask ??= _jsRuntime.InvokeAsync<IJSObjectReference>(
@@ -87,16 +83,13 @@ internal sealed class FormidableJsModule
         }
     }
 
-    /// <summary>
-    /// Releases the module — best-effort, and only for an import that already finished
-    /// successfully. An import still in flight is skipped rather than awaited: it may never
-    /// complete, and awaiting it here would risk hanging whatever disposed this instance —
-    /// container teardown, circuit teardown on Blazor Server — on an interop call that answers
-    /// after nothing is listening. A faulted import already dropped itself from the cache (see
-    /// <see cref="ImportAsync"/>) and has nothing loaded to release either, so neither case
-    /// throws or blocks; only a successful import's own release can still fail, and that failure
-    /// is swallowed under the same <see cref="IsInteropFailure"/> line every other caller draws.
-    /// </summary>
+    /// <summary>Releases a successfully imported module, swallowing an interop failure; an import still in flight or already failed is left alone.</summary>
+    /// <returns>A task that completes when the release has answered, or at once when there is nothing to release.</returns>
+    // An import still in flight is skipped rather than awaited: it may never complete, and
+    // awaiting it here would risk hanging whatever disposed this instance (container teardown,
+    // circuit teardown on Blazor Server) on an interop call that answers after nothing is
+    // listening. A faulted import already dropped itself from the cache (see ImportAsync) and
+    // has nothing loaded to release, so neither case throws or blocks.
     public async ValueTask DisposeAsync()
     {
         if (_moduleTask is not { IsCompletedSuccessfully: true } moduleTask)

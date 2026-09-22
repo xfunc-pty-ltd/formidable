@@ -6,12 +6,10 @@ namespace Formidable.Blazor;
 /// <summary>Dependency-injection registration for Formidable's Blazor integration.</summary>
 public static class FormidableBlazorServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-    /// plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and
-    /// <see cref="IFormidableFieldOrderService"/>. The one-call registration for Blazor consumers.
-    /// Existing registrations are respected.
-    /// </summary>
+    /// <summary>Registers everything <see cref="FormidableServiceCollectionExtensions.AddFormidable"/> does plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and <see cref="IFormidableFieldOrderService"/>, leaving any existing registration in place.</summary>
+    /// <param name="services">The service collection to add to.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
     public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -22,26 +20,15 @@ public static class FormidableBlazorServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Registers everything <see cref="AddFormidableBlazor(IServiceCollection)"/> does, plus a
-    /// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
-    /// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
-    /// design system's class names or a team's debounce are stated once for the whole app instead
-    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed, and
-    /// wins whole: resolution has no merging step, so a form that differs in one setting copies
-    /// this instance rather than restating the rest — see
-    /// <see cref="FormidableOptions(FormidableOptions)"/>.
-    /// Existing registrations are respected.
-    /// </summary>
+    /// <summary>Registers everything <see cref="AddFormidableBlazor(IServiceCollection)"/> does plus an app-wide <see cref="FormidableOptions"/> default that every form without its own <c>Options</c> uses.</summary>
+    /// <param name="services">The service collection to add to.</param>
+    /// <param name="configureDefaults">Configures the shared default instance before it is registered.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> or <paramref name="configureDefaults"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The configured instance is a singleton the whole app shares, and an engine reads each of
-    /// its properties at each use — a pass selecting its profile, a timer arming, a render asking
-    /// for a class name — so mutating it at runtime changes behaviour in every live form, not just
-    /// the one being looked at. Where a property's own remarks state a coarser read, that
-    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root, and
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> and
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> once per bound component, so a
-    /// change to any of the three reaches nothing that has already read it.
+    /// A form's own <c>Options</c> replaces the instance whole; <see cref="FormidableOptions(FormidableOptions)"/>
+    /// copies it for a form that differs in one setting. An existing <see cref="FormidableOptions"/>
+    /// registration stays, and the configured instance is then discarded.
     /// </remarks>
     public static IServiceCollection AddFormidableBlazor(
         this IServiceCollection services, Action<FormidableOptions> configureDefaults)

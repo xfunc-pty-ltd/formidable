@@ -101,6 +101,17 @@ Where the change lands in one of the surfaces below, name it as an optional scop
 cross-cutting or when the type already names the surface (plain `docs:` for docs-corpus work);
 unit tests take the scope of the code under test (`test(blazor):`).
 
+### XML documentation
+
+Write a `<summary>` as one sentence a reader can use from a tooltip alone: what the member does
+for its caller, or, for a property, the noun it holds and its default. Keep it under 25 words
+as a working limit; 40 is the hard gate. Add `<param>`, `<typeparam>`, `<returns>`, and
+`<exception>` wherever the member has them, naming the condition an exception throws under, not
+just its type. Save `<remarks>` for one thing the caller must act on; put the reasoning behind a
+line of code in a `//` comment beside it instead. No em dashes. Describe the public surface in
+terms a consumer already knows, not the engine's own internal vocabulary. The maintainer checks
+every PR's XML for summary length, required tags, and that vocabulary boundary.
+
 ## Before opening a PR
 
 This library has a small, deliberate API surface on purpose (see the design goals in the

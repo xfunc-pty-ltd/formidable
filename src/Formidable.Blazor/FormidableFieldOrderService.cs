@@ -3,11 +3,9 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// JS-module-backed implementation of <see cref="IFormidableFieldOrderService"/>: the browser is
-/// the only thing that knows where an element actually sits, so each field's rendered element id
-/// crosses the interop boundary and the ids come back ordered by <c>compareDocumentPosition</c>.
-/// </summary>
+/// <summary>The JS-backed <see cref="IFormidableFieldOrderService"/>: sends each field's element id to formidable.js and maps the document-ordered answer back to fields, keyed by id.</summary>
+// The browser is the only thing that knows where an element sits, so the ids cross the interop
+// boundary and come back sorted by compareDocumentPosition.
 internal sealed class FormidableFieldOrderService : FormidableJsBackedService, IFormidableFieldOrderService
 {
     public FormidableFieldOrderService(IJSRuntime jsRuntime) : base(jsRuntime)

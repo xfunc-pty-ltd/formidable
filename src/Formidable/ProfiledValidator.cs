@@ -5,66 +5,47 @@ using FluentValidation.Results;
 
 namespace Formidable;
 
-/// <summary>
-/// Validator base class that organizes rules for use with <see cref="ValidationProfile"/>s
-/// without prescribing any particular set of profiles. Override
-/// <see cref="ConfigureCommonRules"/> for rules that run under any profile that includes
-/// default rules, and register named rulesets in <see cref="ConfigureProfiles"/> via
-/// <see cref="Profile"/>. For the common save-draft/submit form lifecycle, use
-/// <see cref="DraftSubmitValidator{T}"/> instead.
-/// </summary>
+/// <summary>Base validator whose rules are organised by <see cref="ValidationProfile"/>: common rules in one hook, named rulesets in another.</summary>
+/// <typeparam name="T">The model type the validator accepts.</typeparam>
 /// <remarks>
-/// The configure hooks run from this base constructor, before a derived class's own
-/// constructor body executes. Derived instance state assigned in the derived constructor is
-/// not yet available when the hooks run eagerly — capture such state lazily inside rule
-/// lambdas instead.
-/// <para>
-/// Every <see cref="ValidationProfile"/> passed to <see cref="Validate"/>/<see cref="ValidateAsync"/>
-/// (or to <see cref="ValidatorProfileExtensions"/>'s extension methods called directly on an
-/// instance of this class) has its ruleset names checked against this validator's own
-/// registered rulesets, once per distinct profile and cached thereafter. Matching is
-/// case-insensitive, mirroring FluentValidation's own ruleset selector. A name that matches
-/// zero registered rulesets throws <see cref="InvalidOperationException"/> naming the
-/// unmatched ruleset and this validator's available names — catching a typo'd profile or
-/// ruleset name that FluentValidation would otherwise ignore and silently under-validate. A
-/// plain FluentValidation <c>AbstractValidator&lt;T&gt;</c> validated via
-/// <see cref="ValidatorProfileExtensions"/> without deriving from this class is not covered.
-/// The cache key is the whole profile, which compares by its full shape, so two same-named
-/// profiles composing different rulesets are two profiles here and each is checked on its own.
-/// </para>
+/// Override <see cref="ConfigureCommonRules"/> for rules every profile with default rules runs,
+/// and register named rulesets through <see cref="Profile"/> in <see cref="ConfigureProfiles"/>;
+/// <see cref="DraftSubmitValidator{T}"/> packages the save-draft and submit shape. The hooks run
+/// from this constructor, before a derived constructor body, so capture derived state lazily
+/// inside rule lambdas. Every profile validated through this class, or through
+/// <see cref="ValidatorProfileExtensions"/> on an instance of it, has its ruleset names checked
+/// case-insensitively; a name matching no registered ruleset, and neither <c>"*"</c> nor
+/// <c>"default"</c>, throws <see cref="InvalidOperationException"/> naming the available ones.
 /// </remarks>
+// The check catches a typo'd profile or ruleset name that FluentValidation would otherwise
+// ignore and silently under-validate. A plain AbstractValidator<T> validated through the
+// extensions is not covered. The cache key is the whole profile, which compares by its full
+// shape, so two same-named profiles composing different rulesets are checked on their own.
 public abstract class ProfiledValidator<T> : AbstractValidator<T>
 {
     private readonly HashSet<string> _registeredRuleSetNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<ValidationProfile, byte> _verifiedProfiles = new();
 
-    /// <summary>Runs the configure hooks: common rules, then profile rulesets.</summary>
+    /// <summary>Runs <see cref="ConfigureCommonRules"/>, then <see cref="ConfigureProfiles"/>.</summary>
     protected ProfiledValidator()
     {
         ConfigureCommonRules();
         ConfigureProfiles();
     }
 
-    /// <summary>
-    /// Rules registered outside any ruleset. Included by every profile whose
-    /// <see cref="ValidationProfile.IncludeDefaultRules"/> is true.
-    /// </summary>
+    /// <summary>Registers rules outside any ruleset, which every profile with <see cref="ValidationProfile.IncludeDefaultRules"/> runs; does nothing by default.</summary>
     protected virtual void ConfigureCommonRules()
     {
     }
 
-    /// <summary>Registers named rulesets via <see cref="Profile"/>.</summary>
+    /// <summary>Registers named rulesets through <see cref="Profile"/>; does nothing by default.</summary>
     protected virtual void ConfigureProfiles()
     {
     }
 
-    /// <summary>
-    /// Registers rules under a named ruleset that a <see cref="ValidationProfile"/> can compose.
-    /// <paramref name="ruleSetName"/> may join several names with <c>,</c> or <c>;</c>, which
-    /// FluentValidation's own <c>RuleSet</c> splits and trims so that every rule inside carries
-    /// all of them — one declaration answering to several profiles. Each part is registered on
-    /// its own, so a profile naming any one of them verifies.
-    /// </summary>
+    /// <summary>Registers <paramref name="configureRules"/> under <paramref name="ruleSetName"/>, which may join several names with <c>,</c> or <c>;</c>.</summary>
+    /// <param name="ruleSetName">One ruleset name, or several joined with <c>,</c> or <c>;</c>; every rule inside then carries all of them, and each part is registered on its own.</param>
+    /// <param name="configureRules">The rule declarations to register under the name.</param>
     protected void Profile(string ruleSetName, Action configureRules)
     {
         foreach (var name in SplitRuleSetNames(ruleSetName))
@@ -81,25 +62,36 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
     private static string[] SplitRuleSetNames(string ruleSetName) =>
         ruleSetName.Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-    /// <summary>Validates using the rules selected by <paramref name="profile"/>.</summary>
+    /// <summary>Validates <paramref name="model"/> with the rules <paramref name="profile"/> selects.</summary>
+    /// <param name="model">The model to validate.</param>
+    /// <param name="profile">The rule selection to run.</param>
+    /// <returns>FluentValidation's result.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset never registered through <see cref="Profile"/>.</exception>
+    /// <exception cref="AsyncValidatorInvokedSynchronouslyException">A rule <paramref name="profile"/> selects reaches an async validator or an async condition.</exception>
     public ValidationResult Validate(T model, ValidationProfile profile) =>
         ValidatorProfileExtensions.Validate(this, model, profile);
 
-    /// <summary>Validates asynchronously using the rules selected by <paramref name="profile"/>.</summary>
+    /// <summary>Validates <paramref name="model"/> asynchronously with the rules <paramref name="profile"/> selects.</summary>
+    /// <param name="model">The model to validate.</param>
+    /// <param name="profile">The rule selection to run.</param>
+    /// <param name="cancellationToken">Cancels an async rule still running.</param>
+    /// <returns>FluentValidation's result.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset never registered through <see cref="Profile"/>.</exception>
     public Task<ValidationResult> ValidateAsync(T model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
         ValidatorProfileExtensions.ValidateAsync(this, model, profile, cancellationToken);
 
-    /// <summary>
-    /// Throws when <paramref name="profile"/> names a ruleset this validator never registered
-    /// via <see cref="Profile"/> — a ruleset counts as registered by the call, whether or not
-    /// its <c>configureRules</c> body ends up adding any rule. Matching is case-insensitive and
-    /// reads a joined <see cref="Profile"/> name as the several rulesets FluentValidation tags
-    /// its rules with, and FluentValidation's own <c>"*"</c> (every rule) and <c>"default"</c>
-    /// (the rules outside every ruleset) are names its selector honours rather than rulesets a
-    /// validator declares, so they always match. What is left to reject is a name
-    /// FluentValidation would select nothing for. Verified once per distinct profile and cached
-    /// — repeat validations with an equal profile pay only the cache lookup.
-    /// </summary>
+    /// <summary>Throws when <paramref name="profile"/> names a ruleset never registered through <see cref="Profile"/>; checked once per distinct profile.</summary>
+    /// <param name="profile">The profile whose ruleset names are checked.</param>
+    /// <exception cref="InvalidOperationException">A name in <see cref="ValidationProfile.RuleSets"/> matches no registered ruleset, <c>"*"</c> or <c>"default"</c>.</exception>
+    // A ruleset counts as registered by the Profile call, whether or not its body adds any rule.
+    // Matching is case-insensitive and reads a joined Profile name as the several rulesets
+    // FluentValidation tags its rules with. FluentValidation's own "*" (every rule) and "default"
+    // (the rules outside every ruleset) are names its selector honours rather than rulesets a
+    // validator declares, so they always match; what is left to reject is a name FluentValidation
+    // would select nothing for. A profile naming no ruleset has nothing to reject and is not
+    // recorded; repeat validations with an equal profile pay only the cache lookup.
     internal void VerifyRuleSets(ValidationProfile profile)
     {
         if (profile.RuleSets.Count == 0 || _verifiedProfiles.ContainsKey(profile))
@@ -122,15 +114,15 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
         _verifiedProfiles.TryAdd(profile, 0);
     }
 
-    /// <summary>
-    /// Runs <paramref name="validator"/>'s own <see cref="VerifyRuleSets"/> when it derives from
-    /// <see cref="ProfiledValidator{T}"/>, and does nothing otherwise — the one call every
-    /// profile-aware entry point shares instead of repeating the type test. Static, so the
-    /// enclosing type's own type parameter plays no part in that test: the pattern match below
-    /// closes over <typeparamref name="TValidated"/> alone, resolved from
-    /// <paramref name="validator"/>, and a caller reaches this member through whichever closed
-    /// <see cref="ProfiledValidator{T}"/> happens to be in scope.
-    /// </summary>
+    /// <summary>Runs <paramref name="validator"/>'s own <see cref="VerifyRuleSets"/> when it derives from <see cref="ProfiledValidator{T}"/>, and does nothing otherwise.</summary>
+    /// <typeparam name="TValidated">The model type <paramref name="validator"/> accepts.</typeparam>
+    /// <param name="validator">The validator to test.</param>
+    /// <param name="profile">The profile whose ruleset names are checked.</param>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered.</exception>
+    // The one call every profile-aware entry point shares instead of repeating the type test.
+    // Static, so the enclosing type's own type parameter plays no part in that test: the pattern
+    // match below closes over TValidated alone, resolved from the validator, and a caller reaches
+    // this member through whichever closed ProfiledValidator<T> happens to be in scope.
     internal static void VerifyRuleSetsIfProfiled<TValidated>(IValidator<TValidated> validator, ValidationProfile profile)
     {
         if (validator is ProfiledValidator<TValidated> profiledValidator)

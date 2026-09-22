@@ -2,40 +2,15 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// The submit-coverage vouch behind the Valid state class: one derived, cached answer to
-/// whether every submit-selected rule has answered for the model as it stands and which fields
-/// those answers fail, the held copy of the last fresh answer that keeps a confirmation border
-/// steady across the gaps the sources open, and the whole-model record that answers the same
-/// question for a validator with no rule-level seam. The engine asks through
-/// <see cref="WouldPassSubmit"/>, handing in the ask's own coordinates, and feeds the narrow
-/// writes from its own sites; scheduler state stays deliberately outside — whether a re-answer
-/// is on its way arrives as the constructor's predicate, asked fresh exactly where the serve
-/// doctrine requires.
-/// </summary>
+/// <summary>The vouch behind the valid state class: whether the submit rules have answered for the model as it stands, which fields they fail, and the held answer served while the store is empty or an edit's re-answer is in flight.</summary>
 /// <remarks>
-/// Fully synchronous, with no locking and no dispatch, deliberately: the threading doctrine is
-/// the caller's to keep, and its distinctive half is that reading is what mutates — a
-/// <see cref="WouldPassSubmit"/> ask whose coordinates have moved recomputes the cache, the
-/// held answer and the edited-field record in place, on the render path that asked. Every
-/// member therefore expects the renderer's context: the engine reads here from its render-path
-/// field state and feeds every write from a site already on that context — its own class
-/// remarks carry the site-by-site inventory.
+/// Every member expects the renderer's context, and none locks or dispatches. Reading is what
+/// mutates: a <see cref="WouldPassSubmit"/> ask whose coordinates moved recomputes the cached
+/// answer, the held answer and the edited-field record in place, on the render path that asked.
 /// </remarks>
-/// <param name="store">
-/// The set-verdict store the rule walk plans against — <see cref="SetVerdictStore.Plan"/> is
-/// the only member consumed, so the store's structures stay its own.
-/// </param>
-/// <param name="reAnswerOnItsWay">
-/// Whether a re-answer of the submit-selected coverage is demonstrably on its way — the
-/// engine's <see cref="FormidableEngine{TModel}.ReAnswerOnItsWay"/>, injected because it reads
-/// pass and debounce scheduler state the tracker never holds.
-/// </param>
-/// <param name="resolve">
-/// Resolves an issue to the field it lands on, against the live model graph — the engine's own
-/// resolution, so a coverage error and the issue it came from can never land on different
-/// fields.
-/// </param>
+/// <param name="store">The verdict store the rule walk plans against, through <see cref="SetVerdictStore.Plan"/> alone.</param>
+/// <param name="reAnswerOnItsWay">Whether a re-answer of the submit-selected coverage is demonstrably on its way: the engine's <see cref="FormidableEngine{TModel}.ReAnswerOnItsWay"/>, which reads scheduler state the tracker never holds.</param>
+/// <param name="resolve">Resolves an issue to the field it lands on: the engine's own resolution, so a coverage error lands on the field its issue does.</param>
 internal sealed class SubmitCoverageTracker(
     SetVerdictStore store,
     Func<bool> reAnswerOnItsWay,
@@ -103,17 +78,11 @@ internal sealed class SubmitCoverageTracker(
     // excluded, and every fresh hold clears the set whole anyway.
     private readonly HashSet<FieldIdentifier> _editedPastHold = [];
 
-    /// <summary>
-    /// How long a pass in flight counts as "a re-answer on its way". A backstop rather than a
-    /// knob: it only ever decides anything on a form whose pass has hung — where the held field
-    /// shows no pending indicator, since the indicator scopes to the edited fields — and a hung
-    /// form should lose its confirmation borders rather than keep them for ever. Generous on
-    /// purpose: a rule slower than this loses the held green early, the conservative direction.
-    /// The bound is the current pass's age, never the held answer's: each edit against a
-    /// validator that hangs again starts a fresh pass, so the same, ever-staler answer can be
-    /// re-served for another bound per edit — broken-form territory by design, and the edited
-    /// fields themselves are excluded throughout.
-    /// </summary>
+    /// <summary>How long a pass in flight counts as a re-answer on its way for the held vouch: thirty seconds of the pass's own age.</summary>
+    // A backstop rather than a knob: it decides anything only on a form whose pass has hung,
+    // where the held field shows no pending indicator (the indicator scopes to the edited
+    // fields), and a hung form should lose its confirmation borders rather than keep them for
+    // ever.
     internal static readonly TimeSpan HeldVouchBound = TimeSpan.FromSeconds(30);
 
     // The capability-less coverage source: the edit stamp at which the last whole-model
@@ -127,34 +96,14 @@ internal sealed class SubmitCoverageTracker(
     private int _lastSubmitAnswerStamp = -1;
     private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
-    /// <summary>
-    /// Whether the engine can vouch that a submit would not fail <paramref name="field"/> — the
-    /// Valid class's <see cref="FieldState.WouldPassSubmit"/> conjunct: the submit-selected
-    /// coverage is fresh at the current edit stamp AND carries no error-severity issue for the
-    /// field, disclosed or not. Freshness is form-level, deliberately — which fields a PASSING
-    /// rule speaks for is unknowable without per-rule field attribution the adapters cannot
-    /// honestly provide, so one form-wide answer covers every field — while dirtiness is
-    /// per-field, because a failing answer names its fields itself. What "coverage" means is
-    /// the capability split: a rule-capable validator's coverage is the verdict store (every
-    /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
-    /// validator's coverage is the last whole-model SubmitProfile evaluation a submit, a refresh,
-    /// a load or a probe completed, current exactly while its begin stamp is still the current
-    /// edit stamp — a live pass is excluded by kind, whatever profile it ran. The rule-capable
-    /// coverage can also be a HELD answer: a rendered-field-set change empties the store while the
-    /// edit stamp says the model those verdicts described has not moved, and
-    /// <see cref="ServeHeldCoverage"/> covers that gap, so green describes the model rather than
-    /// the page's registration churn — and it covers the gap an edit itself opens, while the pass
-    /// re-answering that edit is demonstrably on its way, so one field's edit does not withdraw
-    /// every other field's confirmation for the debounce window plus the rules' flight. An
-    /// answer served across an edit cannot speak for the edited fields themselves — the edits
-    /// invalidated exactly their values — so those are excluded here and paint as they would
-    /// with no hold anywhere. The fallback needs no cover of its own — its source is not
-    /// the store, and a field-set change leaves it exactly as current as the edit stamp already
-    /// found it. The ask's coordinates — the current edit stamp, the submit profile, and the
-    /// rule selection, <see langword="null"/> for a validator that cannot validate rule by
-    /// rule — arrive from the engine at each ask, which is what keeps the options' and the
-    /// capability's read-at-each-use contracts the engine's to honour.
-    /// </summary>
+    /// <summary>Whether <paramref name="field"/> would pass a submit: the submit rules have answered for the model as it stands, none fails the field, and the field was not edited past a held answer being served.</summary>
+    /// <param name="field">The field the state class is being computed for.</param>
+    /// <param name="editStamp">The current edit stamp.</param>
+    /// <param name="profile">The submit profile.</param>
+    /// <param name="selectRules">The validator's rule selection, or <see langword="null"/> for a validator that cannot validate rule by rule.</param>
+    /// <returns><see langword="true"/> when the engine can vouch for the field; <see langword="false"/> when coverage is stale, an answer fails the field, or the field was edited past the held answer being served.</returns>
+    // The ask's coordinates arrive from the engine at each ask, which keeps the options' and the
+    // capability's read-at-each-use contracts the engine's to honour.
     internal bool WouldPassSubmit(
         FieldIdentifier field,
         int editStamp,
@@ -167,18 +116,14 @@ internal sealed class SubmitCoverageTracker(
             && (!_coverageServedAcrossEdit || !_editedPastHold.Contains(field));
     }
 
-    /// <summary>
-    /// Recomputes the cached submit-coverage answer when the edit stamp, a coverage source, or
-    /// the submit profile has moved since it was last computed — or when the cached answer was
-    /// served across an edit and the re-answer it stands on is no longer on its way — once per
-    /// state change rather than once per field per render, since the walk selects rules and
-    /// resolves the failing verdicts' issues to fields. A selection that throws (a typo'd
-    /// ruleset name, say) reads as stale coverage rather than taking the render down: the next
-    /// pass surfaces the same exception through its own fault policy, which is where a
-    /// configuration error belongs.
-    /// Nothing held stands in for that one: a selection that cannot be walked leaves nothing
-    /// able to vouch for anything.
-    /// </summary>
+    /// <summary>Recomputes the cached coverage answer when the stamp, the version or the profile moved, or a held answer served across an edit finds no re-answer on its way; a throwing selection reads as stale, nothing held standing in.</summary>
+    /// <param name="editStamp">The current edit stamp.</param>
+    /// <param name="profile">The submit profile.</param>
+    /// <param name="selectRules">The rule selection, or <see langword="null"/> for a validator without the rule-level seam.</param>
+    // Once per state change rather than once per field per render: the walk selects rules and
+    // resolves the failing verdicts' issues to fields. A throwing selection (a mistyped ruleset
+    // name) is left for the next pass to surface through its own fault policy, which is where a
+    // configuration error belongs.
     private void EnsureSubmitCoverageCurrent(
         int editStamp,
         ValidationProfile profile,
@@ -255,13 +200,12 @@ internal sealed class SubmitCoverageTracker(
         HoldCoverage(editStamp, profile);
     }
 
-    /// <summary>
-    /// Holds the answer <see cref="EnsureSubmitCoverageCurrent"/> has just computed, together
-    /// with the edit stamp and profile it answers for. Called only where the answer came out
-    /// fresh: a stale read is not an answer, and holding one would be vouching for nothing.
-    /// Holding also empties the edited-field record: the answer being held is current, so no
-    /// field has been edited past it yet.
-    /// </summary>
+    /// <summary>Holds the fresh answer just computed, with its stamp and profile, and clears the edited-past-hold record.</summary>
+    /// <param name="editStamp">The edit stamp the answer is for.</param>
+    /// <param name="profile">The profile it was selected under.</param>
+    // Called only where the answer came out fresh: a stale read is not an answer, and holding one
+    // would vouch for nothing. The record empties because the held answer is current, so no field
+    // has been edited past it yet.
     private void HoldCoverage(int editStamp, ValidationProfile profile)
     {
         _heldCoverageStamp = editStamp;
@@ -270,29 +214,9 @@ internal sealed class SubmitCoverageTracker(
         _editedPastHold.Clear();
     }
 
-    /// <summary>
-    /// Serves the held answer in place of a recomputed one, on either of two grounds. The first:
-    /// the verdicts it was derived from are gone while the model it describes is not — a
-    /// rendered-field-set change empties the store and never moves the edit stamp, so matching
-    /// that stamp is exactly the condition "nothing but the rendered field set has changed since
-    /// this was computed", and the change that emptied the store also arms the pass that replaces
-    /// the held answer with an earned one. The second: an edit moved the stamp past the held
-    /// answer while a re-answer is demonstrably on its way
-    /// (<see cref="FormidableEngine{TModel}.ReAnswerOnItsWay"/>, whose answer the constructor
-    /// injects) — without this, one field's edit withdraws every other field's confirmation for
-    /// the whole gap between the edit and the pass's landing, a debounce window plus the rules'
-    /// flight. An answer served on the second ground is marked as such, and two things keep the
-    /// mark honest: <see cref="WouldPassSubmit"/> excludes the fields edited since the hold, so
-    /// the edited field itself paints exactly as it would with no hold anywhere, and
-    /// <see cref="EnsureSubmitCoverageCurrent"/> re-checks the serve condition on every read of
-    /// the marked answer, so a pass that hangs past <see cref="HeldVouchBound"/> — or a promise
-    /// that evaporates — loses the vouch at the next read rather than keeping it for ever. The
-    /// profile match guards both grounds: an answer about one selection of rules never vouches
-    /// for another. What a served answer can be wrong about is bounded the same way it always
-    /// was: it answers from the model state it was computed against until the pass behind it
-    /// lands, the lag <see cref="IFormidableEngine.IsFormValid"/> has always carried, on the
-    /// same terms.
-    /// </summary>
+    /// <summary>Serves the held answer in place of a recomputed one, either because only the rendered field set changed or because a re-answer of the edit is on its way.</summary>
+    /// <param name="editStamp">The current edit stamp.</param>
+    /// <param name="profile">The submit profile, which must be the held answer's instance.</param>
     private void ServeHeldCoverage(int editStamp, ValidationProfile profile)
     {
         if (!ReferenceEquals(_heldCoverageProfile, profile))
@@ -318,32 +242,16 @@ internal sealed class SubmitCoverageTracker(
         _coverageServedAcrossEdit = true;
     }
 
-    /// <summary>
-    /// Records a field a committed change has just moved past the held answer: while an answer
-    /// is served across an edit, these are exactly the fields it cannot vouch for. The engine
-    /// calls this beside its own edit-stamp bump, as each field-changed notification arrives.
-    /// </summary>
+    /// <summary>Records a field edited past the held answer, which an answer served across the edit then cannot vouch for; called as each field-changed notification arrives.</summary>
+    /// <param name="field">The field the committed change named.</param>
     internal void NoteEdit(FieldIdentifier field) => _editedPastHold.Add(field);
 
-    /// <summary>
-    /// Moves the coverage version: a source the coverage read derives from has moved — a pass
-    /// ending however it ends, a probe landing that filed or recorded anything, the
-    /// rendered-field-set clear — so the next read re-decides rather than standing on a cache
-    /// that predates the change.
-    /// </summary>
+    /// <summary>Marks that a coverage source moved (a pass ending, a probe landing that filed or recorded, the field-set clear), so the next read recomputes.</summary>
     internal void MoveVersion() => _coverageVersion++;
 
-    /// <summary>
-    /// Drops the held coverage answer outright, so nothing serves it again until a fresh compute
-    /// holds a new one. Two things reach for it: a current pass ending without landing — the
-    /// re-answer any served vouch was standing on the promise of is gone, and retraction must
-    /// not wait out <see cref="HeldVouchBound"/> or a still-armed window — and the whole-model
-    /// adoption <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/> opens with,
-    /// which declares the model moved out from under everything the hold describes; its own
-    /// pass re-answers and re-holds.
-    /// Nulling the profile is what closes both serve routes: a stamp of -1 never matches, and
-    /// no profile ever compares equal to none.
-    /// </summary>
+    /// <summary>Drops the held answer, so nothing serves it until a fresh compute holds a new one.</summary>
+    // Nulling the profile closes both serve routes: a stamp of -1 never matches, and no profile
+    // compares equal to none.
     internal void Abandon()
     {
         _heldCoverageStamp = -1;
@@ -351,13 +259,9 @@ internal sealed class SubmitCoverageTracker(
         _heldCoverageErrorFields = null;
     }
 
-    /// <summary>
-    /// Records a completed whole-model SubmitProfile evaluation — the edit stamp it began at
-    /// and the fields its report failed — as the capability-less coverage source. Which
-    /// landings qualify is the caller's decision, made where the pass kinds live: the engine
-    /// records a submit, refresh or load pass's apply and the fallback probe's landing, never a
-    /// live pass, which is excluded by kind rather than by the profile it ran.
-    /// </summary>
+    /// <summary>Records a completed whole-model submit-profile evaluation as the coverage source for a validator that cannot run rule by rule.</summary>
+    /// <param name="beginStamp">The edit stamp the evaluation began at.</param>
+    /// <param name="errorFields">The fields its report failed.</param>
     internal void RecordWholeModelAnswer(int beginStamp, HashSet<FieldIdentifier> errorFields)
     {
         _lastSubmitAnswerStamp = beginStamp;

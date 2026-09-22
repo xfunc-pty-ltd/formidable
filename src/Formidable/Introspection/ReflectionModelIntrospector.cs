@@ -5,61 +5,50 @@ using System.Reflection;
 
 namespace Formidable.Introspection;
 
-/// <summary>
-/// Reflection-based <see cref="IModelIntrospector"/> with per-(type, property) caching.
-/// A source-generated implementation can replace this behind the interface without any
-/// consumer-facing change.
-/// </summary>
+/// <summary>The reflection-based <see cref="IModelIntrospector"/> that <see cref="FormidableServiceCollectionExtensions.AddFormidable"/> registers by default, caching parsed paths and member lookups.</summary>
 /// <remarks>
-/// Fallback contract for <see cref="Resolve"/>: the terminal segment never navigates — it
-/// always names the field on whatever owner the walk has reached so far. A failure to navigate
-/// an intermediate segment (null value, unknown member, out-of-range index, missing key,
-/// throwing getter) returns the deepest non-null owner reached along the way, paired with the
-/// remaining (unresolved) path rejoined from that point. An empty <c>propertyPath</c>
-/// as passed to <see cref="Resolve"/> resolves to the model root with an empty property name. A
-/// malformed path (one <see cref="PropertyPath.TryParse"/> rejects) resolves to the model root
-/// with the entire original path as the property name.
+/// The last segment never navigates: it names the member on whatever owner the walk reached. A
+/// segment that cannot be navigated (such as a null value, an unknown member, an out-of-range
+/// index, a missing key or a throwing getter) ends the walk at the deepest non-null owner, with
+/// the rest of the path as the member name. A malformed path resolves to the root with the whole
+/// path as the member name; an empty path, to the root with an empty member name.
 /// </remarks>
 [RequiresUnreferencedCode("Walks the object graph via reflection; model members must not be trimmed.")]
+// A source-generated implementation can replace this behind the interface with no consumer-facing
+// change.
 public sealed class ReflectionModelIntrospector : IModelIntrospector
 {
-    /// <summary>
-    /// PropertyPath.TryParse is purely syntactic — it never touches the model — so neither a
-    /// successful nor a failed parse is naturally bounded by anything the app itself controls:
-    /// FormidableEngine.Resolve calls Resolve with a server response's issue paths
-    /// verbatim, and almost any attacker-chosen string parses as a valid single-segment path.
-    /// A few thousand entries comfortably covers even a large virtualized form (hundreds of
-    /// rows, each legitimately producing its own path, e.g. "Sessions[437].Title"). Two caps
-    /// bound the cost together, because an entry costs a copy of the key plus a PathSegment
-    /// per segment — several bytes per byte of path — so a count alone bounds nothing: this
-    /// one caps how MANY paths are remembered, <see cref="MaxCachedPathLength"/> caps how LONG
-    /// one may be to earn an entry, and their product is the ceiling on what is retained.
-    /// </summary>
+    /// <summary>How many parsed paths are remembered; once the cap is spent, a path is still parsed and answered, just not cached.</summary>
+    // PropertyPath.TryParse is purely syntactic and never touches the model, so neither a
+    // successful nor a failed parse is bounded by anything the app itself controls: the Blazor
+    // engine hands a server response's issue paths to Resolve unfiltered, and almost any
+    // attacker-chosen string parses as a valid single-segment path. A few thousand entries covers
+    // even a large virtualized form (hundreds of rows, each legitimately producing its own path,
+    // such as "Sessions[437].Title"). Two caps bound the cost together, because an entry costs a
+    // copy of the key plus a PathSegment per segment, several bytes per byte of path, so a count
+    // alone bounds nothing: this one caps how many paths are remembered, MaxCachedPathLength caps
+    // how long one may be to earn an entry, and their product is the ceiling on what is retained.
     private const int MaxCachedPaths = 4096;
 
-    /// <summary>
-    /// The longest path worth remembering. FluentValidation property paths are tens of
-    /// characters — a deeply nested one with indexed rows is still well inside this — while the
-    /// paths a server response can carry are whatever that response says they are. A longer one
-    /// is parsed and answered exactly as any other, just never cached, so an unbounded key
-    /// cannot buy an unbounded entry.
-    /// </summary>
+    /// <summary>The longest path, or member name, that earns a cache entry; a longer one is answered every time, never cached.</summary>
+    // FluentValidation property paths are tens of characters (a deeply nested one with indexed
+    // rows is still well inside this), while the paths a server response can carry are whatever
+    // that response says they are. Capping the key's length is what stops an unbounded key buying
+    // an unbounded entry.
     private const int MaxCachedPathLength = 256;
 
-    /// <summary>
-    /// The (declaring type, member name) key here is only half app-controlled: the type comes
-    /// from the real object graph, but the member name is read from a path segment, which (like
-    /// <see cref="MaxCachedPaths"/>) can arrive from a server response unfiltered — GetProperty
-    /// simply returns null for a name that doesn't exist, so walking one real model type against
-    /// many fabricated names would otherwise grow this cache without bound too. Modest on
-    /// purpose: the legitimate space here — an app's own model types crossed with their own
-    /// declared properties — is small and settles early, well under this cap, before any
-    /// attacker-controlled traffic could push it over. An entry holds a copy of the name, so
-    /// the name half of the key is capped at <see cref="MaxCachedPathLength"/> as well, for the
-    /// reason the path cache pairs its two caps: a count alone bounds nothing when each entry
-    /// can be as long as the sender likes. No type declares a member that long, and a path
-    /// segment is never longer than the path it was cut from.
-    /// </summary>
+    /// <summary>How many (declaring type, member name) lookups are remembered, indexers included; once the cap is spent, a lookup is still answered, just not cached.</summary>
+    // The key here is only half app-controlled: the type comes from the real object graph, but the
+    // member name is read from a path segment, which (like MaxCachedPaths) can arrive from a server
+    // response unfiltered. GetProperty simply returns null for a name that does not exist, so
+    // walking one real model type against many fabricated names would otherwise grow this cache
+    // without bound too. Modest on purpose: the legitimate space here (an app's own model types
+    // crossed with their own declared properties) is small and settles early, well under this cap,
+    // before any attacker-controlled traffic could push it over. An entry holds a copy of the name,
+    // so the name half of the key is capped at MaxCachedPathLength as well, for the reason the path
+    // cache pairs its two caps: a count alone bounds nothing when each entry can be as long as the
+    // sender likes. No type declares a member that long, and a path segment is never longer than
+    // the path it was cut from.
     private const int MaxCachedProperties = 1024;
 
     private readonly ConcurrentDictionary<(Type Type, string Property), PropertyInfo?> _propertyCache = new();
@@ -79,7 +68,11 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     private int _cachedPathCount;
     private int _cachedPropertyCount;
 
-    /// <inheritdoc />
+    /// <summary>Resolves <paramref name="propertyPath"/> against <paramref name="rootModel"/> by walking public instance properties and indexers, falling back as the class remarks describe.</summary>
+    /// <param name="rootModel">The model the path starts from.</param>
+    /// <param name="propertyPath">A FluentValidation property path; empty for the model-level field.</param>
+    /// <returns>The deepest non-null owner reached and the member name on it.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="rootModel"/> or <paramref name="propertyPath"/> is <see langword="null"/>.</exception>
     public ResolvedField Resolve(object rootModel, string propertyPath)
     {
         ArgumentNullException.ThrowIfNull(rootModel);
@@ -118,7 +111,13 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return new ResolvedField(current, RejoinFrom(segments, segments.Count - 1));
     }
 
-    /// <inheritdoc />
+    /// <summary>Reads the public instance property <paramref name="propertyName"/> on <paramref name="owner"/>, with the type it declares.</summary>
+    /// <param name="owner">The instance to read from.</param>
+    /// <param name="propertyName">The property name on <paramref name="owner"/>.</param>
+    /// <param name="value">The value read; <see langword="null"/> when the read failed.</param>
+    /// <param name="declaredType">The property's declared type; <see langword="null"/> when the read failed.</param>
+    /// <returns><see langword="true"/> when the property was found and read; <see langword="false"/> for an empty name, a name no public instance property matches, a name more than one declaration matches, or a read that throws.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="owner"/> or <paramref name="propertyName"/> is <see langword="null"/>.</exception>
     public bool TryReadValue(
         object owner,
         string propertyName,
@@ -168,13 +167,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return true;
     }
 
-    /// <summary>
-    /// Parses <paramref name="propertyPath"/> via the path cache. A cache hit (success or
-    /// previously-cached failure) short-circuits <see cref="PropertyPath.TryParse"/> entirely.
-    /// A cache miss is always parsed to answer this call, but is only added to the cache below
-    /// <see cref="MaxCachedPaths"/> and at or under <see cref="MaxCachedPathLength"/> — past
-    /// either cap it's still parsed and answered correctly every time, just not remembered.
-    /// </summary>
+    /// <summary>Parses <paramref name="propertyPath"/> through the path cache, remembering the outcome, success or failure, only under both caps.</summary>
+    /// <param name="propertyPath">The path to parse.</param>
+    /// <param name="segments">The segments; <see langword="null"/> when the path is malformed.</param>
+    /// <returns><see langword="true"/> when the path parsed, whether from the cache or afresh.</returns>
     private bool TryParsePath(string propertyPath, [NotNullWhen(true)] out IReadOnlyList<PathSegment>? segments)
     {
         if (_pathCache.TryGetValue(propertyPath, out segments))
@@ -194,12 +190,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return parsed;
     }
 
-    /// <summary>
-    /// Claims one entry of a cache's count budget, or answers <see langword="false"/> once the
-    /// budget is spent. The count never passes <paramref name="cap"/>: a counter that kept
-    /// counting every later miss would wrap after 2^31 of them and pass the cap check again, so
-    /// it stops moving at the cap instead, and no number of later misses re-opens the cache.
-    /// </summary>
+    /// <summary>Claims one entry of a cache's budget, or answers <see langword="false"/> once the budget is spent; the count stops at <paramref name="cap"/>.</summary>
+    /// <param name="count">The entries claimed so far.</param>
+    /// <param name="cap">The most entries the cache may hold.</param>
+    /// <returns><see langword="true"/> when a slot was claimed.</returns>
     private static bool TryClaimCacheSlot(ref int count, int cap)
     {
         while (true)
@@ -218,12 +212,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         }
     }
 
-    /// <summary>
-    /// Advances from <paramref name="current"/> across one non-terminal <paramref name="segment"/>.
-    /// Returns null when the segment can't be navigated (missing property, throwing getter,
-    /// out-of-range index, missing key) — the caller falls back to <paramref name="current"/>
-    /// as the deepest resolved owner.
-    /// </summary>
+    /// <summary>Advances one non-terminal <paramref name="segment"/> from <paramref name="current"/>, or <see langword="null"/> when it cannot be navigated.</summary>
+    /// <param name="current">The object reached so far.</param>
+    /// <param name="segment">The property or indexer segment to navigate.</param>
+    /// <returns>The object the segment reaches; <see langword="null"/> for a segment such as a null value, a missing member, a throwing getter, an out-of-range index or a missing key, which <see cref="Resolve"/> answers with <paramref name="current"/> as the owner.</returns>
     private object? Navigate(object current, PathSegment segment) =>
         segment.IsIndexer
             ? GetIndexedValue(current, segment.IndexToken!)
@@ -245,15 +237,11 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         }
     }
 
-    /// <summary>
-    /// Looks up <paramref name="propertyName"/> on <paramref name="type"/> via the property
-    /// cache. A cache hit short-circuits reflection entirely; a cache miss is always reflected
-    /// to answer this call, but is only added to the cache below
-    /// <see cref="MaxCachedProperties"/> and with a name at or under
-    /// <see cref="MaxCachedPathLength"/> — beyond either cap the lookup still answers correctly
-    /// every time, just not remembered. The length test comes first, so an over-long name
-    /// spends none of the count budget.
-    /// </summary>
+    /// <summary>Looks <paramref name="propertyName"/> up on <paramref name="type"/> through the property cache, remembering the answer only under both caps.</summary>
+    /// <param name="type">The owner's type.</param>
+    /// <param name="propertyName">The property name to find.</param>
+    /// <returns>The public instance property, or <see langword="null"/> when none matches.</returns>
+    /// <exception cref="AmbiguousMatchException">More than one property on <paramref name="type"/> has the name, which the callers read as a member that cannot be read.</exception>
     private PropertyInfo? GetOrCacheProperty(Type type, string propertyName)
     {
         var key = (type, propertyName);
@@ -265,6 +253,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
         var property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
 
+        // The length test comes first, so an over-long name spends none of the count budget.
         if (propertyName.Length <= MaxCachedPathLength
             && TryClaimCacheSlot(ref _cachedPropertyCount, MaxCachedProperties))
         {
@@ -320,12 +309,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         }
     }
 
-    /// <summary>
-    /// Looks up the indexer <paramref name="numericToken"/> asks for via the property cache.
-    /// Cached under a key no declared member name can collide with, so a type's two indexers
-    /// get an entry each and both count against <see cref="MaxCachedProperties"/> the way any
-    /// other member does.
-    /// </summary>
+    /// <summary>Looks up the indexer the token's kind asks for through the property cache, under a key no member name can collide with and counted against <see cref="MaxCachedProperties"/> as any member is.</summary>
+    /// <param name="type">The collection's type.</param>
+    /// <param name="numericToken">Whether the token parsed as an <see cref="int"/>.</param>
+    /// <returns>The indexer; <see langword="null"/> when <see cref="FindIndexer"/> picks none.</returns>
     private PropertyInfo? GetOrCacheIndexer(Type type, bool numericToken)
     {
         var key = (type, numericToken ? "this[int]" : "this[string]");
@@ -345,18 +332,16 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return indexer;
     }
 
-    /// <summary>
-    /// Picks the indexer a path token addresses. Indexers overload, so a type declaring more
-    /// than one — JsonObject and JsonArray (every JsonNode declares both), NameValueCollection,
-    /// the non-generic OrderedDictionary, a consumer's own keyed bag — makes
-    /// <c>GetProperty("Item")</c> ambiguous, and the token itself is what resolves it: one that
-    /// parses as an int addresses the int indexer, anything else the string one. The wanted
-    /// parameter type is preferred exactly, then a parameter type it fits (an <c>object</c> key,
-    /// which is what OrderedDictionary declares), and a type with a single indexer answers with
-    /// it whatever its key type, so a Guid-keyed dictionary still reaches the conversion that
-    /// decides it. Anything still ambiguous returns null and navigation falls back on the
-    /// deepest owner — the same answer a member hidden by <c>new</c> gets.
-    /// </summary>
+    /// <summary>Picks the indexer a token addresses: the one whose parameter type matches exactly, else the one that accepts it by assignment, else a type's only indexer.</summary>
+    /// <param name="type">The collection's type.</param>
+    /// <param name="numericToken">Whether the token parsed as an <see cref="int"/>, which asks for an <see cref="int"/> indexer; otherwise a <see cref="string"/> one.</param>
+    /// <returns>The chosen indexer; <see langword="null"/> when the first step with a candidate finds more than one, or no step finds any, so navigation falls back on the deepest owner.</returns>
+    // Indexers overload, so a type declaring more than one (JsonObject and JsonArray, as every
+    // JsonNode declares both; NameValueCollection; the non-generic OrderedDictionary; a consumer's
+    // own keyed bag) makes GetProperty("Item") ambiguous, and the token itself is what resolves it.
+    // The assignable step is for an object-keyed indexer, which is what OrderedDictionary declares;
+    // the only-indexer step lets a Guid-keyed dictionary reach the conversion that decides it.
+    // Anything still ambiguous gets the answer a member hidden by new gets.
     private static PropertyInfo? FindIndexer(Type type, bool numericToken)
     {
         var wanted = numericToken ? typeof(int) : typeof(string);

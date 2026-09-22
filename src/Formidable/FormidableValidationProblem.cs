@@ -1,38 +1,29 @@
 namespace Formidable;
 
-/// <summary>
-/// Client-side shape of the validation ProblemDetails body produced by Formidable.AspNetCore:
-/// the standard <c>errors</c> dictionary keyed by property path plus an <c>advisories</c>
-/// extension for non-error issues. Deserialize an HTTP 400 body into this (web JSON defaults,
-/// e.g. <c>ReadFromJsonAsync</c>) and pass <see cref="ToIssues"/> to the Blazor engine's
-/// server-issue application.
-/// </summary>
+/// <summary>The client-side shape of a Formidable.AspNetCore validation 400: the standard <c>errors</c> dictionary keyed by property path plus an <c>advisories</c> extension for non-error issues.</summary>
 /// <remarks>
-/// Deserialize inside a guard, and treat a <see langword="null"/> result as no verdict. A 400 says
-/// the request was rejected, not that the endpoint is what rejected it: a reverse proxy, a gateway
-/// or a WAF in front of it answers with its own body, and <c>ReadFromJsonAsync</c> throws
-/// <see cref="System.Text.Json.JsonException"/> on one it cannot read into this type — an HTML
-/// page, a line of plain text, an empty body — and <see cref="InvalidOperationException"/> when the
-/// response's character set is one the runtime does not have. The JSON literal <c>null</c> throws
-/// nothing and deserializes to <see langword="null"/>, which the engine's server-issue application
-/// rejects. Inside a Blazor event handler each of those is an unhandled exception rather than a
-/// message on screen. <see cref="ToIssues"/>'s own tolerance covers the shapes that survive the
-/// parse, not the ones that fail it.
+/// Deserialize inside a guard and treat a <see langword="null"/> result as no verdict: a proxy,
+/// gateway or WAF in front of the endpoint answers a 400 with its own body, on which
+/// <c>ReadFromJsonAsync</c> throws <see cref="System.Text.Json.JsonException"/>, and a JSON
+/// <c>null</c> deserializes to <see langword="null"/>, which <c>ApplyServerIssues</c> rejects.
+/// Unguarded, each is an unhandled exception in a Blazor event handler. Hand the result, or
+/// <see cref="ToIssues"/>, to <c>ApplyServerIssues</c> on <c>FormidableForm</c> or <c>FormidableValidator</c>.
 /// </remarks>
 public sealed class FormidableValidationProblem
 {
-    /// <summary>Error messages keyed by property path (standard ValidationProblemDetails shape).</summary>
+    /// <summary>Error messages keyed by property path, the standard ValidationProblemDetails shape. Defaults to empty.</summary>
     public Dictionary<string, string[]> Errors { get; set; } = [];
 
-    /// <summary>Non-error issues from the <c>advisories</c> extension.</summary>
+    /// <summary>Non-error issues from the <c>advisories</c> extension. Defaults to empty.</summary>
     public List<ValidationProblemAdvisory> Advisories { get; set; } = [];
 
-    /// <summary>
-    /// Flattens the payload into engine-ready issues: error entries first (one issue per
-    /// message), then advisories with their severity parsed case-insensitively — unknown or
-    /// "Error" severities read as <see cref="ValidationSeverity.Warning"/>, because the
-    /// errors dictionary is the only error channel.
-    /// </summary>
+    /// <summary>Flattens the body into issues: one per error message, then the advisories, an unknown or <c>Error</c> severity reading as <see cref="ValidationSeverity.Warning"/>.</summary>
+    /// <returns>The issues, errors first.</returns>
+    /// <remarks>
+    /// Tolerates a JSON <c>null</c> anywhere in the body: a null advisory is skipped, and a null
+    /// path or message reads as empty. The tolerance covers shapes that survive the parse, not
+    /// ones that fail it.
+    /// </remarks>
     public IReadOnlyList<ValidationIssue> ToIssues()
     {
         var issues = new List<ValidationIssue>();
@@ -63,6 +54,8 @@ public sealed class FormidableValidationProblem
             // foreign body name a severity no member defines — one that then reaches every
             // severity switch and the field-state class provider as an advisory of no band.
             // IsDefined is what keeps "unknown reads as Warning" true of every unknown.
+            // "Error" is refused for a different reason: the errors dictionary is the only error
+            // channel, so an advisory claiming it is downgraded to Warning.
             var severity =
                 Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
                 && Enum.IsDefined(parsed)

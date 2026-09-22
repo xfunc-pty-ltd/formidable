@@ -82,10 +82,18 @@ field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerI
 submit profile whole-model, pending indicator scoped to the fields edited within the window.
 Landing replaces the submit channel's source and clears the server store. It reveals nothing.
 
+On a form that has never been submitted the ledgers are empty and the gate unarmed, so a
+refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
+and `IsFormValid` alone, and its pending scope names no field.
+
 **Load.** Started by `DiscloseLoadedValuesAsync`. It moves the edit stamp first, because the
 page is stating that the model changed without a notification, and abandons the held vouch. It
 runs the submit profile with an empty pending scope, replaces the submit channel's source and
 clears the server store.
+
+Abandoning the vouch takes the valid class off any field wearing it until the load, or a later
+answer, lands: invisibly on a synchronous validator, and for as long as the slowest rule on one that
+is not.
 
 The load then adopts (touched and engaged both) each field whose value reads as non-empty, among
 the error sites and the fields the validator declares a rule for. A live pass follows, while
@@ -96,9 +104,16 @@ is `null` by default, which starts the live pass inside the notification itself.
 shared timer; a further change within the window re-arms it, and the fire snapshots and clears
 the accumulated fields and runs one live pass for all of them.
 
+A field-set move prunes departed fields from the window's accumulator as it prunes the engaged
+set, and a fire that finds the accumulator empty starts no live pass; the validity probe still
+runs on that fire.
+
 [`RefreshDebounce`](options.md#refreshdebounce) (300 ms) arms the refresh timer the same way from
 every arm site. `Timeout.InfiniteTimeSpan` arms a timer that never fires, which is how the
-refresh is turned off; `TimeSpan.Zero` is the narrowest window, not a switch.
+refresh is turned off; `TimeSpan.Zero` is the narrowest window, not a switch. Under either
+timer `TimeSpan.Zero` still fires from the timer's own callback, never inside the notification
+that armed it, and a fire still defers as any fire does; on the live timer it is not a spelling
+of `null`.
 
 **A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
 validator that throws under either surfaces through the caller's own `try`/`catch`. A live or
@@ -147,6 +162,10 @@ verdict is profile-scoped when its execution consulted a child-scope decision th
 filters: an `Include()`'s internals, or a child validator's rules whose ruleset tags the parent
 rule's own memberships do not guarantee.
 
+An untagged child scope under an untagged rule, and a `ChildRules` child (its tags are its parent
+declaration's, propagated), never scope a verdict unless an `Include()` owns the consultation or,
+before any owner is known, sits in the set.
+
 A `LiveProfile` swapped at runtime is read at the next pass's begin; the rules both profiles
 select keep their verdicts, a profile-scoped verdict re-runs, and a rule the store has never
 answered runs.
@@ -156,6 +175,13 @@ leaving, a section collapsing or a branch swapping can change the model behind t
 notification anywhere, so `OnRenderedFieldsChanged` empties the store outright and moves its
 generation. The same call prunes departed fields from the engaged set and arms a refresh,
 whatever the form's history.
+
+The registry raises no event the engine hears, so the root makes that call: `FormidableForm` from
+its `OnAfterRenderAsync` whenever the registry's version moved, and `FormidableValidator` from a
+continuation posted past the render batch that changed a registration (`NotifyFieldSetChanged()`
+makes the same call at once). A nested component re-rendering alone moves the registry without
+bringing `FormidableForm` there, so whichever of the form's renders comes next picks the move up;
+the validator's continuation needs no render.
 
 A pass in flight across that move still publishes its verdict, but its store write is refused:
 `TryFile` checks the generation the pass captured at begin, so the clear cannot be undone by work
@@ -193,7 +219,8 @@ the error fields are resolved from the served sets' issues.
 
 On any other validator, coverage is the last whole-model submit-profile evaluation a submit, a
 refresh, a load or a probe completed, current while its begin stamp is still the current stamp.
-A live pass is excluded by kind, whatever profile it ran.
+A live pass is excluded by kind, whatever profile it ran. That source needs no held cover of its
+own: a field-set move leaves it as current as the stamp already found it.
 
 **The held vouch.** Every fresh answer is held together with its stamp and profile, and the held
 answer is served in place of a recomputed one on two grounds. First, a rendered-field-set move
@@ -204,6 +231,10 @@ Second, an edit moved the stamp past the held answer while a re-answer is demons
 way. The held answer then serves every field the edit did not touch, the edited fields paint as
 they would with nothing held, and the serve condition is re-checked on every read.
 
+The profile match guards both grounds: an answer about one selection of rules never vouches for
+another. A served answer describes the model as it stood when the answer was computed until the
+pass behind it lands, the same lag `IsFormValid` carries on the same terms.
+
 "On its way" (`ReAnswerOnItsWay`) means one of three things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
 to the submit profile instance. A narrowed live pass promises nothing itself and counts only for
@@ -213,6 +244,10 @@ With no such pass in flight, an open live-debounce window on a submit-running ch
 and so does an armed post-submit refresh, each only under a debounce that can fire
 (`Timeout.InfiniteTimeSpan` promises nothing). The probe is never consulted.
 
+One configuration therefore blinks on an edit as a form with nothing scheduled does: a narrowed
+live channel with `TrackFormValidity` on, before any submit, re-answers only through the probe,
+and its vouch waits for that landing.
+
 **The bound.** A pass in flight counts only while it is younger than `HeldVouchBound`, thirty
 seconds. The bound is the current pass's age, never the held answer's, and past it nothing armed
 behind the pass can stand in for it.
@@ -221,6 +256,10 @@ A hold across an edit is therefore bounded: a form whose pass hangs loses those 
 next read rather than keeping them for ever, and a rule slower than the bound loses the held
 green early, the conservative direction.
 
+Each edit against a validator that hangs again starts a fresh pass with a bound of its own, so
+the same held answer can be re-served for another bound per edit, the edited fields excluded
+throughout.
+
 **What drops the hold** is `Abandon`, reached from two places. A current pass ending without
 landing calls it: a fault of any kind, or a caller's cancellation of a submit or a load, the only
 two kinds that carry an external token. The opening of `DiscloseLoadedValuesAsync` calls it too,
@@ -228,6 +267,9 @@ declaring the model moved out from under everything the hold describes.
 
 A superseded pass is not a drop. Its end sits behind the version gate, so it never abandons, and
 the answer then stands or falls on whether its displacer, or an arm, still promises a re-answer.
+
+Every pass that ends while still current, landed or not, also moves the coverage version, so the
+next coverage read recomputes rather than standing on a cache that predates the end.
 
 ## Supersession and deferral
 
@@ -250,7 +292,9 @@ superseding, and which pass yields to which is written in kinds.
   it.
 - An **immediate live pass** supersedes a refresh in flight instead. After a submit the same edit
   re-arms it; before one, the cancelled refresh belonged to a field-set change and is not
-  re-armed, so the submit-selected coverage waits for whatever next answers that profile.
+  re-armed, so the submit-selected coverage waits for whatever next answers that profile. With
+  the live channel narrowed and `TrackFormValidity` off, nothing refills it before a submit, a
+  load or the next field-set move.
 - A **refresh** fire defers to a submit, a live pass or a load in flight, re-arming so the edit is
   still revalidated once that pass ends. A refresh does not defer to a refresh: the newer displaces
   the older. An open debounce window is not a pass, so nothing defers to it; a refresh that comes
@@ -281,6 +325,11 @@ capability true exactly when the wrapped validator is an `AbstractValidator<TMod
 suppress later rules within one whole-profile run, and executing part of a profile can reproduce
 neither the stop nor its verdict, so the adapter reports the capability absent. A hand-rolled
 `IValidator<T>` cannot enumerate its rules and reports absent too.
+
+Whichever path runs, the engine takes its `IModelValidator<TModel>` once, when it is built (the
+root's `Validator` parameter, else the container), and keeps that instance until the root rebuilds
+it (`FormidableForm` on a `Model` swap or `ResetAsync`, `FormidableValidator` on a new cascaded
+`EditContext`), so a memo held as a field on the validator outlives every pass.
 
 **The whole-profile path and its price.** A validator without the capability gets the whole
 profile in one `ValidateAsync` call per pass: correct, unoptimised. Nothing is reused between
@@ -336,6 +385,9 @@ the page (something registered it once and nothing renders it now) leaves the en
 verdict goes with it. A field nothing ever registered has not left, which is the native-interop
 bridge contract.
 
+A field held by a keep-registered registration has not left either, which is what lets a
+virtualized row scroll out of view and keep its messages.
+
 `EngagedAndVisible` additionally filters each live issue on the same override-aware visibility
 the reveal uses, uniformly across every surface, the store included.
 
@@ -345,6 +397,11 @@ A blocked submit that disclosed no error at all arms the gate; any submit
 that disclosed something or passed disarms it. Whether the gate shows is a predicate over the
 sources, recomputed on every read: armed, no server error standing, the submit answer carrying
 errors that no revealed field discloses, and the live view carrying no error.
+
+The arming half matters: an error that starts failing on a never-revealed field after a submit
+that disclosed everything it had raises no gate, because no blocked submit was ever short an
+explanation, and on the submit channel the field stays quiet until a submit or a server apply
+reveals it.
 
 While the predicate holds, the views synthesize one model-level issue from
 [`DefensiveGateMessage`](options.md#defensivegatemessage), built afresh from the option at each
@@ -372,6 +429,12 @@ issues, each later channel minus any message already showing for the field, and 
 field's submit errors, advisories and live issues) and sorts by the page's field order when the
 root resolved one.
 
+`FormidableForm` asks `IFormidableFieldOrderService` for the reading order after a render only when
+the registry's version moved or the module's layout observer (`observeLayout`, private to the
+library's script and no part of the interface) reported a change under the form element (a keyed
+reorder moves elements without a registration changing); a resolve that returns after a newer one
+started is discarded, and an interop failure or a null answer is retried on the next render.
+
 Within the submit view the client's errors and advisories are merged first (`MergeServer`): a
 server issue whose message and severity both match one the client already shows is dropped, the
 client copy winning. `ExceptShadowed` is the separate, message-only filter on the issue reads
@@ -396,10 +459,25 @@ executes the submit-selected rules with no fresh verdict at its begin stamp, and
 ran. On any other validator each probe is one whole submit-profile validation, recorded as the
 vouch's coverage source.
 
+A probe whose every selected rule is already answered executes nothing and files nothing; it
+still writes `IsFormValid` from the served verdicts. A landing that moved a coverage source
+publishes one notification round, engine and `EditContext` both, because the valid class reads
+that coverage and no pass is there to publish for it.
+
 The probe's store write is refused on a stale generation and additionally when an edit arrived
 since the probe began: a probe has no version for a fresher landing to supersede it through.
+
+A pass's own filing carries no stamp check. Behind a fresher pass, the engine's version gate
+stops the stale filing; behind a fresher probe, which moves no version, the stale filing stands
+and may displace the probe's newer entries. That displacement is conservative: a displaced rule
+is left with no served answer and re-executes at the next plan.
+
 Genuine overlap is never collapsed: an evaluation beginning while another still awaits an async
 rule has no verdict to serve yet and runs that rule itself.
+
+An all-synchronous plan runs to completion before the call that started it returns, so whichever
+of the probe and the pass goes first has filed everything the other would have planned, and they
+share in full.
 
 `IsFormValid` is written only when the value flips and only while the probe's stamp is the latest
 taken. With tracking on, a submit, a refresh or a load landing adopts its own report's validity
@@ -592,8 +670,8 @@ The terminal segment never navigates: it names the field on whatever object the 
 Nested and indexed segments mix freely: every non-terminal segment is one `Navigate` call,
 whichever kind it is, and nothing orders the kinds.
 
-A segment that cannot be navigated (a null value, an unknown member, an out-of-range index, a
-missing key, a throwing getter) ends the walk there, at the deepest non-null owner, with the rest of
+A segment that cannot be navigated (such as a null value, an unknown member, an out-of-range
+index, a missing key or a throwing getter) ends the walk there, at the deepest non-null owner, with the rest of
 the path rejoined as the member name. The result is the public record:
 
 ```csharp

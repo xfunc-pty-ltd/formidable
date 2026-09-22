@@ -1,65 +1,35 @@
 namespace Formidable.Blazor;
 
-/// <summary>
-/// One root's registration with the displaced-click guard: which context it was established for,
-/// and the key the script holds it under. Both shipped roots ask the library's own script to
-/// guard one element and release it again, on the same terms and in the same order, so the
-/// sequence lives here rather than twice.
-/// </summary>
-/// <remarks>
-/// The two things it holds are tracked apart from whatever else a root puts in the browser,
-/// because the guard is established on its own terms: it is asked for once per context and needs
-/// nothing but the script, where a layout observer is reached only from an ordering path and a
-/// root with no <see cref="IFormidableFieldOrderService"/> registered never establishes one at
-/// all. The key is what a rebuild has to release by — it moves with the model, so the old
-/// registration has to be given up by the value it was made with rather than by the one replacing
-/// it.
-/// <para>
-/// What stays with the callers is what genuinely differs between the roots: which element each
-/// one names, and what each does when the script answers that it found nothing to scope to. A
-/// root that renders its own <c>&lt;form&gt;</c> has an answer whatever that form currently holds;
-/// a root that renders no element of its own is the one that can come up empty and has to say so.
-/// </para>
-/// </remarks>
+/// <summary>One root's registration with the displaced-click guard: the context it was established for and the key the script holds it under.</summary>
+// Both roots ask the library's own script to guard one element and release it again, on the same
+// terms and in the same order, so the sequence lives here rather than twice. The two things held
+// here are tracked apart from the layout observer because the guard is established on its own
+// terms: once per context, needing nothing but the script, where an observer is reached only
+// from an ordering path and a root with no IFormidableFieldOrderService registered never
+// establishes one. What differs between the roots stays with them: which element each names,
+// and what each does when the script answers that it found nothing to scope to.
 internal sealed class ClickRecoveryGuard
 {
     private FormidableFormContext? _context;
     private string _rootId = string.Empty;
 
-    /// <summary>
-    /// Establishes the guard for <paramref name="context"/>, releasing whatever the previous
-    /// context registered first.
-    /// </summary>
+    /// <summary>Establishes the guard for the root's current context once, first releasing whatever key the previous context registered.</summary>
+    /// <param name="context">The root's current form context; a new instance re-establishes the guard.</param>
+    /// <param name="rootId">The element id to scope the guard to: the model-level field's rendered id.</param>
+    /// <param name="options">The engine's options, read for <see cref="FormidableOptions.ClickRecovery"/>.</param>
+    /// <param name="registry">The engine's registry, whose registered fields the script walks up from to a <c>&lt;form&gt;</c> when the id names nothing it can take.</param>
+    /// <param name="module">Resolves the root's script module on demand; <see langword="null"/> when the host has no <see cref="Microsoft.JSInterop.IJSRuntime"/>.</param>
+    /// <param name="disposed">Whether the calling component has begun tearing down; read before and after the script call.</param>
+    /// <returns><see langword="true"/> when the script scoped the guard, <see langword="false"/> when it found nothing to scope to, and <see langword="null"/> when nothing was asked: the context is already established, there is no script, <see cref="FormidableOptions.ClickRecovery"/> asked for no guard, the component is disposing, or the interop boundary failed.</returns>
     /// <remarks>
-    /// Attempted once per context rather than retried. A script that cannot be imported on the
-    /// first interactive render describes a host that has no script rather than a transient
-    /// failure, and retrying every render afterwards would buy an interop round trip per render
-    /// for a module that is never going to arrive. A root left without the guard loses a displaced
-    /// click exactly as it did before there was one, and nothing else about it changes. While the
-    /// context it was established for is still the one rendering, the whole call costs one
-    /// reference comparison.
+    /// Attempted once per context and never retried, so a host whose script fails to import on
+    /// the first interactive render is left without the guard.
     /// </remarks>
-    /// <param name="context">The root's current form context, which is the gate: a rebuild
-    /// replaces it, and that is what re-establishes the guard.</param>
-    /// <param name="rootId">The element id to scope the guard to — the model-level field's
-    /// rendered id, which the root caches alongside the engine it derives from.</param>
-    /// <param name="options">The engine's options, read for
-    /// <see cref="FormidableOptions.ClickRecovery"/>.</param>
-    /// <param name="registry">The engine's registry, whose registered fields are the script's
-    /// fallback candidates: elements for it to walk up from to a <c>&lt;form&gt;</c>.</param>
-    /// <param name="module">The caller's own script module, resolved lazily because the root owns
-    /// it — a root may reach the same module for other work — and null when the host has no
-    /// <see cref="Microsoft.JSInterop.IJSRuntime"/> at all.</param>
-    /// <param name="disposed">Whether the calling component has begun tearing down. Read twice:
-    /// a root torn down while this was still awaiting has already run its release, and that
-    /// release found the key below still empty — so an entry registered afterwards is one nothing
-    /// will ever take back, leaving the script holding a detached element, and the document
-    /// listeners it refcounts, for the life of the document.</param>
-    /// <returns>What the script answered — <see langword="true"/> when it found an element to
-    /// scope the guard to, <see langword="false"/> when it did not — or <see langword="null"/>
-    /// when no answer was asked for at all: the guard is already established for this context,
-    /// the host has no script, <see cref="FormidableOptions.ClickRecovery"/> asked for no guard,
-    /// the component is being disposed, or the interop boundary failed.</returns>
+    // Retrying every render would buy an interop round trip per render for a module that is
+    // never going to arrive: a script that cannot be imported on the first interactive render
+    // describes a host that has no script rather than a transient failure. While the context it
+    // was established for is still the one rendering, the whole call costs one reference
+    // comparison.
     internal async Task<bool?> EstablishAsync(
         FormidableFormContext? context,
         string rootId,
@@ -97,8 +67,11 @@ internal sealed class ClickRecoveryGuard
                 return null;
             }
 
-            // Checked immediately before the call, not only after it — see the parameter's own
-            // remarks for what an entry registered past a release would leave behind.
+            // Checked immediately before the call, not only after it: a root torn down while the
+            // release above was awaited has already run its own release and found the key empty,
+            // so an entry registered at this point would be one nothing ever takes back, leaving
+            // the script holding a detached element, and the document listeners it refcounts, for
+            // the life of the document.
             if (disposed())
             {
                 return null;
@@ -137,11 +110,8 @@ internal sealed class ClickRecoveryGuard
         return true;
     }
 
-    /// <summary>
-    /// Gives up the registered key and forgets the context it belonged to, handing the caller the
-    /// key to release through a module the caller still holds. Answers an empty string when there
-    /// is nothing registered.
-    /// </summary>
+    /// <summary>Hands back the registered key for the caller to release and forgets the context it belonged to.</summary>
+    /// <returns>The key, or an empty string when nothing is registered.</returns>
     internal string Take()
     {
         var releasing = _rootId;
@@ -150,16 +120,14 @@ internal sealed class ClickRecoveryGuard
         return releasing;
     }
 
-    /// <summary>
-    /// Asks the script to drop a registered root. Worth doing on its own account: the script
-    /// module outlives the component that registered through it — a module is loaded once per
-    /// document and stays — so an entry left behind scopes the guard to an element no longer in
-    /// the document, and the document-level listeners it refcounts stay installed over a page with
-    /// nothing left to guard.
-    /// </summary>
+    /// <summary>Asks the script to release the guard registered under <paramref name="releasing"/>; an empty key releases nothing.</summary>
     /// <param name="module">The module the registration was made through.</param>
-    /// <param name="releasing">The key it was registered under, or an empty string for nothing to
-    /// release.</param>
+    /// <param name="releasing">The key it was registered under, or an empty string.</param>
+    /// <returns>A task that completes when the script has answered, or at once for an empty key.</returns>
+    // Worth doing on its own account: the module is loaded once per document and outlives the
+    // component that registered through it, so an entry left behind scopes the guard to an
+    // element no longer in the document and keeps the document-level listeners it refcounts
+    // installed over a page with nothing left to guard.
     internal static async Task ReleaseAsync(FormidableJsModule module, string releasing)
     {
         if (releasing.Length > 0)

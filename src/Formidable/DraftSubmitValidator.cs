@@ -1,26 +1,23 @@
 namespace Formidable;
 
-/// <summary>
-/// Convenience base for the common save-draft/submit form lifecycle: draft rules answer
-/// "is the value malformed / out of range?" and treat default values (empty string, 0, null)
-/// as valid; submit rules answer "is the value present?" and treat default values as missing.
-/// Keeping the axes orthogonal avoids double messages for a single mistake. Draft rules run
-/// under <see cref="ValidationProfile.Draft"/> (and any profile including default rules);
-/// submit rules run under <see cref="ValidationProfile.Submit"/>. Additional profiles beyond
-/// the lifecycle pair register in <see cref="ConfigureAdditionalProfiles"/>.
-/// This class is one packaged convention over <see cref="ProfiledValidator{T}"/> — validators
-/// with a different profile shape derive from <see cref="ProfiledValidator{T}"/> directly.
-/// </summary>
+/// <summary>Base validator for the save-draft and submit lifecycle: draft rules check a value's shape, submit rules add presence.</summary>
+/// <typeparam name="T">The model type the validator accepts.</typeparam>
 /// <remarks>
-/// The configure hooks run from the base constructor — see the remarks on
-/// <see cref="ProfiledValidator{T}"/> about derived constructor state.
+/// Draft rules check that a value is well formed and in range and treat a default value (empty
+/// string, 0, <see langword="null"/>) as valid; submit rules check that a value is present and
+/// treat a default value as missing, so one mistake produces one message. Draft rules run under
+/// every profile that includes default rules, <see cref="ValidationProfile.Draft"/> among them;
+/// submit rules run under <see cref="ValidationProfile.Submit"/>. The hooks run from the base
+/// constructor, before a derived constructor body (see <see cref="ProfiledValidator{T}"/>).
 /// </remarks>
+// One packaged convention over ProfiledValidator<T>; a validator with a different profile shape
+// derives from ProfiledValidator<T> directly.
 public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
 {
-    /// <summary>Routes common rules to <see cref="ConfigureDraftRules"/>.</summary>
+    /// <summary>Routes the common rules to <see cref="ConfigureDraftRules"/>.</summary>
     protected sealed override void ConfigureCommonRules() => ConfigureDraftRules();
 
-    /// <summary>Registers the submit ruleset, any additional profiles, then checks for overlapping axes.</summary>
+    /// <summary>Registers the Submit ruleset, then any additional profiles, then reports overlapping rule axes.</summary>
     protected sealed override void ConfigureProfiles()
     {
         Profile(ValidationProfile.SubmitRuleSetName, ConfigureSubmitRules);
@@ -28,28 +25,26 @@ public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
         ReportOverlappingRuleAxes();
     }
 
-    /// <summary>Format/length/range rules. Default values are valid — presence belongs in submit rules.</summary>
+    /// <summary>Format, length and range rules, which let a default value pass; presence belongs to the submit rules.</summary>
     protected abstract void ConfigureDraftRules();
 
-    /// <summary>Required-field, cross-field, and business rules. Default values are missing.</summary>
+    /// <summary>Presence, cross-field and business rules; a default value counts as missing here.</summary>
     protected abstract void ConfigureSubmitRules();
 
-    /// <summary>Optional: register rulesets for profiles beyond the draft/submit pair via <see cref="ProfiledValidator{T}.Profile(string, Action)"/>.</summary>
+    /// <summary>Registers rulesets for profiles beyond Draft and Submit through <see cref="ProfiledValidator{T}.Profile(string, Action)"/>; does nothing by default.</summary>
     protected virtual void ConfigureAdditionalProfiles()
     {
     }
 
-    /// <summary>
-    /// Invoked once per (property, validator) pair that appears in BOTH the draft (default)
-    /// rules and the submit ruleset — usually a sign the orthogonal-concerns convention was
-    /// broken and the user will see two messages for one mistake. Default: a Debug-output
-    /// warning. Override to route elsewhere or suppress. Child/collection rule contents are
-    /// not inspected — the diagnostic covers leaf property validators only.
-    /// </summary>
+    /// <summary>Called once per property and validator type that appear in both the draft rules and the Submit ruleset, usually a sign one mistake will show two messages.</summary>
+    /// <param name="propertyName">The property both axes hold a rule for.</param>
+    /// <param name="validatorName">The component validator's type name as the runtime reports it (<c>NotEmptyValidator`2</c>).</param>
     /// <remarks>
-    /// Invoked from the base constructor; derived constructor-body state is not yet
-    /// initialized when an override runs (field initializers are safe) — see the remarks on
-    /// <see cref="ProfiledValidator{T}"/>.
+    /// Runs from the base constructor, before a derived constructor body (field initializers have
+    /// run). The default writes a Debug-output line in a debug build of this library and nothing
+    /// in the release build the package ships; override it to report elsewhere or to stay silent.
+    /// Child and collection rule contents are not inspected: the check covers leaf property
+    /// validators only.
     /// </remarks>
     protected virtual void OnOverlappingRuleAxes(string propertyName, string validatorName) =>
         System.Diagnostics.Debug.WriteLine(

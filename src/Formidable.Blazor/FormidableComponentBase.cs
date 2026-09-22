@@ -3,31 +3,20 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Shared lifecycle for the kit's context-bound components: it holds the cascaded
-/// <see cref="FormidableFormContext"/>, binds to it when parameters are set — registering whatever
-/// the component speaks for with the form's <see cref="FieldRegistry"/> and subscribing to the
-/// engine's <see cref="IFormidableEngine.StateChanged"/> — rebinds when a host such as
-/// <c>FormidableForm</c>/<c>FormidableValidator</c> swaps its model and rebuilds its engine and
-/// registry, and releases both on disposal. That rebind is the reason this lives in one place:
-/// without it a surviving component keeps a dead subscription to the disposed engine and an
-/// orphaned registration in the old registry, so it stops updating and its submit errors are
-/// suppressed as unrevealed — one safety property with one implementation, rather than a copy per
-/// component free to drift from the others.
-/// </summary>
+/// <summary>The base of the kit's components other than the two roots: it binds to the cascaded <see cref="FormidableFormContext"/>, holds whatever <see cref="Register"/> registers, and re-renders on <see cref="IFormidableEngine.StateChanged"/> while <see cref="ObservesEngineState"/> is <see langword="true"/>.</summary>
 /// <remarks>
-/// Public only because a public component cannot inherit a less accessible base; its constructor
-/// is not accessible outside this assembly, so the components below it are the ones the kit ships.
-/// The supported ways to bring a control of your own to the engine are unchanged by its
-/// existence: <see cref="FormidableInputBase{TValue}"/> for a validated control, and
-/// <see cref="FormidableField{TValue}"/> for markup Formidable does not wrap. Registering a
-/// field is a narrower job than either, and has routes of its own —
-/// <see cref="FormidableFieldAnchor{TValue}"/>, or
-/// <see cref="FieldRegistry.Register(Microsoft.AspNetCore.Components.Forms.FieldIdentifier, bool)"/>
-/// called directly, whose remarks say what a caller then owns.
+/// Not an extension point (the constructor is not accessible outside the assembly): derive
+/// from <see cref="FormidableInputBase{TValue}"/> for a validated control, or put markup of your
+/// own inside <see cref="FormidableField{TValue}"/>.
 /// </remarks>
 public abstract class FormidableComponentBase : ComponentBase, IDisposable
 {
+    // The binding lives here, in one place, because of the rebind: a host that swaps its model
+    // rebuilds its engine and registry, and a surviving component that kept its old binding would
+    // hold a dead subscription to the disposed engine and an orphaned registration in the old
+    // registry, so it would stop updating and its submit errors would be suppressed as
+    // unrevealed. One safety property with one implementation, rather than a copy per component
+    // free to drift from the others.
     private readonly FormContextBinding _binding = new();
     private FieldIdentifier _registeredField;
     private bool _verifyRowKeys;
@@ -38,38 +27,19 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     {
     }
 
-    /// <summary>
-    /// The cascaded form context, and a component's route to the engine, the <c>EditContext</c>
-    /// and the field registry. Supplied by a <c>FormidableForm</c>/<c>FormidableValidator</c>
-    /// ancestor: it is null until parameters are first set, and a component rendered outside such
-    /// an ancestor throws from <see cref="OnParametersSet"/> with a message naming itself.
-    /// </summary>
+    /// <summary>The context the enclosing <see cref="FormidableForm{TModel}"/> or <see cref="FormidableValidator{TModel}"/> cascades, and the route to the engine, the <c>EditContext</c> and the registry; <see langword="null"/> until parameters are first set.</summary>
     [CascadingParameter]
     protected FormidableFormContext? Context { get; private set; }
 
-    /// <summary>
-    /// Whether the component re-renders when the engine raises
-    /// <see cref="IFormidableEngine.StateChanged"/> — true for anything that renders a
-    /// verdict, and so the default. A component that renders no markup of its own has nothing to
-    /// re-render: overriding this to false leaves it unsubscribed altogether rather than
-    /// subscribing a handler with no work to do. Turning it off in a component that does render a
-    /// verdict is what it sounds like — the state class, the aria attributes and any messages it
-    /// renders stop following the field, updating only when something else happens to re-render it.
-    /// </summary>
+    /// <summary>Whether the component subscribes to <see cref="IFormidableEngine.StateChanged"/> and re-renders on it; <see langword="false"/> subscribes to nothing. Defaults to <see langword="true"/>.</summary>
     protected virtual bool ObservesEngineState => true;
 
-    /// <summary>
-    /// Binds the component to the currently-cascaded context: it no-ops while the context instance
-    /// is unchanged, and otherwise releases the previous binding before calling
-    /// <see cref="Register"/> and re-subscribing against the new one. A derived component that
-    /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
-    /// re-renders on a validation state change.
-    /// The no-op path carries one extra job while
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> or
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> is on: it checks that the field
-    /// this component's accessor names is still the one it registered — the first throws on a
-    /// divergence, the second reports it and renders on.
-    /// </summary>
+    /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise runs the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for.</summary>
+    /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor names a different field than the component registered.</exception>
+    /// <remarks>
+    /// An override must call <c>base.OnParametersSet()</c>, or the component registers nothing
+    /// and never re-renders on a state change.
+    /// </remarks>
     protected override void OnParametersSet()
     {
         if (_binding.IsBound(Context))
@@ -91,33 +61,18 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         _staleReported = false;
     }
 
-    /// <summary>
-    /// The field this component's accessor names <em>right now</em>, resolved afresh rather than
-    /// read back from whatever <see cref="Register"/> resolved. Every component that speaks for a
-    /// field overrides this and calls it from its own <see cref="Register"/>, so the identifier a
-    /// component registers and the identifier the row-key check
-    /// (<see cref="FormidableOptions.VerifyRowKeys"/>,
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/>)
-    /// compares against it are the same expression evaluated at two different times — which is the
-    /// only thing that comparison is entitled to assume. The default is the empty identifier, for a
-    /// component with no accessor to resolve: <c>FormidableSummary</c>, which speaks for the whole
-    /// form, and <c>FormidableModelMessage</c>, whose field is the model-level one no accessor
-    /// expression can name. The empty identifier matches itself on every render, so a component
-    /// that keeps the default is never a candidate.
-    /// </summary>
+    /// <summary>The field the component's accessor names at this moment, resolved afresh; the empty identifier for a component with no accessor.</summary>
+    /// <returns>The field the accessor currently resolves to, or the empty identifier, which matches itself on every render and so never counts as a divergence.</returns>
+    // Every component that speaks for a field overrides this and calls it from its own Register,
+    // so the identifier a component registers and the identifier the row-key check compares
+    // against it are the same expression evaluated at two different times, which is the only
+    // thing that comparison is entitled to assume. FormidableSummary and FormidableModelMessage
+    // keep the default: the first speaks for the whole form, the second for the model-level field
+    // no accessor expression can name.
     private protected virtual FieldIdentifier ResolveField() => default;
 
-    /// <summary>
-    /// Checks that the component's accessor still names the field it registered, in whichever of
-    /// its two modes is on — see <see cref="FormidableOptions.VerifyRowKeys"/> for what the
-    /// divergence means and why it is worth stopping on. Under <c>VerifyRowKeys</c> it throws, on
-    /// every divergent parameter set; under
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> alone it hands the divergence to
-    /// <see cref="ReportStaleRegistration"/> instead, whose own work never throws — a throwing
-    /// <see cref="FormidableOptions.StaleRegistrationDiagnostic"/> callback is the consumer's,
-    /// and surfaces as any component-lifecycle throw does. With both options on
-    /// the throw wins outright — one divergence is not two findings. Silent when neither is on.
-    /// </summary>
+    /// <summary>Runs the row-key check in whichever mode is on: <see cref="FormidableOptions.VerifyRowKeys"/> throws on a divergence, <see cref="FormidableOptions.ReportStaleRegistrations"/> alone reports it, and with both on the throw wins.</summary>
+    /// <exception cref="InvalidOperationException">Under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor names a different field than the component registered.</exception>
     private void VerifyRowKey()
     {
         if (!_verifyRowKeys)
@@ -154,18 +109,7 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             $"{nameof(FormidableOptions.VerifyRowKeys)}.)");
     }
 
-    /// <summary>
-    /// The report-never-throw arm of the row-key check: resolves the accessor afresh, and when it
-    /// names a different field than the one registered, hands a
-    /// <see cref="StaleRegistrationReport"/> to the engine's
-    /// <see cref="IStaleRegistrationReporter"/> seam — the same three channels the engine's other
-    /// diagnostics write. One divergence is one report: a latch holds after the first, and it
-    /// resets when the accessor names the registered field again or when the component rebinds,
-    /// so a divergence that heals and then reopens is a fresh finding. An accessor that cannot
-    /// resolve at all — a navigated owner gone null, say — is skipped rather than judged: a
-    /// shape the check cannot answer for must render exactly as it would with no check at all,
-    /// because reporting is this mode's whole severity.
-    /// </summary>
+    /// <summary>Reports a divergence between the registered field and the field the accessor currently names, once until it heals, through <see cref="IStaleRegistrationReporter"/> where the engine implements it; an accessor that throws is skipped.</summary>
     private void ReportStaleRegistration()
     {
         FieldIdentifier current;
@@ -175,11 +119,15 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         }
         catch (Exception)
         {
+            // A shape the check cannot answer for must render exactly as it would with no check
+            // at all, because reporting is this mode's whole severity.
             return;
         }
 
         if (current.Equals(_registeredField))
         {
+            // The latch resets here and on rebind, so a divergence that heals and then reopens is
+            // a fresh finding.
             _staleReported = false;
             return;
         }
@@ -194,12 +142,12 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             new StaleRegistrationReport(GetType(), _registeredField, current));
     }
 
-    /// <summary>
-    /// Names both ends of the divergence: the same field on a different owner — the row case, where
-    /// spelling the identical name twice would say nothing — or two different fields outright.
-    /// Shared by the <see cref="VerifyRowKey"/> throw and the engine's stale-registration report,
-    /// so the two tellings of one divergence cannot drift apart.
-    /// </summary>
+    /// <summary>Describes a divergence: the same field on a different owner (the row case), or two different fields.</summary>
+    /// <param name="registered">The field the component registered.</param>
+    /// <param name="current">The field the accessor currently names.</param>
+    /// <returns>The clause that follows the component's name in the throw and in the report.</returns>
+    // Shared by the VerifyRowKey throw and the engine's stale-registration report, so the two
+    // tellings of one divergence cannot drift apart.
     internal static string DescribeChange(FieldIdentifier registered, FieldIdentifier current)
     {
         var registeredOwner = OwnerName(registered);
@@ -214,36 +162,20 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             field.Model is { } owner ? FriendlyTypeName.Of(owner.GetType()) : "nothing";
     }
 
-    /// <summary>
-    /// Registers whatever this component speaks for with <paramref name="context"/>'s field
-    /// registry, returning the registration for the binding to release — or null when the
-    /// component registers nothing. Called only when the binding targets a new context instance,
-    /// which is the first render and every rebind, and therefore also where a component resolves
-    /// the field its <c>For</c> names: a rebind is exactly when that resolution can have changed.
-    /// </summary>
-    /// <param name="context">The context now being bound.</param>
-    /// <returns>The registration to release on the next rebind or on disposal, or null.</returns>
+    /// <summary>Called when the cascaded context is a new instance (the first render and every rebind): registers what the component speaks for with <paramref name="context"/>'s registry, or returns <see langword="null"/> to register nothing.</summary>
+    /// <param name="context">The context being bound.</param>
+    /// <returns>The handle the base releases on the next rebind or on disposal, or <see langword="null"/>.</returns>
     protected abstract FieldRegistration? Register(FormidableFormContext context);
 
-    /// <summary>
-    /// Called when the engine raises <see cref="IFormidableEngine.StateChanged"/> — a
-    /// validation pass landing, a refresh, a server-applied issue — and re-renders the
-    /// component on the renderer's synchronization context. An override that still wants
-    /// the re-render must call base. It has the event's own handler shape, so an override
-    /// reads whatever <see cref="FormidableStateChangedEventArgs"/> carries.
-    /// </summary>
+    /// <summary>Re-renders the component when the engine raises <see cref="IFormidableEngine.StateChanged"/>; an override that still wants the re-render calls the base.</summary>
     /// <param name="sender">The engine that raised the event.</param>
     /// <param name="e">The event's arguments.</param>
     protected virtual void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
         _ = InvokeAsync(StateHasChanged);
 
-    /// <summary>
-    /// Runs <see cref="DisposeCore"/>, then releases the field registration and the engine
-    /// subscription. Deliberately not virtual: the base's cleanup is not a derived control's to
-    /// forget, so a removed field cannot stay registered because someone missed a base call. The
-    /// release runs in a <see langword="finally"/>, so a throwing <see cref="DisposeCore"/> no
-    /// longer skips it.
-    /// </summary>
+    /// <summary>Runs <see cref="DisposeCore"/>, then releases the field registration and the engine subscription, whether or not <see cref="DisposeCore"/> threw.</summary>
+    // Deliberately not virtual: the base's cleanup is not a derived control's to forget, so a
+    // removed field cannot stay registered because someone missed a base call.
     public void Dispose()
     {
         try
@@ -256,14 +188,12 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Releases resources a derived control owns — a JS module, a timer, a subscription. Called by
-    /// <see cref="Dispose"/> before the base releases the field registration and engine
-    /// subscription, and doing nothing by default. A derived control implementing
-    /// <see cref="IAsyncDisposable"/> owns the whole disposal path instead, because a component
-    /// implementing both interfaces has only its async overload called: such a control must invoke
-    /// <see cref="Dispose"/> from its <c>DisposeAsync</c>, or the registration is never released.
-    /// </summary>
+    /// <summary>Releases what a derived control owns (a JS module, a timer, a subscription); called by <see cref="Dispose"/> before the base releases its registration and subscription. Does nothing by default.</summary>
+    /// <remarks>
+    /// A control that also implements <see cref="IAsyncDisposable"/> must call
+    /// <see cref="Dispose"/> from its <c>DisposeAsync</c>: the renderer calls only the async
+    /// overload of a component implementing both, so the registration is otherwise never released.
+    /// </remarks>
     protected virtual void DisposeCore()
     {
     }

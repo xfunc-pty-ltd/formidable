@@ -13,38 +13,17 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.AspNetCore;
 
-/// <summary>
-/// Validates action arguments with a Formidable profile before the action runs: normalize
-/// (when a model implements <see cref="INormalizableModel"/>), validate, and short-circuit to
-/// a 400 ValidationProblemDetails — errors keyed by the client's path format, non-error
-/// issues on the <c>advisories</c> extension — when any error issue exists.
-/// </summary>
+/// <summary>Action filter that validates the action's model arguments with a validation profile and answers a report with errors as a 400 validation problem.</summary>
 /// <remarks>
-/// Without constructor arguments, resolution prefers each action argument's DECLARED parameter
-/// type: when that type has a registered FluentValidation <c>IValidator&lt;T&gt;</c> (the
-/// shipped <c>AddFormidable()</c> adapter path), it wins outright, so a base-typed parameter is
-/// always validated under the base validator even when polymorphic model binding (e.g. System.
-/// Text.Json's <c>$type</c> discriminator) materializes a derived runtime instance the client
-/// controls. Only when the declared type resolves no validator does resolution fall back to
-/// probing the argument's own runtime type, so a validator registered only for a derived type
-/// still runs; when the action descriptor carries no matching declared parameter at all (e.g. a
-/// hand-built <see cref="ActionDescriptor"/> outside MVC's own pipeline), the runtime type is
-/// used directly, with no declared type to prefer. Pass explicit model types to validate those
-/// types regardless of how their <see cref="IModelValidator{TModel}"/> is registered. The one
-/// residual this resolution order leaves: a derived-only validator registration, or an
-/// unregistered <c>$type</c>, combined with no validator for the declared type either, still
-/// skips the argument silently — name the base type on the attribute
-/// (<c>[Validate(typeof(Order))]</c>) to close it, which is the recommended shape for any action
-/// that accepts polymorphic model binding: an explicit type is validated as the declared type
-/// whatever the runtime type turns out to be, and a missing <c>IValidator&lt;T&gt;</c> for it
-/// throws rather than being skipped.
-/// An action can bind more than one validatable argument; their issues aggregate into a single
-/// report and, on rejection, a single <c>errors</c> dictionary keyed by each issue's own
-/// property path with no per-argument prefix, so two validated models sharing a property name
-/// merge under one key: that un-prefixed shape is the wire contract. The same aggregate
-/// is readable for the rest of the request through
-/// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>, the action body
-/// included.
+/// A model implementing <see cref="INormalizableModel"/> is normalized first. A
+/// <see langword="null"/> argument is skipped; whether the action runs with one is MVC's decision,
+/// made before this filter, and it does for a nullable parameter under <c>[ApiController]</c> and
+/// for any body parameter on a plain <c>Controller</c>. Several validated arguments aggregate into
+/// one report, readable through
+/// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>, and, on
+/// rejection, into one 400: <c>errors</c> keyed by property path with no per-argument prefix, so
+/// two models sharing a property name merge under one key, and warnings and infos under the
+/// <c>advisories</c> extension.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 [RequiresUnreferencedCode(
@@ -56,54 +35,37 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
 {
     private readonly Type[] _modelTypes;
 
-    /// <summary>Validates arguments discovered by validator registration.</summary>
+    /// <summary>Validates every non-null argument whose declared type, or failing that its runtime type, has a registered FluentValidation <c>IValidator&lt;T&gt;</c>.</summary>
     public ValidateAttribute() => _modelTypes = [];
 
-    /// <summary>Validates the arguments of exactly these model types.</summary>
+    /// <summary>Validates every non-null argument whose declared type, or failing that its runtime type, is one of <paramref name="modelTypes"/>.</summary>
+    /// <param name="modelTypes">The model types to validate; an argument resolving to one with no registered validator makes <see cref="OnActionExecutionAsync"/> throw.</param>
     public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
 
-    /// <summary>Profile name: "Draft", "Submit" (default), or a custom profile name, resolved
-    /// once per request via <see cref="ValidationProfile.FromName(string)"/>. The two built-in
-    /// names match case-insensitively (e.g. "draft" and "DRAFT" both resolve to the built-in
-    /// <see cref="ValidationProfile.Draft"/>); custom names run default rules plus the
-    /// same-named rule set, mirroring Submit's shape.</summary>
+    /// <summary>Name of the profile to validate with, resolved on every request through <see cref="ValidationProfile.FromName(string)"/>: "Draft" or "Submit" matched case-insensitively, or a custom name. Defaults to "Submit".</summary>
     public string Profile { get; set; } = "Submit";
 
-    /// <summary>
-    /// When <see langword="true"/>, throws <see cref="InvalidOperationException"/> — naming the
-    /// action and what it declares — if the action could never hand this filter anything to
-    /// validate. Decided from the action's DECLARED parameters, which no request shape can
-    /// influence, in the earliest place each mode can be decided: an explicit constructor type
-    /// (<c>[Validate(typeof(Order), RequireValidator = true)]</c>) that matches no declared
-    /// parameter is caught when MVC builds its application model, before the host serves
-    /// anything, and with no explicit types a parameter list resolving no registered validator
-    /// at all is caught on the action's first request and on every request after it. Off by
-    /// default: an action mixing validatable models with ordinary parameters (route values,
-    /// query strings, injected services) is free to declare no model at all, which is not a
-    /// misconfiguration.
-    /// </summary>
+    /// <summary>Whether an action whose declared parameters could never hand this filter a model to validate throws <see cref="InvalidOperationException"/>, naming the action and what it declares, instead of running. Defaults to <see langword="false"/>.</summary>
     /// <remarks>
-    /// With no explicit types this attribute discovers what to validate from validator
-    /// REGISTRATION, which an application-model convention cannot see — an <c>ActionModel</c>
-    /// carries no <see cref="IServiceProvider"/> — so discovery mode is decided in two places.
-    /// The convention insists the action declares parameters at all; the request-time half then
-    /// probes each DECLARED parameter type for a registered
-    /// <c>FluentValidation.IValidator&lt;T&gt;</c>, the same presence check the filter itself
-    /// discovers arguments with. Declared, not bound: a parameter list is fixed where what a
-    /// request happens to bind is not, so the answer is the same on every request, is computed
-    /// once per action, and a dropped <c>AddValidatorsFromAssembly</c> then fails every request
-    /// to that action loudly instead of quietly validating nothing.
-    /// One shape is refused that the filter would otherwise have validated: a base-typed
-    /// parameter whose only registered validator is for a DERIVED type. The filter reaches that
-    /// at run time by falling back to the bound argument's own type, but the declared type
-    /// resolves nothing, and a check that read bound arguments to tell the difference would be
-    /// the client-reachable check this one exists to avoid. Naming the model types is the
-    /// stronger mode: it is answered entirely at model build, and it admits a base-typed
-    /// parameter for a named derived model.
+    /// With constructor types, an action none of whose parameters can carry a named type throws
+    /// while MVC builds its application model. Without them, an action declaring no parameters
+    /// throws at model build, and one whose declared parameter types resolve no FluentValidation
+    /// validator throws on every request; a base-typed parameter whose only validator is for a
+    /// derived type is refused there, although the filter would validate a derived instance, so
+    /// name the derived type to admit it.
     /// </remarks>
+    // Off by default because an action mixing validatable models with ordinary parameters (route
+    // values, query strings, injected services) is free to declare no model at all, which is not
+    // a misconfiguration.
     public bool RequireValidator { get; set; }
 
-    /// <inheritdoc />
+    /// <summary>Validates the action's arguments as the attribute is configured and short-circuits to the 400 when the aggregate report has an error.</summary>
+    /// <param name="context">The action's execution context.</param>
+    /// <param name="next">The rest of the action pipeline.</param>
+    /// <returns>A task that completes when the action, or the 400 in its place, has run.</returns>
+    /// <exception cref="ArgumentNullException"><see cref="Profile"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><see cref="Profile"/> is blank or joins several names with <c>,</c> or <c>;</c>.</exception>
+    /// <exception cref="InvalidOperationException">No <see cref="IModelValidator{TModel}"/> resolves for the type an argument is validated as, the message naming the missing FluentValidation validator or, when one is registered, the missing <c>AddFormidable()</c> registration; or <see cref="RequireValidator"/> finds no declared parameter type with a registered validator.</exception>
     public override async Task OnActionExecutionAsync(
         ActionExecutingContext context, ActionExecutionDelegate next)
     {

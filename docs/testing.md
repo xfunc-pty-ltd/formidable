@@ -150,8 +150,9 @@ is the same shape again over `FocusAsync`.
 
 A double written today also keeps compiling as Formidable grows. A member added after v1 to any
 interface a consumer implements (these three seams and `IFormidableEngine` among them) carries a
-default implementation. Until a double overrides it, it answers the conservative default named in
-the interface's own remarks.
+default implementation. Until a double overrides it, it answers a conservative default: nothing took
+focus, no order could be resolved, nothing was written, and for `IFormidableEngine` the answer an
+engine without the feature would give.
 
 #### Faking the clock
 

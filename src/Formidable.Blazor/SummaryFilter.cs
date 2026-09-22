@@ -1,21 +1,15 @@
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Selects which severity band <see cref="FormidableSummary"/> renders, for a page that wants
-/// errors and advisories apart instead of one combined list.
-/// </summary>
+/// <summary>Which severities a <see cref="FormidableSummary"/> lists, for a page that shows errors and advisories apart.</summary>
 public enum SummaryFilter
 {
-    /// <summary>Every severity — today's single combined summary. The default.</summary>
+    /// <summary>Every severity in one combined list. The default.</summary>
     All,
 
     /// <summary>Only <see cref="ValidationSeverity.Error"/> issues.</summary>
     Errors,
 
-    /// <summary>
-    /// Every non-error issue — <see cref="ValidationSeverity.Warning"/> and
-    /// <see cref="ValidationSeverity.Info"/> together, matching <see cref="ValidationReport.Advisories"/>.
-    /// </summary>
+    /// <summary>Every non-error issue, as <see cref="ValidationReport.Advisories"/> counts them: <see cref="ValidationSeverity.Warning"/> and <see cref="ValidationSeverity.Info"/>.</summary>
     Advisories,
 
     /// <summary>Only <see cref="ValidationSeverity.Warning"/> issues.</summary>

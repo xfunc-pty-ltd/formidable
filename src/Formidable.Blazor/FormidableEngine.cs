@@ -4,77 +4,60 @@ using Microsoft.Extensions.Logging;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// The validation engine behind a Formidable form. Owned by a root component (engine lifetime
-/// equals component lifetime), it is the single writer to its
-/// <see cref="ValidationMessageStore"/>: error-severity issues become EditContext messages
-/// (interop with built-in components), while the full issue state (warnings, codes) is exposed
-/// via <see cref="GetFieldState"/> and the report objects. Issues resolve to
-/// <see cref="FieldIdentifier"/>s through the introspector, so identity follows object
-/// instances — reordering or removing collection rows cannot misattribute errors.
-/// </summary>
+/// <summary>The validation engine behind one form: it runs the passes, answers every field and issue read from its sources, and keeps the <see cref="EditContext"/>'s message store current.</summary>
+/// <typeparam name="TModel">The form's model type.</typeparam>
 /// <remarks>
-/// Disclosure state follows a sources-plus-views shape. The sources — the live channel's
-/// per-field verdicts, the submit channel's last submit-profile answer, the two reveal ledgers,
-/// the server-applied issue store, the gate arming, the fault issue, HasSubmitted, and the store
-/// and IsValidating beside them — mutate on the renderer's dispatcher and only from the
-/// still-current pass, for every validation pass — and synchronously on the calling thread
-/// within <see cref="ApplyServerIssues"/>, which is why that method (like
-/// <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the renderer's
-/// synchronization context. What an issue read returns is COMPUTED from those sources at read
-/// time — the live view is the live verdicts over the engaged set, the submit view is the last
-/// submit-profile answer over the reveal ledgers merged with the server store and the
-/// synthesized gate — and the <see cref="ValidationMessageStore"/> is a materialized projection
-/// of the same views, rebuilt whenever a source moves. No channel is ever written except through
-/// its sources, so a derived answer cannot be deleted piecemeal or left disagreeing with the
-/// state it derives from. Pass bookkeeping (_version, _passCts, _currentPass,
-/// _touched, _engagedFields, _pendingRefreshFields, _pendingDebouncedLiveFields) mutates
-/// synchronously on the caller's context — except on the dispatcher for: _pendingRefreshFields,
-/// when a refresh pass snapshots and clears it as it begins; _engagedFields, when a
-/// rendered-field-set change drops the fields that have left the page from it — a live pass
-/// snapshots the set as it begins and intersects that snapshot with the set again as its
-/// verdict lands, but no pass ever removes an entry, and submit leaves the set standing; both
-/// _touched and _engagedFields, when the load pass's apply adopts the fields a page's freshly
-/// loaded values have earned;
-/// _pendingDebouncedLiveFields, when the live
-/// debounce timer fires and snapshots and clears it before starting the live pass those fields
-/// triggered, and when a rendered-field-set change drops the fields that have left the page
-/// from it; and _currentPass, which the pass that recorded it clears alongside IsValidating.
-/// A third, independent mechanism covers IsFormValid: _formValidityStamp mutates synchronously
-/// on the caller's context when a probe starts, and IsFormValid itself mutates on the
-/// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
-/// _version gates the channel sources with, but the probe is not a pass, so it never touches
-/// _currentPass, _passCts, or any of the pass bookkeeping above.
-/// A fourth mechanism covers the per-rule verdict store, and its doctrine lives with the store
-/// on <see cref="SetVerdictStore"/>: _editStamp mutates synchronously on the caller's context
-/// as each field change arrives — and as DiscloseLoadedValuesAsync begins, which is a page
-/// stating that the model moved without one — and reaches the store only as arguments, while
-/// the store itself is planned against, filed into and cleared only on the dispatcher, its
-/// writes generation-gated inside the store's own TryFile and the pass-level version gate
-/// staying in the pass's dispatch here.
-/// A fifth covers the submit-coverage vouch, whose doctrine lives with the tracker on
-/// <see cref="SubmitCoverageTracker"/>: reading the vouch is itself the mutation — a
-/// render-path <see cref="GetFieldState"/> ask recomputes the tracker's cached answer in
-/// place — and the tracker carries no locking or dispatch of its own. Its two edit-shaped
-/// writes ride the caller's context beside the edit-stamp moves they belong to (a field
-/// change's NoteEdit, the load's opening Abandon); every other write — the version moves at
-/// pass end, field-set change and probe landing, the fault path's Abandon, the whole-model
-/// record — happens on the dispatcher.
-/// One thread-discipline fact spans every mechanism above: an await calls
-/// ConfigureAwait(false) exactly when its own continuation is off the dispatcher, needing
-/// neither the renderer's context nor any of the state above back. Every await in this file
-/// and both of core's satisfies that except one, each re-entering the dispatcher explicitly
-/// through _renderDispatch wherever its continuation goes on to touch that state. The one
-/// exception sits inside a _renderDispatch delegate already, at the tail of
-/// <see cref="DiscloseLoadedValuesAsync"/> — so it is not an await made off the dispatcher,
-/// only one whose continuation stays on the context _renderDispatch just re-entered, which is
-/// the point rather than an oversight. Blazor's kit components and its JS-backed services
-/// keep the renderer's context throughout their own awaits instead, since those continuations
-/// run in or beside component code that reads it.
+/// <para>
+/// The sources: the live channel's per-field verdicts, the engaged set, the last submit-profile
+/// answer, the two reveal ledgers, the server-issue store, the gate latch, the fault issue and
+/// <see cref="HasSubmitted"/>, with the per-set verdict store and the submit-coverage vouch
+/// beside them. Every issue read computes from them; the message store is a projection rebuilt
+/// whenever a source moves.
+/// </para>
+/// <para>
+/// The passes: live, submit, refresh and load; the <see cref="FormidableOptions.TrackFormValidity"/>
+/// probe is not one. Their order, supersession and deferral are the engine page's subject
+/// (<c>docs/how-the-engine-works.md</c>), which the members cite by section.
+/// </para>
 /// </remarks>
 public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IStaleRegistrationReporter, IDisposable
     where TModel : class
 {
+    // Thread discipline, in one place. Every source above mutates on the renderer's dispatcher
+    // and only from the still-current pass, except that ApplyServerIssues writes synchronously
+    // on the calling thread, which is why it and ValidateForSubmitAsync ask to be called from
+    // the renderer's synchronization context. Pass bookkeeping (_version, _passCts,
+    // _currentPass, _touched, _engagedFields, _pendingRefreshFields,
+    // _pendingDebouncedLiveFields) mutates synchronously on the caller's context, with these
+    // exceptions on the dispatcher: _pendingRefreshFields when a refresh snapshots and clears
+    // it at begin; _engagedFields when a rendered-field-set change prunes departed fields (a
+    // live pass snapshots the set at begin and intersects at apply, but no pass removes an
+    // entry, and a submit leaves the set standing); _touched and _engagedFields when the load's
+    // apply adopts fields; _pendingDebouncedLiveFields when the live timer fires and when a
+    // field-set change prunes it; and _currentPass, which the pass that recorded it clears
+    // beside IsValidating.
+    //
+    // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
+    // context as a probe starts, and IsFormValid is written on the dispatcher only while that
+    // stamp is still current, the last-write-wins shape _version gives the sources. The probe is
+    // not a pass and never touches the pass bookkeeping. _editStamp moves synchronously on the
+    // caller's context as each field change arrives and as DiscloseLoadedValuesAsync begins, and
+    // reaches the verdict store only as an argument; the store is planned against, filed into
+    // and cleared only on the dispatcher, its writes generation-gated inside TryFile with the
+    // version gate staying in the pass's dispatch here. On the coverage tracker, reading is the
+    // mutation (a render-path GetFieldState ask recomputes its cached answer in place) and it
+    // carries no locking or dispatch of its own; its two edit-shaped writes (NoteEdit on a field
+    // change, Abandon at the load's opening) ride the caller's context beside the stamp moves
+    // they belong to, and every other write happens on the dispatcher.
+    //
+    // An await calls ConfigureAwait(false) exactly when its continuation is off the dispatcher
+    // and needs neither the renderer's context nor the state above. Every await in this file and
+    // both of core's satisfies that, re-entering the dispatcher through _renderDispatch wherever
+    // the continuation goes on to touch that state, except the one at the tail of
+    // DiscloseLoadedValuesAsync, which already sits inside a _renderDispatch delegate and stays
+    // on the context that delegate re-entered. The kit components and the JS-backed services keep
+    // the renderer's context through their own awaits, because those continuations run in or
+    // beside component code that reads it.
     private readonly TModel _model;
     private readonly IModelValidator<TModel> _validator;
     private readonly IModelIntrospector _introspector;
@@ -148,7 +131,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private ValidationIssue? _faultIssue;
     private IReadOnlyDictionary<FieldIdentifier, int>? _fieldOrder;
 
-    /// <summary>The result every issue read shares when a field has nothing to say.</summary>
+    /// <summary>The empty list every issue read returns for a field with nothing to say.</summary>
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
     private ITimer? _refreshTimer;
@@ -210,19 +193,23 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // not — cannot leave the engine deferring to a pass that ended long ago.
     private PassScope? _currentPass;
 
-    /// <summary>
-    /// Creates an engine bound to one model + edit context pair. <paramref name="logger"/> is
-    /// optional — a direct construction with none supplied gets the engine's other diagnostics
-    /// (Trace, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>) unaffected.
-    /// </summary>
+    /// <summary>Creates the engine for one model and edit context, with the system clock, inline dispatch and no logger for whichever of those is omitted.</summary>
+    /// <param name="model">The model the form edits.</param>
+    /// <param name="editContext">The edit context whose field-changed notifications drive the live channel and whose message store the engine writes.</param>
+    /// <param name="validator">The validator every pass runs; its optional seams are probed at each use.</param>
+    /// <param name="introspector">Resolves an issue's or a rule's path to the object and member it names.</param>
+    /// <param name="options">The options, read at each use rather than copied.</param>
+    /// <param name="timeProvider">The clock behind the two debounce timers and the held-vouch bound; <see cref="TimeProvider.System"/> when omitted.</param>
+    /// <param name="renderDispatch">Runs a delegate on the renderer's dispatcher; the delegate runs inline when omitted.</param>
+    /// <param name="logger">Receives the diagnostics the engine also writes to Trace; none when omitted, and the Trace lines and option callbacks still fire.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/>, <paramref name="editContext"/>, <paramref name="validator"/>, <paramref name="introspector"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The two shipped roots — <see cref="FormidableForm{TModel}"/> and
-    /// <see cref="FormidableValidator{TModel}"/> — are the only supported hosts. Direct
-    /// construction is supported for tests against the engine alone: a hand-assembled root
-    /// never learns of rendered-field-set changes, because the reconciliation and ordering
-    /// seams are internal, wired by the shipped hosts, and this constructor subscribes only to
-    /// the edit context's field-changed notification — so verdicts for a removed row outlive
-    /// it, departed fields are never pruned, and issues keep validator order.
+    /// <see cref="FormidableForm{TModel}"/> and <see cref="FormidableValidator{TModel}"/> are the
+    /// only supported hosts. An engine built directly, as a test does, never hears of a move in
+    /// the rendered field set, because only a root calls <see cref="OnRenderedFieldsChanged"/>
+    /// and <see cref="SetFieldOrder"/>: a departed field keeps its live verdict, the stored
+    /// verdicts are never dropped, and issues list in validator order. With
+    /// <see cref="FormidableOptions.TrackFormValidity"/> on, construction runs the first probe.
     /// </remarks>
     public FormidableEngine(
         TModel model,
@@ -300,6 +287,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     public event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted;
 
     /// <inheritdoc />
+    /// <param name="field">The field.</param>
+    /// <returns>The field's state, its would-pass-submit flag read from the coverage vouch through <see cref="WouldPassSubmit"/>.</returns>
     public FieldState GetFieldState(FieldIdentifier field)
     {
         var (hasErrors, hasWarnings, hasInfos) = ScanFieldSeverities(field);
@@ -317,6 +306,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
+    /// <param name="field">The field.</param>
+    /// <returns><see cref="FormidableOptions.RequiredOverride"/>'s answer when it gives one, else the field's entry in <see cref="Requirements"/>, else <see cref="FieldRequirement.NotRequired"/>.</returns>
     public FieldRequirement GetFieldRequirement(FieldIdentifier field)
     {
         // The override is asked first and on every read: it is a declaration a consumer makes
@@ -333,36 +324,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             : FieldRequirement.NotRequired;
     }
 
-    /// <summary>
-    /// The submit profile's presence demands, resolved to fields — built on first ask and kept
-    /// until the submit profile instance changes or the rendered field set moves. Asking the
-    /// validator for one field's answer costs a walk of its declared rules, and this is asked
-    /// once per bound component per render, so the walk happens once for the form instead of
-    /// once per field per render.
-    /// <para>
-    /// Keys are resolved through the same introspector that puts an ISSUE on a field, so a
-    /// demand lands on exactly the field the failure it describes would land on — which is the
-    /// whole point of resolving rather than comparing names. A templated path resolves per ROW —
-    /// expanded against the collection the model holds before resolution, so each row's field
-    /// carries its own entry under the row's own identifier. That resolution reads the model
-    /// graph, so it is dropped when the rendered field set moves, for the same reason the
-    /// verdict store is: a change to what is on the page can carry a change to the objects
-    /// behind it, with no field-changed notification anywhere. What that keeps current is this
-    /// map and nothing else — a component asks with the identifier it resolved when it last
-    /// bound, so a rebuild that re-files a nested member under a replaced owner leaves an
-    /// unmoved component asking under the old one. That divergence is the documented limit on
-    /// <see cref="IFormidableEngine.GetFieldRequirement"/>, and it errs towards claiming
-    /// nothing.
-    /// </para>
-    /// <para>
-    /// A selection that throws (a typo'd ruleset name) answers "nothing found" rather than
-    /// taking the render down — the same choice <see cref="SubmitCoverageTracker"/> makes at
-    /// its own selection walk, and for the same reason: the next pass surfaces that exception
-    /// through its own fault policy, which is where a configuration error belongs. Only entries that
-    /// demand something are kept, so a lookup miss and
-    /// <see cref="FieldRequirement.NotRequired"/> are the same answer.
-    /// </para>
-    /// </summary>
+    /// <summary>The submit profile's presence demands resolved to fields, built on first ask and kept until the profile instance changes or the rendered field set moves.</summary>
+    /// <returns>Each demanding field and its requirement; a lookup miss means <see cref="FieldRequirement.NotRequired"/>, and a validator that cannot be inspected or a selection that throws yields an empty map.</returns>
+    // Built once for the form rather than once per field per render: every bound component asks
+    // on every render, and each ask of the validator walks its declared rules. Keys resolve
+    // through the introspector that puts an issue on a field, so a demand lands on exactly the
+    // field the failure it describes lands on, which is the point of resolving rather than
+    // comparing names. The map reads the model graph, so a rendered-field-set move drops it for
+    // the reason the verdict store empties: what is on the page can change the objects behind
+    // it with no field-changed notification anywhere. Only the map is kept current by that: a
+    // component asks with the identifier it resolved at bind, so a nested member re-filed under
+    // a replaced owner leaves an unmoved component asking under the old one, the limit
+    // IFormidableEngine.GetFieldRequirement states, erring towards claiming nothing. A selection
+    // that throws (a mistyped ruleset name) answers "nothing found" rather than taking the render
+    // down, the choice SubmitCoverageTracker makes at its own walk: the next pass surfaces the
+    // exception through its fault policy, where a configuration error belongs.
     private Dictionary<FieldIdentifier, FieldRequirement> Requirements()
     {
         var profile = _options.SubmitProfile;
@@ -415,16 +391,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return _requirements = map;
     }
 
-    /// <summary>
-    /// The engine's read of the submit-coverage vouch — see
-    /// <see cref="SubmitCoverageTracker.WouldPassSubmit"/> for the doctrine. What lives here is
-    /// the ask's coordinates, computed at each ask: the current edit stamp, the submit profile,
-    /// and the rule selection — offered only while the validator can validate rule by rule,
-    /// because <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/> is a live read (a
-    /// cascade-mode flip changes it with no engine event anywhere) and the options' profile is
-    /// read-at-each-use. Freezing either at construction would leave the vouch answering for a
-    /// configuration the form no longer runs.
-    /// </summary>
+    /// <summary>Asks the coverage tracker whether <paramref name="field"/> would pass submit, with the edit stamp, the submit profile and the rule selection read at this ask.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns><see langword="true"/> when the engine can vouch for the field, on the terms <see cref="SubmitCoverageTracker.WouldPassSubmit"/> states.</returns>
+    // The selection is offered only while CanValidateByRule holds, and both it and the profile
+    // are read at each ask: the capability is a live read (a cascade-mode flip changes it with no
+    // engine event anywhere) and the options are read at each use. Freezing either at
+    // construction would leave the vouch answering for a configuration the form no longer runs.
     private bool WouldPassSubmit(FieldIdentifier field) =>
         _submitCoverage.WouldPassSubmit(
             field,
@@ -434,47 +407,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 ? _selectSubmitRules
                 : null);
 
-    /// <summary>
-    /// The profile the live channel runs. Unset, it runs the submit profile itself — the STORED
-    /// instance, never a copy of it: the verdict store's freshness check and the submit-coverage
-    /// cache both key on the profile by reference, and an equal-but-distinct object would silently
-    /// defeat each of them. Resolved at each ask rather than once, per the options'
-    /// read-at-each-use contract — <see cref="FormidableOptions.LiveProfile"/> holds a mutable
-    /// instance a consumer may swap at any moment.
-    /// </summary>
+    /// <summary>The profile the live channel runs: <see cref="FormidableOptions.LiveProfile"/> when set, otherwise the submit profile instance itself.</summary>
+    // The stored instance and never a copy: the verdict store's freshness check and the coverage
+    // cache both key on the profile by reference, and an equal-but-distinct object would defeat
+    // each of them. Resolved at each ask because LiveProfile holds a mutable instance a consumer
+    // may swap at any moment.
     private ValidationProfile ResolvedLiveProfile => _options.LiveProfile ?? _options.SubmitProfile;
 
-    /// <summary>
-    /// Whether a re-answer of the submit-selected coverage is demonstrably on its way. A pass in
-    /// flight is asked first, and its age before anything else: past
-    /// <see cref="SubmitCoverageTracker.HeldVouchBound"/>
-    /// nothing counts, not even what is armed behind it. A hung submit, live or load pass defers
-    /// every armed refresh for as long as it hangs, and a hung refresh is not deferred to but
-    /// displaced by the next refresh fire, which begins a pass with a bound of its own; either
-    /// way, what is armed cannot stand in for a pass past the bound. Within the bound, a pass
-    /// whose landing answers the submit selection is the re-answer itself — submit, refresh and
-    /// load passes run that profile by construction, and a live pass does when the live channel
-    /// resolves to the submit profile instance, compared by reference like every other consumer
-    /// of that resolution. A live pass under a narrowed channel answers for fewer rules, so it is
-    /// not the re-answer; it defers instead to whatever is armed behind it, which is how a
-    /// post-submit refresh sitting behind a narrow pass keeps the vouch through that pass's
-    /// flight and then fires the moment it ends. With no pass in flight — or a narrowed one
-    /// deferring — the scheduled arms decide: an open live-debounce window counts only when
-    /// the live channel resolves to the submit profile, and an armed post-submit refresh counts
-    /// on its own, running the submit profile by construction. Both count only under a debounce
-    /// that can actually fire: <see cref="Timeout.InfiniteTimeSpan"/> arms a timer that never
-    /// does — the documented spelling for turning the refresh off, and the live window's
-    /// degenerate never-closing width — so an accumulator standing behind one promises nothing,
-    /// however many fields it holds. The options are read here, at each ask, per their
-    /// read-at-each-use contract. This is the serve-across-an-edit condition
-    /// <see cref="SubmitCoverageTracker"/> asks as it serves, and the standing condition it
-    /// re-asks on every read of an answer so served.
-    /// The validity probe is deliberately not consulted — it
-    /// is fire-and-forget, with no descriptor to read a start time from — which leaves one
-    /// configuration blinking on an edit exactly as a form with nothing scheduled does: a
-    /// narrowed live channel with <see cref="FormidableOptions.TrackFormValidity"/> on, before
-    /// any submit, re-answers only through the probe, and its vouch waits for that landing.
-    /// </summary>
+    /// <summary>Whether a pass in flight or an armed timer is demonstrably about to re-answer the submit-selected rules, which is what lets the held vouch serve across an edit.</summary>
+    /// <returns><see langword="true"/> for a pass younger than <see cref="SubmitCoverageTracker.HeldVouchBound"/> whose landing answers the submit selection, or for a refresh armed by an edit or a submit-running live window, each behind a debounce that can fire; a pass past the bound answers <see langword="false"/> whatever is armed behind it.</returns>
+    // The options are read here at each ask, per their read-at-each-use contract. The probe is
+    // deliberately not consulted: it is fire-and-forget, with no descriptor to read a start time
+    // from. The serve condition itself, and the doctrine behind the age test, the narrowed-live
+    // fall-through and the arms, is on the engine page under the submit-coverage vouch.
     private bool ReAnswerOnItsWay()
     {
         var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
@@ -514,12 +459,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 && _options.RefreshDebounce != Timeout.InfiniteTimeSpan);
     }
 
-    /// <summary>
-    /// Walks every channel view that can hold an issue for <paramref name="field"/> — live,
-    /// submit errors, submit advisories — stopping the moment an error, a warning, and an info
-    /// have all been seen. <see cref="GetFieldState"/> and <see cref="IValidatingFieldReader.FieldAdvisories"/>
-    /// both answer from this one walk rather than each re-reading the views their own way.
-    /// </summary>
+    /// <summary>Whether the issues showing for <paramref name="field"/> include an error, a warning and an info, read across the live and submit views in one walk.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>The three flags; the walk stops once all three are set.</returns>
+    // GetFieldState and IValidatingFieldReader.FieldAdvisories both answer from this one walk
+    // rather than each re-reading the views their own way.
     private (bool HasErrors, bool HasWarnings, bool HasInfos) ScanFieldSeverities(FieldIdentifier field)
     {
         var hasErrors = false;
@@ -544,29 +488,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return (hasErrors, hasWarnings, hasInfos);
     }
 
-    /// <summary>
-    /// Whether a validation pass in flight currently covers <paramref name="field"/> — form-wide
-    /// for a submit, the one pass the visitor asked for; scoped to the field(s) that triggered a
-    /// live pass (one for an immediate
-    /// edit, every field an open <see cref="FormidableOptions.LiveDebounce"/> window accumulated
-    /// for a debounced one), scoped to the fields edited within the debounce window for a refresh
-    /// pass, and scoped to nothing at all for the pass
-    /// <see cref="DiscloseLoadedValuesAsync"/> runs, which no field is waiting on.
-    /// <see cref="GetFieldState"/> folds this into
-    /// its own read; <see cref="IValidatingFieldReader"/> exposes it standalone for a caller (the
-    /// css class provider) that wants only this, without the rest of what building a full
-    /// <see cref="FieldState"/> costs.
-    /// </summary>
+    /// <summary>Whether the pass in flight covers <paramref name="field"/>, which the pass's kind decides through its pending scope.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns><see langword="true"/> for any field under a submit, a triggering field under a live pass, a field edited within the window under a refresh, and never under a load.</returns>
+    // GetFieldState folds this into its own read; IValidatingFieldReader exposes it alone for the
+    // css class provider, which wants only this without the cost of a whole FieldState.
     private bool IsFieldValidating(FieldIdentifier field) =>
         IsValidating && (_validatingScope is null || _validatingScope.Contains(field));
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldValidating"/>
+    /// <param name="field">The field.</param>
+    /// <returns>What <see cref="IsFieldValidating"/> answers.</returns>
     bool IValidatingFieldReader.IsFieldValidating(FieldIdentifier field) => IsFieldValidating(field);
 
     /// <inheritdoc cref="IValidatingFieldReader.IsFieldTouched"/>
+    /// <param name="field">The field.</param>
+    /// <returns><see langword="true"/> once <see cref="MarkTouched"/> or a load has marked it.</returns>
     bool IValidatingFieldReader.IsFieldTouched(FieldIdentifier field) => _touched.Contains(field);
 
     /// <inheritdoc cref="IValidatingFieldReader.FieldAdvisories"/>
+    /// <param name="field">The field.</param>
+    /// <returns>The two flags from <see cref="ScanFieldSeverities"/>, the error flag dropped.</returns>
     (bool HasWarnings, bool HasInfos) IValidatingFieldReader.FieldAdvisories(FieldIdentifier field)
     {
         var (_, hasWarnings, hasInfos) = ScanFieldSeverities(field);
@@ -574,20 +516,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc cref="IValidatingFieldReader.WouldPassSubmit"/>
+    /// <param name="field">The field.</param>
+    /// <returns>What <see cref="WouldPassSubmit"/> answers.</returns>
     bool IValidatingFieldReader.WouldPassSubmit(FieldIdentifier field) => WouldPassSubmit(field);
 
     /// <inheritdoc cref="IValidatingFieldReader.InlineMessageLive"/>
     string? IValidatingFieldReader.InlineMessageLive => _options.InlineMessageLive;
 
     /// <inheritdoc />
-    /// <remarks>
-    /// Ordering is part of what a message list renders: the submit channel first (errors, then
-    /// advisories), then the live channel, and the fault issue last — a fault is about the pass
-    /// rather than the field, so it trails the field's own verdict. Everything after the errors is
-    /// filtered against what is already showing, so a message a later channel repeats — a server
-    /// response echoing an advisory the client already disclosed, a live rule failing the same way
-    /// twice — reads once, in the position the first channel to say it gave it.
-    /// </remarks>
+    /// <param name="field">The field.</param>
+    /// <returns>The field's issues in the order <see cref="IFormidableEngine.GetIssues"/> states, or one shared empty list when it has none.</returns>
+    // The fault trails the field's own verdict because it is about the pass rather than the field.
+    // Everything after the submit errors is filtered against what is already showing, so a
+    // message a later channel repeats (a server reply echoing an advisory the client disclosed, a
+    // live rule failing the same way twice) reads once, where the first channel to say it put it.
     public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field)
     {
         var submit = SubmitErrorsFor(field);
@@ -627,15 +569,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    /// Collected channel by channel — the fault issue first, then every field's submit errors, then
-    /// every field's advisories, then the live channel, each channel after the errors minus
-    /// whatever is already showing for the same field, exactly as <see cref="GetIssues"/> filters
-    /// them — and then sorted by field, if <see cref="SetFieldOrder"/> has been given a page to
-    /// sort by. What the summary shows within a severity group is that final order, so the sort is
-    /// what makes it the page's rather than the validator's; collecting channel by channel is still
-    /// what decides which issues are in it at all.
-    /// </remarks>
+    /// <returns>Every showing issue with its field, collected channel by channel as <see cref="IFormidableEngine.GetVisibleIssues"/> states and sorted by the order <see cref="SetFieldOrder"/> supplied while one is in force.</returns>
+    // Collecting channel by channel decides which issues are in the list at all; the sort decides
+    // only their order, which is what makes a summary's order the page's rather than the
+    // validator's.
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
         var result = new List<VisibleIssue>();
@@ -710,29 +647,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return result.OrderBy(v => _fieldOrder.TryGetValue(v.Field, out var ordinal) ? ordinal : int.MaxValue).ToList();
     }
 
-    /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
-    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing and nothing on screen
-    /// explains the block, so this one model-level explanation stands in for the errors the user
-    /// cannot see. Built afresh from <see cref="FormidableOptions.DefensiveGateMessage"/> at each
-    /// read, which is what lets a page change the sentence between one surface's read and the
-    /// next.</summary>
+    /// <summary>The gate's model-level issue, built from <see cref="FormidableOptions.DefensiveGateMessage"/> at each read, which the submit views synthesize while <see cref="GateActive"/> holds.</summary>
     private ValidationIssue GateIssue => new(string.Empty, _options.DefensiveGateMessage);
 
-    /// <summary>
-    /// Whether the defensive gate is showing. The gate is a predicate over source state rather
-    /// than a stored entry, which is what makes it impossible for a refresh to delete: it stands,
-    /// recomputed on every read, for as long as the submit that armed it stays the last word (a
-    /// blocked submit that disclosed no error at all) and the submit-profile answer still carries
-    /// errors none of which any surface shows. It dissolves the moment an error reaches the
-    /// screen on either channel — one the reveal ledger discloses (which it can do mid-standing,
-    /// since a server apply reveals fields), a server-declared one, or one an engaged field's
-    /// live verdict carries — or when the answer comes back clean; a later submit re-decides the
-    /// arming outright. Only an error dissolves it: a warning does not say why a submit was
-    /// refused. The arming half matters: an error that starts failing on a never-revealed field
-    /// AFTER a submit that disclosed everything it had raises no gate, because no blocked submit
-    /// was ever short an explanation — the field stays quiet until the next submit, exactly as an
-    /// undisclosed verdict always does.
-    /// </summary>
+    /// <summary>Whether the gate shows: a blocked submit that disclosed nothing armed it, no server error stands, the submit answer carries errors no revealed field discloses, and the live view carries no error.</summary>
+    // A predicate over the sources rather than a stored entry, recomputed on every read, which
+    // is what makes it impossible for a refresh to delete. Only an error dissolves it: a warning
+    // does not say why a submit was refused. The arming half matters too: an error that starts
+    // failing on a never-revealed field after a submit that disclosed everything it had raises
+    // no gate, because no blocked submit was ever short an explanation.
     private bool GateActive
     {
         get
@@ -766,24 +689,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The live channel's view for one field: the verdict the last live pass filed for it,
-    /// disclosed only while the field is engaged. Under the default
-    /// <see cref="LiveIssueDisclosure.Engaged"/> policy registration filters nothing here — an
-    /// engaged field's live verdict discloses on every surface whether or not anything currently
-    /// renders the field, which is the channel's contract (a field that LEAVES the page leaves
-    /// the engaged set with it, which <see cref="HasDeparted"/> decides). The opt-in policy
-    /// narrows that through <see cref="LiveViewOf"/>, the one gate every live surface shares.
-    /// </summary>
+    /// <summary>One field's live view: the verdict the last live pass filed for it while the field is engaged, read through <see cref="LiveViewOf"/>.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>The issues the view shows, empty when the field's rules passed; <see langword="null"/> when the field is not engaged or no live pass has answered it.</returns>
+    // Under the default policy registration filters nothing here: an engaged field's verdict
+    // discloses on every surface whether or not anything renders the field, which is the
+    // native-interop bridge's contract; a field that leaves the page leaves the engaged set
+    // (HasDeparted decides that). The opt-in policy narrows the view through LiveViewOf.
     private List<ValidationIssue>? LiveIssuesFor(FieldIdentifier field) =>
         _engagedFields.Contains(field) && _liveVerdicts.TryGetValue(field, out var live)
             ? LiveViewOf(field, live)
             : null;
 
-    /// <summary>
-    /// The live channel's view across fields: every engaged field's filed verdict, each read
-    /// through the same <see cref="LiveViewOf"/> gate the single-field view applies.
-    /// </summary>
+    /// <summary>Every engaged field's live view.</summary>
+    /// <returns>Each engaged field that has a filed verdict, paired with the view <see cref="LiveViewOf"/> gives it.</returns>
     private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> LiveEntries()
     {
         foreach (var (field, issues) in _liveVerdicts)
@@ -795,16 +714,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// Applies <see cref="FormidableOptions.LiveDisclosure"/> to one engaged field's filed
-    /// verdict — the single place the policy exists, so every surface that shows the live
-    /// channel (the issue reads, the severity scan, the visible-issue collection, and the
-    /// message-store projection through them) answers identically by construction. The default
-    /// returns the verdict untouched. The opt-in filters per issue on the same override-aware
-    /// <see cref="IsVisible"/> the submit channel's reveal consults — per issue because the
-    /// override is per issue: one forced visible still shows from a field nothing renders.
-    /// Read from the options at every evaluation, since options mutate in place.
-    /// </summary>
+    /// <summary>Applies <see cref="FormidableOptions.LiveDisclosure"/> to one engaged field's filed verdict: untouched by default, filtered per issue on <see cref="IsVisible"/> under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>.</summary>
+    /// <param name="field">The field.</param>
+    /// <param name="filed">The verdict the last live pass filed for it.</param>
+    /// <returns>The issues that may show; the filed list itself when nothing is filtered out.</returns>
+    // The one place the policy exists, so every live surface (the issue reads, the severity
+    // scan, the visible-issue collection and the store projection through them) answers alike.
+    // Per issue because the override is per issue: an issue forced visible still shows from a
+    // field nothing renders. Read from the options at every evaluation, because options mutate in
+    // place.
     private List<ValidationIssue> LiveViewOf(FieldIdentifier field, List<ValidationIssue> filed)
     {
         if (_options.LiveDisclosure == LiveIssueDisclosure.Engaged || filed.Count == 0)
@@ -832,14 +750,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return visible ?? filed;
     }
 
-    /// <summary>
-    /// The submit channel's error view for one field: the client's last submit-profile answer
-    /// where the reveal ledger discloses it, then the server's errors the client is not already
-    /// showing — the same message at the same severity collapses to the client's copy, since the
-    /// client merges first — then the synthesized gate issue on the model-level field. Returns
-    /// <see langword="null"/> when the channel has nothing for the field, so the absent case and
-    /// an answered-clean case read apart.
-    /// </summary>
+    /// <summary>One field's submit-error view: its client errors where the reveal ledger discloses them, the server's errors not already showing, and, while the gate shows, the gate issue on the model-level field.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>The errors the view shows, or <see langword="null"/> when the channel has nothing for the field.</returns>
     private List<ValidationIssue>? SubmitErrorsFor(FieldIdentifier field)
     {
         var client = _revealedErrorFields.Contains(field)
@@ -858,13 +771,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return merged ?? client;
     }
 
-    /// <summary>
-    /// The submit channel's advisory view for one field: the client's last submit-profile
-    /// advisories where either reveal ledger discloses the field — an error site keeps a warning
-    /// it also picked up, and an advisory site keeps its own — then the server's advisories the
-    /// client is not already showing, collapsed on message AND severity, since the channel holds
-    /// every non-error severity in one list and the same sentence can exist at two of them.
-    /// </summary>
+    /// <summary>One field's submit-advisory view: its client advisories where either reveal ledger holds the field, plus the server's advisories not already showing at the same severity.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>The advisories the view shows, or <see langword="null"/> when there are none.</returns>
     private List<ValidationIssue>? SubmitAdvisoriesFor(FieldIdentifier field)
     {
         var client = (_revealedErrorFields.Contains(field) || _revealedAdvisoryFields.Contains(field))
@@ -875,14 +784,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return MergeServer(client, _serverAdvisories.GetValueOrDefault(field)) ?? client;
     }
 
-    /// <summary>
-    /// Appends the server's issues for a field to the client's, skipping any the client is already
-    /// showing at the same severity — the client merges first, so an identical sentence from both
-    /// sides collapses to the client's copy. Returns <see langword="null"/> when the server adds
-    /// nothing, so a caller with more to append knows whether a copy has been taken yet: the
-    /// client's own list is never mutated, since the channel views hand it straight back when
-    /// nothing merges.
-    /// </summary>
+    /// <summary>Appends the server's issues the client is not already showing at the same severity to a copy of the client's list.</summary>
+    /// <param name="client">The client's issues for the field, never mutated; <see langword="null"/> when it has none.</param>
+    /// <param name="server">The server's issues for the field; <see langword="null"/> when it has none.</param>
+    /// <returns>The merged copy, or <see langword="null"/> when the server adds nothing.</returns>
+    // A null return tells a caller with more to append that no copy has been taken yet; the
+    // views hand the client's own list straight back when nothing merges.
     private static List<ValidationIssue>? MergeServer(
         List<ValidationIssue>? client,
         List<ValidationIssue>? server)
@@ -905,26 +812,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return merged;
     }
 
-    /// <summary>
-    /// Whether two issues say the same thing at the same weight — the test wherever a repeated
-    /// sentence folds into the one already held: the channel views folding a server copy into the
-    /// client's, and a server apply folding a payload's second copy into the entry it already
-    /// took. The severity half earns its place on the advisory side, where one list holds every
-    /// non-error severity at once and the same sentence can legitimately sit at two of them; in an
-    /// error list it is constant and costs nothing. The live-issue merge inside
-    /// <see cref="RebuildStore"/> tests the message alone instead, deliberately, for the reason
-    /// stated there.
-    /// </summary>
+    /// <summary>Whether two issues carry the same message at the same severity, the test behind the views' server fold and the apply's duplicate fold.</summary>
+    /// <param name="left">One issue.</param>
+    /// <param name="right">The other.</param>
+    /// <returns><see langword="true"/> when both match.</returns>
+    // The severity half earns its place on the advisory side, where one list holds every
+    // non-error severity and the same sentence can sit at two of them; in an error list it is
+    // constant. The live-issue merge inside RebuildStore tests the message alone, for the reason
+    // stated there.
     private static bool SameMessageAndSeverity(ValidationIssue left, ValidationIssue right) =>
         left.Message == right.Message && left.Severity == right.Severity;
 
-    /// <summary>
-    /// Every field the submit channel's error view has entries for, paired with its merged view:
-    /// ledger-revealed fields in the order the report produced them, then fields only the server
-    /// speaks for in the order the apply produced them, then the model-level gate when the
-    /// predicate holds. <see cref="GetVisibleIssues"/> and <see cref="RebuildStore"/> both walk
-    /// this one enumeration, so the two surfaces cannot disagree about what the channel holds.
-    /// </summary>
+    /// <summary>Every field the submit-error view has entries for, with its merged view: revealed fields in report order, server-only fields in apply order, then the gate while it shows.</summary>
+    /// <returns>The fields and their views; <see cref="GetVisibleIssues"/> and <see cref="RebuildStore"/> both walk this one enumeration.</returns>
     private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitErrorEntries()
     {
         foreach (var field in _submitVerdictErrors.Keys)
@@ -950,10 +850,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The advisory sibling of <see cref="SubmitErrorEntries"/>: every field the submit channel's
-    /// advisory view has entries for, paired with its merged view.
-    /// </summary>
+    /// <summary>Every field the submit-advisory view has entries for, with its merged view.</summary>
+    /// <returns>The fields and their views, client-revealed fields first and server-only fields after.</returns>
     private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitAdvisoryEntries()
     {
         foreach (var field in _submitVerdictAdvisories.Keys)
@@ -975,10 +873,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// Answers whether <paramref name="issues"/> carries an error, a warning, and an info, stopping
-    /// the moment all three are answered.
-    /// </summary>
+    /// <summary>Sets the flag for each severity <paramref name="issues"/> carries, stopping once all three are set.</summary>
+    /// <param name="issues">The issues to scan.</param>
+    /// <param name="hasErrors">Set when an error is seen.</param>
+    /// <param name="hasWarnings">Set when a warning is seen.</param>
+    /// <param name="hasInfos">Set when an info is seen.</param>
     private static void ScanSeverities(
         List<ValidationIssue> issues, ref bool hasErrors, ref bool hasWarnings, ref bool hasInfos)
     {
@@ -1004,10 +903,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// Adds every issue to <paramref name="result"/> and records its message as already showing for
-    /// the field, which is what the live channel is then filtered against.
-    /// </summary>
+    /// <summary>Adds every issue to <paramref name="result"/> and records each message as showing for the field.</summary>
+    /// <param name="result">The list being built.</param>
+    /// <param name="showing">The messages already showing for the field, which later channels are filtered against.</param>
+    /// <param name="issues">The issues to add.</param>
     private static void AddShowing(
         List<ValidationIssue> result,
         HashSet<string> showing,
@@ -1020,16 +919,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The one shadow rule behind every merged issue read: an issue is dropped when the same
-    /// message is already showing for the same field, so a rule that fails in more than one channel
-    /// reads as one message rather than several. Submit errors are the against-list every other
-    /// channel is filtered by; the advisory channel is filtered too, which is what collapses a
-    /// server response echoing an advisory the client already disclosed — the client's copy is
-    /// there first, so the client's copy is the one that shows. <paramref name="showing"/> grows as
-    /// issues pass, which is also what collapses two issues in one channel carrying the same
-    /// message into one.
-    /// </summary>
+    /// <summary>Yields the issues whose message is not already showing for the field, recording each one it yields.</summary>
+    /// <param name="issues">One channel's issues for the field.</param>
+    /// <param name="showing">The messages already showing; it grows as issues pass, so a message repeated within one channel yields once.</param>
+    /// <returns>The issues that add a message the field is not already showing.</returns>
+    // The one shadow rule behind every merged issue read: a rule that fails in more than one
+    // channel reads as one message, in the position the first channel to say it gave it.
     private static IEnumerable<ValidationIssue> ExceptShadowed(
         List<ValidationIssue> issues,
         HashSet<string> showing)
@@ -1044,13 +939,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Records one message as showing for a field, when a shadow map is being kept.</summary>
+    /// <param name="showing">The form-wide shadow map, or <see langword="null"/> when none is kept.</param>
+    /// <param name="field">The field.</param>
+    /// <param name="issue">The issue whose message is showing.</param>
     private static void RecordShowing(
         HashSet<(FieldIdentifier Field, string Message)>? showing,
         FieldIdentifier field,
         ValidationIssue issue) => showing?.Add((field, issue.Message));
 
-    /// <summary>Field-keyed sibling of <see cref="ExceptShadowed(List{ValidationIssue}, HashSet{string})"/> for the whole-form read,
-    /// where one set spans every field rather than one set existing per field.</summary>
+    /// <summary>The field-keyed form of <see cref="ExceptShadowed(List{ValidationIssue}, HashSet{string})"/> for the whole-form read, where one set spans every field.</summary>
+    /// <param name="issues">One channel's issues for the field.</param>
+    /// <param name="field">The field the issues belong to.</param>
+    /// <param name="showing">The form-wide shadow map; it grows as issues pass.</param>
+    /// <returns>The issues that add a message the field is not already showing.</returns>
     private static IEnumerable<ValidationIssue> ExceptShadowed(
         List<ValidationIssue> issues,
         FieldIdentifier field,
@@ -1066,6 +967,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
+    /// <param name="field">The field.</param>
+    /// <remarks>Raises <see cref="StateChanged"/> only on a first touch.</remarks>
     public void MarkTouched(FieldIdentifier field)
     {
         if (_touched.Add(field))
@@ -1074,36 +977,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>The model-level identifier issues with an empty path resolve to.</summary>
+    /// <summary>The model-level identifier: the root model with an empty field name, which an issue with an empty path resolves to.</summary>
     internal FieldIdentifier ModelLevelField => new(_model, string.Empty);
 
-    /// <summary>
-    /// Supplies the order visible issues are reported in — the document order of the rendered
-    /// fields, resolved by the host. Fields absent from the map sort after every mapped field:
-    /// an unrendered field cannot be scrolled to, so where it lands does not matter. The
-    /// model-level field is not one of those absentees: it is offered to the resolver like any
-    /// other field, and because its element is this form's own <c>&lt;form&gt;</c> — which
-    /// contains every field on the page — document order puts it first. Passing <c>null</c>
-    /// restores validator order.
-    /// </summary>
+    /// <summary>Sets the order <see cref="GetVisibleIssues"/> lists by; an order equal to the one in force raises nothing, and <see langword="null"/> restores validator order.</summary>
+    /// <param name="order">Each rendered field's ordinal in document order, as the host resolved it, or <see langword="null"/>.</param>
     /// <remarks>
-    /// Silence here is conditional, not unconditional. An order matching the one already in force
-    /// is taken without a word — which is the common answer, since most of what provokes a resolve
-    /// leaves the reading order exactly where it was — and only an order that genuinely differs
-    /// raises <see cref="StateChanged"/>. That keeps the cost the silence exists to avoid:
-    /// notifying on every resolve would put a full re-render round behind every registration
-    /// change, and on a page whose registered set churns as it scrolls (a virtualized collection)
-    /// that is a steady stream of them, one that can re-order a summary out from under a click.
-    /// What it must not do is stay quiet about a change. The order IS what a summary lists by, and
-    /// a resolve necessarily lands after the render that produced the elements it measured, so a
-    /// changed order has no other way onto the page: a reorder that registers nothing — rows moved
-    /// under a <c>@key</c> — raises no pass, no edit and no server apply to ride on, and the
-    /// summary would go on listing a page that is no longer there. Gating on difference is also
-    /// what settles the sequence a host watching the page for those moves sets off: the re-render a
-    /// changed order provokes mutates the DOM, the mutation resolves the order once more, and that
-    /// second answer matches what is now in force, so it says nothing and the sequence stops.
+    /// A field absent from the map sorts after every mapped field. <see cref="FormidableForm{TModel}"/>
+    /// offers the model-level field with the rest, and its element, the form itself, puts it
+    /// first in document order. Only an order that differs raises <see cref="StateChanged"/>.
     /// </remarks>
-    /// <param name="order">Field-to-ordinal map, or <c>null</c>.</param>
+    // A field absent from the map sorts last because an unrendered field cannot be scrolled to,
+    // so where it lands does not matter.
+    // Notifying on every resolve would put a render round behind every registration change, a
+    // steady stream on a page whose registered set churns as it scrolls (a virtualized
+    // collection), and one that can re-order a summary out from under a click. Staying quiet
+    // about a change is not an option either: a resolve lands after the render that produced
+    // the elements it measured, and a reorder that registers nothing (rows moved under @key)
+    // raises no pass, no edit and no server apply for the new order to ride on. Gating on
+    // difference also settles the sequence a host watching the DOM for those moves sets off: the
+    // re-render a changed order provokes resolves once more, that answer matches, and the
+    // sequence stops.
     internal void SetFieldOrder(IReadOnlyDictionary<FieldIdentifier, int>? order)
     {
         if (SameFieldOrder(_fieldOrder, order))
@@ -1115,13 +1009,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         NotifyStateChanged();
     }
 
-    /// <summary>
-    /// Whether two resolved orders would sort visible issues identically. Count first, then every
-    /// ordinal: both maps hold one entry per field the host rendered, so this is a handful of
-    /// dictionary probes on a page and cheaper by far than the render it decides against.
-    /// Null is an order in its own right — validator order — so a transition to or from it counts
-    /// as a difference like any other.
-    /// </summary>
+    /// <summary>Whether two resolved orders sort visible issues identically; <see langword="null"/> is validator order and differs from any map.</summary>
+    /// <param name="current">The order in force.</param>
+    /// <param name="replacement">The order offered.</param>
+    /// <returns><see langword="true"/> when both are the same reference, or hold the same fields at the same ordinals.</returns>
+    // Count first, then every ordinal: both maps hold one entry per rendered field, so this is a
+    // handful of dictionary probes and cheaper by far than the render it decides against.
     private static bool SameFieldOrder(
         IReadOnlyDictionary<FieldIdentifier, int>? current,
         IReadOnlyDictionary<FieldIdentifier, int>? replacement)
@@ -1147,48 +1040,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return true;
     }
 
-    /// <summary>
-    /// Tells the engine that the set of fields the host has rendered moved — a collection row
-    /// removed, a section collapsed, a conditional branch swapped for another. Nothing announces
-    /// such a move as a field change, so this is the engine's only word that the page its
-    /// disclosed verdicts describe is not the page on screen.
-    /// </summary>
+    /// <summary>Tells the engine the rendered field set moved: departed fields leave the live channel, the stored verdicts and the presence map (<see cref="Requirements"/>) are dropped, and a refresh is armed.</summary>
     /// <remarks>
-    /// Five things follow, in that order. A field that has LEFT the page leaves the engaged
-    /// set: the live channel disclosed its verdict only while it was engaged, so disengaging it
-    /// takes the issue off every surface at once — the engine's own reads and the message store
-    /// alike, since the store is a projection of the same view, rebuilt here when a filed
-    /// verdict left with its field. Having left is <see cref="HasDeparted"/>'s question and not
-    /// simply being unregistered: a field that never registered at all has not left, and under
-    /// <see cref="LiveIssueDisclosure.Engaged"/> keeping its verdict is the bridge contract
-    /// itself. A field held by keep-registered has not left either, which is what
-    /// lets a virtualized row scroll out of view without losing its messages. A departed field
-    /// also stops being one a live pass in flight will answer for: the pass intersects its
-    /// begin-time engaged snapshot with the set as it stands at apply, so the verdict it is
-    /// about to write cannot re-file the entry the prune just dropped. A field waiting only on
-    /// an open <see cref="FormidableOptions.LiveDebounce"/> window — no pass in flight yet —
-    /// leaves the same accumulator emptied of it, so the window's own eventual fire finds
-    /// nothing left to answer for once every field it opened for has gone; a fire that finds
-    /// nothing at all starts no pass. The stored rule verdicts go too: the stamp they are
-    /// checked against counts edits, a rendered-field-set move is not one, so a verdict taken
-    /// before the move would read as fresh while answering for a page — and, when a collection
-    /// row was what left, a model — that no longer exists. Then a refresh is scheduled, whatever
-    /// the form's history: it recomputes the submit channel's answer against the model as it
-    /// stands, and is the only pass a field-set change can start for itself, and it is owed twice
-    /// over — once for that channel, and once because the emptied store leaves the Valid class's
-    /// vouch nothing of its own to read.
-    /// That channel still speaks only for the revealed-field ledgers, never for what is
-    /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
-    /// entry goes because its rule no longer fires, not because the row left the page — and an
-    /// entry for a field a collapsed section took away survives, because the rule still fails.
-    /// On a form that has never been submitted the ledgers are empty and the gate unarmed, so
-    /// the same pass reports nothing at all: it answers for coverage and
-    /// <see cref="IsFormValid"/> alone, and the empty edited set it is armed with scopes its
-    /// pending indicator to no field, so nothing on the page so much as flickers.
-    /// A model whose CONTENTS changed needs a field-change notification of its own regardless.
-    /// Dropping issues is all this can do, and a rule that must START failing because a row left —
-    /// a collection that requires at least one entry — produces an issue no pass has computed yet.
+    /// Departed means registered once and no longer rendered, so a field nothing ever
+    /// registered keeps its verdict, and a row held by keep-registered keeps its messages.
+    /// Dropping is all this does: an issue a departure causes shows only once a later pass
+    /// computes it, by default the refresh this arms, and on a form never submitted that refresh
+    /// discloses nothing. A model whose contents changed still owes a field-changed notification
+    /// of its own.
     /// </remarks>
+    // Nothing announces a row removed, a section collapsed or a branch swapped as a field change,
+    // so this call is the engine's only word that the page its verdicts describe is not the page
+    // on screen. The refresh is owed twice over: once for the submit channel's answer, and once
+    // because the emptied verdict store leaves the valid class's vouch nothing of its own to
+    // read. What that refresh drops is whatever the rules stop producing: a removed row's entry
+    // goes because its rule no longer fires, not because the row left, and an entry for a field
+    // a collapsed section hid survives because the rule still fails.
     internal void OnRenderedFieldsChanged()
     {
         // Departure alone: DisclosureOverride is not consulted, so an issue an override forces
@@ -1339,56 +1206,35 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// Whether the pass currently in flight is a live pass — true from the moment a live pass
-    /// becomes the current one until it ends, and false again as soon as any newer pass takes that
-    /// place from it.
-    /// </summary>
+    /// <summary>Whether the pass in flight is a live pass, which a refresh fire stands down for.</summary>
     private bool LiveInFlight => _currentPass?.Kind == PassKind.Live;
 
-    /// <summary>
-    /// Whether the pass currently in flight is a submit. Live and refresh passes both read this and
-    /// stand down — submit is the higher-intent operation, and neither ever supersedes it. The
-    /// load pass is the one kind that does not read it: like a submit it is started by a caller and
-    /// awaited, so two of them overlapping resolve the way two submits do, with the later one
-    /// taking the descriptor.
-    /// </summary>
+    /// <summary>Whether the pass in flight is a submit, which every live pass, the refresh fire and the probe stand down for.</summary>
+    // The load never reads it: a caller starts and awaits a load as it does a submit, so two of
+    // them overlapping resolve the way two submits do, the later one taking the descriptor.
     private bool SubmitInFlight => _currentPass?.Kind == PassKind.Submit;
 
-    /// <summary>
-    /// Whether the pass currently in flight is a refresh — read only by
-    /// <see cref="RunDebouncedLivePassAsync"/>, which stands down for it. An IMMEDIATE live pass
-    /// never reads this, and what it supersedes decides why. Once a submit has run, the edit that
-    /// causes the live pass also re-arms the refresh <see cref="ScheduleRefresh"/> schedules, so
-    /// cancelling an in-flight refresh costs nothing there. Before a submit the refresh in flight
-    /// belongs to a field-set change and no edit re-arms it, so what refills the submit-selected
-    /// coverage the Valid class rests on is whatever answers that profile next: the live pass
-    /// itself wherever <see cref="FormidableOptions.LiveProfile"/> resolves to the submit profile,
-    /// selecting exactly those rules, or the probe beside it under
-    /// <see cref="FormidableOptions.TrackFormValidity"/>. Narrow the one and leave the other off
-    /// and nothing here refills it: that coverage waits for a submit or the next field-set change,
-    /// and the Valid class waits with it. A DEBOUNCED live pass is different — the edit that will
-    /// eventually supersede the refresh already happened when the debounce window opened, so
-    /// nothing else re-arms it if this cancels it outright; deferring here is what keeps the
-    /// refresh's own verdict from going permanently stale.
-    /// </summary>
+    /// <summary>Whether the pass in flight is a refresh, which only a debounced live fire stands down for; an immediate live pass supersedes it instead.</summary>
+    // Read only by RunDebouncedLivePassAsync. An immediate live pass may supersede a refresh
+    // because of what re-arms it: after a submit the same edit re-arms it through
+    // ScheduleRefresh, and before a submit the refresh belonged to a field-set change that
+    // nothing re-arms, so the submit-selected coverage waits for whatever next answers that
+    // profile (the live pass itself where LiveProfile resolves to the submit profile, the probe
+    // under TrackFormValidity, else a submit, a load or the next field-set change). A debounced fire must
+    // defer: the edit that opened its window already happened, so nothing would re-arm a refresh
+    // it cancelled, and the refresh's verdict would go stale for good.
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
 
-    /// <summary>
-    /// Whether the pass currently in flight is the one
-    /// <see cref="DiscloseLoadedValuesAsync"/> runs. Live and refresh passes stand down for it
-    /// on the same grounds they stand down for a submit: it is awaited by the caller, and its
-    /// verdict decides disclosure rather than merely refreshing it, so a pass that superseded it
-    /// would leave the values a page just loaded neither vouched for nor spoken about.
-    /// </summary>
+    /// <summary>Whether the pass in flight is the load <see cref="DiscloseLoadedValuesAsync"/> runs, which every live pass, the refresh fire and the probe stand down for.</summary>
+    // On the grounds a submit is stood down for: the load is awaited by its caller, and its
+    // verdict decides disclosure rather than refreshing it, so a pass that superseded it would
+    // leave the loaded values neither vouched for nor spoken about.
     private bool LoadInFlight => _currentPass?.Kind == PassKind.Load;
 
-    /// <summary>
-    /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
-    /// new one linked to <paramref name="external"/> and records the new pass as the current one.
-    /// Only one pass, whatever its kind, is ever in flight at a time — starting a new one
-    /// supersedes whatever came before, which is exactly what taking over the descriptor means.
-    /// </summary>
+    /// <summary>Supersedes any pass in flight, moves the engine's version and records the new pass as current.</summary>
+    /// <param name="kind">The new pass's kind.</param>
+    /// <param name="external">The caller's token, linked into the pass's own; <see cref="CancellationToken.None"/> for a live or refresh pass.</param>
+    /// <returns>The new pass's descriptor.</returns>
     private PassScope BeginPass(PassKind kind, CancellationToken external)
     {
         _passCts?.Cancel();
@@ -1400,18 +1246,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return pass;
     }
 
-    /// <summary>
-    /// Retires the pass in flight: the validating flag, the field scope narrowing it, and the
-    /// descriptor naming the pass all clear together, so nothing that runs afterwards can read a
-    /// pass that has already ended. The caller establishes that the pass is still the current one —
-    /// the verdict dispatch does that with its own version guard,
-    /// <see cref="EndPassWithoutLandingAsync"/> with the one <see cref="PublishPassStateAsync"/>
-    /// applies. Ending a pass also moves the coverage version, whatever the outcome: a landing can
-    /// have written verdicts the coverage read derives from, live passes included, and a pass
-    /// that ends WITHOUT landing can no longer be the re-answer a held vouch was being served on
-    /// the promise of — either way the next coverage read must re-decide rather than stand on a
-    /// cache that predates the end.
-    /// </summary>
+    /// <summary>Retires the current pass: clears <see cref="IsValidating"/>, its scope and the descriptor together, and moves the coverage version.</summary>
+    /// <remarks>
+    /// The caller establishes that the pass is still current: the verdict dispatch through its
+    /// own version guard, <see cref="EndPassWithoutLandingAsync"/> through the one
+    /// <see cref="PublishPassStateAsync"/> applies.
+    /// </remarks>
+    // The three clear together so nothing that runs afterwards can read a pass that has ended.
+    // The coverage version moves whatever the outcome: a landing can have written verdicts the
+    // coverage read derives from, live passes included, and a pass that ends without landing is
+    // no longer the re-answer a held vouch was served on the promise of. Either way the next
+    // coverage read must re-decide rather than stand on a cache that predates the end.
     private void EndPass()
     {
         IsValidating = false;
@@ -1420,16 +1265,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _submitCoverage.MoveVersion();
     }
 
-    /// <summary>
-    /// Flips <see cref="IsValidating"/> on as a pass begins, and narrows which fields
-    /// <see cref="GetFieldState"/> reports as validating. <paramref name="fields"/> is that scope:
-    /// a live pass passes the field(s) that triggered it — one field for an immediate edit, every
-    /// field an open live-debounce window accumulated for a debounced one; a refresh pass passes
-    /// the fields edited within its debounce window; the pass
-    /// <see cref="DiscloseLoadedValuesAsync"/> runs passes an EMPTY set, since no field is waiting
-    /// on it; and a submit passes <see langword="null"/> (form-wide, every field), being the pass
-    /// the visitor asked for.
-    /// </summary>
+    /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/> and narrows the checking indicator to <paramref name="fields"/>.</summary>
+    /// <param name="pass">The pass, which must still be current for the write to land.</param>
+    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window, an empty set for a load, and <see langword="null"/> for a submit, which covers every field.</param>
     private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
         PublishPassStateAsync(pass, () =>
         {
@@ -1437,16 +1275,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _validatingScope = fields;
         });
 
-    /// <summary>
-    /// Retires a pass that ended WITHOUT landing, however it came to — a fault and a caller's
-    /// cancellation are the everyday routes. The re-answer any held vouch is being served on the
-    /// promise of goes with it, and retraction must be immediate rather than bound-delayed:
-    /// <see cref="EndPass"/> moves the coverage version out from under the cache, and abandoning
-    /// the held answer keeps the serve route from handing it straight back out for a still-armed
-    /// window or the bound's remainder. A pass that landed ended at its verdict dispatch and never
-    /// reaches here, and a superseded pass is refused by the version gate
-    /// <see cref="PublishPassStateAsync"/> applies, so neither costs a hold anything.
-    /// </summary>
+    /// <summary>Retires a pass that ended without landing (a fault or a caller's cancellation) and abandons the held coverage answer, when the pass is still current.</summary>
+    /// <param name="pass">The pass that ended.</param>
+    // Retraction is immediate rather than bound-delayed: EndPass moves the coverage version out
+    // from under the cache, and abandoning the held answer keeps the serve route from handing it
+    // straight back for a still-armed window or the bound's remainder. A landed pass ended at its
+    // verdict dispatch and never reaches here, and a superseded pass fails the version gate
+    // PublishPassStateAsync applies, so neither costs a hold anything.
     private Task EndPassWithoutLandingAsync(PassScope pass) =>
         PublishPassStateAsync(pass, () =>
         {
@@ -1454,17 +1289,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             EndPass();
         });
 
-    /// <summary>
-    /// Applies a pass-state change and notifies, marshaled through <c>_renderDispatch</c> so the
-    /// write lands on the renderer's dispatcher rather than on whatever thread completed the pass.
-    /// <paramref name="change"/> is skipped when <paramref name="pass"/> is no longer the current
-    /// one — a superseded pass must not stomp a newer pass's state.
-    /// Also raises the EditContext's own validation-state notification, not just the engine's: a
-    /// native InputBase re-renders on that event, not on <see cref="StateChanged"/>, so without it
-    /// the Pending class a native input picks up through
-    /// <see cref="FormidableFieldCssClassProvider"/> would light on the next store rebuild but have
-    /// no later trigger to clear it once the pass ends.
-    /// </summary>
+    /// <summary>Applies a pass-state change on the renderer's dispatcher and raises both the engine's and the <see cref="EditContext"/>'s notifications, when <paramref name="pass"/> is still current.</summary>
+    /// <param name="pass">The pass the change belongs to; a superseded pass's change is skipped rather than written over a newer pass's state.</param>
+    /// <param name="change">The state write.</param>
+    // The EditContext's own notification is what re-renders a native InputBase, which does not
+    // subscribe to StateChanged: without it the pending class a native input takes through
+    // FormidableFieldCssClassProvider would light at the next store rebuild and have no later
+    // trigger to clear it once the pass ends.
     private Task PublishPassStateAsync(PassScope pass, Action change) =>
         _renderDispatch(() =>
         {
@@ -1477,46 +1308,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return Task.CompletedTask;
         });
 
-    /// <summary>
-    /// The one lifecycle every pass runs: begin (taking the version and the linked token that make
-    /// the pass superseded-able), validate under <paramref name="profile"/>, dispatch the verdict
-    /// only if this pass is still the current one, and end the pass exactly once however it left.
-    /// The kinds differ in what they hand in, not in how they run — a skeleton
-    /// hand-rolled per kind is one where a single copy can quietly stop raising a notification, or
-    /// stop clearing a flag, that the others still do. How the validation step itself runs is
-    /// a capability split: a validator that can validate rule by rule gets the verdict store —
-    /// only the rules with no fresh verdict at this pass's stamp execute, and the report handed
-    /// downstream is ASSEMBLED, every selected rule's issues whether served from the store or
-    /// just executed, so downstream never sees less than a whole-profile answer. Any other
-    /// validator gets the whole profile in one call — correct, unoptimised. A pass whose every
-    /// selected rule is fresh executes nothing and still runs this entire lifecycle, publishing
-    /// its assembled verdict like any other.
-    /// </summary>
-    /// <param name="kind">
-    /// Which lifecycle this is; it also decides the fault policy below, and whether freshness is
-    /// consulted at all — a submit runs its full selection by fiat, repopulating the store on
-    /// the way through.
-    /// </param>
+    /// <summary>Runs one pass: begins it, validates under <paramref name="profile"/>, applies the verdict only while the pass is still current, and ends it exactly once however it left.</summary>
+    /// <param name="kind">The pass kind, which decides the fault policy and whether stored verdicts are served; a submit executes its whole selection.</param>
     /// <param name="profile">The profile the model is validated under.</param>
-    /// <param name="external">
-    /// The caller's own cancellation token, linked into the pass. Only the kinds a caller starts
-    /// and awaits have one — a submit and a load; live and refresh pass
-    /// <see cref="CancellationToken.None"/>, which is what lets one cancellation filter serve every
-    /// kind: with no external token there is nothing a cancellation can mean except supersession by
-    /// a newer pass.
-    /// </param>
-    /// <param name="beginScope">
-    /// The fields the pending indicator covers, evaluated once the pass has begun: a refresh's scope
-    /// is a snapshot-and-clear of an accumulator, so when it is taken is part of what it means.
-    /// </param>
-    /// <param name="applyVerdict">
-    /// Writes this pass's verdict into engine state. Runs on the renderer's dispatcher, only while
-    /// the pass is still current, and always in the same dispatch as the store rebuild publishing it.
-    /// </param>
-    /// <returns>
-    /// The report this pass produced, or <see langword="null"/> when it ended before there was one —
-    /// superseded mid-validation, or faulted.
-    /// </returns>
+    /// <param name="external">The caller's token; only a submit and a load carry one, so a cancellation with none requested means supersession.</param>
+    /// <param name="beginScope">Produces the pending scope once the pass has begun; a refresh's is a snapshot-and-clear of its accumulator, so when it is taken matters.</param>
+    /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it.</param>
+    /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied.</returns>
+    /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load; a validator's exception under either kind propagates as well.</exception>
+    // One skeleton for every kind: the kinds differ in what they hand in, not in how they run,
+    // and a copy hand-rolled per kind is one where a single copy can quietly stop raising a
+    // notification, or stop clearing a flag, that the others still do.
     private async Task<ValidationReport?> RunPassAsync(
         PassKind kind,
         ValidationProfile profile,
@@ -1627,21 +1429,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The evaluate step behind both whole-model evaluations — an engine pass and the validity
-    /// probe — split on capability. A validator that can validate rule by rule is planned against
-    /// the verdict store, so only the rules with no fresh verdict at <paramref name="editStamp"/>
-    /// execute, unless <paramref name="executeAll"/> runs the selection whole, and the report
-    /// handed back is ASSEMBLED from the sets served and the sets just run. The plan is built
-    /// on the dispatcher, where the store mutates. Any other validator gets the whole profile
-    /// in one call — correct, unoptimised. Which of the two ran comes back beside the report,
-    /// because the verdict list cannot say it: a capability evaluation whose every selected
-    /// rule is already answered executes nothing and returns none either.
-    /// Nothing is caught here, and nothing is written: the callers' fault policies genuinely
-    /// differ — a pass tells supersession from its own caller's cancellation and reports or
-    /// rethrows by kind, where a probe nobody awaits has only the event — and the verdicts come
-    /// back for the caller's own version- and generation-gated apply to file.
-    /// </summary>
+    /// <summary>Validates the model under <paramref name="profile"/>, rule by rule against the verdict store when the validator allows it and as the whole profile in one call otherwise; writes nothing.</summary>
+    /// <param name="profile">The profile.</param>
+    /// <param name="executeAll">Whether to serve nothing from the store and execute the whole selection, as a submit does.</param>
+    /// <param name="editStamp">The edit stamp the evaluation began at, which the executed verdicts carry.</param>
+    /// <param name="token">Cancels the validation.</param>
+    /// <returns>The report, always a whole-profile answer; the sets executed, <see langword="null"/> when none ran; and whether the rule-level path ran, which the verdict list alone cannot say.</returns>
+    // Nothing is caught and nothing is written, because the callers' fault policies differ: a
+    // pass tells supersession from its caller's cancellation and reports or rethrows by kind,
+    // where a probe nobody awaits has only the event. Each caller files the verdicts through its
+    // own version- and generation-gated apply.
     private async Task<(ValidationReport Report, List<SetVerdict>? Executed, bool RuleCapable)> EvaluateAsync(
         ValidationProfile profile,
         bool executeAll,
@@ -1671,26 +1468,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return (wholeProfile, null, false);
     }
 
-    /// <summary>
-    /// Runs a capability pass's plan: the rules no stored set answers are executed under the
-    /// pass's own token, one call per SELECTION CLASS — the partition the validator says no
-    /// profile can split. Running the whole remainder as one set instead would file a verdict a
-    /// narrower profile could never serve from, since its issues mix in rules that profile does
-    /// not select, so the two passes over one edit would each run the rules they share; the
-    /// partition costs one validator call per class and keeps a set servable to whichever
-    /// selection contains it. The report downstream consumes is assembled from the sets served
-    /// and the sets just run. The groups' total size is compared with the plan's remainder and
-    /// any mismatch throws, whether the groups drop a rule or repeat one: the groups are the only
-    /// thing that runs, so a dropped identity is a rule that never executes under a report
-    /// carrying no sign of it, and a repeated one is a rule executed twice whose issues report
-    /// twice. Failing on either is the posture the seam takes toward an identity it cannot
-    /// resolve, though only the drop is a wrong answer — a repeat by itself costs the second
-    /// execution. The comparison is of counts rather than sets, so a drop and a repeat that
-    /// cancel in the total pass it. The verdicts for what actually executed are returned
-    /// beside it, stamped with the pass's begin stamp, for the version-and-generation-gated
-    /// apply to write; nothing here touches the store itself, so a superseded or faulted pass's
-    /// work simply evaporates with its locals.
-    /// </summary>
+    /// <summary>Executes the plan's remainder one validator call per selection class and assembles the report from the sets served and the sets just run.</summary>
+    /// <param name="ruleLevel">The validator's rule-level seam.</param>
+    /// <param name="profile">The profile the rules run under.</param>
+    /// <param name="plan">The sets to serve and the rules to execute.</param>
+    /// <param name="editStamp">The edit stamp the executed verdicts are stamped with.</param>
+    /// <param name="token">Cancels the execution.</param>
+    /// <returns>The assembled report and the executed sets, <see langword="null"/> when the remainder was empty; nothing here touches the store, so a superseded or faulted pass's work goes with its locals.</returns>
+    /// <exception cref="InvalidOperationException">The validator's groups do not hold the remainder's rules exactly once, by count.</exception>
+    // Per selection class rather than the whole remainder as one set: a verdict for a set that
+    // mixes in rules a narrower profile does not select could never serve that profile, so the
+    // two passes over one edit would each run the rules they share. The partition costs one
+    // validator call per class and keeps a set servable to whichever selection contains it. The
+    // count check compares totals, so a drop and a repeat that cancel out pass it; only the drop
+    // is a wrong answer, a repeat costing the second execution alone.
     private async Task<(ValidationReport Report, List<SetVerdict>? Executed)> ExecuteRulePlanAsync(
         IRuleLevelValidator<TModel> ruleLevel,
         ValidationProfile profile,
@@ -1746,14 +1537,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return (issues is null ? ValidationReport.Empty : new ValidationReport(issues), executed);
     }
 
-    /// <summary>
-    /// The single fault policy behind every pass that reports rather than rethrows: a form-level
-    /// issue saying the verdict is incomplete, written only while <paramref name="pass"/> is still
-    /// the current one, then <see cref="ValidationFaulted"/> for a host that wants to log it. The
-    /// event is raised either way — a superseded pass's exception still happened. The issue's
-    /// sentence is read from <see cref="FormidableOptions.ValidationFaultMessage"/> here, at the
-    /// one moment it is filed, so the stored issue keeps the wording in force when it was written.
-    /// </summary>
+    /// <summary>Files the form-level fault issue while <paramref name="pass"/> is still current, then raises <see cref="ValidationFaulted"/> either way.</summary>
+    /// <param name="pass">The pass that faulted; a superseded pass's exception still happened, so the event is raised for it too.</param>
+    /// <param name="exception">What the validator threw.</param>
+    // The sentence is read from ValidationFaultMessage at the one moment it is filed, so the
+    // stored issue keeps the wording in force when it was written.
     private async Task ReportFaultAsync(PassScope pass, Exception exception)
     {
         await _renderDispatch(() =>
@@ -1769,15 +1557,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
     }
 
-    /// <summary>
-    /// Runs a live pass triggered by <paramref name="triggeringFields"/> — one field for an
-    /// immediate (non-debounced) edit, or every field an open debounce window accumulated before
-    /// it fired. <paramref name="triggeringFields"/> become this one pass's pending-indicator
-    /// scope; the verdict answers the engaged set, snapshotted as the pass begins. The indicator
-    /// shows where the user acted, while the verdict covers every field the user has committed a
-    /// change to — which is how a cross-field issue clears, or appears, on a field the
-    /// triggering edit never named.
-    /// </summary>
+    /// <summary>Runs a live pass for <paramref name="triggeringFields"/> that answers every engaged field as snapshotted at begin, unless a submit or a load is in flight.</summary>
+    /// <param name="triggeringFields">The field an edit committed, or every field an open debounce window accumulated; they scope the checking indicator, while the verdict covers the engaged set.</param>
+    // The indicator shows where the user acted and the verdict covers every field the user has
+    // committed a change to, which is how a cross-field issue clears, or appears, on a field the
+    // triggering edit never named.
     private async Task RunLivePassAsync(IReadOnlyCollection<FieldIdentifier> triggeringFields)
     {
         if (SubmitInFlight || LoadInFlight)
@@ -1844,45 +1628,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// The whole-form validity probe behind <see cref="FormidableOptions.TrackFormValidity"/>: a
-    /// standalone <see cref="FormidableOptions.SubmitProfile"/> evaluation, not an engine pass —
-    /// it never calls <see cref="BeginPass"/>, discloses nothing, and never touches the pending
-    /// indicator. On a rule-capable validator the probe reads and feeds the verdict store: only
-    /// the submit-selected rules with no fresh verdict at the probe's begin stamp execute — per
-    /// rule, under <c>_probeCts</c> — and what ran lands back into the store on the dispatcher,
-    /// generation-gated exactly as a pass's store write is, and skipped outright when an edit
-    /// has arrived since the probe began: verdicts stamped for a model state that is no longer
-    /// current would never be served, and writing them could only displace fresher entries a
-    /// pass landed meanwhile. A probe whose every selected rule is already answered executes
-    /// nothing and is a pure read. Any other validator gets the whole profile in one call —
-    /// correct, unoptimised — and its completed report is recorded as the capability-less
-    /// coverage source under the same begin stamp. Either way, a landing that moved a coverage
-    /// source publishes one notification round, engine and EditContext both: the coverage is
-    /// what the Valid state class reads, so the landing can change a rendered class with no
-    /// pass anywhere to publish for it.
-    /// <see cref="IsFormValid"/> itself is written only when the computed value differs from the
-    /// current one (a flip, not every probe) and only while <c>stamp</c> is still the most
-    /// recently taken one — a probe a newer probe has already superseded discards its own answer
-    /// rather than overwrite a fresher one, the same last-write-wins discipline every pass
-    /// verdict already follows via <c>_version</c>. A submit orders itself ahead of every probe
-    /// the same way: its own verdict apply calls <see cref="AdoptFormValidity"/>, which bumps
-    /// this same stamp, so a probe that started before the submit began cannot land after it and
-    /// overwrite its answer — see <see cref="AdoptFormValidity"/> for why a submit, and every
-    /// other whole-model kind, can adopt directly instead of merely invalidating. A probe never
-    /// starts while a submit —
-    /// or the pass <see cref="DiscloseLoadedValuesAsync"/> runs — is already in flight, for the
-    /// same reason a live pass never does (see <see cref="RunLivePassAsync"/>): either one is
-    /// about to compute this exact quantity itself moments from now, so racing it buys nothing.
-    /// A probe that faults reports the only way a fire-and-forget evaluation can: through
-    /// <see cref="ValidationFaulted"/>, exactly as a live or refresh pass's own fault does — never
-    /// a form-level fault issue, which would disclose something an invisible probe promises never
-    /// to. Without this, a validator that throws on the submit profile — which a narrowed
-    /// <see cref="FormidableOptions.LiveProfile"/> can keep a live pass from ever selecting, so
-    /// the two can genuinely disagree on whether a rule throws — would freeze
-    /// <see cref="IsFormValid"/> at its last value with no diagnostic anywhere, silently stranding
-    /// a disable-submit button in whatever state it was last in.
-    /// </summary>
+    /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips and only while this probe is the latest.</summary>
+    /// <remarks>
+    /// Not a pass: it never calls <see cref="BeginPass"/>, discloses nothing, touches no
+    /// indicator, and stands down for a submit or a load in flight. Its store filing and its
+    /// sharing with the passes are on the engine page under the <c>TrackFormValidity</c> probe.
+    /// </remarks>
     private async Task ProbeFormValidityAsync()
     {
         if (SubmitInFlight || LoadInFlight)
@@ -1917,6 +1668,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         catch (Exception exception)
         {
+            // The event and nothing else: a form-level fault issue would disclose something an
+            // invisible probe promises never to. Without the event, a validator that throws on
+            // the submit profile (a narrowed LiveProfile can keep a live pass from ever selecting
+            // the throwing rule) would freeze IsFormValid at its last value with no diagnostic
+            // anywhere, stranding a disable-submit button in whatever state it was last in.
             ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
             return;
         }
@@ -1969,22 +1725,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Adopts a whole-model <see cref="FormidableOptions.SubmitProfile"/> report's validity
-    /// directly into <see cref="IsFormValid"/> — called from the verdict applies of every pass
-    /// that answers the whole model under that profile (submit, refresh, load), each of which
-    /// already computes exactly this quantity as part of its own pass, so
-    /// there is nothing left for a separate probe to add. On a rule-capable validator the
-    /// adopted report is assembled from the verdict store the pass just repopulated, so this IS
-    /// the store read landing: every submit-selected rule is fresh at the pass's stamp the
-    /// moment this runs, and the value written is what those verdicts say. Bumps
-    /// <c>_formValidityStamp</c>
-    /// regardless of whether the value actually changes: a pass's own verdict is authoritative
-    /// over any probe that merely happened to start earlier, so any such probe still in flight
-    /// (or one that already finished and is only now reaching its write-back) must discard its
-    /// answer rather than land after this one and overwrite it. A no-op when tracking is off — no
-    /// probe can be in flight to invalidate, and nothing reads <see cref="IsFormValid"/>.
-    /// </summary>
+    /// <summary>Adopts a whole-model submit-profile report's validity into <see cref="IsFormValid"/>, ahead of any probe still in flight; a no-op when <see cref="FormidableOptions.TrackFormValidity"/> is off.</summary>
+    /// <param name="report">The report of the submit, refresh or load that just landed.</param>
+    // Each of those passes computes exactly this quantity, so there is nothing for a probe to
+    // add, and the stamp moves whether or not the value changes: a probe that started earlier,
+    // or one already reaching its write-back, discards its answer rather than land after this
+    // one. On a rule-capable validator the adopted report is assembled from the store the pass
+    // just repopulated, so this is the store's own reading landing. With tracking off no probe
+    // can be in flight and nothing reads IsFormValid.
     private void AdoptFormValidity(ValidationReport report)
     {
         if (!_options.TrackFormValidity)
@@ -1997,15 +1745,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         SetFormValidity(report.IsValid);
     }
 
-    /// <summary>
-    /// Writes <see cref="IsFormValid"/> and notifies only when the answer moves. Both writers —
-    /// the probe and a whole-model pass's adoption — recompute this whenever their own cadence
-    /// brings them round: the probe on every field-change notification while no
-    /// <see cref="FormidableOptions.LiveDebounce"/> is configured, and once per debounce window
-    /// while one is, riding the cadence that window exists to collapse those raw notifications
-    /// into. The answer mostly comes back the same either way, so notifying unconditionally would
-    /// publish a render round for a value nothing on the page could tell from the last one.
-    /// </summary>
+    /// <summary>Writes <see cref="IsFormValid"/> and raises <see cref="StateChanged"/> only when the value changes.</summary>
+    /// <param name="value">The answer a probe or an adoption computed.</param>
+    // Both writers recompute at their own cadence (the probe on every field-changed notification
+    // with no LiveDebounce, once per window with one), and the answer mostly comes back the
+    // same, so an unconditional notify would publish a render round for a value nothing on the
+    // page could tell from the last.
     private void SetFormValidity(bool value)
     {
         if (value != IsFormValid)
@@ -2017,27 +1762,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     private FieldIdentifier Resolve(ValidationIssue issue) => ResolvePath(issue.Path);
 
-    /// <summary>
-    /// Resolves a validator-declared path against the live model graph — the one place an issue's
-    /// path and a rule's declared path become the same kind of answer, so a demand and the failure
-    /// it describes can never land on different fields.
-    /// </summary>
+    /// <summary>Resolves a path against the model through the introspector and turns the result into a <see cref="FieldIdentifier"/>.</summary>
+    /// <param name="path">A path a validator declared or an issue reported.</param>
+    /// <returns>The identifier of the object and member the path names, keyed on the root model and the whole path where the walk ends on a struct.</returns>
+    // The one place an issue's path and a rule's declared path become the same kind of answer,
+    // so a demand and the failure it describes cannot land on different fields.
     private FieldIdentifier ResolvePath(string path) =>
         _introspector.Resolve(_model, path).ToFieldIdentifier(_model, path);
 
-    /// <summary>
-    /// The one report a form whose validator cannot report its own rules gets: a Trace line for a
-    /// debugger, and a logged line when a logger was supplied — the same dual channel
-    /// <see cref="ReportSuppressed"/> uses, at Information rather than Warning, because a
-    /// validator that cannot be inspected is a supported configuration and the form goes on
-    /// validating correctly through it. What that costs is invisible on the page, which is the
-    /// whole reason for saying it somewhere: nothing is marked required from the rules, so a
-    /// required indicator and <c>aria-required</c> reach only the fields
-    /// <see cref="FormidableOptions.RequiredOverride"/> declares required, which is asked ahead
-    /// of the rules on every read, and a <c>DiscloseLoadedValuesAsync</c> load confirms nothing.
-    /// The line names the state rather than the mistake, because the capability test reads the
-    /// same for a wrapper that dropped the capability as for a validator that never had one.
-    /// </summary>
+    /// <summary>Writes the one Information-level diagnostic for a validator that cannot report its rules: no required marks from the rules, and no load confirmations.</summary>
+    // Information rather than Warning, because an uninspectable validator is a supported
+    // configuration and the form validates correctly through it; what it costs is invisible on
+    // the page, which is the reason for saying it somewhere. The line names the state rather
+    // than the mistake, because the capability test reads the same for a wrapper that dropped
+    // the capability as for a validator that never had one.
     private void ReportInspectionUnavailable()
     {
         var model = FriendlyTypeName.Of(typeof(TModel));
@@ -2063,24 +1801,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             model, validator);
     }
 
-    /// <summary>
-    /// The report a suppressed issue gets where one is made at all: a Trace line for a debugger, a
-    /// logged warning for the host (WebAssembly's default provider is the browser console, so that
-    /// channel needs no wiring to be seen), and the options callback for a page that wants to show
-    /// its own list. Two sites route here — a submit, for the errors its reveal ledger leaves
-    /// undisclosed, and <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>, for a
-    /// response advisory its visibility answer hides, whether nothing renders its field or an
-    /// explicit <see cref="FormidableOptions.DisclosureOverride"/> says no — and routing both
-    /// through one place is what keeps the three channels from drifting apart between them. An
-    /// issue dropped for want of somewhere to render it anywhere ELSE is dropped in silence, among
-    /// them a submit's own non-visible advisories (filtered out of the advisory projection), a live
-    /// verdict's issues under <see cref="LiveIssueDisclosure.EngagedAndVisible"/> (filtered by
-    /// <see cref="LiveViewOf"/>, a read-time view), and a server ERROR an explicit
-    /// <see cref="FormidableOptions.DisclosureOverride"/> hides — the one severity for which an
-    /// override answer of no is decided before this and never reaches it. A never-registered field
-    /// additionally reaches <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> — the
-    /// general channels above fire either way, unchanged.
-    /// </summary>
+    /// <summary>Reports one suppressed issue: a Trace line, a logged warning, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>, and <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> for a field nothing ever registered.</summary>
+    /// <param name="issue">The issue that will not show.</param>
+    /// <remarks>
+    /// Two sites call it: a submit, for the errors its reveal ledger leaves undisclosed, and
+    /// <see cref="ApplyServerIssues"/>, for an advisory its visibility answer hides. Other drops
+    /// are silent: a submit's non-visible advisories, the live issues <see cref="LiveViewOf"/>
+    /// filters, and a server error <see cref="FormidableOptions.DisclosureOverride"/> hides.
+    /// </remarks>
+    // One place for both sites keeps the three channels from drifting apart. The logged warning
+    // needs no wiring on WebAssembly, whose default provider is the browser console.
     private void ReportSuppressed(ValidationIssue issue)
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
@@ -2101,20 +1831,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The report a stale registration gets when <see cref="FormidableOptions.ReportStaleRegistrations"/>
-    /// asked for one: the same three channels <see cref="ReportSuppressed"/> writes, in the same
-    /// order — a Trace line for a debugger, a logged warning for the host (WebAssembly's default
-    /// provider is the browser console, so that channel needs no wiring to be seen), and the
-    /// options callback for a page that wants the identifiers themselves. Living here beside the
-    /// other diagnostics, behind one seam every bound component routes through, is what keeps the
-    /// channels from drifting apart. The text names the component, both ends of the divergence
-    /// through the same <see cref="FormidableComponentBase.DescribeChange"/> the row-key throw
-    /// uses, and the fix. The names it echoes come from the component's own accessor expression —
-    /// compiler-written member and type names, never a payload's strings — so unlike the
-    /// suppressed-issue report's path there is nothing here for
-    /// <see cref="DiagnosticPathSanitizer"/> to neutralize.
-    /// </summary>
+    /// <summary>Writes the stale-registration diagnostic for <see cref="FormidableOptions.ReportStaleRegistrations"/>: a Trace line, a logged warning and <see cref="FormidableOptions.StaleRegistrationDiagnostic"/>, in that order.</summary>
+    /// <param name="report">The component and the two fields its accessor named, described through <see cref="FormidableComponentBase.DescribeChange"/> as the row-key throw describes them.</param>
+    // Beside the other diagnostics, behind one seam every bound component routes through, so the
+    // channels cannot drift apart. The names echoed come from the component's own accessor
+    // expression (compiler-written member and type names, never a payload's strings), so unlike
+    // the suppressed-issue report's path there is nothing for DiagnosticPathSanitizer to
+    // neutralize.
     void IStaleRegistrationReporter.Report(StaleRegistrationReport report)
     {
         var component = FriendlyTypeName.Of(report.ComponentType);
@@ -2141,11 +1864,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _options.StaleRegistrationDiagnostic?.Invoke(report);
     }
 
-    /// <summary>
-    /// Whether <paramref name="issue"/> may be shown for <paramref name="field"/>: an explicit
-    /// <see cref="FormidableOptions.DisclosureOverride"/> answer wins in either direction —
-    /// asked per issue, at every read — and where none speaks, <see cref="IsRendered"/> decides.
-    /// </summary>
+    /// <summary>Whether <paramref name="issue"/> may show for <paramref name="field"/>: <see cref="FormidableOptions.DisclosureOverride"/>'s answer when it gives one, asked per issue at every read, else whether the field is rendered.</summary>
+    /// <param name="issue">The issue.</param>
+    /// <param name="field">The field it resolved to.</param>
+    /// <returns><see langword="true"/> when the override says so, or says nothing and <see cref="IsRendered"/> holds.</returns>
     private bool IsVisible(ValidationIssue issue, FieldIdentifier field)
     {
         var overridden = _options.DisclosureOverride?.Invoke(issue);
@@ -2157,56 +1879,50 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return IsRendered(field);
     }
 
-    /// <summary>
-    /// Whether the page is showing somewhere the field's issues could be read — the
-    /// registration half of <see cref="IsVisible"/>, shared with
-    /// <see cref="OnRenderedFieldsChanged"/> so the two cannot come to disagree about what having
-    /// left the page means. The model-level field is always one of these: its element is the
-    /// form's own, which is on the page for as long as the form is, and it never registers.
-    /// </summary>
+    /// <summary>Whether <paramref name="field"/> is the model-level field or is registered, kept registrations included.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns><see langword="true"/> when the page shows somewhere the field's issues could be read.</returns>
+    // The registration half of IsVisible, shared with OnRenderedFieldsChanged through HasDeparted
+    // so the two cannot disagree about what having left the page means. The model-level field's
+    // element is the form's own, on the page as long as the form is, and it never registers.
     private bool IsRendered(FieldIdentifier field) =>
         field.Equals(ModelLevelField) || Registry.IsRegistered(field);
 
-    /// <summary>
-    /// Whether the field has LEFT the page: something registered it once, and nothing does now.
-    /// The engagement lifetime's own test, and deliberately not <see cref="IsRendered"/>'s
-    /// negation — a field nothing has ever registered has not departed, it has never arrived,
-    /// and under <see cref="LiveIssueDisclosure.Engaged"/> its live verdict is exactly what the
-    /// bridge contract keeps: an anchor-free native input registers nothing at any point, so a
-    /// prune that read the two states as one would retract its error the first time anything
-    /// ELSE on the page registered or unregistered. Disclosure asks a different question and goes
-    /// on asking <see cref="IsVisible"/>: not whether the field ever arrived, but whether the page
-    /// is showing somewhere its issue could be read right now.
-    /// </summary>
+    /// <summary>Whether <paramref name="field"/> has left the page: something registered it once and nothing renders it any longer.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns><see langword="true"/> for a departed field; <see langword="false"/> for one nothing ever registered, which has not left because it never arrived.</returns>
+    // The engagement lifetime's own test, and deliberately not IsRendered's negation: under the
+    // default policy a never-registered field's live verdict is what the native-interop bridge
+    // keeps, and an anchor-free native input registers nothing at any point, so a prune reading
+    // the two states as one would retract its error the first time anything else on the page
+    // registered or unregistered. Disclosure asks IsVisible instead: not whether the field ever
+    // arrived, but whether the page shows somewhere its issue could be read at this moment.
     private bool HasDeparted(FieldIdentifier field) =>
         Registry.HasEverRegistered(field) && !IsRendered(field);
 
-    /// <summary>
-    /// The submit report's non-error issues, resolved and filtered to visible fields, grouped by
-    /// field. Used identically by both branches of <see cref="ValidateForSubmitAsync"/> — whether
-    /// or not the same report also contains errors has no bearing on which of its advisories are
-    /// disclosed.
-    /// </summary>
+    /// <summary>The report's advisories whose field may show, resolved and grouped by field.</summary>
+    /// <param name="report">A submit's report, with or without errors; both branches of <see cref="ValidateForSubmitAsync"/> use it alike.</param>
+    /// <returns>Each visible field's advisories, in report order.</returns>
     private Dictionary<FieldIdentifier, List<ValidationIssue>> ResolveVisibleAdvisories(ValidationReport report) =>
         GroupByResolvedField(
             report.Advisories
                 .Select(i => (Issue: i, Field: Resolve(i)))
                 .Where(x => IsVisible(x.Issue, x.Field)));
 
-    /// <summary>
-    /// Resolves each issue to its field exactly once and groups by the result — one path parse and
-    /// object walk per issue, rather than one per issue for every field waiting on the verdict.
-    /// </summary>
+    /// <summary>Resolves each issue to its field once and groups the issues by field.</summary>
+    /// <param name="issues">The issues to group.</param>
+    /// <returns>Each field's issues, in arrival order.</returns>
+    // One path parse and object walk per issue, rather than one per issue for every field
+    // waiting on the verdict.
     private Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
         IEnumerable<ValidationIssue> issues) =>
         GroupByResolvedField(issues.Select(issue => (Issue: issue, Field: Resolve(issue))));
 
-    /// <summary>
-    /// Groups issues whose field a caller has already resolved — the caller keeping the pairs
-    /// because it has its own use for them, a visibility filter or a reveal-ledger union, and
-    /// resolving a second time here would be the cost the other overload exists to avoid. Each
-    /// field's list keeps the order the pairs arrived in.
-    /// </summary>
+    /// <summary>Groups issues whose field the caller has already resolved, keeping each field's arrival order.</summary>
+    /// <param name="resolved">The issues paired with their fields.</param>
+    /// <returns>Each field's issues.</returns>
+    // The caller keeps the pairs because it has its own use for them (a visibility filter, a
+    // reveal-ledger union), and resolving again here would be the cost the other overload avoids.
     private static Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
         IEnumerable<(ValidationIssue Issue, FieldIdentifier Field)> resolved)
     {
@@ -2225,13 +1941,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return grouped;
     }
 
-    /// <summary>
-    /// Splits an already field-grouped set of issues into its error and non-error projections,
-    /// each field's list keeping its original relative order. A severity filter and a field
-    /// filter commute over one fixed issue order, so this reproduces exactly what grouping the
-    /// report's errors and its non-error remainder separately by resolved field would — without
-    /// resolving any issue a second time.
-    /// </summary>
+    /// <summary>Splits field-grouped issues into their error and advisory projections, keeping each field's order.</summary>
+    /// <param name="byField">The issues grouped by field.</param>
+    /// <returns>The errors and the advisories, each grouped by field; a field with none of a kind has no entry on that side.</returns>
+    // A severity filter and a field filter commute over one fixed issue order, so this equals
+    // grouping the report's errors and its remainder separately without resolving any issue
+    // twice.
     private static (Dictionary<FieldIdentifier, List<ValidationIssue>> Errors, Dictionary<FieldIdentifier, List<ValidationIssue>> Advisories)
         SplitBySeverity(Dictionary<FieldIdentifier, List<ValidationIssue>> byField)
     {
@@ -2268,13 +1983,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return (errors, advisories);
     }
 
-    /// <summary>
-    /// Rebuilds the <see cref="ValidationMessageStore"/> as a materialized projection of the
-    /// channel views and publishes the result. The EditContext API takes writes, so this runs at
-    /// every publish point — a pass's verdict apply, a server apply, a departure that dropped a
-    /// filed live verdict — and the store between rebuilds is exactly what the views said the
-    /// last time a source moved.
-    /// </summary>
+    /// <summary>Rebuilds the <see cref="ValidationMessageStore"/> from the fault issue, the submit-error view and the live errors not already showing, then notifies.</summary>
+    // The EditContext API takes writes, so the projection runs at every publish point (a pass's
+    // verdict apply, a server apply, a fault report, a departure that dropped a filed verdict,
+    // and under EngagedAndVisible a field-set change with verdicts standing), and the store
+    // between rebuilds is what the views said the last time a source moved.
     private void RebuildStore()
     {
         _store.Clear();
@@ -2317,6 +2030,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private void NotifyStateChanged() => StateChanged?.Invoke(this, FormidableStateChangedEventArgs.Empty);
 
     /// <inheritdoc />
+    /// <param name="cancellationToken">Cancels the check.</param>
+    /// <returns>The outcome; a pass a newer submit or load displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
         // Mirrors the AspNetCore filters: normalize before the profile runs, not after, so the
@@ -2444,6 +2159,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
+    /// <param name="issues">The server's current issues.</param>
     public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
     {
         ArgumentNullException.ThrowIfNull(issues);
@@ -2519,6 +2235,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
+    /// <param name="cancellationToken">Cancels the load.</param>
+    /// <returns>Completes when the load pass and the live pass that follows it, while anything is engaged, have ended.</returns>
     public async Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default)
     {
         // The model has moved and nothing told the engine so, which is this call's whole
@@ -2600,61 +2318,26 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Decides what the values already in the model have earned, and marks the fields it decides
-    /// for as touched and engaged. Three outcomes per field, and the middle one is the point: a
-    /// field holding a value the profile's rules do not fail is vouched for, a field holding a
-    /// value they DO fail is engaged so the failure discloses, and a field holding no value is
-    /// left entirely alone — nobody has reached it yet, and nagging about every unfilled required
-    /// field the moment a form loads is what engagement-gating exists to prevent.
-    /// </summary>
+    /// <summary>Marks touched and engaged every field whose loaded value is non-empty, among the load's error sites and the fields the validator declares rules for.</summary>
+    /// <param name="errors">The load's errors grouped by field, the same grouping the submit channel's source holds.</param>
+    /// <param name="profile">The profile whose declared fields are the vouching half's universe, expanded against the rows the model holds.</param>
+    /// <returns>The adopted fields, for the live pass that discloses them to answer.</returns>
     /// <remarks>
-    /// The split between "wrong" and "not reached yet" is the VALUE, never which kind of rule
-    /// failed. A rule's kind cannot carry it: presence written as
-    /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> is indistinguishable from a range check,
-    /// and reading it as one paints an untouched field red the moment a form loads. The value
-    /// answers directly, and it answers for a collection row as readily as for a top-level
-    /// member, because a row's own value is as readable as any other.
-    /// <para>
-    /// Empty means what <c>NotEmpty()</c> means, read against the type the member DECLARES — see
-    /// <see cref="IsEmptyValue"/>. That reading is what keeps a saved <c>false</c> in a
-    /// <c>bool?</c> a real answer while a never-assigned <c>bool</c> is not. Where the rules are
-    /// FluentValidation's own it is also THEIR reading, so a field this leaves alone is one a
-    /// <c>NotEmpty()</c> on it would have failed; a validator written some other way is judged
-    /// by the same definition without being asked to agree with it.
-    /// </para>
-    /// <para>
-    /// The universe is every field with an error-severity failure, plus every field the
-    /// validator declares a rule for
-    /// (<see cref="IRuleInspectingValidator{TModel}.GetDeclaredFieldPaths"/>, expanded against
-    /// the rows the model actually holds). The two halves need different things: disclosing a
-    /// wrong value needs only the model, so a validator with no inspection capability still
-    /// discloses one, while vouching for a good value needs the validator's own list of the
-    /// fields it speaks about — nothing else can tell a field whose rules all passed from a
-    /// field no rule mentions.
-    /// </para>
-    /// <para>
-    /// Only error severity makes a value wrong. A warning or an info is a remark about a value
-    /// that is otherwise acceptable, and a field carrying one is vouched for like any other —
-    /// the advisory then shows through the live channel and paints its own state class, which is
-    /// what the same value typed by hand would do.
-    /// </para>
-    /// <para>
-    /// Where the value cannot be read, nothing is claimed: an unresolvable intermediate
-    /// (<c>Address.City</c> where <c>Address</c> is null), a model-level failure, which carries
-    /// no member name at all, and a path naming no member — a server-sent path, say — leave the
-    /// field untouched and unengaged. That direction is chosen deliberately, and it is the same
-    /// direction an empty value takes: silence for those fields is what the form does anyway
-    /// until this is called.
-    /// </para>
+    /// Empty means what <c>NotEmpty()</c> means against the member's declared type
+    /// (<see cref="IsEmptyValue"/>), so <see langword="false"/> in a <see langword="bool"/> is
+    /// empty and in a <c>bool?</c> is an answer. A value that cannot be read (a null
+    /// intermediate, a model-level failure, a path naming no member) claims nothing. Only an
+    /// error makes a value wrong: a field carrying an advisory is adopted on the same terms as a
+    /// passing one, and the advisory shows through the live channel.
     /// </remarks>
-    /// <param name="errors">
-    /// The pass's error-severity issues, already grouped onto their fields — the same grouping
-    /// the submit channel's client source is built from, so the two cannot describe different
-    /// fields.
-    /// </param>
-    /// <param name="profile">The profile whose declared fields are the vouching half's universe.</param>
-    /// <returns>The fields this adopted, for the live pass that discloses them to answer.</returns>
+    // The split between wrong and not-reached-yet is the value, never which kind of rule failed:
+    // presence written as Must(s => !string.IsNullOrWhiteSpace(s)) is indistinguishable from a
+    // range check, and reading it as one paints an untouched field red the moment a form loads.
+    // Where the rules are FluentValidation's own the reading is theirs; a validator written
+    // another way is judged by the same definition without being asked to agree. An empty field
+    // is left alone because nobody has reached it, and nagging about every unfilled required
+    // field at load is what engagement gating prevents; an unreadable value takes the same
+    // direction, silence, which is what the form does anyway until this is called.
     private HashSet<FieldIdentifier> AdoptLoadedValues(
         Dictionary<FieldIdentifier, List<ValidationIssue>> errors, ValidationProfile profile)
     {
@@ -2698,17 +2381,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// The paths the validator declares for the profile, with every collection template expanded
-    /// against the rows the model actually holds — <c>Attendees[].Name</c> becomes one path per
-    /// attendee, and none at all for an empty list.
-    /// </summary>
-    /// <remarks>
-    /// A validator that cannot be inspected, and a selection that throws (a typo'd ruleset name),
-    /// both answer with nothing rather than taking the load down: the pass beside this one
-    /// surfaces that exception through its own fault policy, which is where a configuration error
-    /// belongs.
-    /// </remarks>
+    /// <summary>The paths the validator declares for <paramref name="profile"/>, each collection template expanded to one path per row the model holds.</summary>
+    /// <param name="profile">The profile.</param>
+    /// <returns>The expanded paths (<c>Attendees[].Name</c> becomes one per attendee, none for an empty list); empty when the validator cannot be inspected or its selection throws.</returns>
+    // A selection that throws (a mistyped ruleset name) answers with nothing rather than taking
+    // the load down: the pass beside this one surfaces the exception through its own fault
+    // policy, which is where a configuration error belongs.
     private List<string> DeclaredFieldPaths(ValidationProfile profile)
     {
         var expanded = new List<string>();
@@ -2735,11 +2413,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return expanded;
     }
 
-    /// <summary>
-    /// Replaces the first open index in <paramref name="template"/> with each index the model's
-    /// own collection carries, and recurses — so a template with two of them
-    /// (<c>Teams[].Members[].Alias</c>) yields one path per member of every team.
-    /// </summary>
+    /// <summary>Expands the first open index in <paramref name="template"/> against the model's rows and recurses for the rest, so <c>Teams[].Members[].Alias</c> yields one path per member of every team.</summary>
+    /// <param name="template">A declared path, with <c>[]</c> at each collection.</param>
+    /// <param name="into">Receives one path per row, or the template itself when it has no open index.</param>
     private void ExpandTemplate(string template, List<string> into)
     {
         var open = template.IndexOf("[]", StringComparison.Ordinal);
@@ -2759,11 +2435,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// How many elements the collection at <paramref name="path"/> holds — zero where the path
-    /// resolves to nothing, to a non-collection, or to a collection with no elements, all of
-    /// which mean the same thing here: there are no rows to expand a template into.
-    /// </summary>
+    /// <summary>The element count of the collection at <paramref name="path"/>.</summary>
+    /// <param name="path">The collection's path.</param>
+    /// <returns>The count; zero when the path resolves to nothing, to a non-collection or to an empty collection, which all mean no rows to expand into.</returns>
     private int CollectionCount(string path)
     {
         var resolved = _introspector.Resolve(_model, path);
@@ -2789,26 +2463,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>
-    /// Whether the value is an absence rather than an answer, read exactly as FluentValidation's
-    /// own <c>NotEmpty()</c> reads it: null, a blank or whitespace-only string, a sequence with
-    /// no elements, or the default of the type the member is DECLARED as.
-    /// </summary>
+    /// <summary>Whether <paramref name="value"/> is empty as FluentValidation's <c>NotEmpty()</c> reads it: null, a blank string, an empty sequence, or the default of <paramref name="declaredType"/>.</summary>
+    /// <param name="value">The value read from the model.</param>
+    /// <param name="declaredType">The member's declared type, which is what makes the reading faithful; <see langword="null"/> reads as empty.</param>
+    /// <returns><see langword="true"/> for an absence; a sequence that throws on enumeration reads as empty too.</returns>
     /// <remarks>
-    /// The declared type is what makes the reading faithful, and it is the whole reason the value
-    /// is read through <see cref="IModelIntrospector.TryReadValue"/> rather than boxed and
-    /// inspected. A <c>bool</c> holding <see langword="false"/> is its own default and reads as
-    /// an absence; a <c>bool?</c> holding <see langword="false"/> is not, and reads as the
-    /// answer it is. The same split separates <c>int</c> from <c>int?</c>, an enum from a
-    /// nullable enum, and <c>Guid</c>/<c>DateTime</c>/<c>decimal</c> from their nullable forms.
-    /// <para>
-    /// What is left ambiguous is exactly the set of non-nullable value types, and every one of
-    /// them errs towards absence — the direction that stays silent rather than claiming
-    /// something. The library's own statement follows from that: model an optional value as
-    /// <c>T?</c> and a load reads it exactly; model it as <c>T</c> and its default reads as "not
-    /// filled in".
-    /// </para>
+    /// A reference type or a <c>Nullable&lt;T&gt;</c> holding anything is an answer. A
+    /// non-nullable value type holding its default reads as empty (<see langword="false"/> in a
+    /// <see langword="bool"/>, zero in an <see langword="int"/>, an enum's zero value), so model
+    /// an optional value as <c>T?</c> for a load to read it exactly.
     /// </remarks>
+    // The non-nullable value types are exactly the ambiguous set, and every one of them errs
+    // towards absence, the direction that stays silent rather than claiming something.
     private static bool IsEmptyValue(object? value, Type? declaredType)
     {
         if (value is null || declaredType is null)
@@ -2856,13 +2522,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return value.Equals(Array.CreateInstance(declaredType, 1).GetValue(0));
     }
 
-    /// <summary>
-    /// Arms (or re-arms) the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>,
-    /// from every arm site alike — an edit, a field-set change, an in-flight deferral's re-arm.
-    /// A refresh that comes due while a debounced live window is still open is not a race worth
-    /// scheduling around: whichever pass runs first executes the stale rules and stamps their
-    /// verdicts, and the other finds nothing left to do.
-    /// </summary>
+    /// <summary>Arms or re-arms the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>, from every arm site alike; a disposed engine arms nothing.</summary>
+    // A refresh that comes due while a live window is still open is not a race worth scheduling
+    // around: whichever pass runs first executes the stale rules and stamps their verdicts, and
+    // the other finds nothing left to do.
     private void ScheduleRefresh()
     {
         if (_disposed)
@@ -2875,12 +2538,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ArmTimer(ref _refreshTimer, RunRefreshPassAsync, _options.RefreshDebounce);
     }
 
-    /// <summary>
-    /// Arms (or re-arms) the single timer behind <see cref="FormidableOptions.LiveDebounce"/>,
-    /// exactly as <see cref="ScheduleRefresh"/> arms its own — one timer, created lazily and
-    /// re-armed on every call, never one per field, which is what makes the debounce window
-    /// shared across whatever fields change while it is open.
-    /// </summary>
+    /// <summary>Arms or re-arms the one timer behind <see cref="FormidableOptions.LiveDebounce"/>, shared by every field that changes while the window is open; a disposed engine arms nothing.</summary>
+    /// <param name="debounce">The window's width.</param>
     private void ScheduleLiveDebounce(TimeSpan debounce)
     {
         if (_disposed)
@@ -2894,15 +2553,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ArmTimer(ref _liveTimer, RunDebouncedLivePassAsync, debounce);
     }
 
-    /// <summary>
-    /// Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> on
-    /// the renderer's dispatcher once, <paramref name="due"/> from now. Created with no due time
-    /// and no period, so the arming is entirely the <c>Change</c> below: a timer that fires only
-    /// when something asks it to, and only once per ask, is what makes every debounce in the
-    /// engine a sliding window rather than a repeating tick. The caller decides whether arming is
-    /// safe at all — a disposed engine arms no timer — because how a call can still arrive
-    /// after disposal differs per caller.
-    /// </summary>
+    /// <summary>Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> once on the renderer's dispatcher after <paramref name="due"/>.</summary>
+    /// <param name="timer">The timer field, created here on its first arming.</param>
+    /// <param name="fire">The handler.</param>
+    /// <param name="due">How long until it fires; <see cref="Timeout.InfiniteTimeSpan"/> arms a timer that never does.</param>
+    // Created with no due time and no period, so arming is entirely the Change: a timer that
+    // fires only when asked, and once per ask, is what makes every debounce a sliding window
+    // rather than a repeating tick. The caller decides whether arming is safe at all, because how
+    // a call can still arrive after disposal differs per caller.
     private void ArmTimer(ref ITimer? timer, Func<Task> fire, TimeSpan due)
     {
         timer ??= _timeProvider.CreateTimer(
@@ -2913,15 +2571,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         timer.Change(due, Timeout.InfiniteTimeSpan);
     }
 
-    /// <summary>
-    /// The live debounce timer's fire handler: defers first — mirroring
-    /// <see cref="RunRefreshPassAsync"/>'s own defer-then-snapshot shape — and only once no pass it
-    /// stands down for is in flight does it snapshot and clear the fields accumulated since
-    /// the window opened and run one live pass scoped to all of them. A snapshot left empty —
-    /// every accumulated field pruned by <see cref="OnRenderedFieldsChanged"/> before the window
-    /// closed — starts no live pass; the <see cref="FormidableOptions.TrackFormValidity"/> probe
-    /// still fires either way, since it answers for the model rather than for any particular field.
-    /// </summary>
+    /// <summary>The live timer's handler: stands down for a submit, refresh or load in flight, else runs one live pass for the fields accumulated while the window was open.</summary>
+    /// <remarks>
+    /// Standing down re-arms the timer while <see cref="FormidableOptions.LiveDebounce"/> is still
+    /// set; with the option cleared mid-window the window closes and the accumulator empties. A
+    /// snapshot left empty, every accumulated field having departed, starts no pass; the
+    /// <see cref="FormidableOptions.TrackFormValidity"/> probe still runs, because it answers for
+    /// the model rather than for any field.
+    /// </remarks>
     private Task RunDebouncedLivePassAsync()
     {
         if (_disposed)
@@ -2990,13 +2647,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return RunLivePassAsync(fields);
     }
 
-    /// <summary>
-    /// The refresh timer's fire handler: defers to a submit, live or load pass in flight —
-    /// re-arming so the edit is still revalidated once that pass finishes — and otherwise runs
-    /// one whole-model pass under the submit profile, its pending indicator narrowed to the
-    /// fields edited within the window. Landing replaces the submit channel's client source
-    /// with the fresh answer and clears the server sources that answer supersedes.
-    /// </summary>
+    /// <summary>The refresh timer's handler: re-arms behind a submit, live pass or load in flight, else re-checks the whole model under the submit profile with the indicator narrowed to the fields edited within the window.</summary>
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -3079,7 +2730,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
+    /// <summary>Unsubscribes from the edit context, stops both timers, cancels the pass and any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -3100,45 +2751,30 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 }
 
-/// <summary>
-/// Which of the engine's lifecycles a pass is running. The kind is what the engine's own
-/// deference rules are written in — a refresh stands down for a live pass, and both stand down
-/// for the two kinds a caller starts and awaits, a submit and a load — and it is also what
-/// decides whether a validator's exception is reported as form state or left to the caller
-/// awaiting the pass.
-/// </summary>
+/// <summary>The kind of a running pass, which decides what stands down for it and whether a validator's exception becomes form state or reaches the caller awaiting the pass.</summary>
 internal enum PassKind
 {
-    /// <summary>One field's edit, revalidating the model under the live profile.</summary>
+    /// <summary>A live pass: an edit's own check under the live profile, answering every engaged field.</summary>
     Live,
 
-    /// <summary>The form-wide pass a submit runs, under the submit profile.</summary>
+    /// <summary>A submit: the form-wide pass under the submit profile.</summary>
     Submit,
 
-    /// <summary>The debounced post-submit revalidation, also under the submit profile.</summary>
+    /// <summary>A refresh: the debounced whole-model re-check under the submit profile.</summary>
     Refresh,
 
-    /// <summary>
-    /// The whole-model submit-profile answer <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/>
-    /// runs to decide what a page's freshly loaded values have earned. Its own kind rather than a
-    /// refresh, because the deference rules are written in kinds: nothing an EDIT starts may
-    /// supersede it, since its verdict is the only thing that engages the fields it speaks for.
-    /// Another pass a caller starts and awaits still can — a submit, or a second load — the way
-    /// two submits resolve (see <see cref="FormidableEngine{TModel}.SubmitInFlight"/>).
-    /// </summary>
+    /// <summary>A load: the whole-model submit-profile check <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/> runs, which only a submit or another load may supersede.</summary>
+    // Its own kind rather than a refresh, because the deference rules are written in kinds:
+    // nothing an edit starts may supersede it, because its verdict is the only thing that engages
+    // the fields it speaks for. A pass a caller starts and awaits still can, the way two submits
+    // resolve (see SubmitInFlight).
     Load,
 }
 
-/// <summary>
-/// The identity a running pass carries: what it is, the version that decides whether it is still
-/// the current pass, and the token it was started with. A pass is superseded — never waited for —
-/// so every write it makes has to be gated on the version still being the engine's own.
-/// </summary>
-/// <param name="Kind">Which lifecycle this pass is running.</param>
-/// <param name="Version">The engine version this pass took when it began.</param>
-/// <param name="Token">The pass's cancellation token, linked to whatever the caller supplied.</param>
-/// <param name="StartedAt">The timestamp the pass began at, from the engine's own
-/// <see cref="TimeProvider"/> — what bounds how long a held coverage vouch may treat this pass
-/// as the re-answer on its way.</param>
+/// <summary>The identity of a running pass: its kind, the version that says whether it is still current, its token and when it began.</summary>
+/// <param name="Kind">The pass kind.</param>
+/// <param name="Version">The engine version the pass took at begin; every write it makes is gated on this still being the engine's own, because a pass is superseded, never waited for.</param>
+/// <param name="Token">The pass's token, linked to the caller's where it supplied one.</param>
+/// <param name="StartedAt">The <see cref="TimeProvider"/> timestamp the pass began at, which bounds how long a held coverage vouch may count the pass as a re-answer on its way.</param>
 internal readonly record struct PassScope(
     PassKind Kind, int Version, CancellationToken Token, long StartedAt);

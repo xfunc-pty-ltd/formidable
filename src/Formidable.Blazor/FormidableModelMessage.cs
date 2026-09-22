@@ -4,46 +4,26 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Renders the form's model-level validation issues — the ones addressed to the form itself
-/// rather than to any field — as the same persistent, accessible message list
-/// <see cref="FormidableFieldMessage{TValue}"/> renders per field: the all-suppressed defensive
-/// gate's explanation, model-level server-applied issues, and the incomplete-validation fault
-/// issue, which <see cref="IFormidableEngine.GetIssues"/> orders last. Parameterless, because
-/// the field it speaks for is fixed: the model-level field (an empty
-/// <see cref="FieldIdentifier.FieldName"/>), which no accessor expression can name. The list
-/// element renders always — empty while the form has nothing to say — with the model-level
-/// message id (<see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/>) and any configured
-/// <see cref="FormidableOptions.InlineMessageLive"/> on it, so on a form that renders no
-/// <see cref="FormidableSummary"/> the gate's explanation lands in a live region assistive
-/// technology already knows about instead of nowhere. It registers nothing: the model-level
-/// field's issues are always disclosed, because its element is the form's own, on the page for
-/// as long as the form is.
-/// </summary>
+/// <summary>Renders the form's model-level messages, such as the gate's explanation, a server issue with an empty path and, last, the <see cref="FormidableOptions.ValidationFaultMessage"/>, as the same always-present list <see cref="FormidableFieldMessage{TValue}"/> renders for a field.</summary>
+/// <remarks>
+/// Render it on a form with no <see cref="FormidableSummary"/>, so the gate's explanation has an
+/// element to land on, with any <see cref="FormidableOptions.InlineMessageLive"/> on it.
+/// </remarks>
 public sealed class FormidableModelMessage : FormidableComponentBase
 {
     private FieldIdentifier _field;
     private string _messagesElementId = string.Empty;
 
-    /// <summary>Additional attributes splatted onto the rendered list element.</summary>
-    /// <remarks>
-    /// The same policy as <see cref="FormidableMessageBase{TValue}.AdditionalAttributes"/>,
-    /// because both render through one shared list implementation: a consumer-splatted
-    /// <c>class</c> merges (splatted first, <c>formidable-message-list</c> after), a splatted
-    /// <c>id</c> is ignored in favour of the model-level message id, and a configured
-    /// <see cref="FormidableOptions.InlineMessageLive"/> wins a splatted <c>aria-live</c>.
-    /// </remarks>
+    /// <summary>Attributes splatted onto the list element ahead of the computed values, as <see cref="FormidableMessageBase{TValue}.AdditionalAttributes"/> describes: <c>class</c> merges, <c>id</c> is dropped, <c>aria-live</c> is the option's while set.</summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    /// <summary>
-    /// Resolves the model-level field from the context being bound and computes the list's id.
-    /// Registers nothing: registration is the submit channel's client-side disclosure gate for
-    /// fields, and the engine discloses the model-level field unconditionally — its element is
-    /// the form's own, which is on the page for as long as the form is.
-    /// </summary>
-    /// <param name="context">The context now being bound.</param>
-    /// <returns>Always null.</returns>
+    /// <summary>Resolves the model-level field from <paramref name="context"/>'s model, computes the list's id, and registers nothing.</summary>
+    /// <param name="context">The context being bound.</param>
+    /// <returns>Always <see langword="null"/>.</returns>
+    // Registration is what lets the submit channel show a field's errors, and the engine
+    // discloses the model-level field unconditionally: its element is the form's own, on the
+    // page for as long as the form is.
     protected override FieldRegistration? Register(FormidableFormContext context)
     {
         _field = new FieldIdentifier(context.EditContext.Model, string.Empty);
@@ -51,7 +31,8 @@ public sealed class FormidableModelMessage : FormidableComponentBase
         return null;
     }
 
-    /// <inheritdoc />
+    /// <summary>Renders the list through <see cref="FormidableMessageList"/> with the model-level field's current issues and any <see cref="FormidableOptions.InlineMessageLive"/> the engine reports; renders nothing before the first bind.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         if (Context is null)

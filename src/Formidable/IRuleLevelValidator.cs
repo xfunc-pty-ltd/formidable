@@ -1,132 +1,73 @@
 namespace Formidable;
 
-/// <summary>
-/// Rule-level access to a validator: enumerate the rules a <see cref="ValidationProfile"/>
-/// selects and execute a chosen set of them in one pass. An optional capability alongside
-/// <see cref="IModelValidator{TModel}"/>, implemented by
-/// <see cref="FluentValidationModelValidator{TModel}"/>. An engine's capability test is
-/// <c>validator is IRuleLevelValidator&lt;TModel&gt; ruleLevel &amp;&amp;
-/// ruleLevel.CanValidateByRule</c> — never the type test alone — falling back to whole-profile
-/// validation when the test fails.
-/// </summary>
+/// <summary>Lists the rules a <see cref="ValidationProfile"/> selects and runs a chosen set of them in one validator call; an optional capability beside <see cref="IModelValidator{TModel}"/>.</summary>
+/// <typeparam name="TModel">The model type the validator accepts.</typeparam>
 /// <remarks>
-/// There is deliberately no synchronous variant: the consuming engines are async, and a rule
-/// with async components could not honour one.
-/// <para>
-/// An implementation minting its own identities resolves the ones
-/// <see cref="ValidateRulesAsync"/> hands back by reading <see cref="RuleIdentity.Key"/> — the
-/// rule object it wrapped in <see cref="SelectRules"/> — rather than by carrying its own
-/// identity-to-rule lookup.
-/// </para>
-/// <para>
-/// A validator wrapping another one forwards this capability by deriving from
-/// <see cref="DelegatingModelValidator{TModel}"/>, whose tester answers the wrapped validator's
-/// own answer. A wrapper implementing <see cref="IModelValidator{TModel}"/> alone presents no
-/// capability at all, which a caller's test reads exactly as it reads a validator that never had
-/// one.
-/// </para>
-/// <para>
-/// Implementing this interface is supported surface, and it grows accordingly: a member added
-/// after v1 carries a default implementation matching this interface's own posture for absent
-/// capability — a new tester reads <see langword="false"/>, and a new doer throws
-/// <see cref="NotSupportedException"/> rather than silently under-validating — so a caller
-/// routes around an implementation that does not override the addition exactly as it routes
-/// around <see cref="CanValidateByRule"/> being <see langword="false"/>.
-/// </para>
+/// Implementing this interface is supported; a member added later carries a default
+/// implementation, so an implementation written against these members keeps compiling. A
+/// validator advertises the capability by implementing this interface and answering
+/// <see cref="CanValidateByRule"/> <see langword="true"/>, as it advertises
+/// <see cref="IRuleInspectingValidator{TModel}"/> with its own tester; a caller tests both at
+/// each use, never the type alone, and validates the whole profile through
+/// <see cref="IModelValidator{TModel}"/> when the test fails.
+/// <see cref="FluentValidationModelValidator{TModel}"/> implements it, and a wrapper keeps it by
+/// deriving from <see cref="DelegatingModelValidator{TModel}"/>. An implementation resolves the
+/// identities <see cref="ValidateRulesAsync"/> hands back by reading <see cref="RuleIdentity.Key"/>.
 /// </remarks>
+// There is no synchronous variant: a rule with async components could not honour one, and the
+// Blazor engine that consumes this interface is async.
+// A member added later answers as an absent capability answers (a new tester reads false, a new
+// doer throws NotSupportedException rather than silently under-validating), so a caller routes
+// around an implementation that does not override the addition exactly as it routes around
+// CanValidateByRule being false.
 public interface IRuleLevelValidator<in TModel>
 {
-    /// <summary>
-    /// Whether this instance can select rules and execute a chosen set of them — the tester
-    /// beside the doers, which throw <see cref="NotSupportedException"/> when it is
-    /// <see langword="false"/> rather than silently under-validate. Callers check it at each use
-    /// and route capability-less validators to whole-profile validation.
-    /// </summary>
+    /// <summary>Whether this validator can select rules and run a chosen set of them; when <see langword="false"/>, <see cref="SelectRules"/>, <see cref="ValidateRulesAsync"/> and <see cref="GroupBySelectionClass"/> throw <see cref="NotSupportedException"/>.</summary>
     bool CanValidateByRule { get; }
 
-    /// <summary>
-    /// Returns identities for exactly the rules <paramref name="profile"/> selects, in
-    /// declaration order, matching what whole-profile validation of the same profile
-    /// executes: rules outside any ruleset when
-    /// <see cref="ValidationProfile.IncludeDefaultRules"/> is set (or the profile names the
-    /// literal <c>"default"</c> ruleset); every ruleset-tagged rule whose membership
-    /// intersects <see cref="ValidationProfile.RuleSets"/>, case-insensitively — a rule
-    /// declared into several rulesets at once is selected through any of them; every rule
-    /// when the profile names the wildcard ruleset <c>"*"</c>; and an untagged
-    /// <c>Include()</c> rule always, so its included rules can be filtered individually at
-    /// execution — a tagged one is admitted on membership like any other rule. Ruleset names
-    /// are verified first where the underlying validator supports it, so a typo'd name throws
-    /// exactly as whole-profile validation does.
-    /// </summary>
+    /// <summary>Returns an identity for each rule <paramref name="profile"/> selects, in declaration order: exactly the rules validating the whole profile would run.</summary>
+    /// <param name="profile">The rule selection to list.</param>
+    /// <returns>The identities, opaque and scoped to this validator instance.</returns>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
     /// <remarks>
-    /// The identities are opaque to the caller and validator-instance-scoped — see
-    /// <see cref="RuleIdentity"/>. Throws <see cref="NotSupportedException"/> when
-    /// <see cref="CanValidateByRule"/> is <see langword="false"/>.
+    /// Selected: every rule outside any ruleset when <see cref="ValidationProfile.IncludeDefaultRules"/>
+    /// is set or the profile names <c>"default"</c>; every rule whose ruleset membership meets
+    /// <see cref="ValidationProfile.RuleSets"/>, compared case-insensitively; every rule under
+    /// <c>"*"</c>; and an untagged <c>Include()</c> rule always, so its included rules can be
+    /// filtered one by one when they run. A tagged <c>Include()</c> is admitted on membership like
+    /// any other rule.
     /// </remarks>
     IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile);
 
-    /// <summary>
-    /// Validates <paramref name="model"/> against exactly the given top-level rules under
-    /// <paramref name="profile"/>'s selection scope, in ONE pass over the validator: their
-    /// children — collection child rules with their indexed paths (<c>Items[0].Sku</c>), child
-    /// validators, and <c>Include()</c> internals — are filtered by the profile's ruleset names
-    /// exactly as a whole-profile run filters them. A call carrying the profile's whole
-    /// selection reproduces the whole-profile report of the same profile issue for issue.
-    /// Splitting that selection across several calls moves no issue and drops none: each call's
-    /// report carries its own rules' issues in <see cref="SelectRules"/> order, so concatenating
-    /// the reports reproduces the whole-profile report's issues ordered by call rather than by
-    /// declaration. The result's <see cref="RuleLevelResult.IsProfileScoped"/> says whether the
-    /// verdict may be reused across profiles or answers only for <paramref name="profile"/>.
-    /// </summary>
+    /// <summary>Validates <paramref name="model"/> against exactly the given rules in one validator call, filtering their child rules by <paramref name="profile"/> as validating the whole profile would.</summary>
+    /// <param name="model">The model to validate.</param>
+    /// <param name="profile">The rule selection whose ruleset names filter collection child rules, child validators and <c>Include()</c> internals.</param>
+    /// <param name="rules">Identities from <see cref="SelectRules"/> on this same instance.</param>
+    /// <param name="cancellationToken">Cancels an async rule still running.</param>
+    /// <returns>The report for those rules, and whether it answers only for <paramref name="profile"/> (<see cref="RuleLevelResult.IsProfileScoped"/>).</returns>
+    /// <exception cref="ArgumentException">An identity in <paramref name="rules"/> did not come from <see cref="SelectRules"/> on this instance, or is the default identity.</exception>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
     /// <remarks>
-    /// Every identity in <paramref name="rules"/> must come from <see cref="SelectRules"/> on
-    /// this same instance; a foreign or default identity throws
-    /// <see cref="ArgumentException"/> rather than silently validating nothing, and
-    /// <see cref="NotSupportedException"/> is thrown when <see cref="CanValidateByRule"/> is
-    /// <see langword="false"/>. An empty set is a legal request and answers with an empty
-    /// report. Each call validates in its own context, so validator-level hooks run once per
-    /// call — <c>PreValidate</c> in particular executes for every call rather than for every
-    /// rule.
+    /// A call carrying the profile's whole selection reproduces the report of validating the whole
+    /// profile issue for issue. Split across several calls, each report carries its own rules'
+    /// issues in <see cref="SelectRules"/> order, so no issue moves and none drops. An empty set
+    /// answers an empty report. Validator-level hooks such as <c>PreValidate</c> run once per call.
     /// </remarks>
     Task<RuleLevelResult> ValidateRulesAsync(TModel model, ValidationProfile profile,
         IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Partitions <paramref name="rules"/> into groups no <see cref="ValidationProfile"/> can
-    /// split: every profile either selects a whole group or none of it. A caller holding one
-    /// verdict per executed SET can then serve a stored group to a pass running any profile
-    /// whose own selection contains it, which is what keeps verdict reuse independent of the
-    /// order two profiles' passes happen to land in.
-    /// </summary>
+    /// <summary>Partitions <paramref name="rules"/> into groups no <see cref="ValidationProfile"/> splits: every profile selects a whole group or none of it.</summary>
+    /// <param name="rules">Identities from <see cref="SelectRules"/> on this same instance.</param>
+    /// <returns>Groups that together hold every identity in <paramref name="rules"/> exactly once; a caller runs the groups and nothing else.</returns>
+    /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
     /// <remarks>
-    /// The groups COVER <paramref name="rules"/> exactly: every identity appears in exactly one
-    /// group, none is dropped and none is repeated. A caller runs the groups and nothing else,
-    /// so a dropped identity is a rule that silently never executes, and a repeated one is a set
-    /// of issues reported twice.
-    /// <para>
-    /// An implementation with no partition to offer returns one group per rule. That answer
-    /// satisfies both properties under every profile and gives up only speed: it costs one
-    /// validation call per rule, which is the cost taking a set at a time exists to avoid.
-    /// </para>
-    /// <para>
-    /// The one group holding every rule is the answer to be careful with. It covers the input,
-    /// but it is a partition no profile can split only while the whole set is selected by the
-    /// same profiles — two rules that differ in what admits them belong in different groups, or
-    /// the group is servable to fewer selections than the rules in it deserve. What that costs is
-    /// measured on the pass: a group a pass's own selection does not contain is a group that pass
-    /// executes in full, and so does every later pass selecting the same way, where a group the
-    /// selection contains is served from the caller's stored verdict instead. Sharper still:
-    /// <see cref="RuleLevelResult.IsProfileScoped"/> is recorded for the CALL rather than for
-    /// any one rule within it, so a single rule whose scope reaches a child validator marks the
-    /// whole group, and every rule filed beside it is re-run whenever the profile changes. A set
-    /// holding no such rule is free of that; one that holds any is better off giving it a group
-    /// of its own. Both properties survive splitting FINER than selection demands, since no
-    /// profile can split a group of one either.
-    /// </para>
-    /// <para>
-    /// Throws <see cref="NotSupportedException"/> when <see cref="CanValidateByRule"/> is
-    /// <see langword="false"/>.
-    /// </para>
+    /// One group per rule is always a correct answer and costs only speed, one validation call per
+    /// rule; splitting finer than selection demands stays correct because no profile splits a
+    /// group of one. A rule whose scope reaches a child validator is best given a group of its own,
+    /// because <see cref="RuleLevelResult.IsProfileScoped"/> is reported per call and would mark
+    /// every rule grouped with it.
     /// </remarks>
     IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules);
 }

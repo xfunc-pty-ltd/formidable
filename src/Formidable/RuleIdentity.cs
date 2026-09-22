@@ -2,51 +2,57 @@ using System.Runtime.CompilerServices;
 
 namespace Formidable;
 
-/// <summary>
-/// Opaque identity of one validation rule, produced by
-/// <see cref="IRuleLevelValidator{TModel}.SelectRules"/> and consumed by
-/// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/>. Suitable as a dictionary key:
-/// equal identities hash equally, and identity is stable for the lifetime of the validator
-/// that produced it.
-/// </summary>
+/// <summary>The opaque identity of one rule, produced by <see cref="IRuleLevelValidator{TModel}.SelectRules"/> and handed back to <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/>; usable as a dictionary key.</summary>
 /// <remarks>
-/// Identities are validator-instance-scoped: equality and hashing follow the wrapped key by
-/// reference, so two validator instances built from the same class yield identities that never
-/// match, and an identity is only meaningful passed back to the validator that produced it.
+/// Equality and hashing follow the wrapped key by reference: identities from two validators
+/// match only when both wrap the same key instance, and an identity is stable for, and
+/// meaningful only to, the validator that produced it.
 /// </remarks>
 public readonly struct RuleIdentity : IEquatable<RuleIdentity>
 {
     private readonly object? _key;
 
-    /// <summary>Wraps the given key object; the key's reference is the identity.</summary>
+    /// <summary>Wraps <paramref name="key"/>, whose reference is the identity.</summary>
+    /// <param name="key">The object whose reference is the identity; the producing validator reads it back through <see cref="Key"/>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
     public RuleIdentity(object key)
     {
         ArgumentNullException.ThrowIfNull(key);
         _key = key;
     }
 
-    /// <summary>
-    /// The wrapped key, or <see langword="null"/> for a <see langword="default"/> identity.
-    /// Only meaningful to the validator that produced it: an
-    /// <see cref="IRuleLevelValidator{TModel}"/> implementation resolves an identity handed to
+    /// <summary>The wrapped key, or <see langword="null"/> for a <see langword="default"/> identity; meaningful only to the validator that produced it.</summary>
+    /// <remarks>
+    /// An <see cref="IRuleLevelValidator{TModel}"/> implementation resolves an identity handed to
     /// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/> by reading back here the rule
     /// object it wrapped in <see cref="IRuleLevelValidator{TModel}.SelectRules"/>, with no side
     /// lookup. Any other reader holds an object whose type and content promise nothing.
-    /// </summary>
+    /// </remarks>
     public object? Key => _key;
 
-    /// <inheritdoc />
+    /// <summary>Whether both identities wrap the same key instance.</summary>
+    /// <param name="other">The identity to compare with.</param>
+    /// <returns><see langword="true"/> when the wrapped keys are the same reference.</returns>
     public bool Equals(RuleIdentity other) => ReferenceEquals(_key, other._key);
 
-    /// <inheritdoc />
+    /// <summary>Whether <paramref name="obj"/> is a <see cref="RuleIdentity"/> wrapping the same key instance.</summary>
+    /// <param name="obj">The object to compare with.</param>
+    /// <returns><see langword="true"/> when <paramref name="obj"/> is an identity over the same reference.</returns>
     public override bool Equals(object? obj) => obj is RuleIdentity other && Equals(other);
 
-    /// <inheritdoc />
+    /// <summary>The wrapped key's reference hash, or 0 for a <see langword="default"/> identity.</summary>
+    /// <returns>The hash code.</returns>
     public override int GetHashCode() => _key is null ? 0 : RuntimeHelpers.GetHashCode(_key);
 
-    /// <summary>Reference equality on the underlying keys.</summary>
+    /// <summary>Reference equality on the wrapped keys.</summary>
+    /// <param name="left">The first identity.</param>
+    /// <param name="right">The second identity.</param>
+    /// <returns><see langword="true"/> when both wrap the same reference.</returns>
     public static bool operator ==(RuleIdentity left, RuleIdentity right) => left.Equals(right);
 
-    /// <summary>Reference inequality on the underlying keys.</summary>
+    /// <summary>Reference inequality on the wrapped keys.</summary>
+    /// <param name="left">The first identity.</param>
+    /// <param name="right">The second identity.</param>
+    /// <returns><see langword="true"/> when the wrapped references differ.</returns>
     public static bool operator !=(RuleIdentity left, RuleIdentity right) => !left.Equals(right);
 }

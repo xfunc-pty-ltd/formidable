@@ -1,44 +1,14 @@
 namespace Formidable;
 
-/// <summary>
-/// Reuses the answer an async check already gave for a value, for a short window, so a check that
-/// runs more than once over unchanged input costs a lookup instead of a round trip. Built for
-/// async validation rules, where a value is genuinely asked about twice: retyped after being
-/// cleared, or checked again by a submit that follows shortly after a live pass already answered
-/// the same field.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Hold one of these as a field on the validator that uses it. It has to outlive a single
-/// validation pass to be worth anything, and a validator instance does: the engine resolves its
-/// <see cref="IModelValidator{TModel}"/> once and keeps it, and FluentValidation registers
-/// validators per scope. Constructed inside a rule's own lambda it is rebuilt on every call and
-/// never once hits.
-/// </para>
-/// <para>
-/// Only for a check that is pure with respect to its input — the same value giving the same answer
-/// for as long as the window lasts. A predicate with side effects, or one whose answer can change
-/// within the window for reasons other than the value, does not belong here. Nothing about a
-/// rule's outcome changes: this only avoids asking the same question twice.
-/// </para>
-/// <para>
-/// The work is shared, so it is not cancelled by any one caller. A caller that cancels stops
-/// waiting; the call it was waiting on carries on for whoever else wants it.
-/// </para>
-/// <para>
-/// Safe to use from several flows at once, which is what makes joining an in-flight call possible:
-/// two passes that end up validating around the same time share one in-flight check instead of
-/// each starting its own, and a consumer may validate away from the UI thread.
-/// </para>
-/// <para>
-/// A failed check is never served. The next caller runs it again, so a transient network failure
-/// does not stick for the rest of the window. A check still running is joined only while its window
-/// lasts: one that has outlived the window is left to the callers already waiting on it, and a
-/// fresh check starts.
-/// </para>
-/// </remarks>
-/// <typeparam name="TKey">The value the answer is keyed by.</typeparam>
+/// <summary>Reuses an async check's answer for the same value within a window, so a value asked about twice costs one call.</summary>
+/// <typeparam name="TKey">The value an answer is keyed by.</typeparam>
 /// <typeparam name="TResult">The answer.</typeparam>
+/// <remarks>
+/// Hold one as a field on the validator; one built inside a rule's lambda is rebuilt on every
+/// call and never hits. Use it only for a check that is pure over its input, because a held
+/// answer stands in for the check for the rest of the window. Concurrent callers for one key
+/// share the running check, and a caller that cancels stops waiting while the check continues.
+/// </remarks>
 public sealed class AsyncRuleMemo<TKey, TResult>
     where TKey : notnull
 {
@@ -48,28 +18,12 @@ public sealed class AsyncRuleMemo<TKey, TResult>
     private readonly Dictionary<TKey, Entry> _entries;
     private readonly Lock _gate = new();
 
-    /// <summary>Creates a memo.</summary>
-    /// <param name="window">
-    /// How long an answer stays usable, measured from the moment its check starts. Size it to the
-    /// pause it has to survive rather than to any of the engine's own scheduling windows: a value
-    /// retyped, or a submit pressed shortly after a live pass already answered the same field, are
-    /// both paced by the person at the keyboard, not by a timer, so a useful window is seconds
-    /// long and a judgement call rather than a derived value.
-    /// </param>
-    /// <param name="capacity">
-    /// The most entries kept at once. A leak guard for a long-lived validator, not a tuning knob —
-    /// the default is far above any realistic collection. Entries are only released on a miss, so
-    /// an idle memo keeps up to this many answers until it is next asked something it cannot answer.
-    /// </param>
-    /// <param name="comparer">
-    /// Decides what counts as the same value. Defaults to <see cref="EqualityComparer{T}.Default"/>.
-    /// To key on part of a value instead of the whole of it — the usual reason a reference type
-    /// needs one — build a comparer over that part with <see cref="EqualityComparer{T}.Create"/>.
-    /// </param>
-    /// <param name="timeProvider">Defaults to <see cref="TimeProvider.System"/>.</param>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="window"/> is not positive, or <paramref name="capacity"/> is below one.
-    /// </exception>
+    /// <summary>Creates a memo whose answers stay usable for <paramref name="window"/>, with <paramref name="comparer"/> deciding what counts as the same value.</summary>
+    /// <param name="window">How long an answer stays usable, counted from the moment its check starts; size it to the pause a person makes between asks, seconds rather than milliseconds.</param>
+    /// <param name="capacity">The most entries held at once, a leak guard rather than a tuning knob; an entry leaves only when a miss makes room for a new one, or through <see cref="Invalidate"/> or <see cref="Clear"/>. Defaults to 256.</param>
+    /// <param name="comparer">What counts as the same value; to key on part of a value, build one over that part with <see cref="EqualityComparer{T}.Create"/>. Defaults to <see cref="EqualityComparer{T}.Default"/>.</param>
+    /// <param name="timeProvider">The clock the window is measured by. Defaults to <see cref="TimeProvider.System"/>.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="window"/> is zero or negative, or <paramref name="capacity"/> is below one.</exception>
     public AsyncRuleMemo(
         TimeSpan window,
         int capacity = 256,
@@ -85,21 +39,18 @@ public sealed class AsyncRuleMemo<TKey, TResult>
         _entries = new Dictionary<TKey, Entry>(comparer);
     }
 
-    /// <summary>
-    /// Returns the answer for <paramref name="key"/>, running <paramref name="factory"/> only if
-    /// no usable answer is held. A call that arrives while an earlier one is still running joins
-    /// it rather than starting a second.
-    /// </summary>
+    /// <summary>Returns the answer for <paramref name="key"/>, running <paramref name="factory"/> only when no usable answer is held; a concurrent call for the key joins the running check.</summary>
     /// <param name="key">The value being checked.</param>
-    /// <param name="factory">
-    /// Runs the check. Handed <see cref="CancellationToken.None"/>, because its result is shared.
-    /// Must return promptly: it is called while the memo is locked, so that two callers arriving
-    /// together cannot both start a check, and one that blocks before handing back its task holds
-    /// up lookups of every other key too. The check itself runs on after the lock is released.
-    /// </param>
-    /// <param name="cancellationToken">Cancels this caller's wait, not the shared work.</param>
-    /// <returns>The answer, once the check producing it has finished.</returns>
+    /// <param name="factory">Runs the check; handed <see cref="CancellationToken.None"/> because its answer is shared, and called under the memo's lock, so one that blocks before returning its task holds up every other key's lookup too.</param>
+    /// <param name="cancellationToken">Cancels this caller's wait, not the shared check.</param>
+    /// <returns>The answer, once the check producing it completes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="factory"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="factory"/> returned <see langword="null"/> instead of a task.</exception>
+    /// <remarks>
+    /// A held answer is usable while its window lasts and its check neither faulted nor was
+    /// cancelled, so a failed check is run again by the next caller; a check still running counts
+    /// and is joined only while its window lasts.
+    /// </remarks>
     public Task<TResult> GetAsync(
         TKey key,
         Func<TKey, CancellationToken, Task<TResult>> factory,
@@ -155,18 +106,13 @@ public sealed class AsyncRuleMemo<TKey, TResult>
         return shared.WaitAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// Drops the held answer for <paramref name="key"/>, so the next <see cref="GetAsync"/> for it
-    /// runs the check again regardless of how much of the window remains.
-    /// </summary>
+    /// <summary>Drops the held answer for <paramref name="key"/>, so the next <see cref="GetAsync"/> for it runs the check again, however much of the window remains.</summary>
+    /// <param name="key">The value whose held answer is no longer to be served.</param>
     /// <remarks>
-    /// Governs future lookups only: a call already sharing this key's in-flight task is not
-    /// cancelled and still receives that task's answer. For news that outdates one held answer
-    /// specifically — a server reporting that a value this memo still holds as available has just
-    /// been taken — this is the way to stop that answer being served without waiting out the
-    /// window.
+    /// A caller already awaiting this key's running check still receives its answer. Call it when
+    /// news outdates one held answer (a value the memo holds as available has just been taken), so
+    /// that answer stops being served without waiting out the window.
     /// </remarks>
-    /// <param name="key">The value whose held answer should no longer be served.</param>
     public void Invalidate(TKey key)
     {
         lock (_gate)
@@ -175,14 +121,8 @@ public sealed class AsyncRuleMemo<TKey, TResult>
         }
     }
 
-    /// <summary>
-    /// Drops every held answer, so the next <see cref="GetAsync"/> for any key runs the check
-    /// again regardless of how much of the window remains.
-    /// </summary>
-    /// <remarks>
-    /// Governs future lookups only: a call already sharing an in-flight task for any key is not
-    /// cancelled and still receives that task's answer.
-    /// </remarks>
+    /// <summary>Drops every held answer, so the next <see cref="GetAsync"/> for any key runs the check again, however much of the window remains.</summary>
+    /// <remarks>A caller already awaiting a running check for any key still receives its answer.</remarks>
     public void Clear()
     {
         lock (_gate)

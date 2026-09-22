@@ -5,45 +5,27 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Formidable.AspNetCore;
 
-/// <summary>Minimal-API validation conventions.</summary>
+/// <summary>Extension methods that validate a minimal-API route handler's, or a route group's, model argument before the handler runs.</summary>
 public static class FormidableEndpointFilterExtensions
 {
-    /// <summary>
-    /// Normalizes (when <typeparamref name="TModel"/> implements
-    /// <see cref="INormalizableModel"/>) and validates the endpoint's
-    /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
-    /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format and whose <c>advisories</c> extension carries the report's
-    /// non-error issues. Warnings and infos never block on their own: a report carrying only
-    /// them passes through to the handler, which can read it via
-    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-    /// </summary>
-    /// <param name="builder">The route handler to validate.</param>
-    /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <param name="missingBodyMessage">
-    /// The model-level message the enriched 400 carries where the platform refuses a body that
-    /// bound to <see langword="null"/>. <see langword="null"/> keeps the library's own
-    /// "A request body is required."; every other value is used verbatim, an empty string
-    /// included, which the shared mapper keeps empty. It is the only entry such a 400's
-    /// <c>errors</c> dictionary carries, and the library's own words rather than a rule's, which
-    /// is where a localized application replaces it; the envelope around it — the problem type,
-    /// the title, the status — stays the framework's.
-    /// </param>
+    /// <summary>Validates the handler's <typeparamref name="TModel"/> argument with <paramref name="profile"/> before the handler runs, answering a report with errors as a 400 validation problem.</summary>
+    /// <typeparam name="TModel">The model type to validate; the handler must declare a parameter whose type is assignable to it.</typeparam>
+    /// <param name="builder">The route handler.</param>
+    /// <param name="profile">The profile to validate with. Defaults to <see cref="ValidationProfile.Submit"/>.</param>
+    /// <param name="missingBodyMessage">The model-level message the 400 carries when the platform refuses a body that bound to <see langword="null"/>; <see langword="null"/> keeps "A request body is required.", any other string is used as given.</param>
+    /// <returns><paramref name="builder"/>, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The handler declares no parameter assignable to <typeparamref name="TModel"/>; thrown while the endpoint's request pipeline is built, not at a request.</exception>
     /// <remarks>
-    /// Always fails closed, with no silent-skip mode to opt out of: a handler with no
-    /// <typeparamref name="TModel"/> parameter at all throws
-    /// <see cref="InvalidOperationException"/> when the endpoint's request pipeline is built (a
-    /// wiring bug) — routing materializes every mapped endpoint before it can match any
-    /// request, so the throw fails every request to the application, loudly, rather than hiding
-    /// as a 500 on the one broken route. Whether a declared <typeparamref name="TModel"/>
-    /// parameter bound to <see langword="null"/> is acceptable is left to the PLATFORM, which
-    /// decides it from the declaration: a parameter the handler declared optional — nullable, or
-    /// carrying a default — reaches the handler with <see langword="null"/> exactly as it would
-    /// without this filter, and one the platform refuses gets the standard 400 validation shape
-    /// with a model-level error — <paramref name="missingBodyMessage"/>, or "A request body is
-    /// required." where none is named — in place of the bare, bodiless 400 the platform writes
-    /// for it. When the handler declares more than one parameter of type
-    /// <typeparamref name="TModel"/>, only the first one is validated.
+    /// A model implementing <see cref="INormalizableModel"/> is normalized first. The 400 takes
+    /// <see cref="ValidationReportProblemMapper"/>'s shape. A report without errors reaches the
+    /// handler, which reads it through
+    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>. A parameter
+    /// bound <see langword="null"/> is left to the platform's own rule for its declaration: an
+    /// optional parameter reaches the handler as <see langword="null"/> with no report recorded,
+    /// and a refused one gets a 400 validation problem carrying
+    /// <paramref name="missingBodyMessage"/> in place of the platform's bodiless 400. With several
+    /// arguments assignable to <typeparamref name="TModel"/>, the first bound non-null is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(
         this RouteHandlerBuilder builder,
@@ -52,26 +34,14 @@ public static class FormidableEndpointFilterExtensions
         where TModel : class =>
         AddValidation<RouteHandlerBuilder, TModel>(builder, profile, missingBodyMessage);
 
-    /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile, string)"/>
-    /// <param name="builder">The route group to validate.</param>
-    /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <param name="missingBodyMessage">
-    /// The model-level message an enriched 400 carries where the platform refuses a body that
-    /// bound to <see langword="null"/>, for every endpoint in the group. <see langword="null"/>
-    /// keeps the library's own "A request body is required."; every other value is used verbatim,
-    /// an empty string included, which the shared mapper keeps empty.
-    /// </param>
-    /// <remarks>
-    /// Every endpoint in the group must bind a <typeparamref name="TModel"/>-typed parameter —
-    /// checked endpoint by endpoint, and an endpoint without one throws
-    /// <see cref="InvalidOperationException"/> when its request pipeline is built (a wiring
-    /// bug), which fails route materialization as a whole: a group carrying a mis-wired
-    /// endpoint fails every request to the application, loudly, rather than leaving that one
-    /// endpoint to 500 among working siblings. An endpoint that HAS the parameter but received
-    /// <see langword="null"/> for it leaves that to the platform and enriches only a refusal,
-    /// per the single-handler overload above. When an endpoint declares more than one parameter
-    /// of type <typeparamref name="TModel"/>, only the first one is validated.
-    /// </remarks>
+    /// <summary>Validates every endpoint in the group the way <see cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile, string)"/> validates one handler, with one profile and one missing-body message for all of them.</summary>
+    /// <typeparam name="TModel">The model type to validate; every endpoint in the group must declare a parameter whose type is assignable to it.</typeparam>
+    /// <param name="builder">The route group.</param>
+    /// <param name="profile">The profile to validate with, for every endpoint in the group. Defaults to <see cref="ValidationProfile.Submit"/>.</param>
+    /// <param name="missingBodyMessage">The model-level message a 400 carries when the platform refuses a body that bound to <see langword="null"/>, for every endpoint in the group; <see langword="null"/> keeps "A request body is required.", any other string is used as given.</param>
+    /// <returns><paramref name="builder"/>, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">An endpoint in the group declares no parameter assignable to <typeparamref name="TModel"/>, whatever its siblings declare; thrown while that endpoint's request pipeline is built, not at a request.</exception>
     public static RouteGroupBuilder Validate<TModel>(
         this RouteGroupBuilder builder,
         ValidationProfile? profile = null,

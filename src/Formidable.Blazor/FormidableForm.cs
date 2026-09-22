@@ -6,21 +6,13 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// The primary Formidable root component. Owns the <see cref="EditContext"/> — swapping the
-/// <see cref="Model"/> parameter (e.g. a draft load) rebuilds the context and engine, so
-/// consumers never manage EditContext lifecycles. Submit runs the engine pipeline and routes
-/// to <see cref="OnValidSubmit"/> / <see cref="OnInvalidSubmit"/>. The form needs an interactive
-/// render mode: where the renderer reports itself static with no interactivity coming, it renders
-/// a message asking for one in place of a form whose submit cannot run, and reports that same
-/// message once to the host's diagnostic channels, since the page carrying it answers 200 like any
-/// other. Where interactivity is coming but has not arrived — a Blazor Web App's prerender pass —
-/// the rendered form carries <c>inert</c> until it does, so a visitor cannot operate it in the
-/// window: no click reaches it, no typing lands in it, and Tab passes it by. What that prevents is
-/// a submit the platform answers with its own 400, and typing the interactive render replaces from
-/// the model a moment later.
-/// </summary>
-/// <typeparam name="TModel">The form model type.</typeparam>
+/// <summary>The form root: it owns the <see cref="EditContext"/>, renders the <c>&lt;form&gt;</c>, runs the submit, and rebuilds itself when <see cref="Model"/> is a different instance.</summary>
+/// <typeparam name="TModel">The type of the model the form edits.</typeparam>
+/// <remarks>
+/// The form needs an interactive render mode. A statically rendered page with none coming gets
+/// a paragraph asking for one in the form's place, reported once to the host; while a Blazor Web
+/// App prerenders, the form renders <c>inert</c> until interactivity arrives.
+/// </remarks>
 public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     where TModel : class
 {
@@ -78,233 +70,99 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
     private bool _disposed;
 
-    /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
+    /// <summary>The model the form edits; a different instance rebuilds the <see cref="EditContext"/> and the engine. Required.</summary>
     [Parameter, EditorRequired]
     public TModel Model { get; set; } = default!;
 
-    /// <summary>
-    /// Notified when <see cref="ResetAsync(TModel?)"/> is called with a new model — the platform's
-    /// own two-way-binding shape, so <c>@bind-Model="_order"</c> works. Binding it is what makes a
-    /// programmatic swap durable: <see cref="Model"/> is a <c>[Parameter]</c>, and Blazor re-supplies
-    /// a component's parameters from whatever the PARENT still holds on every one of the parent's
-    /// own renders — not just this component's — so a swap this component makes to its own copy of
-    /// <see cref="Model"/> is silently overwritten the next time anything up there re-renders,
-    /// unless the parent's own field was updated too. This callback is that update.
-    /// </summary>
+    /// <summary>Raised when <see cref="ResetAsync(TModel?)"/> swaps in a new model, so <c>@bind-Model</c> keeps the parent's field in step; without it that call throws.</summary>
     [Parameter]
     public EventCallback<TModel> ModelChanged { get; set; }
 
-    /// <summary>Validator override; resolved from DI when omitted.</summary>
+    /// <summary>The validator the form validates through, in place of the <see cref="IModelValidator{TModel}"/> the container registers. Defaults to <see langword="null"/>, which resolves from the container.</summary>
     /// <remarks>
-    /// What is passed here is what the form validates through, whole: a capability the passed
-    /// validator does not present is one the form does not have, and that is easy to lose by
-    /// accident. Required markers, <c>aria-required</c>, the confirming half of
-    /// <c>DiscloseLoadedValuesAsync</c> and the per-rule verdict sharing all rest on two
-    /// capabilities that are optional interfaces beside <see cref="IModelValidator{TModel}"/> —
-    /// <see cref="IRuleInspectingValidator{TModel}"/> and <see cref="IRuleLevelValidator{TModel}"/>
-    /// — which <see cref="FluentValidationModelValidator{TModel}"/> implements and a wrapper
-    /// written against <see cref="IModelValidator{TModel}"/> alone does not. Such a wrapper
-    /// compiles and validates correctly, and the capability test that goes looking reads the same
-    /// for it as for a validator that never had them. The inspection half of the loss is reported:
-    /// a form whose validator cannot report its rules writes one line when its engine is built,
-    /// naming what will not render. That line names the state rather than the mistake, since the
-    /// two read alike, and the rule-level half has no line at all. Derive a wrapper from
-    /// <see cref="DelegatingModelValidator{TModel}"/> instead: it forwards all three interfaces,
-    /// leaving only the members whose behaviour changes to write.
+    /// It is taken whole: a wrapper implementing <see cref="IModelValidator{TModel}"/> alone
+    /// loses the required indicator, <c>aria-required</c> and the confirmations
+    /// <see cref="DiscloseLoadedValuesAsync"/> makes (a loss reported once as the engine is
+    /// built) and the reuse of a rule's answer between checks (a loss reported nowhere). Derive a
+    /// wrapper from <see cref="DelegatingModelValidator{TModel}"/>, which forwards
+    /// <see cref="IRuleInspectingValidator{TModel}"/> and <see cref="IRuleLevelValidator{TModel}"/>.
     /// </remarks>
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
 
-    /// <summary>Engine options; defaults apply when omitted.</summary>
+    /// <summary>The options the engine is built with, read once as it is built. Defaults to <see langword="null"/>: the app-wide instance <see cref="FormidableBlazorServiceCollectionExtensions.AddFormidableBlazor(IServiceCollection, Action{FormidableOptions})"/> registered, else a new <see cref="FormidableOptions"/>.</summary>
     [Parameter]
     public FormidableOptions? Options { get; set; }
 
-    /// <summary>
-    /// Form content. Receives the same <see cref="FormidableFormContext"/> instance the form
-    /// cascades to it, so markup can reach the engine inline without capturing the component with
-    /// <c>@ref</c>: a control the page draws itself marks its own field touched on blur with
-    /// <c>context.Engine.MarkTouched(field)</c>. What the context reaches is the engine's
-    /// members, plus the one move this component makes that the engine cannot:
-    /// <see cref="FormidableFormContext.FocusFirstErrorAsync"/> is there because the parameters
-    /// governing that move — <see cref="PrepareFocus"/>, <see cref="FocusFallback"/> — are
-    /// declared here and no focus service is reachable from the engine at all. Every other member
-    /// this component declares is out of reach that way, and
-    /// <see cref="ResetAsync(TModel?)"/> is the one that shows where the line falls rather than
-    /// being an exception to it: returning the form to pristine REBUILDS the engine, so a context
-    /// asked to do it would invalidate the very instance it was asked on, where moving focus
-    /// invalidates nothing — which is why an inline reset button does take an <c>@ref</c> to the
-    /// form. Where the engine and this component both declare a member, the engine's is what the
-    /// context reaches:
-    /// <c>context.Engine.ApplyServerIssues(...)</c> is the quiet background apply, not
-    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> here, which also moves focus
-    /// to the first error. An inline READ of engine state (<c>context.Engine.IsFormValid</c>, say)
-    /// refreshes when the form itself re-renders — a submit among the causes — not on every
-    /// validation pass: ongoing state travels through
-    /// <see cref="IFormidableEngine.StateChanged"/>, which observing components subscribe to
-    /// individually, so a live indicator still needs its own subscription to that event.
-    /// Markup that nests no other typed fragment is unaffected; nesting one that also leaves its
-    /// parameter name implicit (a <c>FormidableField</c>, a <c>Virtualize</c>) makes the Razor
-    /// compiler ask for a <c>Context="..."</c> on one of the two, exactly as it does inside
-    /// <c>EditForm</c>. What collides is the declaration rather than any use of it: both
-    /// fragments claim the implicit <c>context</c> name, so the rename is owed whether or not
-    /// either body ever reads it. Either fragment can take the rename, the form's own included:
-    /// <c>&lt;FormidableForm Model="_order" Context="formidable"&gt;</c> names this body and
-    /// leaves the nested fragment on <c>context</c>.
-    /// </summary>
+    /// <summary>The form's markup, handed the cascaded <see cref="FormidableFormContext"/> as <c>context</c>, so inline code reaches the engine and <see cref="FormidableFormContext.FocusFirstErrorAsync"/> without an <c>@ref</c>.</summary>
+    /// <remarks>
+    /// Nesting another typed fragment that leaves its parameter name implicit (a
+    /// <see cref="FormidableField{TValue}"/>, a <c>Virtualize</c>) makes the Razor compiler ask
+    /// for <c>Context="..."</c> on one of the two, this form's own included. An inline read of
+    /// engine state refreshes when the form re-renders, not on every check; a live indicator
+    /// subscribes to <see cref="IFormidableEngine.StateChanged"/> itself.
+    /// </remarks>
     [Parameter]
+    // Typed, and the Context= rename it costs beside another typed fragment stands: measured on
+    // canonical Blazor, EditForm plus Virtualize alone emit the same RZ9999, so the tax is the
+    // platform's own and not one this component adds. What collides is the declaration, not any
+    // use of it, so the rename is owed whether or not either body reads its parameter.
     public RenderFragment<FormidableFormContext>? ChildContent { get; set; }
 
-    /// <summary>
-    /// Invoked when the submit pipeline passes. A passing submit can still carry advisories, so
-    /// the valid branch hands its handler the same <see cref="SubmitOutcome"/> the invalid branch
-    /// always received — mirroring <c>EditForm.OnValidSubmit</c>'s own typed precedent — rather
-    /// than leave a handler that wants them digging through <see cref="Engine"/> instead. A
-    /// parameterless handler still binds: Blazor's own <see cref="EventCallback{TValue}"/>
-    /// conversion accepts an <see cref="Action"/> or <see cref="Func{TResult}"/> wherever a typed
-    /// callback is declared, exactly as it does for <c>EditForm.OnValidSubmit</c> today.
-    /// </summary>
+    /// <summary>Raised when the submit succeeds, with the <see cref="SubmitOutcome"/>, whose advisories a passing submit can still carry; a parameterless handler binds too.</summary>
     [Parameter]
+    // Typed, mirroring EditForm.OnValidSubmit's own typed precedent, so a handler that wants the
+    // advisories reads them here rather than digging through Engine.
     public EventCallback<SubmitOutcome> OnValidSubmit { get; set; }
 
-    /// <summary>
-    /// Invoked when the submit pipeline blocks, with a context carrying the
-    /// <see cref="SubmitOutcome"/> the pipeline produced. The context is also how a handler that
-    /// has answered the block itself — by opening a dialog, most often — tells the form to
-    /// leave its own first-error focus move alone for this submit: see
-    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/>, and
-    /// <see cref="FocusFirstErrorAsync"/> for asking for that move later. A handler wanting only
-    /// the verdict reads <see cref="FormidableInvalidSubmitContext.Outcome"/>, and a parameterless
-    /// handler still binds, exactly as it does on <see cref="OnValidSubmit"/>.
-    /// </summary>
+    /// <summary>Raised when the submit blocks, with a <see cref="FormidableInvalidSubmitContext"/> carrying the outcome and the way to suppress this submit's focus move; a parameterless handler binds too.</summary>
     [Parameter]
     public EventCallback<FormidableInvalidSubmitContext> OnInvalidSubmit { get; set; }
 
-    /// <summary>
-    /// On a blocked submit, best-effort auto-focuses the field carrying the first error among the
-    /// form's visible issues via <see cref="IFormidableFocusService"/>, immediately after
-    /// <see cref="OnInvalidSubmit"/> runs and unless that handler suppressed the move for this
-    /// submit — the first error rather than merely the first issue, since a field above the
-    /// failing one can carry nothing worse than an advisory, and landing
-    /// there would bury the reason the submit blocked. First means topmost: issue order follows the
-    /// page itself once <see cref="IFormidableFieldOrderService"/> has resolved it. The fallback to
-    /// the first visible issue of any severity applies only when a blocked submit shows no error at
-    /// all. This also gates the focus move
-    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> makes when the payload it
-    /// applies carries an error. Default <see langword="true"/>. The service is resolved lazily and
-    /// may be unregistered; a null service is silent. A focus miss — nothing carries the field's
-    /// id yet, or what does will not take focus — retries once through
-    /// <see cref="FocusFallback"/> when one is wired, and
-    /// otherwise reports a diagnostic instead of the summary's silent default: a blocked submit's
-    /// visitor has nowhere else to land, where <see cref="FormidableSummary"/>'s own click just
-    /// leaves the click without effect. Set <see langword="false"/> to choose focus yourself, by
-    /// calling <see cref="FocusFirstErrorAsync"/> when the page is ready for it. This parameter
-    /// never gates that call, which makes the move whenever it is asked to. What it does gate are
-    /// the two moves the form makes unasked: the blocked submit's above, and the one either
-    /// <c>ApplyServerIssues</c> overload makes for a round trip that carried an error. A handler
-    /// that takes over one submit rather than all of them leaves this alone and calls
-    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> instead.
-    /// </summary>
+    /// <summary>Whether a blocked submit moves focus to the first error on the page, unless its <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> was called, and whether a server reply applied with an error in it does. Defaults to <see langword="true"/>.</summary>
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
-    /// <summary>
-    /// Invoked once when the first error one of this form's own focus moves aimed at does not
-    /// take focus: no element renders its id, as for a virtualized row outside the render window,
-    /// or the element that does will not take focus, as one inside a collapsed section will not.
-    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
-    /// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
-    /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
-    /// wiring both typically passes the same callback to each. When unset, a miss reports a
-    /// diagnostic instead of the summary's silent default: those moves have nowhere else for the
-    /// visitor to land, where the summary's own click just leaves the click without effect.
-    /// </summary>
+    /// <summary>Called once when a focus move misses; return <see langword="true"/> after making the field reachable and the move retries once, <see langword="false"/> to leave the miss.</summary>
+    /// <remarks>
+    /// The same delegate shape as <see cref="FormidableSummary.FocusFallback"/>, so one callback
+    /// serves both; unset, a miss logs a diagnostic naming this parameter.
+    /// </remarks>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
-    /// <summary>
-    /// Invoked and awaited before focus is attempted, so the page can make the target reachable
-    /// first: dismissing a modal that covers it, expanding a collapsed section, switching to the
-    /// tab it sits on. Receives the field about to be focused. It runs on every move this form
-    /// makes — the blocked submit's auto-focus, the one either <c>ApplyServerIssues</c>
-    /// overload makes for a round trip that carried an error, and the one a page asks for by
-    /// calling <see cref="FocusFirstErrorAsync"/>. Distinct from
-    /// <see cref="FocusFallback"/>, which runs only after an attempt has already missed: this runs
-    /// whether or not the element is reachable, and the try-fallback-retry pipeline behind it is
-    /// unchanged. Same delegate shape as <see cref="FormidableSummary.PrepareFocus"/> and
-    /// <c>FormidableValidator</c>'s parameter of the same name, so one page callback wires to all
-    /// three.
-    /// </summary>
+    /// <summary>Awaited before every focus move this form makes, with the field about to be focused, so the page can make it reachable first.</summary>
     /// <remarks>
-    /// The callback must complete when the page is ready to be focused, not when it has begun
-    /// getting ready — a dialog is the case that makes the difference visible. Closing one runs a
-    /// transition, removes an overlay, and hands focus back to whatever opened it. That last step
-    /// is what takes a premature focus move straight back, leaving the visitor somewhere neither
-    /// they nor the form chose; the transition and the overlay are why a target focused ahead of
-    /// them is not yet one the visitor can use. So a dismissal callback completes on the dialog's
-    /// own closed event, not on the state change that starts the close.
-    /// <para>
-    /// It is invoked only when a move is actually about to be made: a submit whose move
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> called off, one whose handler called it off
-    /// with <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/>, a host
-    /// that registered no <see cref="IFormidableFocusService"/>, and a move that finds no visible
-    /// issue to land on all skip it — a side effect as visible as closing a dialog must not fire
-    /// for a move that never happens. Once per move, before the first attempt: a fallback's retry
-    /// does not run it a second time.
-    /// </para>
-    /// <para>
-    /// A throw is treated exactly as one from <see cref="FocusFallback"/> on the same path, so a
-    /// page that wires both parameters gets one behaviour rather than two: from the submit path it
-    /// surfaces out of <see cref="SubmitAsync"/>, from a page's own request it surfaces out of
-    /// <see cref="FocusFirstErrorAsync"/>, and from the server-apply path it reaches no
-    /// caller and is left to become an unobserved task exception, since either
-    /// <c>ApplyServerIssues</c> overload is synchronous by contract and its focus move is
-    /// therefore fire-and-forget.
-    /// </para>
-    /// <para>
-    /// A <see cref="Func{T, TResult}"/> rather than an <see cref="EventCallback{TValue}"/>,
-    /// because invoking one of those routes through <see cref="IHandleEvent"/> on the component
-    /// that supplied the handler, and <see cref="ComponentBase"/>'s implementation calls
-    /// <c>StateHasChanged</c> for it: once for a handler that completes synchronously, and a
-    /// second time once an asynchronous one completes. This hook is awaited in the middle of a
-    /// move — after the field is chosen, before its element is addressed — and a render of the
-    /// page belongs to what the page changed, not to its having been asked to make the target
-    /// reachable.
-    /// </para>
+    /// Complete it when the page is ready to take focus: on a dialog's closed event, not on the
+    /// state change that starts the close. It runs once per move, ahead of the first attempt, and
+    /// only for a move that is about to happen. A throw surfaces where the move was asked for,
+    /// and from a server apply becomes an unobserved task exception.
     /// </remarks>
     [Parameter]
+    // A Func rather than an EventCallback, because invoking one of those routes through
+    // IHandleEvent on the component that supplied the handler, and ComponentBase's implementation
+    // calls StateHasChanged for it: once for a handler that completes synchronously, and a second
+    // time once an asynchronous one completes. This hook is awaited in the middle of a move
+    // (after the field is chosen, before its element is addressed), and a render of the page
+    // belongs to what the page changed, not to its having been asked to make the target reachable.
     public Func<FieldIdentifier, ValueTask>? PrepareFocus { get; set; }
 
-    /// <summary>
-    /// Additional attributes splatted onto the rendered form element. A consumer-supplied
-    /// <c>id</c> or <c>tabindex</c> is ignored: the rendered <c>id</c> is always the deterministic
-    /// <see cref="FormidableFieldId"/> for the model-level field, and <c>tabindex="-1"</c> keeps it
-    /// focusable for the all-suppressed gate's summary entry — the same override policy the kit's
-    /// inputs apply to their own <c>id</c>. The form's own <c>novalidate</c> takes the opposite
-    /// position: it renders by default — native constraint validation would otherwise block the
-    /// submit and front the browser's bubble before <see cref="OnValidSubmit"/> or
-    /// <see cref="OnInvalidSubmit"/> could run, so no message would stay FluentValidation's — but
-    /// it renders before the splat, so <c>novalidate="@false"</c> (a <see langword="bool"/>, not
-    /// the string <c>"false"</c>, which as a rendered attribute would still mean on) removes it
-    /// and opts the form back into the browser's native constraint UI. A consumer-supplied
-    /// <c>aria-describedby</c> takes a third position of its own: it neither loses outright, like
-    /// <c>id</c>/<c>tabindex</c>, nor wins outright, like <c>novalidate</c> — it MERGES with the
-    /// model-level message list's id, splatted value first and the computed id appended, the same
-    /// consumer-first shape a kit input applies to its own <c>aria-describedby</c>. A fourth
-    /// position belongs to <c>inert</c>, and it is the only one that changes hands: the form
-    /// renders its own after the splat while interactivity is coming and has not arrived, so a
-    /// splatted <c>inert</c> loses there the way <c>id</c> does. The form renders none at any
-    /// other time, so a page that makes its own form inert keeps that everywhere else.
-    /// </summary>
+    /// <summary>Attributes splatted onto the <c>&lt;form&gt;</c>; <c>id</c> and <c>tabindex</c> stay the form's own, <c>novalidate</c> can be splatted away, and <c>aria-describedby</c> merges, splatted ids first.</summary>
+    /// <remarks>
+    /// <c>novalidate="@false"</c> (the <see langword="bool"/>, not the string <c>"false"</c>)
+    /// restores the browser's own constraint UI.
+    /// </remarks>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
-    /// <summary>The engine view (also cascaded via the form context).</summary>
+    /// <summary>The engine, also cascaded through the <see cref="FormidableFormContext"/>; <see langword="null"/> until the engine is built.</summary>
     public IFormidableEngine? Engine => _engine;
 
-    /// <inheritdoc />
+    /// <summary>Builds the engine over <see cref="Model"/> on the first parameter set, rebuilds it for a different instance, and builds nothing on a static page with no render mode.</summary>
+    /// <exception cref="InvalidOperationException"><see cref="Model"/> is <see langword="null"/>, <see cref="Options"/> is a different instance than the engine was built with, the container resolves no <c>IModelIntrospector</c>, or, with <see cref="Validator"/> unset, it resolves no <see cref="IModelValidator{TModel}"/>.</exception>
     protected override void OnParametersSet()
     {
         if (RefusesToRender())
@@ -333,45 +191,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Reports a moved rendered field set to the engine, and resolves where the form's fields
-    /// actually sit on the page.
-    /// The first is what keeps a submitted form from reporting verdicts about fields that are no
-    /// longer on it: the registry is the only record that they left, and it raises no event, so
-    /// this form's own next render is where the engine hears about it — see
-    /// <see cref="FormidableEngine{TModel}.OnRenderedFieldsChanged"/> for what it does with
-    /// that. Its reach is this component's render, exactly as the ordering resolve's is: a
-    /// nested component re-rendering on state of its own moves the registry without bringing the
-    /// form here, so the move is picked up by whichever of the form's renders comes next. It
-    /// happens ahead of everything below and on a tracker of its own, since a form with no
-    /// <see cref="IFormidableFieldOrderService"/> to consult still has fields that can leave.
-    /// The second hands the engine a reading order,
-    /// so a blocked submit reports its issues — and focuses the first error among them — in the
-    /// order a visitor reads the form, rather than the order the validator declares its rules.
-    /// The request is not only the registered fields: the model-level field the form's own
-    /// <c>&lt;form&gt;</c> element carries rides along too, so a gate or fault issue sorts among
-    /// the rest instead of always trailing them.
-    /// The browser is the only source for this, so it is answered by
-    /// <see cref="IFormidableFieldOrderService"/> after the render that produced the elements.
-    /// The registry's version is most of what decides whether there is anything to re-resolve: it
-    /// moves only when a field registers or unregisters, so every later render stops at that check.
-    /// It cannot be all of it, because it answers which fields exist and not where they are — a
-    /// keyed reorder moves rendered elements without a single registration changing. What sees that
-    /// happen is a browser-side observer over the form's own subtree, which reports it back
-    /// through an interop callback, and a render following one re-resolves on a version that
-    /// has not moved. The observer is a private signal between this component and the library's own
-    /// script, not part of <see cref="IFormidableFieldOrderService"/>: an implementation of that
-    /// interface answers a question and is never asked to notice anything.
-    /// A resolve that cannot be had — no service registered, or an interop boundary that is
-    /// gone, disconnected or never loaded — leaves the engine on whatever order it already had
-    /// (validator order, until a resolve has landed) rather than failing a render, and a failed one
-    /// clears the version guard so the next render tries again. That tolerance is deliberately
-    /// wider than the focus service's, which swallows nothing: an ordering pass runs on every
-    /// render rather than on a click, so an exception escaping here would take the form down
-    /// instead of costing one focus move. It does not extend to a consumer's own
-    /// <see cref="IFormidableFieldOrderService"/> throwing something else, which surfaces.
-    /// </summary>
-    /// <param name="firstRender">Whether this is the component's first render.</param>
+    /// <summary>After each render, tells the engine when fields left the page, installs the displaced-click guard once per engine, and asks <see cref="IFormidableFieldOrderService"/> where the fields sit when the set or the layout moved.</summary>
+    /// <param name="firstRender">Whether this is the component's first render; not consulted.</param>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_engine is null)
@@ -413,14 +234,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         await ResolveFieldOrderAsync(version);
     }
 
-    /// <summary>
-    /// Resolves where this render's fields actually sit and hands the engine the reading order,
-    /// or leaves whatever order is already in force when neither the registry version nor a
-    /// reported layout move calls for a fresh resolve. See the remarks on
-    /// <see cref="OnAfterRenderAsync"/> for why this phase runs where it does and what its
-    /// failure paths tolerate.
-    /// </summary>
-    /// <param name="version">The registry version this render observed, latched before the resolve begins.</param>
+    /// <summary>Resolves the reading order when the registry version or a reported layout move changed, else leaves the order in force.</summary>
+    /// <param name="version">The registry version this render observed.</param>
     private async Task ResolveFieldOrderAsync(int version)
     {
         if (version == _fieldOrderVersion && !_layoutMoved)
@@ -547,28 +362,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Asks the library's own script to guard this form's buttons against a click the page
-    /// displaces out from under the pointer — see <see cref="DisplacedClickRecovery"/> for what is
-    /// recovered and <see cref="FormidableOptions.ClickRecovery"/> for turning it off. The
-    /// registered root is the form's own element, which already carries the deterministic
-    /// model-level field id; the guard scopes itself by asking whether a pressed button sits
-    /// inside it.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="ClickRecoveryGuard"/> owns the sequence; what this root brings to it is the
-    /// element to scope the guard to. That is the <c>&lt;form&gt;</c> this form renders its own
-    /// model-level id onto, and the script takes a form as a root whatever that form currently
-    /// holds — so the answer is never consulted here: the only way this root comes up empty is an
-    /// id something else on the page claims first, which the registered fields the guard passes
-    /// as fallback candidates then walk up from. A form that is not rendered has no registered
-    /// fields either, so there is nothing to walk up from and no guard to install.
-    /// <para>
-    /// Establishing once per context is the opposite bargain to the layout observer's below, and
-    /// deliberately so: the observer's own gate reopens only when a registration changes, so
-    /// retrying costs it nothing.
-    /// </para>
-    /// </remarks>
+    /// <summary>Establishes the displaced-click guard on the form element, once per context, scoped by the model-level field id the element carries.</summary>
+    // ClickRecoveryGuard owns the sequence; what this root brings to it is the element to scope
+    // the guard to. That is the <form> this form renders its own model-level id onto, and the
+    // script takes a form as a root whatever that form currently holds, so the answer is never
+    // consulted here: the only way this root comes up empty is an id something else on the page
+    // claims first, which the registered fields the guard passes as fallback candidates then walk
+    // up from. A form that is not rendered has no registered fields either, so there is nothing
+    // to walk up from and no guard to install.
+    //
+    // Establishing once per context is the opposite bargain to the layout observer's below, and
+    // deliberately so: the observer's own gate reopens only when a registration changes, so
+    // retrying costs it nothing.
     private async Task EstablishClickRecoveryAsync() =>
         await _clickRecovery.EstablishAsync(
             _context,
@@ -578,30 +383,22 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             ResolveJsModule,
             () => _disposed);
 
-    /// <summary>
-    /// This form's own script module, created on first use and released with the component. Null
-    /// when the host resolves no <see cref="IJSRuntime"/> at all, which is what every seam here
-    /// that reaches the browser treats as "there is no browser to ask".
-    /// </summary>
+    /// <summary>The form's own script module, created on first use and released with the component.</summary>
+    /// <returns>The module, or <see langword="null"/> when the host resolves no <see cref="IJSRuntime"/>, which the seams here treat as no browser to ask.</returns>
     private FormidableJsModule? ResolveJsModule() =>
         Services.GetService<IJSRuntime>() is { } jsRuntime
             ? _jsModule ??= new FormidableJsModule(jsRuntime)
             : null;
 
-    /// <summary>
-    /// Puts the browser-side layout observer on the form element the current context renders,
-    /// moving it off whichever element it stood on before. Cheap to call on every ordering pass:
-    /// it does nothing at all while the context it was established for is still the one rendering.
-    /// Best-effort throughout: a form with no observer re-resolves its order when a field
-    /// registers or unregisters and not when the page merely moves the existing ones, which is
-    /// what every host with no JavaScript already does.
-    /// </summary>
-    /// <remarks>
-    /// The observer cannot feed itself. It reports DOM changes, and resolving an order only reads
-    /// where elements sit — nothing here writes to the page — so the render a report provokes
-    /// either changes the DOM because the order genuinely changed, which the following pass finds
-    /// settled, or changes nothing and produces no records to report.
-    /// </remarks>
+    /// <summary>Moves the browser-side layout observer onto the current context's form element; it does nothing while that context is the one observed.</summary>
+    // Best-effort: a form with no observer re-resolves its order when a field registers or
+    // unregisters and not when the page merely moves the existing ones, which is what every host
+    // with no JavaScript already does.
+    //
+    // The observer cannot feed itself. It reports DOM changes, and resolving an order only reads
+    // where elements sit (nothing here writes to the page), so the render a report provokes
+    // either changes the DOM because the order genuinely changed, which the following resolve
+    // finds settled, or changes nothing and produces no records to report.
     private async Task EstablishLayoutObserverAsync()
     {
         if (ReferenceEquals(_observedContext, _context))
@@ -659,21 +456,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _observedContext = _context;
     }
 
-    /// <summary>
-    /// Runs the consumer's re-sort over the resolved document order, then appends anything it left
-    /// out, in the order it was given them. A delegate reorders; it does not decide what is
-    /// reported, so a field missing from its answer keeps its place at the end rather than losing
-    /// its issues. Internal rather than private so the append guarantee is testable directly,
-    /// without a render.
-    /// </summary>
-    /// <remarks>
-    /// A delegate's answer can only ever be a permutation of what it was handed, never a
-    /// substitute for it: a field repeated in <paramref name="reorder"/>'s result keeps only its
-    /// first position, and a field that was never in <paramref name="ordered"/> is dropped from
-    /// the answer rather than kept — otherwise a delegate padding its result out to the same
-    /// length with fields of its own would satisfy the "nothing missing" check while silently
-    /// pushing real fields out of the map.
-    /// </remarks>
+    /// <summary>Runs the consumer's re-sort over the resolved order and appends any field it left out, dropping repeats and fields it was never handed.</summary>
+    /// <param name="ordered">The resolved document order.</param>
+    /// <param name="reorder">The consumer's <see cref="FormidableOptions.OrderIssues"/> delegate.</param>
+    /// <returns>A permutation of <paramref name="ordered"/>, or <paramref name="ordered"/> itself when the delegate answers <see langword="null"/>.</returns>
+    // Internal rather than private so the append guarantee is testable directly, without a
+    // render. A delegate reorders; it does not decide what is reported, so a field missing from
+    // its answer keeps its place at the end rather than losing its issues, and a field it was
+    // never handed is dropped: otherwise a delegate padding its result out to the same length
+    // with fields of its own would satisfy the "nothing missing" check while silently pushing
+    // real fields out of the map.
     internal static IReadOnlyList<FieldIdentifier> ApplyOrderDelegate(
         IReadOnlyList<FieldIdentifier> ordered,
         Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>> reorder)
@@ -709,15 +501,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         return result;
     }
 
-    /// <summary>
-    /// Disposes the current engine, if any, and builds a fresh engine and <c>EditContext</c> over
-    /// <paramref name="model"/> — including a brand new <see cref="FormidableFormContext"/>
-    /// instance, not merely a new engine reference inside the old one. That is what
-    /// <see cref="BuildRenderTree"/>'s region key relies on: a new context instance is what turns
-    /// the swap into a fresh mount for every descendant, rather than leaving already-bound
-    /// components pointed at whatever the old context still refers to. Shared by the
-    /// parameter-driven Model swap in <see cref="OnParametersSet"/> and by <see cref="ResetAsync"/>.
-    /// </summary>
+    /// <summary>Disposes the current engine and builds a new engine, <c>EditContext</c> and <see cref="FormidableFormContext"/> over <paramref name="model"/>; the <see cref="Model"/> swap and <see cref="ResetAsync"/> share it.</summary>
+    /// <param name="model">The model the new engine validates.</param>
+    // A brand new context instance, not merely a new engine reference inside the old one: that is
+    // what BuildRenderTree's region key relies on, because a new context instance is what turns the
+    // swap into a fresh mount for every descendant, rather than leaving already-bound components
+    // pointed at whatever the old context still refers to.
     private void RebuildEngine(TModel model)
     {
         _engine?.Dispose();
@@ -742,28 +531,15 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _renderedFieldSetVersion = -1;
     }
 
-    /// <summary>
-    /// Returns the form to pristine. Omitted <paramref name="newModel"/>: rebuilds the engine and
-    /// <c>EditContext</c> over the SAME model instance currently bound, without waiting for a
-    /// parameter-driven swap to do it. Touched/modified state, the message store, the advisory
-    /// buckets and <see cref="IFormidableEngine.HasSubmitted"/> all clear, and any pending
-    /// refresh is cancelled — none of it survives the engine it belonged to. An in-flight
-    /// <see cref="SubmitAsync"/> is abandoned along with it: its callbacks never fire once the
-    /// engine that started it is gone (see <see cref="SubmitAsync"/>'s own remarks).
-    /// Supplied: swaps to the new instance — but doing that from inside this component is not
-    /// enough on its own to make the swap stick, because <see cref="Model"/> is a
-    /// <c>[Parameter]</c> and Blazor re-supplies it from whatever the PARENT still holds on every
-    /// one of the parent's own renders. This call also invokes <see cref="ModelChanged"/>, so a
-    /// parent bound with <c>@bind-Model</c> updates its own field before that can happen — which is
-    /// why supplying <paramref name="newModel"/> with no <see cref="ModelChanged"/> delegate bound
-    /// throws instead of swapping to a state the very next unrelated render could silently revert.
-    /// Call from the renderer's synchronization context (a Blazor event handler or
-    /// <c>InvokeAsync</c>) — it triggers renders.
-    /// </summary>
-    /// <param name="newModel">
-    /// The model to bind instead — requires <see cref="ModelChanged"/> to be bound — or null to
-    /// rebuild over the current one.
-    /// </param>
+    /// <summary>Returns the form to pristine by rebuilding the engine over the current model, or over <paramref name="newModel"/> when <c>@bind-Model</c> is bound.</summary>
+    /// <param name="newModel">The model to edit instead, or <see langword="null"/> to keep the current instance.</param>
+    /// <exception cref="InvalidOperationException">No engine has been built yet, or <paramref name="newModel"/> was supplied with no <see cref="ModelChanged"/> bound.</exception>
+    /// <remarks>
+    /// Everything the old engine held goes with it: touched and modified state, every message,
+    /// <see cref="IFormidableEngine.HasSubmitted"/>, a whole-form re-check still waiting, and a
+    /// <see cref="SubmitAsync"/> still awaiting its answer, which then fires no callback. Call it
+    /// from the renderer's synchronization context.
+    /// </remarks>
     public async Task ResetAsync(TModel? newModel = null)
     {
         RequireEngine();
@@ -793,23 +569,22 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         await ModelChanged.InvokeAsync(newModel);
     }
 
-    /// <summary>
-    /// Runs the submit pipeline programmatically. Call from the renderer's synchronization
-    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders. If
-    /// <see cref="ResetAsync(TModel?)"/> rebuilds the engine while this call is still awaiting the
-    /// pipeline, the engine that started is gone by the time the verdict lands: neither
-    /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
-    /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
-    /// must not surface as if it were current. That includes the return value: cancelling the
-    /// abandoned pass's token is what usually stops it short, but a validator that does not honour
-    /// the token can still run to completion, so a blocked <see cref="SubmitOutcome"/> carrying
-    /// nothing is returned instead of whatever that pass actually decided.
-    /// </summary>
+    /// <summary>Runs the submit and routes the outcome to <see cref="OnValidSubmit"/> or <see cref="OnInvalidSubmit"/>; the rendered <c>&lt;form&gt;</c>'s own submit runs the same thing.</summary>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place (<see cref="OnInvalidSubmit"/> still fires), and blocked and empty when <see cref="ResetAsync(TModel?)"/> or a different <see cref="Model"/> rebuilt the engine during the submit (neither callback fires).</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// A reset during the submit abandons it: neither callback fires, focus stays and nothing
+    /// re-renders. Call it from the renderer's synchronization context.
+    /// </remarks>
     public async Task<SubmitOutcome> SubmitAsync()
     {
         var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
         if (outcome is null)
         {
+            // The engine that started this submit is gone, and its answer must not surface as if
+            // it were current. Cancelling the abandoned check's token is what usually stops it
+            // short, but a validator that does not honour the token can still run to completion,
+            // so the empty blocked outcome is returned instead of whatever that check decided.
             return RootSubmit.Superseded;
         }
 
@@ -834,75 +609,37 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         return outcome;
     }
 
-    /// <summary>
-    /// Moves focus to the first error among the form's visible issues. This is the move a blocked
-    /// submit makes under <see cref="FocusFirstErrorOnInvalidSubmit"/>, offered to a page that
-    /// wants to choose the moment instead: the submit path calls this very method, so which field
-    /// the visitor lands on, <see cref="PrepareFocus"/> being awaited ahead of the attempt, and
-    /// <see cref="FocusFallback"/> recovering a miss are not merely alike here — they are the
-    /// same code, and the only difference is who asked. Which also means it is not gated by
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>: that parameter decides what a blocked submit
-    /// does on its own, and this call is the page deciding.
-    /// </summary>
+    /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, or the field is out of reach.</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
-    /// The sequence it completes is a dialog's. An <see cref="OnInvalidSubmit"/> handler that
-    /// opens one calls
-    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> so no move lands
-    /// behind the overlay, and the page calls this from wherever the dialog closes, including the
-    /// paths a visitor takes to close it without picking anything. A summary entry inside the
-    /// dialog is already covered by the summary's own click-to-focus, so this is for the ways out
-    /// that name no field. A dialog component that lives inside the form rather than beside it
-    /// has no <c>@ref</c> to reach this by and does not need one:
-    /// <see cref="FormidableFormContext.FocusFirstErrorAsync"/> on the cascaded context calls
-    /// this method, so the sequence closes from either side.
-    /// <para>
-    /// "First error" resolves exactly as the automatic move resolves it, which includes the case
-    /// where there is no error: a form showing nothing worse than advisories lands on the first of
-    /// those rather than on nothing. Call from the renderer's synchronization context (a Blazor
-    /// event handler or <c>InvokeAsync</c>).
-    /// </para>
+    /// The move a blocked submit makes, with <see cref="PrepareFocus"/> and
+    /// <see cref="FocusFallback"/>, offered to a page that chose the moment;
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> does not gate it. Call it from the renderer's
+    /// synchronization context.
     /// </remarks>
-    /// <returns>
-    /// <see langword="true"/> when an element took focus, and <see langword="false"/> when nothing
-    /// did — the form shows no visible issue at all, no <see cref="IFormidableFocusService"/> is
-    /// registered, or the chosen field's element could not be focused: no
-    /// <see cref="FocusFallback"/> wired, a fallback that declined, or a retry that missed
-    /// again. It reports the move, not the form: a form with no issue on screen and a form
-    /// whose one error is out of reach both answer <see langword="false"/>, and a caller that
-    /// needs to tell those apart reads
-    /// <see cref="IFormidableEngine.GetVisibleIssues"/> through <see cref="Engine"/>. A
-    /// false answer means this call moved nothing, so a page with nowhere else to send the
-    /// visitor can ignore it.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// This form has no engine yet, because the call arrived before its first render.
-    /// </exception>
     public async Task<bool> FocusFirstErrorAsync() =>
         await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
 
-    /// <summary>
-    /// Best-effort focus after a server-applied verdict, gated on
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> AND on <paramref name="appliedIssues"/>
-    /// actually carrying an error: a rejected round trip is a blocked submit that arrived late,
-    /// so it lands the user on the first error the same way <see cref="SubmitAsync"/>
-    /// would — but a clean or advisory-only apply rejected nothing, so it must not steal focus
-    /// onto some unrelated issue still visible from an earlier submit. Fire-and-forget on
-    /// purpose — both <c>ApplyServerIssues</c> overloads stay synchronous, so focus cannot make
-    /// applying issues asynchronous — and an interop failure (see <see cref="FormidableJsModule.IsInteropFailure"/>,
-    /// which covers a disconnected circuit as well as a thrown or unreachable JS boundary) from
-    /// that unawaited call is swallowed here rather than left to become an unobserved task
-    /// exception.
-    /// </summary>
-    /// <param name="appliedIssues">The issues this apply just carried.</param>
+    /// <summary>Moves focus to the first error after a server apply that carried one, under <see cref="FocusFirstErrorOnInvalidSubmit"/>, without awaiting the move.</summary>
+    /// <param name="appliedIssues">The issues the apply carried.</param>
     private void FocusAfterServerIssues(IReadOnlyCollection<ValidationIssue> appliedIssues)
     {
+        // Gated on the payload carrying an error as well as on the option: a rejected round trip
+        // is a blocked submit that arrived late, so it lands the visitor on the first error the
+        // same way SubmitAsync would, but a clean or advisory-only apply rejected nothing, so it
+        // must not steal focus onto some unrelated issue still visible from an earlier submit.
         if (!FocusFirstErrorOnInvalidSubmit
             || !appliedIssues.Any(issue => issue.Severity == ValidationSeverity.Error))
         {
             return;
         }
 
-        // Fire-and-forget: focus is best-effort and must not make applying issues asynchronous.
+        // Fire-and-forget: focus is best-effort and must not make applying issues asynchronous,
+        // as both ApplyServerIssues overloads are synchronous by contract. An interop failure
+        // (FormidableJsModule.IsInteropFailure: a disconnected circuit as well as a thrown or
+        // unreachable JS boundary) from the unawaited call is swallowed below rather than left to
+        // become an unobserved task exception.
         _ = FocusQuietlyAsync();
 
         async Task FocusQuietlyAsync()
@@ -917,26 +654,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Applies a server response's issues to this form's engine, forwarding
-    /// <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
-    /// contract whole: the payload is the server's current verdict and replaces what the previous
-    /// call applied, each issue lands at the severity it carries, and applying any also sets
-    /// <see cref="IFormidableEngine.HasSubmitted"/>, since the payload is treated as a submit
-    /// result. A rejected round trip is a blocked submit that arrived late: when
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> is <see langword="true"/> and this apply
-    /// carries at least one error, applying also focuses the first error on the page —
-    /// not necessarily the one just applied — the same way a blocked client submit does. A clean
-    /// or advisory-only apply (an accepted resubmission, say) moves nothing: nothing about THIS
-    /// apply was rejected, even if an earlier one left something else on the page still visible.
-    /// Call <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/>
-    /// via <see cref="Engine"/> instead for a background apply that must stay quiet — the
-    /// engine-level method never moves focus. A page holding the form with <c>@ref</c> has
-    /// everything the round trip needs here, without reaching through <see cref="Engine"/> for
-    /// it. Call from the renderer's synchronization context (a Blazor event handler or
-    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
-    /// </summary>
-    /// <param name="issues">The server's current verdict. Enumerated exactly once.</param>
+    /// <summary>Applies a server reply's issues as the server's current answer and, when the reply carries an error, moves focus to the first error on the page.</summary>
+    /// <param name="issues">The server's current issues; enumerated once.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// The apply is <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/>'s,
+    /// which sets <see cref="IFormidableEngine.HasSubmitted"/> and moves no focus of its own;
+    /// call that through <see cref="Engine"/> for a quiet apply. The move here is gated by
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>. Call this from the renderer's
+    /// synchronization context.
+    /// </remarks>
     public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
     {
         ArgumentNullException.ThrowIfNull(issues);
@@ -945,17 +673,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         FocusAfterServerIssues(issueList);
     }
 
-    /// <summary>
-    /// Applies a deserialized validation ProblemDetails body — the shape an HTTP 400 from
-    /// Formidable.AspNetCore arrives in — by flattening it with
-    /// <see cref="FormidableValidationProblem.ToIssues"/>. Equivalent to the sequence overload in
-    /// every respect, including the <see cref="IFormidableEngine.HasSubmitted"/> side effect
-    /// and the error-gated focus after applying — call
-    /// <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> via
-    /// <see cref="Engine"/> instead for a quiet background apply; this is the whole client half of
-    /// the round trip in one call.
-    /// </summary>
+    /// <summary>Applies a deserialized 400 body by flattening it with <see cref="FormidableValidationProblem.ToIssues"/>, exactly as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, focus move included.</summary>
     /// <param name="problem">The deserialized response body.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="problem"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     public void ApplyServerIssues(FormidableValidationProblem problem)
     {
         ArgumentNullException.ThrowIfNull(problem);
@@ -964,37 +685,25 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         FocusAfterServerIssues(issues);
     }
 
-    /// <summary>
-    /// Says what the values already in the model have earned, forwarding
-    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> and its contract whole: a
-    /// whole-model <see cref="FormidableOptions.SubmitProfile"/> pass, after which each field
-    /// the rules pass is confirmed, each field failing something other than a presence rule
-    /// discloses that failure, and each field that is merely unfilled stays silent. Call it once
-    /// after filling <see cref="Model"/> from a saved draft or a loaded record — from
-    /// <c>OnAfterRenderAsync(firstRender: true)</c>, or from the handler that loaded the values —
-    /// so the form opens saying what it already knows instead of looking pristine. A form that
-    /// never calls it is unaffected in every respect. Unlike a blocked submit this moves no
-    /// focus: nothing was refused, and a page that has just loaded is not one to take the
-    /// visitor somewhere in. Call from the renderer's synchronization context (a Blazor event
-    /// handler or <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
-    /// </summary>
-    /// <param name="cancellationToken">
-    /// Cancels the pass under the engine's contract — a cancelled call throws and adopts
-    /// nothing, detailed on <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/>'s own
-    /// parameter. The submit methods take no token deliberately: a submit is UI-event-driven,
-    /// and its event handler holds none to pass. This call is data-driven — the caller that
-    /// filled the model typically holds the <see cref="CancellationTokenSource"/> it minted for
-    /// the load, so a superseded record-open or a dispose mid-load cancels the disclosure
-    /// through the same token that cancels the fetch.
-    /// </param>
+    /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid or its message, and a field holding nothing stays silent.</summary>
+    /// <param name="cancellationToken">Cancels the check; a cancelled call throws and discloses nothing.</param>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// The contract is <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/>'s. Call it once
+    /// after filling <see cref="Model"/> from a saved draft or a loaded record; unlike a blocked
+    /// submit it moves no focus. Call it from the renderer's synchronization context.
+    /// </remarks>
+    // Takes a token where the submit methods take none: a submit is UI-event-driven and its
+    // handler holds none to pass, while this call is data-driven, and the caller that filled the
+    // model typically holds the CancellationTokenSource it minted for the load, so a replaced
+    // record-open or a dispose mid-load cancels the disclosure through the token that cancels the
+    // fetch.
     public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
         RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
 
-    /// <summary>
-    /// The engine, or the reason there is not one yet. It is built on the form's first parameter
-    /// set, so every entry point that runs the pipeline has to answer for a call that beats the
-    /// first render rather than let it surface from inside the component as a null reference.
-    /// </summary>
+    /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the first render built one.</summary>
+    /// <returns>The built engine.</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     private FormidableEngine<TModel> RequireEngine() =>
         _engine ?? throw new InvalidOperationException(
             $"{nameof(FormidableForm<TModel>)} has no engine yet — one is built when the form first " +
@@ -1002,20 +711,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             "an event handler (OnValidSubmit, a button's onclick) rather than from a lifecycle " +
             "method that runs ahead of the first render.");
 
-    /// <summary>
-    /// Whether this form renders <see cref="RenderModeMessage"/> where a form would have gone,
-    /// because the renderer reports itself static with no interactivity coming. The answer is kept,
-    /// where the <c>inert</c> reading of the same pair is taken afresh every render, because two
-    /// callers act on this one and have to agree: the parameter set that stops without building an
-    /// engine, and the render that puts the message in the form's place. Re-reading would let a
-    /// render take the form branch with no engine, context or element id behind it, and only a
-    /// parameter set builds those.
-    /// Stopping the parameter set is also what keeps the message the page's own: building the
-    /// engine resolves the validator, and a page missing that registration would fail on it
-    /// instead, naming the second thing wrong on a page whose first one is this.
-    /// Taking the answer is also what reports it to the host, so a refusal reaches the log once
-    /// however often the message renders — see <see cref="ReportRefusedRenderMode"/>.
-    /// </summary>
+    /// <summary>Whether this form renders <see cref="RenderModeMessage"/> in place of a form, decided once and reported to the host once through <see cref="ReportRefusedRenderMode"/>.</summary>
+    /// <returns><see langword="true"/> on a statically rendered page with no render mode coming.</returns>
+    // The answer is kept, where the inert reading of the same pair is taken afresh every render,
+    // because two callers act on this one and have to agree: the parameter set that stops without
+    // building an engine, and the render that puts the message in the form's place. Re-reading
+    // would let a render take the form branch with no engine, context or element id behind it,
+    // and only a parameter set builds those. Stopping the parameter set is also what keeps the
+    // message the page's own: building the engine resolves the validator, and a page missing that
+    // registration would fail on it instead, naming the second thing wrong on a page whose first
+    // one is this. Taking the answer once is what reports it to the host once, however often the
+    // message renders.
     private bool RefusesToRender()
     {
         if (_refusedRenderMode is null)
@@ -1031,31 +737,24 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         return _refusedRenderMode.Value;
     }
 
-    /// <summary>
-    /// What a refusal says to the host, beside the message it renders in the form's place: a Trace
-    /// line for a debugger, and a logged warning when the host resolved an <c>ILoggerFactory</c> —
-    /// written through <see cref="FormidableDiagnostics"/>, the same dual channel an unwired
-    /// <see cref="FocusFallback"/>'s focus miss already uses. The rendered paragraph reaches
-    /// whoever is looking at the page and nobody else, and the response carrying it is an ordinary
-    /// 200, so a page misconfigured this way passes anything watching statuses. Both channels
-    /// carry <see cref="RenderModeMessage"/> itself, so a log and a page cannot come to describe
-    /// one refusal differently.
-    /// </summary>
+    /// <summary>Writes <see cref="RenderModeMessage"/> to Trace and, when the host resolved an <c>ILoggerFactory</c>, as a warning, through <see cref="FormidableDiagnostics"/>.</summary>
+    // The rendered paragraph reaches whoever is looking at the page and nobody else, and the
+    // response carrying it is an ordinary 200, so a page misconfigured this way passes anything
+    // watching statuses; the log line is what reaches the host. Both channels carry the message
+    // itself, so a log and a page cannot come to describe one refusal differently.
     private void ReportRefusedRenderMode() =>
         FormidableDiagnostics.Warn(
             FormidableEngineFactory.ResolveLogger(Services),
             $"Formidable: {RenderModeMessage}");
 
-    /// <summary>
-    /// What a page with no render mode gets where its form would have been. Such a page renders a
-    /// form perfectly and then answers its first submit with the platform's own "the POST request
-    /// does not specify which form is being submitted" 400, whose advice — pass a FormName to
-    /// EditForm — is not something any FormidableForm parameter can carry, so this names the one
-    /// instruction that does work instead.
-    /// It renders rather than throws because a throw from a render reaches the visitor as the
-    /// host's own error response, which takes the whole document with it: everything else the page
-    /// holds goes too, where what is wrong is one component that cannot do its job.
-    /// </summary>
+    /// <summary>The message rendered in the form's place on a statically rendered page with no render mode.</summary>
+    // Such a page renders a form perfectly and then answers its first submit with the platform's
+    // own "the POST request does not specify which form is being submitted" 400, whose advice
+    // (pass a FormName to EditForm) is not something any FormidableForm parameter can carry, so
+    // this names the one instruction that does work instead. It renders rather than throws
+    // because a throw from a render reaches the visitor as the host's own error response, which
+    // takes the whole document with it: everything else the page holds goes too, where what is
+    // wrong is one component that cannot do its job.
     private static string RenderModeMessage =>
         $"{nameof(FormidableForm<TModel>)} requires an interactive render mode: this page is " +
         "rendered statically and no interactivity is coming, so submitting the form would post " +
@@ -1064,12 +763,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         "InteractiveWebAssembly or @rendermode InteractiveAuto — or host the form in a " +
         "standalone WebAssembly app, where every page is interactive already.";
 
-    /// <summary>
-    /// True only when the renderer says outright that it is not interactive. A renderer that
-    /// declines to describe itself has said nothing, and nothing is not proof of a dead end: bUnit's
-    /// test renderer throws from <c>RendererInfo</c> unless a test declares one, and rendering a
-    /// form in a component test must not depend on having declared it.
-    /// </summary>
+    /// <summary>Whether the renderer says outright that it is not interactive; a renderer that cannot say counts as interactive.</summary>
+    /// <returns><see langword="true"/> only when <c>RendererInfo.IsInteractive</c> reads <see langword="false"/>.</returns>
     private bool RendererDeclaresItselfStatic()
     {
         try
@@ -1078,54 +773,42 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
         catch (Exception)
         {
+            // A renderer that declines to describe itself has said nothing, and nothing is not
+            // proof of a dead end: bUnit's test renderer throws from RendererInfo unless a test
+            // declares one, and rendering a form in a component test must not depend on having
+            // declared it.
             return false;
         }
     }
 
-    /// <summary>
-    /// The three things this form does with a render — see <see cref="Rendering"/>.
-    /// </summary>
+    /// <summary>The three things this form can render, as <see cref="Rendering"/> decides them.</summary>
     private enum FormRendering
     {
-        /// <summary>
-        /// The form, as it always renders. The renderer says it is interactive, or has declined to
-        /// describe itself at all — and nothing said is not proof of anything, so both leave the
-        /// form alone.
-        /// </summary>
+        /// <summary>The whole form: the renderer says it is interactive, or declines to say.</summary>
         Whole,
 
-        /// <summary>
-        /// The form, carrying <c>inert</c>: a render mode says interactivity is coming and the
-        /// renderer says it has not arrived, which together describe the prerender pass and
-        /// nothing else. Nothing about this is worth remembering — the attribute is decided as the
-        /// tree is built, and a latch would rest on a renderer never revising what it says about
-        /// itself, where being wrong leaves a form inert for good.
-        /// </summary>
+        /// <summary>The form carrying <c>inert</c>: a render mode promises interactivity the renderer has not yet delivered, which is the prerender.</summary>
+        // Decided afresh on every render, never latched: a latch would rest on a renderer never
+        // revising what it says about itself, where being wrong leaves a form inert for good.
         Inert,
 
-        /// <summary>
-        /// No form at all: <see cref="RenderModeMessage"/> in its place, and
-        /// <see cref="RefusesToRender"/> keeps this answer once it has it. The renderer says
-        /// outright that it is not interactive and no render mode says one is coming, so a form
-        /// here could be filled in and never submitted.
-        /// </summary>
+        /// <summary>No form: the renderer is static and no render mode promises otherwise, so <see cref="RenderModeMessage"/> renders instead and <see cref="RefusesToRender"/> keeps the answer.</summary>
         Refused,
     }
 
-    /// <summary>
-    /// What the two interactivity signals leave this form able to render. They are read together,
-    /// and in one place, because neither decides alone: the prerender pass of a component about to
-    /// become interactive reports exactly the same non-interactive renderer as a page that will
-    /// never have one, and only the assigned render mode tells those apart. One reading is also
-    /// what puts the render mode where a test can reach it: split across two predicates it is a
-    /// conjunct in each, and the render that would discriminate one of those conjuncts is the
-    /// render the other predicate answers for.
-    /// </summary>
+    /// <summary>What this form renders, from the renderer's interactivity and the assigned render mode read together.</summary>
+    // Read together, and in one place, because neither decides alone: the prerender of a
+    // component about to become interactive reports exactly the same non-interactive renderer as
+    // a page that will never have one, and only the assigned render mode tells those apart. One
+    // reading is also what puts the render mode where a test can reach it: split across two
+    // predicates it is a conjunct in each, and the render that would discriminate one of those
+    // conjuncts is the render the other predicate answers for.
     private FormRendering Rendering => RendererDeclaresItselfStatic()
         ? (AssignedRenderMode is null ? FormRendering.Refused : FormRendering.Inert)
         : FormRendering.Whole;
 
-    /// <inheritdoc />
+    /// <summary>Renders <see cref="RenderModeMessage"/> where the form is refused, else the cascaded <see cref="FormidableFormContext"/> around an <c>EditForm</c> over the engine's <see cref="EditContext"/>.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         if (RefusesToRender())
@@ -1205,22 +888,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // read the swapped-in Value on their own first render, with no notification to miss.
     }
 
-    /// <summary>
-    /// The form element's merged <c>aria-describedby</c> value: the model-level message list's id
-    /// (<see cref="FormidableFieldId.MessagesFor(string)"/> of <c>_modelLevelFieldId</c>) merged
-    /// with any consumer-splatted <c>aria-describedby</c> through
-    /// <see cref="FormidableCss.CombineSplatted"/> — the same method a kit input calls for its own
-    /// <c>aria-describedby</c> and for <c>class</c>, so the merges are identical by construction.
-    /// The computed id is rendered unconditionally here, where a kit input renders one only while
-    /// its own field has issues, so the splatted ids are the only ones describing anything while
-    /// <see cref="FormidableModelMessage"/> is absent or standing empty; that is what puts them
-    /// first. Appending keeps a consumer's own hint where the consumer put it rather than
-    /// reshuffling it once the model-level list has something to say.
-    /// </summary>
+    /// <summary>The form's <c>aria-describedby</c>: any splatted value first, then the model-level message list's id, merged through <see cref="FormidableCss.CombineSplatted"/> as a kit input merges its own.</summary>
+    /// <returns>The merged attribute value.</returns>
+    // The computed id is rendered unconditionally here, where a kit input renders one only while
+    // its own field has issues, so the splatted ids are the only ones describing anything while
+    // FormidableModelMessage is absent or standing empty; that is what puts them first. Appending
+    // keeps a consumer's own hint where the consumer put it rather than reshuffling it once the
+    // model-level list has something to say.
     private string ComputeModelLevelAriaDescribedBy() =>
         FormidableCss.CombineSplatted(AdditionalAttributes, "aria-describedby", FormidableFieldId.MessagesFor(_modelLevelFieldId));
 
-    /// <inheritdoc />
+    /// <summary>Disposes the engine and releases what the form put in the browser.</summary>
     public void Dispose()
     {
         // Recorded first: a move reported between here and the observer actually going away would
@@ -1230,21 +908,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         ReleaseScriptResources();
     }
 
-    /// <summary>
-    /// Tears down everything this form put in the browser: the layout observer and the reference
-    /// it reports through, and the displaced-click guard's registered root.
-    /// </summary>
-    /// <remarks>
-    /// Worth doing on its own account, whichever of the two is in play, because the script module
-    /// they live in outlives this component: a module is loaded once per document and stays. An
-    /// observer left connected goes on watching a detached form and goes on holding the reference
-    /// that reaches back into a component nobody else can see; a guard left registered scopes
-    /// itself to an element no longer in the document, and the document-level listeners it
-    /// refcounts stay installed over a page with nothing left to guard. Disposal here is
-    /// synchronous and neither release is, so the reference is let go once the round trip still
-    /// naming it has returned rather than while it is in flight. An interop boundary that is
-    /// already gone releases it just the same, and has taken both with it anyway.
-    /// </remarks>
+    /// <summary>Releases the layout observer, the reference it reports through and the click guard's registered root, without awaiting the browser.</summary>
+    // Worth doing on its own account, whichever of the two is in play, because the script module
+    // they live in outlives this component: a module is loaded once per document and stays. An
+    // observer left connected goes on watching a detached form and goes on holding the reference
+    // that reaches back into a component nobody else can see; a guard left registered scopes
+    // itself to an element no longer in the document, and the document-level listeners it
+    // refcounts stay installed over a page with nothing left to guard. Disposal here is
+    // synchronous and neither release is, so the reference is let go once the round trip still
+    // naming it has returned rather than while it is in flight. An interop boundary that is
+    // already gone releases it just the same, and has taken both with it anyway.
     private void ReleaseScriptResources()
     {
         var module = _jsModule;

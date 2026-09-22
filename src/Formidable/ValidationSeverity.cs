@@ -1,25 +1,22 @@
 namespace Formidable;
 
-/// <summary>Severity of a <see cref="ValidationIssue"/>.</summary>
+/// <summary>The severity of a <see cref="ValidationIssue"/>: an error blocks submission, a warning or an info does not.</summary>
 /// <remarks>
-/// The member names are wire contract as well as API: the ASP.NET Core package's
-/// <c>ValidationReportProblemMapper.ToAdvisories</c> writes a non-error issue's severity onto
-/// the <c>advisories</c> wire payload as this enum's member name, and
-/// <see cref="FormidableValidationProblem.ToIssues"/> parses the name back, reading one it does
-/// not recognize as <see cref="Warning"/> — so renaming a member is a silent wire break, not
-/// just an API break.
-/// <para>
-/// The set is closed. It mirrors <see cref="FluentValidation.Severity"/>, which is what a rule
-/// can declare and so all there is to map, and a fourth member would be absorbed by the reads
-/// already written rather than refused by any of them. The reads that test for
-/// <see cref="Error"/> and take the rest together put it in the advisory tier. The three-arm
-/// switches behind a message's own class and a summary band's heading fall through to
-/// <see cref="Info"/>'s. The field-state scan names all three members and falls through to
-/// nothing, so a field carrying only an issue of the new severity reports as carrying none at
-/// all and is free to wear the valid class. Three destinations and no refusal: growing this
-/// enum is a behaviour change nothing would report.
-/// </para>
+/// Member names travel on the wire: the ASP.NET Core package writes a non-error issue's severity
+/// to the <c>advisories</c> extension as the member's name, and
+/// <see cref="FormidableValidationProblem.ToIssues"/> reads a name it does not recognize as
+/// <see cref="Warning"/>.
 /// </remarks>
+// Renaming a member is a silent wire break, not just an API break: the advisories payload carries
+// the name, and a client reading a name it does not recognize falls back to Warning.
+// The set is closed. It mirrors FluentValidation.Severity, which is what a rule can declare and so
+// all there is to map, and a fourth member would be absorbed by the reads already written rather
+// than refused by any of them: the reads that test for Error and take the rest together put it in
+// the advisory tier; the three-arm switches behind a message's own class and a summary band's
+// heading fall through to Info's; the field-state scan names all three members and falls through
+// to nothing, so a field carrying only an issue of the new severity reports as carrying none and
+// is free to wear the valid class. Three destinations and no refusal: growing this enum is a
+// behaviour change nothing would report.
 public enum ValidationSeverity
 {
     /// <summary>A failure that blocks submission.</summary>

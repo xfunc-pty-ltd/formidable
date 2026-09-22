@@ -1289,12 +1289,10 @@ the three JS-backed services: focus, DOM value sync, and field order.
 [Server integration](server-integration.md) has the server-side registration it mirrors.
 
 ```csharp
-/// <summary>
-/// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-/// plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and
-/// <see cref="IFormidableFieldOrderService"/>. The one-call registration for Blazor consumers.
-/// Existing registrations are respected.
-/// </summary>
+/// <summary>Registers everything <see cref="FormidableServiceCollectionExtensions.AddFormidable"/> does plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and <see cref="IFormidableFieldOrderService"/>, leaving any existing registration in place.</summary>
+/// <param name="services">The service collection to add to.</param>
+/// <returns>The same collection, for chaining.</returns>
+/// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
 public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
 {
     ArgumentNullException.ThrowIfNull(services);

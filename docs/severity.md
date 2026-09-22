@@ -96,8 +96,9 @@ to the submit profile, and the field is one the visitor has engaged. Under the d
 that commit lands as the field is left.
 
 None of that changes what a warning or an info does to the submit itself: nothing. `IsValid` counts
-only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
-`FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when `CanProceed`,
+only errors, and `SubmitOutcome.CanProceed` is the same flag for a submit that landed; a submit
+displaced by a newer submit, a load, or the form being rebuilt reports `false` whatever its report
+holds. `FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when `CanProceed`,
 `OnInvalidSubmit` otherwise. A model that's all warnings and infos, with no errors, submits
 successfully.
 
@@ -108,26 +109,22 @@ types, shows how a severity renders, and covers how long a warning stays visible
 ## Does a warning or an info block the submit?
 
 No. Validity counts errors alone: `IsValid` is false only when the report carries an error-severity
-issue, and `SubmitOutcome.CanProceed` is the same flag under a different name.
+issue, and `SubmitOutcome.CanProceed` is the same flag for a submit that landed (a displaced one
+reports `false`, as above).
 
 ```csharp
-/// <summary>
-/// True when there are no <see cref="ValidationSeverity.Error"/> issues.
-/// Warnings and infos do not affect validity.
-/// </summary>
+/// <summary>True when the report carries no <see cref="ValidationSeverity.Error"/> issue; warnings and infos do not affect validity.</summary>
 public bool IsValid => Errors.Count == 0;
 ```
 
 <!-- Source: `src/Formidable/ValidationReport.cs` -->
 
 ```csharp
-/// <summary>The result of running the submit pipeline.</summary>
-/// <remarks>Grows by init-only properties, never by constructor parameters, so existing
-/// construction keeps compiling and binding; any added member folds into the record's
-/// synthesized equality.</remarks>
-/// <param name="CanProceed">True when no error-severity issues exist (warnings do not block).</param>
-/// <param name="Report">The full validation report from the submit profile.</param>
-/// <param name="VisibleErrorSummary">Distinct display names of the errors shown to the user — dialog/summary fodder.</param>
+/// <summary>The result of a submit: whether it may proceed, the full report, and the names of the errors it showed.</summary>
+/// <param name="CanProceed"><see langword="true"/> when the submit landed with a report holding no error; <see langword="false"/> for a blocked submit, and for one displaced by a newer submit, a load, or the engine being rebuilt or torn down, whatever its report holds. Warnings and infos do not block.</param>
+/// <param name="Report">The submit profile's full report.</param>
+/// <param name="VisibleErrorSummary">The distinct display names of the errors the submit showed, for a dialog or a summary line.</param>
+/// <remarks>Grows by init-only properties, never by constructor parameters, so code constructing it keeps compiling.</remarks>
 public sealed record SubmitOutcome(
     bool CanProceed,
     ValidationReport Report,

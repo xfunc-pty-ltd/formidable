@@ -4,83 +4,43 @@ using Microsoft.Extensions.Logging;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Where a blocked submit sends the visitor. Both roots run this: <c>FormidableForm</c>, which
-/// owns its submit pipeline, and <c>FormidableValidator</c>, whose page owns the pipeline and
-/// asks for the move by hand. Each also exposes it as <c>FocusFirstErrorAsync</c>, so a page that
-/// took the announcement over — a dialog, a banner — can ask for the same move at the moment it
-/// hands the form back. One decision site rather than one per caller is the point: a visitor taken
-/// to a different field depending on which root the page happens to be built on, or on whether the
-/// move was automatic or asked for, would be a difference in behaviour that nothing about those
-/// callers asks for.
-/// </summary>
+/// <summary>The one helper every focus move goes through: <see cref="MoveAsync"/> chooses the field from the visible issues, and <see cref="TryFocusAsync"/> lands a chosen field, a summary click's included.</summary>
+// One decision site rather than one per caller: a visitor taken to a different field depending
+// on which root the page is built on, or on whether the move was automatic or asked for, would
+// be a difference in behaviour that nothing about those callers asks for.
 internal static class FirstErrorFocus
 {
-    /// <summary>
-    /// Both roots name their fallback parameter this, so the diagnostic below names something a
-    /// consumer can search for whichever root produced the miss.
-    /// </summary>
+    /// <summary>The name of both roots' fallback parameter, as the miss diagnostic prints it.</summary>
     private const string FallbackParameterName = "FocusFallback";
 
-    /// <summary>
-    /// Best-effort: a consumer who never registered <see cref="IFormidableFocusService"/> (or
-    /// whose form has no visible issue to focus at the moment the move is asked for) gets
-    /// silence rather than an exception — the same tolerance <see cref="FormidableSummary"/>'s own
-    /// click-to-focus applies.
-    /// </summary>
+    /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
+    /// <param name="services">The root's provider, for the optional <see cref="IFormidableFocusService"/> and the diagnostic's logger.</param>
+    /// <param name="engine">The engine whose visible issues the field is chosen from.</param>
+    /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or <see langword="null"/> when unwired.</param>
+    /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or <see langword="null"/> when unwired.</param>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> with no focus service registered, no visible issue, or a miss no fallback recovered.</returns>
     /// <remarks>
-    /// The first ERROR, not merely the first issue: a field ahead of the failing one can carry an
-    /// advisory while the thing actually blocking the submit sits behind it, and taking the
-    /// visitor to the advisory would both bury the reason and disagree with
-    /// <see cref="FormidableSummary"/>, which regroups by severity and so leads with the error
-    /// regardless. "First" is whatever order the engine reports its visible issues in, which is
-    /// the page's own reading order under a root that resolves one and the engine's channel order
-    /// under a root that does not. The fallback to the first visible issue covers a call that
-    /// finds no error to land on while some other issue is still on screen. From a blocked submit
-    /// that means the submit was superseded before its own verdict landed: it reports blocked
-    /// without writing one, leaving whatever preceded it on screen, and anything a caller starts
-    /// and awaits can be what supersedes it — a second submit, or the pass
-    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> runs. Every other way a
-    /// submit blocks writes an error — the all-suppressed gate's form-level issue and the
-    /// incomplete-validation fault issue included. A page asking for the move itself reaches the
-    /// same state by simpler routes, since it chooses the moment: the errors were fixed while its
-    /// dialog was open, or the form carried nothing worse than advisories to begin with. A miss on
-    /// the element itself is nothing having taken focus, which happens two ways: no element on the
-    /// page carries the field's id — a virtualized row outside the render window, a control that
-    /// renders no such id at all — or the element that carries it will not take focus, being
-    /// disabled, hidden, or sealed off by an ancestor. Either is handled by
-    /// <see cref="TryFocusAsync"/>, which is also what a click on a
-    /// <see cref="FormidableSummary"/> entry runs. With no fallback wired, the miss reports a
-    /// diagnostic instead — see <see cref="ReportFallbackMiss"/> — since the visitor otherwise
-    /// gets no signal at all that the field they need is out of reach.
+    /// "First" is the order <see cref="IFormidableEngine.GetVisibleIssues"/> reports. A miss with
+    /// no <paramref name="fallback"/> wired writes the diagnostic <see cref="ReportFallbackMiss"/>
+    /// describes; a miss with one wired reports nothing.
     /// </remarks>
-    /// <param name="services">The root's own injected provider, for the focus service and the
-    /// diagnostic's logger factory — both are optional registrations.</param>
-    /// <param name="engine">The engine whose visible issues the choice is made from.</param>
-    /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or null when unwired;
-    /// <see cref="TryFocusAsync"/> says when it is consulted.</param>
-    /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or null when unwired;
-    /// <see cref="TryFocusAsync"/> says when it is awaited. The early returns above that call stay
-    /// early returns, so nothing prepares for a move that is not about to happen.</param>
-    /// <returns><see langword="true"/> when an element took focus, and <see langword="false"/>
-    /// when nothing did: no <see cref="IFormidableFocusService"/> is registered, the engine
-    /// reports no visible issue to choose from, or the chosen field's element could not be
-    /// focused — no fallback wired, a fallback that declined, or a retry that missed again.
-    /// The roots' <c>FocusFirstErrorAsync</c> surfaces the answer, since the page that asked for
-    /// the move may have somewhere else to send the visitor; the paths that move focus of their
-    /// own accord discard it, having no second move to fall to.</returns>
     internal static async ValueTask<bool> MoveAsync(
         IServiceProvider services,
         IFormidableEngine engine,
         Func<FieldIdentifier, ValueTask<bool>>? fallback,
         Func<FieldIdentifier, ValueTask>? prepare)
     {
+        // The early returns sit above the prepare call, so nothing prepares for a move that is
+        // not about to happen.
         var focusService = services.GetService<IFormidableFocusService>();
         if (focusService is null)
         {
             return false;
         }
 
+        // The first error rather than the first issue: a field ahead of the failing one can carry
+        // an advisory while the error blocking the submit sits behind it, and the summary, which
+        // regroups by severity, leads with the error regardless.
         var issues = engine.GetVisibleIssues();
         var firstIssue = issues.FirstOrDefault(v => v.Issue.Severity == ValidationSeverity.Error)
             ?? issues.FirstOrDefault();
@@ -98,42 +58,23 @@ internal static class FirstErrorFocus
         return took;
     }
 
-    /// <summary>
-    /// What a focus move does once the field to land on is chosen: await whatever the page does to
-    /// make that field reachable, try its element, and — when the try misses and a wired fallback
-    /// reports the element reachable — try it once more. Choosing the field stays with the caller:
-    /// <see cref="MoveAsync"/> reads it off the engine's visible issues, where a click on a
-    /// <see cref="FormidableSummary"/> entry already names one. What happens to the field
-    /// afterwards is the same move either way, so it is written once — a page that wires one
-    /// <c>PrepareFocus</c> or <c>FocusFallback</c> callback to a root and to a summary at once
-    /// gets one move out of both. What is made of the answer stays each caller's own:
-    /// <see cref="MoveAsync"/> reports a miss no fallback was wired to recover (see
-    /// <see cref="ReportFallbackMiss"/>), where a summary click reads it not at all, having
-    /// nowhere else to send the visitor.
-    /// </summary>
-    /// <param name="focusService">The service that addresses the element, resolved by the
-    /// caller.</param>
-    /// <param name="field">The field to land on.</param>
-    /// <param name="prepare">The page's <c>PrepareFocus</c> callback, or null when unwired.
-    /// Awaited once, before the first attempt, so a page that has to clear something out of the
-    /// way — a modal over the field, a collapsed section around it — finishes doing that first. It
-    /// is deliberately not awaited again before the retry: the preparation was for this move, and
-    /// a callback with a side effect as visible as closing a dialog must not run twice for one of
-    /// them. It is awaited here and nowhere else, below whatever the caller does to decide there is
-    /// a move to make at all, so nothing prepares for a move that does not happen.</param>
-    /// <param name="fallback">The page's <c>FocusFallback</c> callback, or null when unwired.
-    /// Consulted once, and only after an attempt has already missed; the retry follows only when it
-    /// answers <see langword="true"/>, since a retry into an element the page has just declined to
-    /// make reachable would only miss again.</param>
-    /// <returns><see langword="true"/> when an element took focus — the first attempt landed, or
-    /// the retry behind a recovering fallback did — and <see langword="false"/> when nothing did:
-    /// no fallback wired, a fallback that declined, or a retry that missed again.</returns>
+    /// <summary>Awaits <paramref name="prepare"/> once, focuses the field's element, and retries once after a miss when a wired <paramref name="fallback"/> answers <see langword="true"/>.</summary>
+    /// <param name="focusService">The service that addresses the element.</param>
+    /// <param name="field">The field to land on, chosen by the caller.</param>
+    /// <param name="prepare">The page's <c>PrepareFocus</c> callback, or <see langword="null"/> when unwired; awaited once, before the first attempt.</param>
+    /// <param name="fallback">The page's <c>FocusFallback</c> callback, or <see langword="null"/> when unwired; consulted once, after a miss.</param>
+    /// <returns><see langword="true"/> when the first attempt or the retry landed; <see langword="false"/> with no fallback, a fallback that declined, or a retry that missed again.</returns>
+    // Written once for both callers: a page that wires one PrepareFocus or FocusFallback callback
+    // to a root and to a summary at once gets one move out of both.
     internal static async ValueTask<bool> TryFocusAsync(
         IFormidableFocusService focusService,
         FieldIdentifier field,
         Func<FieldIdentifier, ValueTask>? prepare,
         Func<FieldIdentifier, ValueTask<bool>>? fallback)
     {
+        // Awaited here and nowhere else, below whatever the caller did to decide there is a move
+        // to make, and not again before the retry: a callback with a side effect as visible as
+        // closing a dialog must not run twice for one move.
         if (prepare is not null)
         {
             await prepare(field);
@@ -144,6 +85,8 @@ internal static class FirstErrorFocus
             return true;
         }
 
+        // A retry into an element the page has just declined to make reachable would only miss
+        // again.
         if (fallback is null || !await fallback(field))
         {
             return false;
@@ -152,19 +95,9 @@ internal static class FirstErrorFocus
         return await focusService.FocusAsync(field);
     }
 
-    /// <summary>
-    /// The one report a focus miss with no fallback to retry through gets: a Trace line for a
-    /// debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
-    /// written once through <see cref="FormidableDiagnostics"/>, and mirroring
-    /// <c>FormidableEngine.ReportSuppressed</c>'s dual channel, minus the options-callback channel
-    /// that has no analogue here. Names the fallback parameter so a consumer's console points
-    /// straight at the seam that would close the gap.
-    /// </summary>
-    /// <param name="services">The root's own injected provider; a host with no logger factory
-    /// registered gets the Trace line alone.</param>
-    /// <param name="issue">The issue whose field the move aimed at and could not focus: the
-    /// first error, or the first visible issue of any severity when the move found no
-    /// error.</param>
+    /// <summary>Writes the focus-miss diagnostic, naming the fallback parameter: a Trace line, and a logged warning when the host has an <see cref="ILoggerFactory"/>.</summary>
+    /// <param name="services">The root's provider; without an <see cref="ILoggerFactory"/> the Trace line is the whole report.</param>
+    /// <param name="issue">The issue whose field the move could not focus.</param>
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);

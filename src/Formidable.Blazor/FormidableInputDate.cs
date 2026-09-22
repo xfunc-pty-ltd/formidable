@@ -5,66 +5,15 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Reference validated date input: a plain <c>&lt;input type="date"&gt;</c> bound to a date
-/// field, wired through <see cref="FormidableInputBase{TValue}"/> for registration, css class,
-/// aria output, pending state, and identity — the same extras every kit input gets.
-/// <typeparamref name="TValue"/> is constrained at static construction to
-/// <see cref="DateTime"/>, <see cref="DateTimeOffset"/>, <see cref="DateOnly"/>, and their
-/// nullable forms; any other <typeparamref name="TValue"/> fails before any instance is
-/// created, the first time the closed generic type is used: the static constructor throws
-/// <see cref="InvalidOperationException"/> naming the unsupported type, and the runtime wraps
-/// it in a <see cref="TypeInitializationException"/> per standard .NET behaviour for a failing
-/// type initializer.
-/// </summary>
-/// <remarks>
-/// <para>
-/// A native <c>&lt;input type="date"&gt;</c>'s <c>value</c> is always the fixed ISO form
-/// <c>yyyy-MM-dd</c>, regardless of the browser's locale — not merely period-decimal like a
-/// number input, but a specific calendar-and-format pair. This component formats and parses
-/// through that exact format string under <see cref="CultureInfo.InvariantCulture"/> rather than
-/// the <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int)"/>
-/// overload's current-culture conversion: under a non-Gregorian-calendar culture such as Thai
-/// (Buddhist calendar) that overload can silently read <c>"2024-01-15"</c> back as a different
-/// year entirely, and under some cultures it fails outright. See
-/// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, FormidableInputBase{TValue}.StringValueParser)"/>
-/// for the mechanism.
-/// </para>
-/// <para>
-/// A string that fails to parse — including an emptied box when
-/// <typeparamref name="TValue"/> is not nullable — leaves the field uncommitted: the model is
-/// unchanged, and no blur-delivered notification is armed under <see cref="InputUpdateMode.OnBlur"/>.
-/// The box itself is reconciled on <c>blur</c>: a native date input can keep
-/// displaying segments it reports as empty (a half-entered date), which no render-tree diff can
-/// overwrite because the rendered value and the reported value already agree, so on every blur,
-/// in every <see cref="FormidableInputBase{TValue}.UpdateOn"/> mode, the control writes the
-/// model's formatted value into the element through <see cref="IFormidableDomValueSync"/> —
-/// whatever the box showed, it ends up matching the model. Formidable has no separate
-/// binder-message channel; every validation message stays FluentValidation's. Model an optional
-/// date as <c>DateOnly?</c>/<c>DateTime?</c> etc. so an emptied box commits
-/// <see langword="null"/> instead — a rule such as <c>NotNull()</c> can then say so.
-/// </para>
-/// <para>
-/// Prefer <see cref="InputUpdateMode.OnBlur"/> for <see cref="FormidableInputBase{TValue}.UpdateOn"/>
-/// on this component. Chromium fires a native date input's <c>change</c> event once per
-/// keyboard-edited segment (day, month, year) rather than once per completed date, so under the
-/// default <see cref="InputUpdateMode.OnChange"/> a live validation pass can run — and briefly
-/// show a stale verdict — against a year the visitor has not finished typing. Under
-/// <see cref="InputUpdateMode.OnBlur"/> the model still commits on every segment's <c>change</c>
-/// (so a wrapping form always reads the field's current value), but the engine is notified only
-/// once, on <c>blur</c>, once the visitor has moved on and the value has had a chance to settle
-/// — and only because those segment commits armed it: tabbing through the field without
-/// committing anything notifies nothing.
-/// </para>
-/// <para>
-/// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted
-/// <c>class</c> merges with the computed state class, a consumer-splatted
-/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
-/// the field has issues, and a consumer-supplied <c>id</c> is
-/// ignored in favour of the deterministic <see cref="FormidableFieldId"/>.
-/// </para>
-/// </remarks>
+/// <summary>A validated <c>&lt;input type="date"&gt;</c> for a <see cref="DateTime"/>, <see cref="DateTimeOffset"/> or <see cref="DateOnly"/> field, nullable or not, formatted and parsed as ISO <c>yyyy-MM-dd</c> under the invariant culture.</summary>
 /// <typeparam name="TValue">The field's date value type.</typeparam>
+/// <remarks>
+/// Prefer <see cref="InputUpdateMode.OnBlur"/> for <see cref="FormidableInputBase{TValue}.UpdateOn"/>:
+/// Chromium fires <c>change</c> once per typed segment (day, month, year), so under
+/// <see cref="InputUpdateMode.OnChange"/> a check runs against a year the visitor has not finished.
+/// An emptied box commits <see langword="null"/> only for a nullable <typeparamref name="TValue"/>,
+/// else nothing: model an optional date as <c>DateOnly?</c> for a <c>NotNull()</c> rule to judge.
+/// </remarks>
 public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableInputBase<TValue>
 {
@@ -73,13 +22,15 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
     [Inject]
     private IFormidableDomValueSync DomValueSync { get; set; } = default!;
 
-    /// <inheritdoc />
+    /// <summary><see langword="true"/>: a date box can display half-entered segments it reports as empty, so the model's value is written back on every blur.</summary>
     protected override bool SyncsDomValueOnBlur => true;
 
-    /// <inheritdoc />
+    /// <summary>Writes the ISO-formatted <see cref="FormidableInputBase{TValue}.Value"/> into the element.</summary>
     protected override ValueTask SyncDomValueAsync() =>
         DomValueSync.SyncValueAsync(ElementId, FormatValueAsString(Value));
 
+    /// <summary>Checks <typeparamref name="TValue"/> once, before any instance exists.</summary>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TValue"/> is not <see cref="DateTime"/>, <see cref="DateTimeOffset"/>, <see cref="DateOnly"/> or a nullable form of one; the runtime surfaces it wrapped in a <see cref="TypeInitializationException"/> the first time the closed generic is used.</exception>
     static FormidableInputDate()
     {
         var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
@@ -93,7 +44,8 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Renders the <c>&lt;input type="date"&gt;</c>: the shared attributes, <c>type</c>, <c>value</c>, then the parser-backed commit binding.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         var formattedValue = FormatValueAsString(Value);
@@ -106,11 +58,13 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
         builder.CloseElement();
     }
 
-    /// <summary>
-    /// Formats <paramref name="value"/> as ISO <c>yyyy-MM-dd</c> under
-    /// <see cref="CultureInfo.InvariantCulture"/> — the exact form a native
-    /// <c>&lt;input type="date"&gt;</c> requires in its <c>value</c> attribute.
-    /// </summary>
+    /// <summary>Formats <paramref name="value"/> as ISO <c>yyyy-MM-dd</c> under the invariant culture, the form a native date input's <c>value</c> takes, or <see langword="null"/> for <see langword="null"/>.</summary>
+    /// <param name="value">The value to format.</param>
+    /// <returns>The ISO date string, or <see langword="null"/>.</returns>
+    // Invariant and format-exact because a native date input reports its value as ISO
+    // yyyy-MM-dd whatever the browser's locale; the typed overload's current-culture binder can
+    // read "2024-01-15" back as a different year under a non-Gregorian calendar culture such as
+    // Thai, and fails outright under some others.
     private static string? FormatValueAsString(TValue? value)
     {
         if (value is null)
@@ -127,15 +81,10 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
         };
     }
 
-    /// <summary>
-    /// Parses a committed value string as ISO <c>yyyy-MM-dd</c> under
-    /// <see cref="CultureInfo.InvariantCulture"/> — the exact form a native
-    /// <c>&lt;input type="date"&gt;</c> sends. An empty string parses to
-    /// <see langword="null"/> when <typeparamref name="TValue"/> is nullable, and fails
-    /// (<see langword="false"/>) otherwise; anything that is not a well-formed
-    /// <c>yyyy-MM-dd</c> date — including a partially typed one such as a half-entered year —
-    /// also fails, leaving the field uncommitted.
-    /// </summary>
+    /// <summary>Parses <paramref name="value"/> as ISO <c>yyyy-MM-dd</c> under the invariant culture; an empty string parses to <see langword="null"/> only for a nullable <typeparamref name="TValue"/>, and anything malformed or partial fails.</summary>
+    /// <param name="value">The string the DOM committed.</param>
+    /// <param name="result">The parsed value, or <see langword="null"/> for an emptied nullable field.</param>
+    /// <returns><see langword="true"/> when <paramref name="value"/> parsed; <see langword="false"/> for a malformed or half-entered date, an emptied non-nullable field included.</returns>
     private static bool TryParseValue(string? value, out TValue? result)
     {
         var underlying = Nullable.GetUnderlyingType(typeof(TValue));

@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>Handle for a <see cref="FieldRegistry"/> registration; dispose to unregister.</summary>
+/// <summary>The handle <see cref="FieldRegistry.Register"/> returns; disposing it ends that registration.</summary>
 public sealed class FieldRegistration : IDisposable
 {
     private readonly FieldRegistry _registry;
@@ -17,7 +17,7 @@ public sealed class FieldRegistration : IDisposable
         _keepRegistered = keepRegistered;
     }
 
-    /// <inheritdoc />
+    /// <summary>Ends this registration; a second call does nothing.</summary>
     public void Dispose()
     {
         if (_disposed)

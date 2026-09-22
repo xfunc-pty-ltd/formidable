@@ -5,56 +5,15 @@ using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Reference validated select input: a plain <c>&lt;select&gt;</c> bound to a field of type
-/// <typeparamref name="TValue"/>, wired through <see cref="FormidableInputBase{TValue}"/> for
-/// registration, css class, aria output, pending state, and identity — the same extras every kit
-/// input gets. Value conversion mirrors Blazor's own <c>InputSelect&lt;TValue&gt;</c> closely:
-/// <see cref="string"/>, <see cref="bool"/>, enum, and every other
-/// <see cref="Microsoft.AspNetCore.Components.BindConverter"/>-supported <typeparamref name="TValue"/>
-/// (numeric and date/time types, and their nullable forms) convert the same way native
-/// <c>InputSelect</c> converts them — no broader. A <typeparamref name="TValue"/>
-/// <see cref="Microsoft.AspNetCore.Components.BindConverter"/> cannot convert at all throws
-/// <see cref="InvalidOperationException"/> the first time a change is committed, exactly as
-/// native <c>InputSelect</c> does; a committed option string that fails to parse (should not
-/// happen when every <c>&lt;option&gt;</c> was formatted the same way) leaves the model
-/// unchanged rather than surfacing a parse error, since Formidable has no native-parse-error
-/// channel the way <c>InputBase&lt;TValue&gt;</c> does — FluentValidation is the only source of
-/// validation truth here. Multi-select (an array-typed <typeparamref name="TValue"/>) is out of
-/// scope; native's array-typed <c>multiple</c> mode is not mirrored. One divergence from native:
-/// a null <c>bool?</c> formats as no selection, not the <c>"false"</c> string native formats it
-/// as, so a blank <c>&lt;option&gt;</c> can clear a <c>bool?</c> field back to unanswered.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Render <c>&lt;option&gt;</c> elements as <see cref="ChildContent"/>. An option's <c>value</c>
-/// must be the same string this component would itself format for that
-/// <typeparamref name="TValue"/> (plain <see cref="object.ToString"/>, except <see cref="bool"/>/
-/// <c>bool?</c> which render as the literal <c>"true"</c>/<c>"false"</c>) for the round trip to
-/// land back on the right value.
-/// </para>
-/// <para>
-/// <see cref="FormidableInputBase{TValue}.UpdateOn"/> is honoured, with one coercion: a
-/// <c>&lt;select&gt;</c> commits on its <c>change</c> event only — there is no meaningful "input"
-/// event distinct from it, the way there is for a text box — so
-/// <see cref="InputUpdateMode.OnInput"/> behaves exactly like <see cref="InputUpdateMode.OnChange"/>
-/// (the default): both bind <c>onchange</c> and notify the engine the moment a value commits.
-/// <see cref="InputUpdateMode.OnBlur"/> still commits the value on <c>change</c>, but the
-/// validation notification the commit arms defers to <c>blur</c> instead — a blur with no
-/// committed change delivers nothing — the same commit/notify split every
-/// other kit input gives that mode. That is the string-projected
-/// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, Func{string, Task{bool}})"/>
-/// overload's own contract, honoured here rather than worked around.
-/// </para>
-/// <para>
-/// The same consumer guarantees as <see cref="FormidableInputText"/> apply otherwise: a
-/// consumer-splatted <c>class</c> merges with the computed state class, a consumer-splatted
-/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
-/// the field has issues, and a consumer-supplied
-/// <c>id</c> is ignored in favour of the deterministic <see cref="FormidableFieldId"/>.
-/// </para>
-/// </remarks>
+/// <summary>A validated <c>&lt;select&gt;</c> for a field of any type native <c>InputSelect</c> converts (<see cref="string"/>, <see cref="bool"/>, an enum, anything <see cref="BindConverter"/> reads from a string); its <c>&lt;option&gt;</c> elements are <see cref="ChildContent"/>.</summary>
 /// <typeparam name="TValue">The field's value type.</typeparam>
+/// <remarks>
+/// An option's <c>value</c> must be the string this component formats for
+/// <typeparamref name="TValue"/> (<see cref="object.ToString"/>, with <see cref="bool"/> as
+/// <c>"true"</c> or <c>"false"</c>); a blank option clears a <c>bool?</c> to
+/// <see langword="null"/>, where native formats <see langword="null"/> as <c>"false"</c>. An
+/// array-typed <typeparamref name="TValue"/> (multi-select) is out of scope.
+/// </remarks>
 public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableInputBase<TValue>
 {
@@ -62,7 +21,8 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
-    /// <inheritdoc />
+    /// <summary>Renders the <c>&lt;select&gt;</c>: the shared attributes, the formatted <c>value</c>, the string-projected commit binding, then <see cref="ChildContent"/>.</summary>
+    /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         var formattedValue = FormatValueAsString(Value);
@@ -75,6 +35,10 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
         builder.CloseElement();
     }
 
+    /// <summary>The commit step: parses the option string and commits it, or commits nothing for a string that does not parse.</summary>
+    /// <param name="value">The option string the DOM committed.</param>
+    /// <returns><see langword="true"/> when the string parsed and the value was committed.</returns>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TValue"/> has no conversion from a string, as <see cref="TryParseValue"/> reports.</exception>
     private async Task<bool> TryCommitAsync(string? value)
     {
         if (!TryParseValue(value, out var parsed))
@@ -86,13 +50,11 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
         return true;
     }
 
-    /// <summary>
-    /// Formats <paramref name="value"/> the same way native <c>InputSelect&lt;TValue&gt;</c>
-    /// does: <see cref="bool"/>/<c>bool?</c> render as the literal strings <c>"true"</c>/
-    /// <c>"false"</c> (<see cref="Microsoft.AspNetCore.Components.BindConverter"/> reserves boolean
-    /// conversion for conditional HTML attributes, not form values), and every other
-    /// <typeparamref name="TValue"/> renders via <see cref="object.ToString"/>.
-    /// </summary>
+    /// <summary>Formats <paramref name="value"/> as native <c>InputSelect</c> does: <see cref="bool"/> as <c>"true"</c> or <c>"false"</c>, everything else by <see cref="object.ToString"/>, and <see langword="null"/> as <see langword="null"/>.</summary>
+    /// <param name="value">The value to format.</param>
+    /// <returns>The string the selected option's <c>value</c> must match, or <see langword="null"/> for no selection.</returns>
+    // Bools are spelled out because BindConverter reserves boolean conversion for conditional
+    // HTML attributes, not form values.
     private static string? FormatValueAsString(TValue? value) =>
         value switch
         {
@@ -100,14 +62,11 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
             _ => value?.ToString(),
         };
 
-    /// <summary>
-    /// Parses a committed option string the same way native <c>InputSelect&lt;TValue&gt;</c>
-    /// does: <see cref="bool"/>/<c>bool?</c> special-cased, everything else through
-    /// <see cref="Microsoft.AspNetCore.Components.BindConverter.TryConvertTo{T}"/>. Returns
-    /// <see langword="false"/> for a string that fails to parse (the caller leaves the model
-    /// untouched); throws <see cref="InvalidOperationException"/>, exactly as native does, for a
-    /// <typeparamref name="TValue"/> that has no conversion path at all.
-    /// </summary>
+    /// <summary>Parses an option string as native <c>InputSelect</c> does: <see cref="bool"/> and <c>bool?</c> special-cased, everything else through <see cref="BindConverter.TryConvertTo{T}(object, CultureInfo, out T)"/> under the current culture.</summary>
+    /// <param name="value">The option string the DOM committed.</param>
+    /// <param name="result">The parsed value; <see langword="null"/> for an empty string on a <c>bool?</c> field.</param>
+    /// <returns><see langword="true"/> when <paramref name="value"/> parsed; <see langword="false"/> leaves the model untouched.</returns>
+    /// <exception cref="InvalidOperationException"><typeparamref name="TValue"/> has no conversion from a string; the message names the component and the type, the converter's own exception inside it.</exception>
     private static bool TryParseValue(string? value, out TValue? result)
     {
         try

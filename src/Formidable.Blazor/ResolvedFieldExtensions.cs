@@ -3,16 +3,15 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>Bridges introspector results to Blazor <see cref="FieldIdentifier"/>s.</summary>
+/// <summary>Turns an introspector's <see cref="ResolvedField"/> into a Blazor <see cref="FieldIdentifier"/>.</summary>
 public static class ResolvedFieldExtensions
 {
-    /// <summary>
-    /// Converts a resolved field to a <see cref="FieldIdentifier"/>. An empty property name on
-    /// the root model produces the model-level identifier
-    /// (<c>new FieldIdentifier(rootModel, string.Empty)</c>). A value-type owner (the object
-    /// the path reaches just before the member is a struct, which <see cref="FieldIdentifier"/>
-    /// cannot hold) falls back to the root model with the original path as the field name.
-    /// </summary>
+    /// <summary>Builds a <see cref="FieldIdentifier"/> from the resolved owner and member, or from <paramref name="rootModel"/> and <paramref name="originalPath"/> when the owner is a value type, which <see cref="FieldIdentifier"/> cannot hold.</summary>
+    /// <param name="field">The resolved field.</param>
+    /// <param name="rootModel">The model the path was resolved against.</param>
+    /// <param name="originalPath">The path as the validator or the server reply spelled it.</param>
+    /// <returns>The identifier; an empty member on the root gives the model-level identifier.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="rootModel"/> is <see langword="null"/>.</exception>
     public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
     {
         ArgumentNullException.ThrowIfNull(rootModel);

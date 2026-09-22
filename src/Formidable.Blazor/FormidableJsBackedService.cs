@@ -2,11 +2,7 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
-/// <summary>
-/// Common base for a service backed by <see cref="FormidableJsModule"/>: holds the module and
-/// offers both disposal shapes so either kind of container teardown releases it — the rationale
-/// and the semantics live with <see cref="FormidableJsModule"/> itself.
-/// </summary>
+/// <summary>The base of the three JS-backed services: it holds the <see cref="FormidableJsModule"/> and releases it under either disposal shape.</summary>
 internal abstract class FormidableJsBackedService : IDisposable, IAsyncDisposable
 {
     private protected FormidableJsModule Module { get; }
