@@ -137,8 +137,8 @@ So MinVer looks for tags shaped `v<version>`, not bare `<version>`.
      secret for a publish key valid one hour.
    - Pushes every `.nupkg` in `artifacts/` to nuget.org in one call:
      `dotnet nuget push "artifacts/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
-     --source https://api.nuget.org/v3/index.json --skip-duplicates`, holding the key the login
-     step just produced. `--skip-duplicates` makes the push step safe to re-run (e.g. after a
+     --source https://api.nuget.org/v3/index.json --skip-duplicate`, holding the key the login
+     step just produced. `--skip-duplicate` makes the push step safe to re-run (e.g. after a
      transient failure): it skips any package+version already on nuget.org instead of failing
      the whole job.
 
@@ -243,7 +243,7 @@ After the workflow's push step succeeds:
   anyone else) or, simpler, bump to the next `-preview.N` and tag again.
 - **Push step fails after some packages already went through**: re-running the workflow (or
   re-running just the push command locally with the same `artifacts/` output) is safe.
-  `--skip-duplicates` means already-published packages are skipped rather than erroring the whole
+  `--skip-duplicate` means already-published packages are skipped rather than erroring the whole
   run.
 - **Wrong version published**: NuGet does not allow re-publishing the same package+version with
   different contents. Unlist the bad version from the nuget.org UI and ship a new, corrected version
