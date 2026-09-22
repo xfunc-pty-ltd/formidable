@@ -143,7 +143,7 @@ public class FormValidationEngineSubmitTests
         Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description)))); // not yet
 
         _editContext.NotifyFieldChanged(Field(_order, nameof(EngineOrder.Description))); // restarts window
-    _time.Advance(TimeSpan.FromMilliseconds(150));
+        _time.Advance(TimeSpan.FromMilliseconds(150));
         Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description)))); // still not
 
         _time.Advance(TimeSpan.FromMilliseconds(151));

@@ -11,6 +11,9 @@ public interface IFormValidationEngine
     /// <summary>The disclosure registry rendered fields register with.</summary>
     FieldRegistry Registry { get; }
 
+    /// <summary>The options this engine was constructed with (css class names, profiles, debounce).</summary>
+    FormidableOptions Options { get; }
+
     /// <summary>True while a validation pass is in flight.</summary>
     bool IsValidating { get; }
 
@@ -20,15 +23,46 @@ public interface IFormValidationEngine
     /// <summary>Raised whenever validation or field state changes.</summary>
     event Action? StateChanged;
 
+    /// <summary>
+    /// Raised when a validation pass fails with an unexpected exception (not cancellation). The
+    /// engine also surfaces a generic model-level message; subscribe to log or customize.
+    /// </summary>
+    event Action<Exception>? ValidationFaulted;
+
     /// <summary>Current state for one field.</summary>
     FieldState GetFieldState(FieldIdentifier field);
+
+    /// <summary>
+    /// The field's current issues, any severity — submit-pass entries first, then live-pass
+    /// entries not already present with the same message; includes the engine's fault issue
+    /// for the model-level field.
+    /// </summary>
+    IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field);
+
+    /// <summary>
+    /// All currently-visible issues across the form: the fault issue first (model-level),
+    /// then submit-pass entries, then live-pass entries not already present for the same
+    /// field with the same message.
+    /// </summary>
+    IReadOnlyList<VisibleIssue> GetVisibleIssues();
 
     /// <summary>Marks a field as touched (called by field components on user interaction).</summary>
     void MarkTouched(FieldIdentifier field);
 
-    /// <summary>Runs the submit pipeline: validate with the submit profile, surface visible issues, record the submit-visible set.</summary>
+    /// <summary>
+    /// Runs the submit pipeline: validate with the submit profile, surface visible issues, record
+    /// the submit-visible set. Call from the renderer's synchronization context (a Blazor event
+    /// handler or <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
+    /// </summary>
     Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were submit results.</summary>
+    /// <summary>
+    /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
+    /// submit results. These persist until the next debounced refresh replaces the
+    /// submit-visible state from the client validator's report; a server-only issue with no
+    /// matching client rule clears on that refresh. Call from the renderer's synchronization
+    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and
+    /// triggers renders.
+    /// </summary>
     void ApplyServerIssues(IReadOnlyList<ValidationIssue> issues);
 }

@@ -45,3 +45,39 @@ public sealed class EngineOrderValidator : DraftSubmitValidator<EngineOrder>
             .WithMessage("Avoid hyphens");
     }
 }
+
+/// <summary>Submit validator whose async rule blocks on <see cref="Gate"/> until released, letting tests observe in-flight passes.</summary>
+public sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+    public int Started;
+    public CancellationToken LastToken { get; private set; }
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+        {
+            Started++;
+            LastToken = ct;
+            await Gate.Task.WaitAsync(ct);
+            return false;
+        }).WithMessage("async says no");
+
+    public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>Draft validator whose rule throws when <see cref="Throw"/> is true, for exercising fault-handling paths.</summary>
+public sealed class ThrowingValidator : DraftSubmitValidator<EngineOrder>
+{
+    public bool Throw { get; set; } = true;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Description).Must(_ => Throw ? throw new InvalidOperationException("rule blew up") : true);
+
+    protected override void ConfigureSubmitRules()
+    {
+    }
+}

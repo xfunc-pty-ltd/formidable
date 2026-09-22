@@ -70,7 +70,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
                 Validator
                     ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
                     ?? throw new InvalidOperationException(
-                        $"No IModelValidator<{typeof(TModel).Name}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
+                        $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
                 (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
                     ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
                 Options ?? new FormidableOptions(),
@@ -79,7 +79,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>Runs the submit pipeline programmatically.</summary>
+    /// <summary>
+    /// Runs the submit pipeline programmatically. Call from the renderer's synchronization
+    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders.
+    /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
         var outcome = await _engine!.ValidateForSubmitAsync();

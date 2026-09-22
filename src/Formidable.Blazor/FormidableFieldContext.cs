@@ -1,0 +1,65 @@
+using Microsoft.AspNetCore.Components.Forms;
+
+namespace Formidable.Blazor;
+
+/// <summary>
+/// Per-field context handed to <see cref="FormidableField{TValue}"/>'s child content each render:
+/// the field's current state, issues, computed CSS class, and the aria ids a custom input should
+/// bind to. Lets any UI library build its own field markup without re-deriving engine wiring.
+/// </summary>
+public sealed class FormidableFieldContext
+{
+    private readonly IFormValidationEngine _engine;
+
+    internal FormidableFieldContext(
+        IFormValidationEngine engine,
+        FieldIdentifier field,
+        string elementId,
+        FieldState state,
+        string cssClass,
+        IReadOnlyList<ValidationIssue> issues)
+    {
+        _engine = engine;
+        Field = field;
+        ElementId = elementId;
+        State = state;
+        CssClass = cssClass;
+        Issues = issues;
+        AriaInvalid = state.HasErrors;
+        AriaDescribedBy = issues.Count > 0 ? $"{elementId}-messages" : null;
+    }
+
+    /// <summary>The field this context describes.</summary>
+    public FieldIdentifier Field { get; }
+
+    /// <summary>The deterministic element id for the field's input (see <see cref="FormidableFieldId"/>).</summary>
+    public string ElementId { get; }
+
+    /// <summary>The field's current state (touched, modified, validating, errors, warnings).</summary>
+    public FieldState State { get; }
+
+    /// <summary>The computed CSS class string for the field's current state (see <see cref="FormidableCss"/>).</summary>
+    public string CssClass { get; }
+
+    /// <summary>The field's current issues, any severity.</summary>
+    public IReadOnlyList<ValidationIssue> Issues { get; }
+
+    /// <summary>True when the field currently has error-severity issues — bind to the input's <c>aria-invalid</c>.</summary>
+    public bool AriaInvalid { get; }
+
+    /// <summary>
+    /// The id of the element holding the field's messages, or null when it has none — bind to
+    /// the input's <c>aria-describedby</c>. Equal to <c>"{ElementId}-messages"</c>.
+    /// </summary>
+    public string? AriaDescribedBy { get; }
+
+    /// <summary>Marks the field touched and notifies the EditContext that it changed — call from a custom input's change handler.</summary>
+    public void NotifyChanged()
+    {
+        MarkTouched();
+        _engine.EditContext.NotifyFieldChanged(Field);
+    }
+
+    /// <summary>Marks the field touched without notifying a value change — call from a custom input's blur/focus-out handler.</summary>
+    public void MarkTouched() => _engine.MarkTouched(Field);
+}

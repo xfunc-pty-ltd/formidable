@@ -47,7 +47,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         if (CascadedEditContext.Model is not TModel model)
         {
             throw new InvalidOperationException(
-                $"The EditForm model is '{CascadedEditContext.Model?.GetType().Name}' but {nameof(FormidableValidator<TModel>)} expects '{typeof(TModel).Name}'.");
+                $"The EditForm model is '{(CascadedEditContext.Model is { } actual ? FriendlyTypeName.Of(actual.GetType()) : "null")}' but {nameof(FormidableValidator<TModel>)} expects '{FriendlyTypeName.Of(typeof(TModel))}'.");
         }
 
         if (_engine is not null && !ReferenceEquals(_engine.EditContext, CascadedEditContext))
@@ -59,9 +59,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         _engine ??= new FormValidationEngine<TModel>(
             model,
             CascadedEditContext,
-            Validator ?? (IModelValidator<TModel>)Services.GetService(typeof(IModelValidator<TModel>))!
-                ?? throw new InvalidOperationException($"No IModelValidator<{typeof(TModel).Name}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-            (IModelIntrospector)Services.GetService(typeof(IModelIntrospector))!
+            Validator
+                ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
+                ?? throw new InvalidOperationException($"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
+            (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
                 ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
             Options ?? new FormidableOptions(),
             renderDispatch: work => InvokeAsync(work));

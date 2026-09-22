@@ -18,4 +18,14 @@ public sealed class FormidableOptions
     /// always visible unless this returns false.
     /// </summary>
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
+
+    /// <summary>
+    /// Invoked once per error issue suppressed at submit because no rendered field
+    /// registration matched and no disclosure override applied — usually a missing
+    /// wrapper or <c>FieldAnchor</c>. A Trace-output warning is emitted regardless.
+    /// </summary>
+    public Action<ValidationIssue>? SuppressedIssueDiagnostic { get; set; }
+
+    /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
+    public FormidableCssOptions CssClasses { get; set; } = new();
 }
