@@ -53,11 +53,8 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
             return await next(context);
         }
 
-        var advisories = ValidationReportProblemMapper.ToAdvisories(report);
         return TypedResults.ValidationProblem(
             ValidationReportProblemMapper.ToErrorDictionary(report),
-            extensions: advisories.Count > 0
-                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories }
-                : null);
+            extensions: ValidationReportProblemMapper.ToAdvisoriesExtensions(report));
     }
 }

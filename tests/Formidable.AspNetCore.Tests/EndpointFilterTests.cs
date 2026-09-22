@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Formidable;
 using Formidable.AspNetCore.Tests.Fixtures;
 using Microsoft.AspNetCore.Builder;
@@ -78,6 +79,21 @@ public class EndpointFilterTests
         var issues = problem!.ToIssues();
         Assert.Contains(issues, i => i.Path == "Items[0].Sku" && i.Severity == ValidationSeverity.Error);
         Assert.Contains(issues, i => i.Path == "Description" && i.Severity == ValidationSeverity.Warning && i.Message == "Avoid hyphens");
+    }
+
+    [Fact]
+    public async Task Errors_without_advisories_omit_the_extension_key_entirely()
+    {
+        await using var app = await StartDefaultAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/orders",
+            new SampleOrder { Description = "", Items = [new SampleItem { Sku = "A" }] }); // error only, no advisories
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        Assert.False(document.RootElement.TryGetProperty("advisories", out _));
     }
 
     [Fact]

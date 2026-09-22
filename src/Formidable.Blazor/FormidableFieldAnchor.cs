@@ -30,12 +30,19 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
     public bool KeepRegistered { get; set; }
 
     /// <inheritdoc />
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
             register: context => context.Registry.Register(
                 FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
+    }
 
     /// <inheritdoc />
     public void Dispose() => _binding.Dispose();

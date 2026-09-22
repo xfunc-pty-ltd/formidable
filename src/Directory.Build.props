@@ -2,6 +2,14 @@
     <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
     <PropertyGroup>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <!-- Applies only to the three library projects under src/ (this file is not imported by
+             samples/ or tests/) - opts each into partial-trim participation for consumers who
+             trim (Blazor WASM's default, Native AOT). The two Blazor-side trim-analysis warnings
+             this surfaced were already fixed by annotating FormidableInputBase<TValue> and
+             FormidableInputSelect<TValue>'s TValue with DynamicallyAccessedMemberTypes.All; the
+             one core warning (AddFormidable's reflection-based introspector) is already an
+             existing, justified UnconditionalSuppressMessage. -->
+        <IsTrimmable>true</IsTrimmable>
         <Authors>xfunc</Authors>
         <Copyright>Copyright (c) xfunc</Copyright>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>

@@ -25,8 +25,13 @@ namespace Formidable.Blazor;
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
 public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
 {
+    private const string ErrorItemClass = "formidable-message formidable-message--error";
+    private const string WarningItemClass = "formidable-message formidable-message--warning";
+    private const string InfoItemClass = "formidable-message formidable-message--info";
+
     private readonly FormContextBinding _binding = new();
     private FieldIdentifier _field;
+    private string _messagesElementId = string.Empty;
 
     private protected FormidableMessageBase()
     {
@@ -50,16 +55,24 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
     private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
 
     /// <inheritdoc />
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
             register: context =>
             {
                 _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+                _messagesElementId = FormidableFieldId.MessagesFor(FormidableFieldId.For(_field));
                 return Register(context, _field);
             },
             stateChanged: OnEngineStateChanged);
+    }
 
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
@@ -77,20 +90,16 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
 
         var sequence = 0;
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", FormidableFieldId.MessagesFor(_field));
+        builder.AddAttribute(sequence++, "id", _messagesElementId);
         builder.AddAttribute(sequence++, "class", "formidable-messages");
 
         foreach (var issue in issues)
         {
-            var severitySuffix = issue.Severity switch
-            {
-                ValidationSeverity.Error => "--error",
-                ValidationSeverity.Warning => "--warning",
-                _ => "--info"
-            };
-
             builder.OpenElement(sequence++, "li");
-            builder.AddAttribute(sequence++, "class", $"formidable-message formidable-message{severitySuffix}");
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
             builder.AddContent(sequence++, issue.Message);
             builder.CloseElement();
         }

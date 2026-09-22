@@ -1,7 +1,23 @@
-using System.Text;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
+
+/// <summary>
+/// Internal fast path for a field-scoped "is this field validating right now" read — the one
+/// piece of <see cref="FieldState"/> <see cref="FormidableFieldCssClassProvider"/> needs, without
+/// the severity scan the rest of <see cref="IFormValidationEngine.GetFieldState"/> does for
+/// errors/warnings the provider already answers from the <c>EditContext</c> instead.
+/// <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so the provider falls back
+/// to <see cref="IFormValidationEngine.GetFieldState"/> for it — the capability stays
+/// engine-internal rather than growing the public engine contract for what only this one caller
+/// wants.
+/// </summary>
+internal interface IValidatingFieldReader
+{
+    /// <summary>Whether a validation pass currently in flight covers <paramref name="field"/>.</summary>
+    bool IsFieldValidating(FieldIdentifier field);
+}
 
 /// <summary>
 /// Applies the configured class names to native InputBase components via the EditContext,
@@ -11,8 +27,9 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssClasses _options;
+    private readonly FormidableCssClasses _classes;
     private readonly IFormValidationEngine _engine;
+    private readonly IValidatingFieldReader? _validatingReader;
 
     /// <summary>
     /// Creates a provider using the given class names, reading pending state from
@@ -22,38 +39,24 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
     /// <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssClasses options, IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(FormidableCssClasses classes, IFormValidationEngine engine)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(classes);
         ArgumentNullException.ThrowIfNull(engine);
-        _options = options;
+        _classes = classes;
         _engine = engine;
+        _validatingReader = engine as IValidatingFieldReader;
     }
 
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        var builder = new StringBuilder();
+        var invalid = editContext.GetValidationMessages(fieldIdentifier).Any();
+        var validWithoutError = editContext.IsModified(fieldIdentifier);
+        var pending = _validatingReader is not null
+            ? _validatingReader.IsFieldValidating(fieldIdentifier)
+            : _engine.GetFieldState(fieldIdentifier).IsValidating;
 
-        if (editContext.GetValidationMessages(fieldIdentifier).Any())
-        {
-            builder.Append(_options.Invalid);
-        }
-        else if (editContext.IsModified(fieldIdentifier))
-        {
-            builder.Append(_options.Valid);
-        }
-
-        if (_engine.GetFieldState(fieldIdentifier).IsValidating)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Append(' ');
-            }
-
-            builder.Append(_options.Pending);
-        }
-
-        return builder.ToString();
+        return FormidableCss.Assemble(invalid, validWithoutError, pending, _classes);
     }
 }

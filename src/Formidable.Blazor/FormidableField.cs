@@ -20,6 +20,7 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
 {
     private readonly FormContextBinding _binding = new();
     private FieldIdentifier _field;
+    private string _elementId = string.Empty;
 
     [CascadingParameter]
     private FormidableFormContext? Context { get; set; }
@@ -37,16 +38,24 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
     /// <inheritdoc />
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
             register: context =>
             {
                 _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
+                _elementId = FormidableFieldId.For(_field);
                 return context.Registry.Register(_field, KeepRegistered);
             },
             stateChanged: OnEngineStateChanged);
+    }
 
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
@@ -61,7 +70,7 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
         var context = new FormidableFieldContext(
             engine,
             _field,
-            FormidableFieldId.For(_field),
+            _elementId,
             state,
             FormidableCss.Compute(state, engine.Options.CssClasses),
             engine.GetIssues(_field));

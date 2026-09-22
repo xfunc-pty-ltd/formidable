@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -69,5 +70,39 @@ public class FormValidationEngineIssueAccessTests
     public void GetIssues_returns_empty_for_clean_field()
     {
         Assert.Empty(_engine.GetIssues(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
+    }
+
+    [Fact]
+    public void One_message_failing_twice_in_the_live_channel_is_shown_once()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new RepeatedMessageValidator()),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider());
+
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        editContext.NotifyFieldChanged(description);
+
+        Assert.Single(engine.GetIssues(description));
+        Assert.Single(engine.GetVisibleIssues(), v => v.Field.Equals(description));
+    }
+
+    /// <summary>
+    /// Two live rules on one field failing with the same words — the shape that makes the shadow
+    /// rule's within-channel half reachable, since a reader has no use for the same sentence twice.
+    /// </summary>
+    private sealed class RepeatedMessageValidator : DraftSubmitValidator<EngineOrder>
+    {
+        protected override void ConfigureDraftRules()
+        {
+            RuleFor(x => x.Description).Must(_ => false).WithMessage("Description is not acceptable");
+            RuleFor(x => x.Description).Must(_ => false).WithMessage("Description is not acceptable");
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+        }
     }
 }

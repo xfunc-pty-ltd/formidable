@@ -21,6 +21,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private EditContext? _editContext;
     private FormValidationEngine<TModel>? _engine;
     private FormidableFormContext? _context;
+    private string _modelLevelFieldId = string.Empty;
     private bool _renderModeChecked;
 
     /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
@@ -89,6 +90,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
                 Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
         }
         else
         {
@@ -231,7 +233,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
             // consumer-supplied id or tabindex would break that the same way a consumer-supplied
             // input id would — see FormidableInputBase<TValue>'s identical policy.
-            inner.AddAttribute(4, "id", FormidableFieldId.For(new FieldIdentifier(Model, string.Empty)));
+            inner.AddAttribute(4, "id", _modelLevelFieldId);
             inner.AddAttribute(5, "tabindex", "-1");
             inner.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
             inner.CloseComponent();

@@ -18,13 +18,20 @@ internal sealed class FormContextBinding : IDisposable
     public FormidableFormContext? Context => _context;
 
     /// <summary>
+    /// True when <paramref name="context"/> is non-null and already the bound instance — the
+    /// same no-op condition <see cref="Update"/> applies internally, exposed so a caller can
+    /// skip building the <c>register</c>/<c>stateChanged</c> delegates <see cref="Update"/>
+    /// would otherwise discard unused on every steady-state render.
+    /// </summary>
+    public bool IsBound(FormidableFormContext? context) => context is not null && ReferenceEquals(context, _context);
+
+    /// <summary>
     /// Ensures the binding targets <paramref name="context"/>. Throws when no context is
     /// cascaded; no-ops when the instance is unchanged; otherwise releases the previous
     /// registration and subscription, then invokes <paramref name="register"/> (when given)
     /// and subscribes <paramref name="stateChanged"/> (when given) against the new context.
-    /// Returns true when a (re)bind happened.
     /// </summary>
-    public bool Update(
+    public void Update(
         FormidableFormContext? context,
         Type componentType,
         Func<FormidableFormContext, FieldRegistration?>? register = null,
@@ -38,7 +45,7 @@ internal sealed class FormContextBinding : IDisposable
 
         if (ReferenceEquals(context, _context))
         {
-            return false;
+            return;
         }
 
         Release();
@@ -51,7 +58,6 @@ internal sealed class FormContextBinding : IDisposable
         }
 
         _context = context;
-        return true;
     }
 
     private void Release()

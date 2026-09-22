@@ -55,12 +55,11 @@ public sealed class FormidableFieldContext
     /// </summary>
     public string? AriaDescribedBy { get; }
 
-    /// <summary>Marks the field touched and notifies the EditContext that it changed — call from a custom input's change handler.</summary>
-    public void NotifyChanged()
-    {
-        MarkTouched();
-        _engine.EditContext.NotifyFieldChanged(Field);
-    }
+    /// <summary>
+    /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
+    /// engine's live validation pass — call from a custom input's change handler.
+    /// </summary>
+    public void NotifyChanged() => _engine.EditContext.NotifyFieldChanged(Field);
 
     /// <summary>Marks the field touched without notifying a value change — call from a custom input's blur/focus-out handler.</summary>
     public void MarkTouched() => _engine.MarkTouched(Field);

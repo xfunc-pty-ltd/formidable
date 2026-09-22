@@ -7,4 +7,8 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <ProjectReference Include="..\Formidable\Formidable.csproj" />
     </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
+        <Using Include="Formidable.Shared" />
+    </ItemGroup>
 </Project>

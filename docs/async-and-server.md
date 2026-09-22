@@ -43,18 +43,18 @@ second copy of those rules, or a subtly different one, so it doesn't: the same F
 validator the client runs answers the request server-side too, and a form and its endpoint can
 never quietly disagree about what "required" means.
 
-When the server rejects a submission, `IFormValidationEngine.ApplyServerIssues` takes its
-answer and applies it to the same fields the client's own errors would occupy. Each call
-replaces the previous server verdict rather than piling onto it, so resubmitting never leaves a
-stale duplicate message behind. `_form` below is the `FormidableForm` reference, captured on
-its element with `@ref="_form"`; `Engine` is the validation engine it owns.
+When the server rejects a submission, `FormidableForm.ApplyServerIssues` takes its answer and
+applies it to the same fields the client's own errors would occupy. Each call replaces the
+previous server verdict rather than piling onto it, so resubmitting never leaves a stale
+duplicate message behind. `_form` below is the `FormidableForm` reference, captured on its
+element with `@ref="_form"`.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/signups", _signup);
 if (!response.IsSuccessStatusCode)
 {
     var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-    _form!.Engine!.ApplyServerIssues(problem!.ToIssues());
+    _form!.ApplyServerIssues(problem!);
 }
 ```
 

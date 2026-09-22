@@ -138,6 +138,11 @@ if (!response.IsSuccessStatusCode)
 }
 ```
 
+Skip the intermediate `ToIssues()` call and pass `_form!.ApplyServerIssues(problem!)` directly
+when the page has no other use for the flattened issue list — the sample above keeps it only to
+pull its advisories back out of it for display, which
+[Server integration](server-integration.md) covers in full.
+
 Call `model.Normalize()` before posting when the model implements `INormalizableModel`: the
 filters normalize too, so cleaning first keeps the paths in the response lined up with the rows on
 screen (there is no automatic client-side hook). Each apply replaces the previous server verdict

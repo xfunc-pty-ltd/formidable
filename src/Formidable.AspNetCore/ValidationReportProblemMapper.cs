@@ -29,4 +29,16 @@ public static class ValidationReportProblemMapper
                 issue.Path, issue.Message, issue.Severity.ToString(), issue.Code, issue.DisplayName))
             .ToList();
     }
+
+    // The ProblemDetails extensions dictionary for `report`, keyed under
+    // AdvisoriesExtensionKey -- or null when there are no advisories to carry, so a caller can
+    // attach it only when non-empty rather than repeating that count check itself. Both server
+    // adapters (the minimal-API filter and the MVC action filter) share this one step.
+    internal static Dictionary<string, object?>? ToAdvisoriesExtensions(ValidationReport report)
+    {
+        var advisories = ToAdvisories(report);
+        return advisories.Count > 0
+            ? new Dictionary<string, object?> { [AdvisoriesExtensionKey] = advisories }
+            : null;
+    }
 }

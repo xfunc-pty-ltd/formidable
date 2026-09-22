@@ -59,10 +59,12 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
+        var formattedValue = FormatValueAsString(Value);
+
         builder.OpenElement(0, "select");
         AddCommonAttributes(builder, 1);
-        builder.AddAttribute(5, "value", FormatValueAsString(Value));
-        AddValueBinding(builder, 6, FormatValueAsString(Value), ApplyStringAsync);
+        builder.AddAttribute(5, "value", formattedValue);
+        AddValueBinding(builder, 6, formattedValue, ApplyStringAsync);
         builder.AddContent(7, ChildContent);
         builder.CloseElement();
     }

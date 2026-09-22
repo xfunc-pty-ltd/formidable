@@ -99,6 +99,28 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-invalid", engine.EditContext.FieldCssClass(field));
     }
 
+    // FormidableFieldCssClassProvider's Pending read prefers an internal fast path
+    // (IValidatingFieldReader) that FormValidationEngine<TModel> implements, and every test
+    // above goes through a real engine — so those tests only ever exercise that fast path. This
+    // one constructs the provider directly with an IFormValidationEngine that does NOT implement
+    // the fast-path interface (the same shape any third-party engine implementation has), to
+    // prove the GetFieldState(...).IsValidating fallback actually runs and produces the identical
+    // class the fast path does for the same field state.
+    [Fact]
+    public void Provider_falls_back_to_GetFieldState_when_the_engine_has_no_fast_path()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var state = new FieldState(IsTouched: true, IsModified: true, IsValidating: true, HasErrors: false, HasWarnings: false);
+        var engine = new FieldStateStubEngine(editContext, state);
+        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+
+        editContext.NotifyFieldChanged(field); // the provider's Valid/Invalid predicates read the EditContext directly, not the stub's FieldState
+
+        Assert.Equal("formidable-valid formidable-pending", provider.GetFieldCssClass(editContext, field));
+    }
+
     private static FormValidationEngine<EngineOrder> CreateEngine(
         EngineOrder order,
         FluentValidation.IValidator<EngineOrder> validator,
@@ -108,4 +130,52 @@ public class FormidableFieldCssClassProviderTests
             new ReflectionModelIntrospector(),
             options ?? new FormidableOptions(),
             new FakeTimeProvider());
+
+    /// <summary>
+    /// A minimal <see cref="IFormValidationEngine"/> that answers every field's state with a
+    /// fixed <see cref="FieldState"/> and implements nothing beyond the interface — deliberately
+    /// not the internal fast-path capability <see cref="FormValidationEngine{TModel}"/> also
+    /// implements, so a provider constructed with one must fall back to <see cref="GetFieldState"/>.
+    /// </summary>
+    private sealed class FieldStateStubEngine(EditContext editContext, FieldState state) : IFormValidationEngine
+    {
+        public EditContext EditContext { get; } = editContext;
+
+        public FieldRegistry Registry { get; } = new();
+
+        public FormidableOptions Options { get; } = new();
+
+        public bool IsValidating => state.IsValidating;
+
+        public bool HasSubmitted => false;
+
+        public event Action? StateChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<Exception>? ValidationFaulted
+        {
+            add { }
+            remove { }
+        }
+
+        public FieldState GetFieldState(FieldIdentifier field) => state;
+
+        public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field) => [];
+
+        public IReadOnlyList<VisibleIssue> GetVisibleIssues() => [];
+
+        public void MarkTouched(FieldIdentifier field)
+        {
+        }
+
+        public Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by this stub's test.");
+
+        public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
+        {
+        }
+    }
 }

@@ -141,7 +141,7 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
             // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
             // consumer-supplied id or tabindex would break that the same way a consumer-supplied
             // input id would — see FormidableInputBase<TValue>'s identical policy.
-            inner.AddAttribute(4, "id", FormidableFieldId.For(new FieldIdentifier(Model, string.Empty)));
+            inner.AddAttribute(4, "id", _modelLevelFieldId);
             inner.AddAttribute(5, "tabindex", "-1");
             inner.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
             inner.CloseComponent();
@@ -169,8 +169,9 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
 
 The `<form>` element always carries the model-level field's id and `tabindex="-1"` — the same
 `FormidableFieldId.For(...)` id every other field-owning element in the kit renders, computed
-from `new FieldIdentifier(Model, string.Empty)`. That is the landing spot the all-suppressed
-defensive gate's summary entry needs (see [Progressive disclosure](disclosure.md) and
+from the engine's own model-level field (the model paired with an empty path). That is the landing
+spot the all-suppressed defensive gate's summary entry needs (see
+[Progressive disclosure](disclosure.md) and
 [CSS and accessibility](css-and-accessibility.md)); a page using `FormidableForm` never has to
 render it by hand. A consumer-splatted `id` or `tabindex` on `FormidableForm` is ignored for the
 same reason a consumer-splatted `id` on `FormidableInputText` is: the value has to stay
@@ -208,6 +209,7 @@ never manages that lifecycle itself:
                 Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
         }
         else
         {
@@ -221,6 +223,10 @@ never manages that lifecycle itself:
 ```
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
+
+The same method also caches the model-level field's rendered id (`_modelLevelFieldId`) alongside
+the engine it is derived from, rather than recomputing it on every render — the same idea
+`FormidableInputBase<TValue>` applies to its own `ElementId` below.
 
 The same method carries three guards worth knowing about. `VerifyInteractiveRenderMode()` runs
 first: a page rendered statically with no interactivity coming can render a form but can never
@@ -291,7 +297,13 @@ progressive disclosure while the component stays mounted (see
     /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
     /// re-renders on a validation state change.
     /// </summary>
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
@@ -303,9 +315,14 @@ progressive disclosure while the component stays mounted (see
                 return context.Registry.Register(Field, KeepRegistered);
             },
             stateChanged: OnEngineStateChanged);
+    }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+
+The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
+cascaded context — so a steady-state render skips building the `register` closure and the
+`stateChanged` delegate entirely rather than build them only for `Update` to discard them unused.
 
 Either spelling names that field. `@bind-Value="_order.Description"` fills in `ValueExpression`,
 which the Razor compiler supplies for every `@bind-Value` — the same `Value`/`ValueChanged`/
@@ -579,10 +596,12 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
 ```csharp
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
+        var formattedValue = FormatValueAsString(Value);
+
         builder.OpenElement(0, "select");
         AddCommonAttributes(builder, 1);
-        builder.AddAttribute(5, "value", FormatValueAsString(Value));
-        AddValueBinding(builder, 6, FormatValueAsString(Value), ApplyStringAsync);
+        builder.AddAttribute(5, "value", formattedValue);
+        AddValueBinding(builder, 6, formattedValue, ApplyStringAsync);
         builder.AddContent(7, ChildContent);
         builder.CloseElement();
     }
@@ -911,12 +930,11 @@ public sealed class FormidableFieldContext
     /// </summary>
     public string? AriaDescribedBy { get; }
 
-    /// <summary>Marks the field touched and notifies the EditContext that it changed — call from a custom input's change handler.</summary>
-    public void NotifyChanged()
-    {
-        MarkTouched();
-        _engine.EditContext.NotifyFieldChanged(Field);
-    }
+    /// <summary>
+    /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
+    /// engine's live validation pass — call from a custom input's change handler.
+    /// </summary>
+    public void NotifyChanged() => _engine.EditContext.NotifyFieldChanged(Field);
 
     /// <summary>Marks the field touched without notifying a value change — call from a custom input's blur/focus-out handler.</summary>
     public void MarkTouched() => _engine.MarkTouched(Field);
@@ -955,12 +973,19 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
     public bool KeepRegistered { get; set; }
 
     /// <inheritdoc />
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
             register: context => context.Registry.Register(
                 FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
+    }
 
     /// <inheritdoc />
     public void Dispose() => _binding.Dispose();

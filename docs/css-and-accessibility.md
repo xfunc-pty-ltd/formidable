@@ -26,32 +26,28 @@ namespace Formidable.Blazor;
 public static class FormidableCss
 {
     /// <summary>Computes the space-joined class string for a field state.</summary>
-    public static string Compute(FieldState state, FormidableCssClasses options)
+    public static string Compute(FieldState state, FormidableCssClasses classes) =>
+        Assemble(state.HasErrors, state.IsTouched || state.IsModified, state.IsValidating, classes);
+
+    /// <summary>
+    /// Assembles the space-joined class string from three already-decided booleans: invalid wins
+    /// outright, valid applies only when not invalid, and pending appends to whichever of those
+    /// (or neither) applies. <see cref="Compute"/> and
+    /// <see cref="FormidableFieldCssClassProvider"/> each decide <paramref name="invalid"/> and
+    /// <paramref name="validWithoutError"/> their own way, from different sources — this only
+    /// joins the three strings the same way both callers always have.
+    /// </summary>
+    internal static string Assemble(bool invalid, bool validWithoutError, bool pending, FormidableCssClasses classes)
     {
-        var builder = new StringBuilder();
+        var baseClass = invalid ? classes.Invalid : validWithoutError ? classes.Valid : string.Empty;
 
-        if (state.HasErrors)
+        if (!pending)
         {
-            builder.Append(options.Invalid);
-        }
-        else if (state.IsTouched || state.IsModified)
-        {
-            builder.Append(options.Valid);
+            return baseClass;
         }
 
-        if (state.IsValidating)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Append(' ');
-            }
-
-            builder.Append(options.Pending);
-        }
-
-        return builder.ToString();
+        return baseClass.Length == 0 ? classes.Pending : $"{baseClass} {classes.Pending}";
     }
-}
 ```
 
 *Source: `src/Formidable.Blazor/FormidableCss.cs`*
@@ -125,6 +121,23 @@ up the same configured class names automatically:
 namespace Formidable.Blazor;
 
 /// <summary>
+/// Internal fast path for a field-scoped "is this field validating right now" read — the one
+/// piece of <see cref="FieldState"/> <see cref="FormidableFieldCssClassProvider"/> needs, without
+/// the severity scan the rest of <see cref="IFormValidationEngine.GetFieldState"/> does for
+/// errors/warnings the provider already answers from the <c>EditContext</c> instead.
+/// <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so the provider falls back
+/// to <see cref="IFormValidationEngine.GetFieldState"/> for it — the capability stays
+/// engine-internal rather than growing the public engine contract for what only this one caller
+/// wants.
+/// </summary>
+internal interface IValidatingFieldReader
+{
+    /// <summary>Whether a validation pass currently in flight covers <paramref name="field"/>.</summary>
+    bool IsFieldValidating(FieldIdentifier field);
+}
+
+/// <summary>
 /// Applies the configured class names to native InputBase components via the EditContext,
 /// including the Pending class while the engine reports the field as validating. Every engine
 /// installs one of these on its EditContext as it is built, so a form needs no wiring to get these
@@ -132,8 +145,9 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssClasses _options;
+    private readonly FormidableCssClasses _classes;
     private readonly IFormValidationEngine _engine;
+    private readonly IValidatingFieldReader? _validatingReader;
 
     /// <summary>
     /// Creates a provider using the given class names, reading pending state from
@@ -143,39 +157,25 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
     /// <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssClasses options, IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(FormidableCssClasses classes, IFormValidationEngine engine)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(classes);
         ArgumentNullException.ThrowIfNull(engine);
-        _options = options;
+        _classes = classes;
         _engine = engine;
+        _validatingReader = engine as IValidatingFieldReader;
     }
 
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        var builder = new StringBuilder();
+        var invalid = editContext.GetValidationMessages(fieldIdentifier).Any();
+        var validWithoutError = editContext.IsModified(fieldIdentifier);
+        var pending = _validatingReader is not null
+            ? _validatingReader.IsFieldValidating(fieldIdentifier)
+            : _engine.GetFieldState(fieldIdentifier).IsValidating;
 
-        if (editContext.GetValidationMessages(fieldIdentifier).Any())
-        {
-            builder.Append(_options.Invalid);
-        }
-        else if (editContext.IsModified(fieldIdentifier))
-        {
-            builder.Append(_options.Valid);
-        }
-
-        if (_engine.GetFieldState(fieldIdentifier).IsValidating)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Append(' ');
-            }
-
-            builder.Append(_options.Pending);
-        }
-
-        return builder.ToString();
+        return FormidableCss.Assemble(invalid, validWithoutError, pending, _classes);
     }
 }
 ```
@@ -196,13 +196,17 @@ the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`) bu
 `FormidableCss.Compute`'s `IsTouched || IsModified` branch (see above) stays out of the
 provider deliberately, the same choice that keeps the kit from wiring touch onto blur app-wide.
 `Pending` is different: the provider is constructed with the owning `IFormValidationEngine` and
-appends `Pending` whenever `GetFieldState(fieldIdentifier).IsValidating` is true, space-joined
-after whatever `Invalid`/`Valid` decision was made — the identical append rule
-`FormidableCss.Compute` uses, so `Pending` can appear alone on an untouched, unmodified field
-just as it can on a Formidable input. A native input inside a Formidable form shows the same
-"checking…" cue a Formidable input does, automatically; see the Vanilla interop section of
-[Component kit](component-kit.md) for the provider wired into a native `InputText` beside a
-Formidable one.
+appends `Pending` whenever the field is currently validating, space-joined after whatever
+`Invalid`/`Valid` decision was made — the identical append rule `FormidableCss.Compute` uses
+(both funnel through the same internal `FormidableCss.Assemble`), so `Pending` can appear alone on
+an untouched, unmodified field just as it can on a Formidable input. Reading that one bit costs
+less than the full `GetFieldState` a Formidable input reads for its own `CssClass`: the provider
+probes the engine for `IValidatingFieldReader`, an internal fast path
+`FormValidationEngine<TModel>` implements, and falls back to `GetFieldState(fieldIdentifier).
+IsValidating` only for an `IFormValidationEngine` that doesn't implement it (a test double, say).
+A native input inside a Formidable form shows the same "checking…" cue a Formidable input does,
+automatically; see the Vanilla interop section of [Component kit](component-kit.md) for the
+provider wired into a native `InputText` beside a Formidable one.
 
 Installation is the engine's job, so a form never constructs a provider to get these classes. The
 constructor is public for the case where an `EditContext` no longer has Formidable's provider on
@@ -290,7 +294,7 @@ list:
 
 ```csharp
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", FormidableFieldId.MessagesFor(_field));
+        builder.AddAttribute(sequence++, "id", _messagesElementId);
         builder.AddAttribute(sequence++, "class", "formidable-messages");
 ```
 

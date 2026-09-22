@@ -154,7 +154,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
     /// re-renders on a validation state change.
     /// </summary>
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(
             Context,
             GetType(),
@@ -166,6 +172,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
                 return context.Registry.Register(Field, KeepRegistered);
             },
             stateChanged: OnEngineStateChanged);
+    }
 
     /// <summary>
     /// Adds the attributes every validated input shares, in the order that makes the kit's
@@ -247,18 +254,14 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     }
 
     /// <summary>
-    /// Marks the field touched and notifies the EditContext so the engine's live validation pass
-    /// runs — the notify half of <see cref="SetCurrentValueAsync"/>, without touching
-    /// <see cref="Value"/>. Pairs with <see cref="CommitValueAsync"/> under
+    /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
+    /// engine's live validation pass — the notify half of <see cref="SetCurrentValueAsync"/>,
+    /// without touching <see cref="Value"/>. Pairs with <see cref="CommitValueAsync"/> under
     /// <see cref="InputUpdateMode.OnBlur"/>: call this once the value committed earlier has had a
     /// chance to settle. Named to match <see cref="FormidableFieldContext.NotifyChanged"/>, which
-    /// does the same two things for a foreign control with no base class to call it from.
+    /// does the same for a foreign control with no base class to call it from.
     /// </summary>
-    protected void NotifyChanged()
-    {
-        Context!.Engine.MarkTouched(Field);
-        Context.EditContext.NotifyFieldChanged(Field);
-    }
+    protected void NotifyChanged() => Context!.EditContext.NotifyFieldChanged(Field);
 
     /// <summary>
     /// Adds the attribute(s) that commit a value change, honouring <see cref="UpdateOn"/>: under
@@ -282,7 +285,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// The <c>onblur</c> this adds under <see cref="InputUpdateMode.OnBlur"/> chains rather than
     /// clobbers: a consumer-splatted <c>@onblur</c> handler is invoked first and awaited, and the
     /// engine notification follows. A splatted value that is not a .NET handler at all — a raw
-    /// attribute string, say — has nothing to invoke, so only the notification runs.
+    /// attribute string, say — has nothing to invoke, so only the notification runs. If the
+    /// consumer handler throws, it propagates as an unhandled component exception and the engine
+    /// notification never runs — the value itself was already committed on the earlier
+    /// <c>change</c> event either way.
     /// </remarks>
     protected void AddValueBinding(RenderTreeBuilder builder, int sequence)
     {

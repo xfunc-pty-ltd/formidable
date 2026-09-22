@@ -167,9 +167,9 @@ MVC controllers:
 
 *Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
 
-Both filters return `ValidationProblemDetails`. On the client, `ToIssues()` flattens that
-response into issues, and `Engine.ApplyServerIssues(...)` lands each one on the field it names;
-the wire contract they share is in [Server integration](docs/server-integration.md).
+Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand
+it to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names; the
+wire contract they share is in [Server integration](docs/server-integration.md).
 
 ## Documentation
 

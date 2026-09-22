@@ -218,6 +218,21 @@ public class ValidateAttributeTests
     }
 
     [Fact]
+    public async Task Errors_without_advisories_omit_the_extension_key_entirely()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/orders",
+            new SampleOrder { Description = "", Items = [new SampleItem { Sku = "A" }] }); // error only, no advisories
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        Assert.False(document.RootElement.TryGetProperty("advisories", out _));
+    }
+
+    [Fact]
     public async Task Draft_profile_string_maps_to_the_draft_profile()
     {
         await using var app = await StartMvcAppAsync();

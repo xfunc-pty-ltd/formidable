@@ -172,40 +172,35 @@ every current issue for a field as a list item, whatever its severity, with a cl
 straight from it:
 
 ```csharp
-            var severitySuffix = issue.Severity switch
-            {
-                ValidationSeverity.Error => "--error",
-                ValidationSeverity.Warning => "--warning",
-                _ => "--info"
-            };
-
             builder.OpenElement(sequence++, "li");
-            builder.AddAttribute(sequence++, "class", $"formidable-message formidable-message{severitySuffix}");
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
 
-So a rendered message carries `formidable-message formidable-message--error`,
-`formidable-message formidable-message--warning`, or
-`formidable-message formidable-message--info`. Style each in your own stylesheet; Formidable ships
-no CSS of its own (see [CSS and accessibility](css-and-accessibility.md)).
+`ErrorItemClass`/`WarningItemClass`/`InfoItemClass` are the three constant strings —
+`"formidable-message formidable-message--error"` and so on — and `FormidableCss.SelectBySeverity`
+is the one shared switch that every per-issue class in the kit picks its constant through, paying
+no allocation to choose among them. So a rendered message carries
+`formidable-message formidable-message--error`, `formidable-message formidable-message--warning`,
+or `formidable-message formidable-message--info`. Style each in your own stylesheet; Formidable
+ships no CSS of its own (see [CSS and accessibility](css-and-accessibility.md)).
 
 `FormidableSummary` groups the whole form's currently-visible issues by severity — errors, then
-warnings, then infos — one list per non-empty group, the same suffix convention applied to the
-group itself:
+warnings, then infos — one list per non-empty group, the same convention applied to the group
+itself:
 
 ```csharp
         foreach (var group in groups)
         {
-            var severitySuffix = group.Key switch
-            {
-                ValidationSeverity.Error => "--error",
-                ValidationSeverity.Warning => "--warning",
-                _ => "--info"
-            };
-
             builder.OpenElement(sequence++, "ul");
-            builder.AddAttribute(sequence++, "class", $"formidable-summary__group formidable-summary__group{severitySuffix}");
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableSummary.cs`*

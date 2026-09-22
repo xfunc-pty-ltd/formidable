@@ -25,7 +25,7 @@ namespace Formidable.Blazor;
 /// clears it after writing its verdicts; and the two in-flight markers _submitInFlight and
 /// _liveVersion, which the pass that set them clears alongside IsValidating.
 /// </remarks>
-public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDisposable
+public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
 {
     private readonly TModel _model;
@@ -48,6 +48,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private HashSet<FieldIdentifier> _advisoryVisible = [];
     private List<(FieldIdentifier Field, ValidationIssue Issue)> _appliedServerIssues = [];
     private ValidationIssue? _faultIssue;
+
+    /// <summary>The result every issue read shares when a field has nothing to say.</summary>
+    private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
     private ITimer? _refreshTimer;
     private CancellationTokenSource? _passCts;
@@ -124,71 +127,228 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     /// <inheritdoc />
     public FieldState GetFieldState(FieldIdentifier field)
     {
-        var issues = EnumerateIssuesFor(field).ToList();
-        return new FieldState(
-            IsTouched: _touched.Contains(field),
-            IsModified: EditContext.IsModified(field),
-            IsValidating: IsValidating && (_validatingScope is null || _validatingScope.Contains(field)),
-            HasErrors: issues.Any(i => i.Severity == ValidationSeverity.Error),
-            HasWarnings: issues.Any(i => i.Severity == ValidationSeverity.Warning));
-    }
-
-    /// <inheritdoc />
-    public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field)
-    {
-        var result = new List<ValidationIssue>();
-
-        if (_submitIssues.TryGetValue(field, out var submit))
-        {
-            result.AddRange(submit);
-        }
-
-        if (_submitAdvisories.TryGetValue(field, out var advisories))
-        {
-            result.AddRange(advisories);
-        }
+        // Every input, every field wrapper and the css class provider read this on every
+        // notification round, so it answers its two questions from one walk of the channels that
+        // hold anything for the field, and allocates nothing to do it.
+        var hasErrors = false;
+        var hasWarnings = false;
 
         if (_liveIssues.TryGetValue(field, out var live))
         {
-            result.AddRange(live.Where(l => !result.Any(existing => existing.Message == l.Message)));
+            ScanSeverities(live, ref hasErrors, ref hasWarnings);
         }
 
-        if (_faultIssue is not null && field.Equals(ModelLevelField))
+        if (!(hasErrors && hasWarnings) && _submitIssues.TryGetValue(field, out var submit))
         {
-            result.Add(_faultIssue);
+            ScanSeverities(submit, ref hasErrors, ref hasWarnings);
+        }
+
+        if (!(hasErrors && hasWarnings) && _submitAdvisories.TryGetValue(field, out var advisories))
+        {
+            ScanSeverities(advisories, ref hasErrors, ref hasWarnings);
+        }
+
+        return new FieldState(
+            IsTouched: _touched.Contains(field),
+            IsModified: EditContext.IsModified(field),
+            IsValidating: IsFieldValidating(field),
+            HasErrors: hasErrors,
+            HasWarnings: hasWarnings);
+    }
+
+    /// <summary>
+    /// Whether a validation pass in flight currently covers <paramref name="field"/> — form-wide
+    /// for a submit pass, scoped to the changed field for a live pass, scoped to the fields edited
+    /// within the debounce window for a refresh pass. <see cref="GetFieldState"/> folds this into
+    /// its own read; <see cref="IValidatingFieldReader"/> exposes it standalone for a caller (the
+    /// css class provider) that wants only this and not the severity scan the rest of
+    /// <see cref="FieldState"/> costs.
+    /// </summary>
+    private bool IsFieldValidating(FieldIdentifier field) =>
+        IsValidating && (_validatingScope is null || _validatingScope.Contains(field));
+
+    /// <inheritdoc cref="IValidatingFieldReader.IsFieldValidating"/>
+    bool IValidatingFieldReader.IsFieldValidating(FieldIdentifier field) => IsFieldValidating(field);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Ordering is part of what a message list renders: the submit channel first (errors, then
+    /// advisories), then the live channel minus whatever it would repeat, and the fault issue last
+    /// — a fault is about the pass rather than the field, so it trails the field's own verdict.
+    /// </remarks>
+    public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field)
+    {
+        var hasSubmit = _submitIssues.TryGetValue(field, out var submit);
+        var hasAdvisories = _submitAdvisories.TryGetValue(field, out var advisories);
+        var hasLive = _liveIssues.TryGetValue(field, out var live);
+        var fault = _faultIssue is not null && field.Equals(ModelLevelField) ? _faultIssue : null;
+
+        if (!hasSubmit && !hasAdvisories && !hasLive && fault is null)
+        {
+            return NoIssues;
+        }
+
+        var result = new List<ValidationIssue>();
+        var showing = new HashSet<string>(StringComparer.Ordinal);
+
+        if (hasSubmit)
+        {
+            AddShowing(result, showing, submit!);
+        }
+
+        if (hasAdvisories)
+        {
+            AddShowing(result, showing, advisories!);
+        }
+
+        if (hasLive)
+        {
+            result.AddRange(ExceptShadowed(live!, showing));
+        }
+
+        if (fault is not null)
+        {
+            result.Add(fault);
         }
 
         return result;
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Channel-major rather than field-major, because the summary groups by severity and the order
+    /// within a group is the order issues arrive here: the fault issue first, then every field's
+    /// submit errors, then every field's advisories, then the live channel minus whatever it would
+    /// repeat for the same field.
+    /// </remarks>
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
         var result = new List<VisibleIssue>();
 
+        // Only the live phase consults the shadow map, so it exists only when there is a live phase
+        // to consult it — a summary showing submit issues alone builds nothing.
+        var showing = _liveIssues.Count > 0 ? new Dictionary<FieldIdentifier, HashSet<string>>() : null;
+
         if (_faultIssue is not null)
         {
             result.Add(new VisibleIssue(ModelLevelField, _faultIssue));
+            RecordShowing(showing, ModelLevelField, _faultIssue);
         }
 
         foreach (var (field, issues) in _submitIssues)
         {
-            result.AddRange(issues.Select(issue => new VisibleIssue(field, issue)));
+            foreach (var issue in issues)
+            {
+                result.Add(new VisibleIssue(field, issue));
+                RecordShowing(showing, field, issue);
+            }
         }
 
         foreach (var (field, issues) in _submitAdvisories)
         {
-            result.AddRange(issues.Select(issue => new VisibleIssue(field, issue)));
+            foreach (var issue in issues)
+            {
+                result.Add(new VisibleIssue(field, issue));
+                RecordShowing(showing, field, issue);
+            }
         }
 
-        foreach (var (field, issues) in _liveIssues)
+        if (showing is not null)
         {
-            result.AddRange(issues
-                .Where(l => !result.Any(v => v.Field.Equals(field) && v.Issue.Message == l.Message))
-                .Select(issue => new VisibleIssue(field, issue)));
+            foreach (var (field, issues) in _liveIssues)
+            {
+                foreach (var issue in ExceptShadowed(issues, ShowingFor(showing, field)))
+                {
+                    result.Add(new VisibleIssue(field, issue));
+                }
+            }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Answers whether <paramref name="issues"/> carries an error and whether it carries a warning,
+    /// stopping the moment both are answered.
+    /// </summary>
+    private static void ScanSeverities(List<ValidationIssue> issues, ref bool hasErrors, ref bool hasWarnings)
+    {
+        foreach (var issue in issues)
+        {
+            if (issue.Severity == ValidationSeverity.Error)
+            {
+                hasErrors = true;
+            }
+            else if (issue.Severity == ValidationSeverity.Warning)
+            {
+                hasWarnings = true;
+            }
+
+            if (hasErrors && hasWarnings)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds every issue to <paramref name="result"/> and records its message as already showing for
+    /// the field, which is what the live channel is then filtered against.
+    /// </summary>
+    private static void AddShowing(
+        List<ValidationIssue> result,
+        HashSet<string> showing,
+        List<ValidationIssue> issues)
+    {
+        foreach (var issue in issues)
+        {
+            result.Add(issue);
+            showing.Add(issue.Message);
+        }
+    }
+
+    /// <summary>
+    /// The one shadow rule behind every merged issue read: a live-channel issue is dropped when the
+    /// same message is already showing for the same field, so a rule that fails in both channels
+    /// reads as one message rather than two. <paramref name="showing"/> grows as issues pass, which
+    /// is also what collapses two live issues carrying the same message into one.
+    /// </summary>
+    private static IEnumerable<ValidationIssue> ExceptShadowed(
+        List<ValidationIssue> issues,
+        HashSet<string> showing)
+    {
+        foreach (var issue in issues)
+        {
+            if (showing.Add(issue.Message))
+            {
+                yield return issue;
+            }
+        }
+    }
+
+    /// <summary>Records one message as showing for a field, when a shadow map is being kept.</summary>
+    private static void RecordShowing(
+        Dictionary<FieldIdentifier, HashSet<string>>? showing,
+        FieldIdentifier field,
+        ValidationIssue issue)
+    {
+        if (showing is not null)
+        {
+            ShowingFor(showing, field).Add(issue.Message);
+        }
+    }
+
+    /// <summary>The messages already showing for one field, created on first use.</summary>
+    private static HashSet<string> ShowingFor(
+        Dictionary<FieldIdentifier, HashSet<string>> showing,
+        FieldIdentifier field)
+    {
+        if (!showing.TryGetValue(field, out var messages))
+        {
+            showing[field] = messages = new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        return messages;
     }
 
     /// <inheritdoc />
@@ -317,21 +477,34 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 // each live pass validates the whole model under the same LiveProfile, so this
                 // report answers for those fields too. A superseded pass writes nothing — it is no
                 // longer current — so without this the field it was answering for would keep a
-                // stale verdict, or none at all, until something else happened to revalidate it.
+                // stale verdict, or none at all, until something else happened to revalidate it. A
+                // field the report says nothing about gets an empty verdict, not a skipped one.
+                var byField = GroupByResolvedField(report.Issues);
                 foreach (var field in _pendingLiveFields)
                 {
-                    _liveIssues[field] = report.Issues
-                        .Where(issue => Resolve(issue).Equals(field))
-                        .ToList();
+                    _liveIssues[field] = byField.TryGetValue(field, out var forField) ? forField : [];
                 }
 
                 _pendingLiveFields.Clear();
+
+                // The pass ends here, not only in the finally below: clearing the flag, the scope
+                // and the in-flight marker before RebuildStore's notification means the verdict and
+                // the cleared pending indicator reach every subscriber in one round instead of two
+                // back-to-back ones — and the marker still clears before any notification, so a
+                // handler that reacts by letting a deferred refresh run cannot see this pass as the
+                // one in flight.
+                IsValidating = false;
+                _validatingScope = null;
+                _liveVersion = -1;
+
                 RebuildStore();
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
         finally
         {
+            // The paths that never reach the verdict dispatch — a superseded pass, a faulted one —
+            // end here instead, and this no-ops once the dispatch has ended the pass itself.
             // What SetValidating does, plus the in-flight marker — cleared in the same dispatch and
             // before the notification, exactly as the submit pass clears _submitInFlight, so that a
             // handler which reacts by letting a deferred refresh run cannot still see this pass as
@@ -339,18 +512,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
             // (inlined rather than routed through SetValidating, which does the same) so a native
             // InputBase — which re-renders on that event, not on StateChanged — clears the Pending
             // class this pass's own start already gave it.
-            await _renderDispatch(() =>
+            if (IsValidating)
             {
-                if (version == _version)
+                await _renderDispatch(() =>
                 {
-                    IsValidating = false;
-                    _validatingScope = null;
-                    _liveVersion = -1;
-                    NotifyStateChanged();
-                    EditContext.NotifyValidationStateChanged();
-                }
-                return Task.CompletedTask;
-            }).ConfigureAwait(false);
+                    if (version == _version)
+                    {
+                        IsValidating = false;
+                        _validatingScope = null;
+                        _liveVersion = -1;
+                        NotifyStateChanged();
+                        EditContext.NotifyValidationStateChanged();
+                    }
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            }
         }
     }
 
@@ -382,31 +558,27 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
             .GroupBy(x => x.Field, x => x.Issue)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-    private IEnumerable<ValidationIssue> EnumerateIssuesFor(FieldIdentifier field)
+    /// <summary>
+    /// Resolves each issue to its field exactly once and groups by the result — one path parse and
+    /// object walk per issue, rather than one per issue for every field waiting on the verdict.
+    /// </summary>
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
+        IReadOnlyList<ValidationIssue> issues)
     {
-        if (_liveIssues.TryGetValue(field, out var live))
+        var grouped = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
+
+        foreach (var issue in issues)
         {
-            foreach (var issue in live)
+            var field = Resolve(issue);
+            if (!grouped.TryGetValue(field, out var forField))
             {
-                yield return issue;
+                grouped[field] = forField = [];
             }
+
+            forField.Add(issue);
         }
 
-        if (_submitIssues.TryGetValue(field, out var submit))
-        {
-            foreach (var issue in submit)
-            {
-                yield return issue;
-            }
-        }
-
-        if (_submitAdvisories.TryGetValue(field, out var advisories))
-        {
-            foreach (var issue in advisories)
-            {
-                yield return issue;
-            }
-        }
+        return grouped;
     }
 
     private void RebuildStore()
@@ -428,6 +600,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
         foreach (var (field, issues) in _liveIssues)
         {
+            // Deliberately not the shadow rule the issue reads share: the against-list here is this
+            // field's submit issues alone and never grows, so two live errors carrying the same
+            // message both reach the store, where ExceptShadowed would collapse them to one. The
+            // store is the interop surface a native ValidationMessage/ValidationSummary renders
+            // straight out, so narrowing the merge here would change what those components show
+            // rather than what an engine read returns.
             var existing = _submitIssues.TryGetValue(field, out var submit)
                 ? submit
                 : (IReadOnlyList<ValidationIssue>)[];
@@ -466,7 +644,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 return new SubmitOutcome(false, ValidationReport.Empty, []);
             }
 
-            var applied = false;
             var canProceed = false;
             var summary = new List<string>();
 
@@ -474,10 +651,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
             {
                 if (version != _version)
                 {
-                    return Task.CompletedTask; // superseded — a newer pass owns engine state now
+                    // Superseded — a newer pass owns engine state now, and the empty locals above
+                    // are what a pass that wrote nothing has to report.
+                    return Task.CompletedTask;
                 }
 
-                applied = true;
                 HasSubmitted = true;
                 _liveIssues.Clear();
 
@@ -551,33 +729,46 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                         .ToList();
                 }
 
+                // The pass ends here, not only in the finally below: clearing the flag, the scope
+                // and the in-flight marker before RebuildStore's notification means the verdict and
+                // the cleared pending indicator reach every subscriber in one round instead of two
+                // back-to-back ones — and the marker still clears before any notification, so a
+                // handler that reacts by letting a deferred refresh run cannot see this pass as the
+                // one in flight.
+                IsValidating = false;
+                _validatingScope = null;
+                _submitInFlight = false;
+
                 RebuildStore();
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            return applied
-                ? new SubmitOutcome(canProceed, report, summary)
-                : new SubmitOutcome(false, report, []);
+            return new SubmitOutcome(canProceed, report, summary);
         }
         finally
         {
+            // The paths that never reach the verdict dispatch — a superseded pass, a cancelled one
+            // — end here instead, and this no-ops once the dispatch has ended the pass itself.
             // Inlined rather than routed through SetValidating (which does the same) so the
             // in-flight marker clears in the same dispatch; also raises
             // EditContext.NotifyValidationStateChanged() so a native InputBase — which re-renders
             // on that event, not on StateChanged — clears the Pending class this pass's own start
             // already gave it.
-            await _renderDispatch(() =>
+            if (IsValidating)
             {
-                if (version == _version)
+                await _renderDispatch(() =>
                 {
-                    IsValidating = false;
-                    _validatingScope = null;
-                    _submitInFlight = false;
-                    NotifyStateChanged();
-                    EditContext.NotifyValidationStateChanged();
-                }
-                return Task.CompletedTask;
-            }).ConfigureAwait(false);
+                    if (version == _version)
+                    {
+                        IsValidating = false;
+                        _validatingScope = null;
+                        _submitInFlight = false;
+                        NotifyStateChanged();
+                        EditContext.NotifyValidationStateChanged();
+                    }
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            }
         }
     }
 
@@ -774,13 +965,25 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     .GroupBy(x => x.Field, x => x.Issue)
                     .ToDictionary(g => g.Key, g => g.ToList());
 
+                // The pass ends here, not only in the finally below: clearing the flag and the
+                // scope before RebuildStore's notification means the refreshed verdict and the
+                // cleared pending indicator reach every subscriber in one round instead of two
+                // back-to-back ones.
+                IsValidating = false;
+                _validatingScope = null;
+
                 RebuildStore();
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
         finally
         {
-            await SetValidating(false, version).ConfigureAwait(false);
+            // The paths that never reach the verdict dispatch — a superseded pass, a faulted one —
+            // end here instead, and this no-ops once the dispatch has ended the pass itself.
+            if (IsValidating)
+            {
+                await SetValidating(false, version).ConfigureAwait(false);
+            }
         }
     }
 

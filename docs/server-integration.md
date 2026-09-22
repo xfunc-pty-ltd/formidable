@@ -165,10 +165,30 @@ public static class ValidationReportProblemMapper
                 issue.Path, issue.Message, issue.Severity.ToString(), issue.Code, issue.DisplayName))
             .ToList();
     }
+
+    // The ProblemDetails extensions dictionary for `report`, keyed under
+    // AdvisoriesExtensionKey -- or null when there are no advisories to carry, so a caller can
+    // attach it only when non-empty rather than repeating that count check itself. Both server
+    // adapters (the minimal-API filter and the MVC action filter) share this one step.
+    internal static Dictionary<string, object?>? ToAdvisoriesExtensions(ValidationReport report)
+    {
+        var advisories = ToAdvisories(report);
+        return advisories.Count > 0
+            ? new Dictionary<string, object?> { [AdvisoriesExtensionKey] = advisories }
+            : null;
+    }
 }
 ```
 
 *Source: `src/Formidable.AspNetCore/ValidationReportProblemMapper.cs`*
+
+**Messages can echo user input.** A FluentValidation message built with `{PropertyValue}` embeds
+the field's own value into the response body verbatim. Formidable's own components already render
+every message as text — `FormidableFieldMessage`, `FormidableCollectionMessage`, and
+`FormidableSummary` write it through Blazor's own encoding (`AddContent`, never `MarkupString`) —
+so nothing in the kit turns that text into markup. A consumer reading the same
+`errors`/`advisories` payload outside Formidable's components needs to do the same: render each
+message as text, never interpolate it into HTML.
 
 ## Minimal APIs
 
@@ -318,12 +338,9 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
             return await next(context);
         }
 
-        var advisories = ValidationReportProblemMapper.ToAdvisories(report);
         return TypedResults.ValidationProblem(
             ValidationReportProblemMapper.ToErrorDictionary(report),
-            extensions: advisories.Count > 0
-                ? new Dictionary<string, object?> { [ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories }
-                : null);
+            extensions: ValidationReportProblemMapper.ToAdvisoriesExtensions(report));
     }
 }
 ```
@@ -461,10 +478,13 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
                 Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
             };
 
-            var advisories = ValidationReportProblemMapper.ToAdvisories(aggregate);
-            if (advisories.Count > 0)
+            var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
+            if (extensions is not null)
             {
-                problem.Extensions[ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories;
+                foreach (var (key, value) in extensions)
+                {
+                    problem.Extensions[key] = value;
+                }
             }
 
             // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on
@@ -711,6 +731,22 @@ skip straight to the framework's ordinary success path when the report has no er
 (`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections
 above). The handler's or action's own return value passes through completely untouched, with no
 advisories attached, because there is no wire contract for a successful response to carry them.
+
+**Collection sizes are the host's job, not the validator's.** Both sample endpoints validate
+whatever collection a client sends without capping how large it can get — the request body's size
+limit is the only ceiling on `RoundTripOrder.Lines` or
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)'s `EventRegistration.Attendees`,
+and that page's own attendee-count rule is `Warning` severity (see [Severity](severity.md)), so it
+never blocks a submit by itself. A real API should add an error-severity cap alongside the format
+rules already in place:
+
+```csharp
+RuleFor(x => x.Attendees).Must(a => a.Count <= 100).WithMessage("Too many attendees in one request");
+```
+
+Pair it with a request-size limit at the transport level too — Kestrel's `MaxRequestBodySize`, or
+the equivalent on a reverse proxy in front of it — since the rule above only runs once the body
+has already been deserialized.
 
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) and
 [`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs) for

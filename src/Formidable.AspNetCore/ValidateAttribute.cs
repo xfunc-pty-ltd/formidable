@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
@@ -132,10 +133,13 @@ public sealed class ValidateAttribute : ActionFilterAttribute
                 Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
             };
 
-            var advisories = ValidationReportProblemMapper.ToAdvisories(aggregate);
-            if (advisories.Count > 0)
+            var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
+            if (extensions is not null)
             {
-                problem.Extensions[ValidationReportProblemMapper.AdvisoriesExtensionKey] = advisories;
+                foreach (var (key, value) in extensions)
+                {
+                    problem.Extensions[key] = value;
+                }
             }
 
             // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on
@@ -206,6 +210,13 @@ public sealed class ValidateAttribute : ActionFilterAttribute
             "least one argument type and call services.AddFormidable() to install the adapter, or set RequireValidator = false.";
     }
 
+    // Closed-generic ValidateAsync MethodInfo per argument type, built once and reused for
+    // every later request: the argument type set for a running app is small and fixed (it's
+    // whatever types the app declares validated arguments as), so paying MakeGenericType +
+    // GetMethod on the first request per type and caching the result avoids repeating both on
+    // every single request thereafter.
+    private static readonly ConcurrentDictionary<Type, MethodInfo> ValidateAsyncMethods = new();
+
     private static Task<ValidationReport> InvokeValidateAsync(
         object validator, Type argumentType, object model, ValidationProfile profile, CancellationToken cancellationToken)
     {
@@ -214,8 +225,8 @@ public sealed class ValidateAttribute : ActionFilterAttribute
         // members, so a consumer's explicit interface implementation (idiomatic C#) would make
         // that lookup return null. Interface-typed dispatch works for implicit and explicit
         // implementations alike.
-        var method = typeof(IModelValidator<>).MakeGenericType(argumentType)
-            .GetMethod(nameof(IModelValidator<object>.ValidateAsync))!;
+        var method = ValidateAsyncMethods.GetOrAdd(argumentType, static type =>
+            typeof(IModelValidator<>).MakeGenericType(type).GetMethod(nameof(IModelValidator<object>.ValidateAsync))!);
         return (Task<ValidationReport>)method.Invoke(validator, [model, profile, cancellationToken])!;
     }
 }

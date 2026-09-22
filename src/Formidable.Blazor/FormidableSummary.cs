@@ -17,6 +17,10 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableSummary : ComponentBase, IDisposable
 {
+    private const string ErrorGroupClass = "formidable-summary__group formidable-summary__group--error";
+    private const string WarningGroupClass = "formidable-summary__group formidable-summary__group--warning";
+    private const string InfoGroupClass = "formidable-summary__group formidable-summary__group--info";
+
     private readonly FormContextBinding _binding = new();
 
     [CascadingParameter]
@@ -36,8 +40,15 @@ public sealed class FormidableSummary : ComponentBase, IDisposable
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
     /// <inheritdoc />
-    protected override void OnParametersSet() =>
+    protected override void OnParametersSet()
+    {
+        if (_binding.IsBound(Context))
+        {
+            return;
+        }
+
         _binding.Update(Context, GetType(), stateChanged: OnEngineStateChanged);
+    }
 
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
@@ -64,15 +75,11 @@ public sealed class FormidableSummary : ComponentBase, IDisposable
 
         foreach (var group in groups)
         {
-            var severitySuffix = group.Key switch
-            {
-                ValidationSeverity.Error => "--error",
-                ValidationSeverity.Warning => "--warning",
-                _ => "--info"
-            };
-
             builder.OpenElement(sequence++, "ul");
-            builder.AddAttribute(sequence++, "class", $"formidable-summary__group formidable-summary__group{severitySuffix}");
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
 
             foreach (var visibleIssue in group)
             {

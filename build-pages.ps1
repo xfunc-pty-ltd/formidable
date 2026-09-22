@@ -98,7 +98,7 @@ Write-Host "Serving '$publishRoot' - browse to $url"
 Write-Host 'Press Ctrl+C to stop.'
 
 if (Test-CommandAvailable -Name 'dotnet-serve') {
-    dotnet serve --directory $publishRoot --port $port
+    dotnet serve --directory $publishRoot --port $port --address 127.0.0.1
 }
 elseif (Test-CommandAvailable -Name 'python') {
     Push-Location $publishRoot
@@ -110,7 +110,10 @@ elseif (Test-CommandAvailable -Name 'python') {
     }
 }
 elseif (Test-CommandAvailable -Name 'npx') {
-    npx --yes serve $publishRoot --listen $port
+    # Pinned to a specific serve release (rather than an unpinned "latest" resolve) and bound to
+    # loopback only, matching the python branch above - an unpinned npx fallback would silently
+    # execute whatever the current serve release happens to be on the maintainer's own machine.
+    npx --yes serve@14.2.6 $publishRoot --listen tcp://127.0.0.1:$port
 }
 else {
     Write-Warning 'No local static server was found (tried: dotnet serve, python, npx serve).'
