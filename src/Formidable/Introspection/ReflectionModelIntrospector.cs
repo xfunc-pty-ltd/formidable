@@ -50,7 +50,11 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     // fabricated names would otherwise grow this cache without bound too. Modest on purpose:
     // the legitimate space here — an app's own model types crossed with their own declared
     // properties — is small and settles early, well under this cap, before any
-    // attacker-controlled traffic could push it over.
+    // attacker-controlled traffic could push it over. An entry holds a copy of the name, so
+    // the name half of the key is capped at MaxCachedPathLength as well, for the reason the
+    // path cache pairs its two caps: a count alone bounds nothing when each entry can be as
+    // long as the sender likes. No type declares a member that long, and a path segment is
+    // never longer than the path it was cut from.
     private const int MaxCachedProperties = 1024;
 
     private readonly ConcurrentDictionary<(Type Type, string Property), PropertyInfo?> _propertyCache = new();
@@ -61,10 +65,12 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     // answers correctly, it just stops remembering.
     private readonly ConcurrentDictionary<string, IReadOnlyList<PathSegment>?> _pathCache = new();
 
-    // Approximate counts of entries added to _pathCache / _propertyCache, checked against
-    // their caps before each new entry is added. Interlocked, not exact under a race (two
-    // threads can both pass the check for the same new key), which is fine — a cap only needs
-    // to stop unbounded growth, not land on an exact number.
+    // Counts of the entries claimed in _pathCache / _propertyCache, checked against their caps
+    // before each new entry is added. Approximate against the dictionaries' own counts — two
+    // threads can both claim a slot for the same new key and only one TryAdd lands — which is
+    // fine, since a cap only needs to stop unbounded growth, not land on an exact number. Each
+    // stops at its cap rather than counting every later miss: an int that kept counting would
+    // wrap after 2^31 misses and pass the cap check again.
     private int _cachedPathCount;
     private int _cachedPropertyCount;
 
@@ -180,12 +186,36 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         segments = parsed ? result : null;
 
         if (propertyPath.Length <= MaxCachedPathLength
-            && Interlocked.Increment(ref _cachedPathCount) <= MaxCachedPaths)
+            && TryClaimCacheSlot(ref _cachedPathCount, MaxCachedPaths))
         {
             _pathCache.TryAdd(propertyPath, segments);
         }
 
         return parsed;
+    }
+
+    /// <summary>
+    /// Claims one entry of a cache's count budget, or answers <see langword="false"/> once the
+    /// budget is spent. The count never passes <paramref name="cap"/>: a counter that kept
+    /// counting every later miss would wrap after 2^31 of them and pass the cap check again, so
+    /// it stops moving at the cap instead, and no number of later misses re-opens the cache.
+    /// </summary>
+    private static bool TryClaimCacheSlot(ref int count, int cap)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref count);
+
+            if (current >= cap)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref count, current + 1, current) == current)
+            {
+                return true;
+            }
+        }
     }
 
     /// <summary>
@@ -219,8 +249,10 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     /// Looks up <paramref name="propertyName"/> on <paramref name="type"/> via the property
     /// cache. A cache hit short-circuits reflection entirely; a cache miss is always reflected
     /// to answer this call, but is only added to the cache below
-    /// <see cref="MaxCachedProperties"/> — beyond the cap the lookup still answers correctly
-    /// every time, just not remembered.
+    /// <see cref="MaxCachedProperties"/> and with a name at or under
+    /// <see cref="MaxCachedPathLength"/> — beyond either cap the lookup still answers correctly
+    /// every time, just not remembered. The length test comes first, so an over-long name
+    /// spends none of the count budget.
     /// </summary>
     private PropertyInfo? GetOrCacheProperty(Type type, string propertyName)
     {
@@ -233,7 +265,8 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
         var property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
 
-        if (Interlocked.Increment(ref _cachedPropertyCount) <= MaxCachedProperties)
+        if (propertyName.Length <= MaxCachedPathLength
+            && TryClaimCacheSlot(ref _cachedPropertyCount, MaxCachedProperties))
         {
             _propertyCache.TryAdd(key, property);
         }
@@ -243,14 +276,21 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
     private object? GetIndexedValue(object collection, string indexToken)
     {
-        if (int.TryParse(indexToken, out var index))
+        if (int.TryParse(indexToken, out var index) && collection is IList list)
         {
-            return collection switch
+            try
             {
-                IList list when index >= 0 && index < list.Count => list[index],
-                IList => null,
-                _ => TryIndexerProperty(collection, indexToken)
-            };
+                return index >= 0 && index < list.Count ? list[index] : null;
+            }
+            catch
+            {
+                // An IList that refuses the read anyway: System.Array implements it whatever
+                // its rank and throws from this[int] past rank one, a default ImmutableArray<T>
+                // is a boxed value rather than a null and throws from Count, and a consumer's
+                // own list may do either. Fall back on the deepest owner, as the class contract
+                // promises for every other navigation failure.
+                return null;
+            }
         }
 
         return TryIndexerProperty(collection, indexToken);
@@ -295,7 +335,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
         var indexer = FindIndexer(type, numericToken);
 
-        if (Interlocked.Increment(ref _cachedPropertyCount) <= MaxCachedProperties)
+        if (TryClaimCacheSlot(ref _cachedPropertyCount, MaxCachedProperties))
         {
             _propertyCache.TryAdd(key, indexer);
         }

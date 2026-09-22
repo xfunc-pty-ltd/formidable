@@ -40,6 +40,26 @@ public class ValidationReportProblemMapperTests
     }
 
     [Fact]
+    public void ToErrorDictionary_keeps_paths_that_differ_only_by_case_apart()
+    {
+        // Both server adapters put this dictionary into the response as built, so its keying
+        // IS the wire's: two declared properties C# permits, or a display-name override
+        // colliding with a property, must each keep their own messages. A case-insensitive
+        // comparer here would fold them, and the client would land one message on the wrong
+        // field.
+        var report = new ValidationReport([
+            new ValidationIssue("Id", "lower id"),
+            new ValidationIssue("ID", "upper id")
+        ]);
+
+        var errors = ValidationReportProblemMapper.ToErrorDictionary(report);
+
+        Assert.Equal(["Id", "ID"], errors.Keys);
+        Assert.Equal(["lower id"], errors["Id"]);
+        Assert.Equal(["upper id"], errors["ID"]);
+    }
+
+    [Fact]
     public void ToErrorDictionary_reads_a_null_path_as_the_model_level_path()
     {
         // An IModelValidator is a consumer-implementable seam, so a hand-rolled one can hand

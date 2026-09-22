@@ -83,6 +83,18 @@ public sealed class OrdersController : ControllerBase
     [HttpPost("empty-message")]
     [Validate(typeof(EmptyMessageModel))]
     public IActionResult EmptyMessage([FromBody] EmptyMessageModel model) => Ok(model);
+
+    [HttpPost("tree")]
+    [Validate]
+    public IActionResult Tree([FromBody] TreeNode node) => Ok(node);
+
+    [HttpPost("case-keys")]
+    [Validate(typeof(CaseKeyModel))]
+    public IActionResult CaseKeys([FromBody] CaseKeyModel model) => Ok(model);
+
+    [HttpPost("guarded")]
+    [Validate(typeof(GuardedModel))]
+    public IActionResult Guarded([FromBody] GuardedModel model) => Ok(model);
 }
 
 /// <summary>A plain <see cref="Controller"/> — no <c>[ApiController]</c>, so none of the
@@ -100,7 +112,8 @@ public sealed class PlainOrdersController : Controller
 }
 
 /// <summary>Validated by a validator reporting an error with no message — the shape the wire
-/// mapper's null-message tolerance produces, and the one the two adapters carry differently.</summary>
+/// mapper's null-message tolerance produces, which both adapters must carry as the empty string
+/// it is.</summary>
 public class EmptyMessageModel
 {
     public string Field { get; set; } = string.Empty;
@@ -116,10 +129,75 @@ public sealed class EmptyMessageValidator : IModelValidator<EmptyMessageModel>
         new([new ValidationIssue("Field", null!)]);
 }
 
+/// <summary>A recursive model — comments, org units, menu items — validated by the ordinary
+/// recursive FluentValidation shape, <c>RuleForEach(n => n.Children).SetValidator(this)</c>.
+/// Every level adds <c>Children[0].</c> to the path beneath it, so a document a few hundred
+/// bytes long produces error paths deeper than a <c>ModelStateDictionary</c> can hold. On MVC
+/// such a document is stopped by the framework's own depth gates first; the test app that
+/// posts it raises both, which is what leaves the filter's own response as the only thing
+/// between the document and its verdict.</summary>
+public class TreeNode
+{
+    public string Name { get; set; } = string.Empty;
+
+    public List<TreeNode> Children { get; set; } = [];
+}
+
+public sealed class TreeNodeValidator : AbstractValidator<TreeNode>
+{
+    public TreeNodeValidator()
+    {
+        RuleFor(node => node.Name).NotEmpty().WithMessage("Name required");
+        RuleForEach(node => node.Children).SetValidator(this);
+    }
+}
+
+/// <summary>Validated by a validator reporting on two paths that differ only by case — a
+/// display-name override colliding with a property, or two declared properties C# permits. The
+/// paths are the validator's, not the model's: declaring both here would collide under
+/// System.Text.Json's camel-casing before the request ever left the test. The wire keys them
+/// apart, so both adapters must too.</summary>
+public class CaseKeyModel
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class CaseKeyValidator : IModelValidator<CaseKeyModel>
+{
+    public Task<ValidationReport> ValidateAsync(
+        CaseKeyModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Validate(model, profile));
+
+    public ValidationReport Validate(CaseKeyModel model, ValidationProfile profile) => new([
+        new ValidationIssue("Id", "lower id"),
+        new ValidationIssue("ID", "upper id")
+    ]);
+}
+
+/// <summary>Validated by a hand-rolled validator that throws SYNCHRONOUSLY — an argument
+/// guard that fires before any task is returned, the shape a sync implementation wrapped in
+/// <c>Task.FromResult</c> takes. Middleware mapping the exception to a status or a log category
+/// must see the validator's own type from both adapters.</summary>
+public class GuardedModel
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class ValidatorGuardException(string message) : Exception(message);
+
+public sealed class GuardedValidator : IModelValidator<GuardedModel>
+{
+    public Task<ValidationReport> ValidateAsync(
+        GuardedModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        throw new ValidatorGuardException("guard tripped");
+
+    public ValidationReport Validate(GuardedModel model, ValidationProfile profile) =>
+        throw new ValidatorGuardException("guard tripped");
+}
+
 /// <summary>Validated by <see cref="ManyMessageValidator"/>, which reports the shapes the
-/// wire mapping has to carry across both server adapters: two messages under one path, two
-/// paths whose report order is not their sorted order, and an issue with no message at
-/// all.</summary>
+/// wire mapping has to carry across both server adapters: two messages under one path, and
+/// two paths whose report order is not their sorted order.</summary>
 public class ManyMessageModel
 {
     public string Zebra { get; set; } = string.Empty;
@@ -318,6 +396,8 @@ public class ValidateAttributeTests
                 services.AddSingleton<IModelValidator<ExplicitModel>>(new ExplicitModelValidator());
                 services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator());
                 services.AddSingleton<IModelValidator<EmptyMessageModel>>(new EmptyMessageValidator());
+                services.AddSingleton<IModelValidator<CaseKeyModel>>(new CaseKeyValidator());
+                services.AddSingleton<IModelValidator<GuardedModel>>(new GuardedValidator());
                 services.AddScoped<FluentValidation.IValidator<PolymorphicSampleOrder>, PolymorphicSampleOrderValidator>();
                 services.AddScoped<FluentValidation.IValidator<RushOnlyPolymorphicOrder>, RushOnlyPolymorphicOrderValidator>();
             });
@@ -961,11 +1041,11 @@ public class ValidateAttributeTests
     [Fact]
     public async Task The_mvc_400_keeps_every_message_for_one_path_in_report_order()
     {
-        // The error dictionary reaches the response through a ModelStateDictionary, which holds
-        // a LIST per key: a path carrying more than one message keeps all of them, in the order
-        // the report gave them. Two messages under one path is what makes this an assertion
-        // rather than a restatement — with one message each, keeping the first and keeping all
-        // of them are the same answer.
+        // The mapper groups a path's messages in report order and the filter puts that
+        // dictionary into the response whole, so a path carrying more than one message keeps
+        // all of them, in the order the report gave them. Two messages under one path is what
+        // makes this an assertion rather than a restatement — with one message each, keeping
+        // the first and keeping all of them are the same answer.
         await using var app = await StartProblemDetailsAppAsync();
         var client = app.GetTestClient();
 
@@ -979,17 +1059,15 @@ public class ValidateAttributeTests
     }
 
     [Fact]
-    public async Task The_two_adapters_order_the_error_keys_differently()
+    public async Task The_two_adapters_serve_the_same_error_dictionary()
     {
-        // A divergence the wire contract does not cover and the corpus records rather than
-        // hides. The endpoint filter serves the dictionary the mapper built, so its keys come
-        // out in report order; the action filter's keys come back from a ModelStateDictionary,
-        // which is a prefix trie and enumerates its own way. Every key and every message is
-        // present on both sides — it is the key SEQUENCE that belongs to each framework half.
+        // Both adapters serve the dictionary the mapper built, so the keys come out in report
+        // order on each and the two `errors` objects are byte-identical on the wire. The
+        // ordering is what discriminates: a route through a ModelStateDictionary, which is a
+        // prefix trie enumerating its own way, would put Apple before Zebra on the MVC side.
         await using var mvc = await StartProblemDetailsAppAsync();
         var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/many-messages", new ManyMessageModel());
-        var mvcProblem = await mvcResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
-            JsonSerializerOptions.Web);
+        using var mvcBody = JsonDocument.Parse(await mvcResponse.Content.ReadAsStringAsync());
 
         await using var minimal = await TestApp.StartAsync(
             app => app.MapPost("/many-messages", (ManyMessageModel model) => Results.Ok())
@@ -997,16 +1075,14 @@ public class ValidateAttributeTests
             services => services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator()));
         var minimalResponse = await minimal.GetTestClient()
             .PostAsJsonAsync("/many-messages", new ManyMessageModel());
-        var minimalProblem = await minimalResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
-            JsonSerializerOptions.Web);
+        using var minimalBody = JsonDocument.Parse(await minimalResponse.Content.ReadAsStringAsync());
 
-        Assert.Equal(["Zebra", "Apple"], minimalProblem!.Errors.Keys);
-        Assert.Equal(["Apple", "Zebra"], mvcProblem!.Errors.Keys);
+        var mvcErrors = mvcBody.RootElement.GetProperty("errors");
+        var minimalErrors = minimalBody.RootElement.GetProperty("errors");
 
-        // Same keys, same messages under each: only the sequence parts company.
-        Assert.Equal(
-            minimalProblem.Errors.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Value),
-            mvcProblem.Errors.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Value));
+        Assert.Equal(["Zebra", "Apple"], minimalErrors.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(["Zebra", "Apple"], mvcErrors.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(minimalErrors.GetRawText(), mvcErrors.GetRawText());
     }
 
     [Fact]
@@ -1033,14 +1109,13 @@ public class ValidateAttributeTests
     }
 
     [Fact]
-    public async Task An_empty_message_reaches_the_two_adapters_differently()
+    public async Task An_empty_message_stays_empty_on_both_adapters()
     {
-        // The one place the errors dictionary itself parts company, and it is reachable through
-        // the tolerance the mapper applies to a null message: ValidationProblemDetails built
-        // from a ModelStateDictionary substitutes its own text for an empty one, so what the
-        // endpoint filter sends as "" arrives from the action filter as a sentence of the
-        // framework's. The exact wording is MVC's to choose; that it is not the empty string is
-        // the divergence the corpus records.
+        // Reachable through the tolerance the mapper applies to a null message, and the shape
+        // that discriminates the route the errors take: a ValidationProblemDetails built from a
+        // ModelStateDictionary substitutes a sentence of the framework's for an empty message,
+        // so an action filter routing its errors through one would answer something other than
+        // "" here. Both adapters serve the mapper's dictionary as built.
         await using var mvc = await StartProblemDetailsAppAsync();
         var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/empty-message", new EmptyMessageModel());
         var mvcProblem = await mvcResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
@@ -1056,7 +1131,145 @@ public class ValidateAttributeTests
             JsonSerializerOptions.Web);
 
         Assert.Equal([string.Empty], minimalProblem!.Errors["Field"]);
-        Assert.NotEqual([string.Empty], mvcProblem!.Errors["Field"]);
-        Assert.NotEmpty(Assert.Single(mvcProblem.Errors["Field"]));
+        Assert.Equal([string.Empty], mvcProblem!.Errors["Field"]);
+    }
+
+    // MVC admits a deep document only once the app has said so twice: its JSON formatter caps
+    // nesting at JsonOptions.MaxDepth (32 on MVC, where System.Text.Json's own default and
+    // minimal APIs' is 64), and its validation visitor stops at MvcOptions.MaxValidationDepth
+    // (32), each stopping the request before any action filter runs. Both are raised here, so
+    // what the deep body reaches is the filter, and the response the filter builds is the only
+    // thing left that could stop it.
+    private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartDeepDocumentAppAsync() =>
+        TestApp.StartAsync(
+            app => app.MapControllers(),
+            services =>
+            {
+                services.AddControllers(options => options.MaxValidationDepth = null)
+                    .AddApplicationPart(typeof(OrdersController).Assembly)
+                    .AddJsonOptions(options => options.JsonSerializerOptions.MaxDepth = 128);
+                services.AddScoped<FluentValidation.IValidator<TreeNode>, TreeNodeValidator>();
+            });
+
+    [Fact]
+    public async Task A_deeply_nested_document_is_rejected_with_its_errors_rather_than_a_500()
+    {
+        // Twenty levels of Children[0]. is a document of a few hundred bytes. A
+        // ModelStateDictionary is a prefix trie that refuses a key deeper than 32 nodes, and
+        // Children[0]. is two of them, so an action filter routing its errors through one
+        // throws out of the response builder from sixteen levels on — a 500 for the one body
+        // shape MVC's own two depth gates, once raised, have just let through, on an internal
+        // cap nothing the app configures can move. The mapper's dictionary goes into the
+        // response directly, so the depth of a path is the validator's business alone, and the
+        // two adapters serve the same `errors` for the same body.
+        const int depth = 20;
+        var body = TreeBody(depth);
+        var deepestName = string.Concat(Enumerable.Repeat("Children[0].", depth)) + "Name";
+
+        await using var mvc = await StartDeepDocumentAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsync("mvc/tree",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, mvcResponse.StatusCode);
+        using var mvcBody = JsonDocument.Parse(await mvcResponse.Content.ReadAsStringAsync());
+        var mvcErrors = mvcBody.RootElement.GetProperty("errors");
+        Assert.Equal(depth + 1, mvcErrors.EnumerateObject().Count());
+        Assert.Equal("Name required", mvcErrors.GetProperty(deepestName)[0].GetString());
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/tree", (TreeNode node) => Results.Ok()).Validate<TreeNode>(),
+            services => services.AddScoped<FluentValidation.IValidator<TreeNode>, TreeNodeValidator>());
+        var minimalResponse = await minimal.GetTestClient().PostAsync("/tree",
+            new StringContent(body, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, minimalResponse.StatusCode);
+        using var minimalBody = JsonDocument.Parse(await minimalResponse.Content.ReadAsStringAsync());
+        Assert.Equal(minimalBody.RootElement.GetProperty("errors").GetRawText(), mvcErrors.GetRawText());
+    }
+
+    // A root node with `depth` nested children beneath it, every Name empty, so every level
+    // fails NotEmpty and the deepest path is depth repetitions of Children[0]. followed by Name.
+    private static string TreeBody(int depth) =>
+        depth == 0
+            ? """{"name":"","children":[]}"""
+            : $$"""{"name":"","children":[{{TreeBody(depth - 1)}}]}""";
+
+    [Fact]
+    public async Task Every_row_of_a_large_collection_reaches_the_mvc_400_in_report_order()
+    {
+        // One issue per collection row is the shape every sample teaches, and a report of it
+        // runs to thousands of keys, far past the 200 a ModelStateDictionary caps at by
+        // default. The whole set arrives, uncapped, keyed in report order — the same dictionary
+        // the endpoint filter serves. The number of rows is chosen for the cap, not for the
+        // clock: what removes the super-linear cost the old route paid per key is that no
+        // error enters a ModelStateDictionary at all, which the depth pin above holds.
+        const int rows = 5_000;
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/orders", new SampleOrder
+        {
+            Description = "ok",
+            Items = Enumerable.Range(0, rows).Select(_ => new SampleItem()).ToList()
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var errors = body.RootElement.GetProperty("errors");
+        Assert.Equal(
+            Enumerable.Range(0, rows).Select(i => $"Items[{i}].Sku"),
+            errors.EnumerateObject().Select(property => property.Name));
+        Assert.Equal("Sku required", errors.GetProperty($"Items[{rows - 1}].Sku")[0].GetString());
+    }
+
+    [Fact]
+    public async Task Paths_that_differ_only_by_case_stay_apart_on_both_adapters()
+    {
+        // A ModelStateDictionary keys case-insensitively, so an action filter routing its
+        // errors through one would fold ID into Id and hand the client both messages under the
+        // wrong field. The mapper keys ordinally, and both adapters serve what it built.
+        await using var mvc = await StartMvcAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/case-keys", new CaseKeyModel());
+        using var mvcBody = JsonDocument.Parse(await mvcResponse.Content.ReadAsStringAsync());
+        var mvcErrors = mvcBody.RootElement.GetProperty("errors");
+
+        Assert.Equal(["Id", "ID"], mvcErrors.EnumerateObject().Select(property => property.Name));
+        Assert.Equal("lower id", mvcErrors.GetProperty("Id")[0].GetString());
+        Assert.Equal("upper id", mvcErrors.GetProperty("ID")[0].GetString());
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/case-keys", (CaseKeyModel model) => Results.Ok()).Validate<CaseKeyModel>(),
+            services => services.AddSingleton<IModelValidator<CaseKeyModel>>(new CaseKeyValidator()));
+        var minimalResponse = await minimal.GetTestClient().PostAsJsonAsync("/case-keys", new CaseKeyModel());
+        using var minimalBody = JsonDocument.Parse(await minimalResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(minimalBody.RootElement.GetProperty("errors").GetRawText(), mvcErrors.GetRawText());
+    }
+
+    [Fact]
+    public async Task A_validators_synchronous_throw_surfaces_as_itself_on_both_adapters()
+    {
+        // The action filter reaches ValidateAsync through MethodInfo.Invoke, which wraps a
+        // synchronous throw in TargetInvocationException unless told not to; the endpoint
+        // filter calls the method directly and sees the validator's own exception. Middleware
+        // mapping that exception to a status or a log category must see one type from both.
+        // The test host's own fallback writes the escaping exception's type name and message
+        // as the 500 body, which is what is read here.
+        await using var mvc = await StartMvcAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/guarded", new GuardedModel());
+        var mvcBody = await mvcResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.InternalServerError, mvcResponse.StatusCode);
+        Assert.StartsWith($"{nameof(ValidatorGuardException)}: guard tripped", mvcBody);
+        Assert.DoesNotContain(nameof(TargetInvocationException), mvcBody);
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/guarded", (GuardedModel model) => Results.Ok()).Validate<GuardedModel>(),
+            services => services.AddSingleton<IModelValidator<GuardedModel>>(new GuardedValidator()));
+        var minimalResponse = await minimal.GetTestClient().PostAsJsonAsync("/guarded", new GuardedModel());
+        var minimalBody = await minimalResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.InternalServerError, minimalResponse.StatusCode);
+        Assert.Equal(minimalBody, mvcBody);
     }
 }

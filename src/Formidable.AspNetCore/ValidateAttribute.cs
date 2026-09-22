@@ -201,25 +201,36 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
     // ValidationProblem() uses: the response then carries the trace identifier, the
     // ApiBehaviorOptions.ClientErrorMapping type link, and any consumer-registered factory's
     // own additions, so a 400 from this filter reads like every other 400 the same app returns.
-    // Building the ValidationProblemDetails by hand carried none of that. The errors travel
-    // through a ModelStateDictionary because that is the shape the factory takes; its error cap
-    // is lifted, since a validation report legitimately runs to one issue per collection row and
-    // silently dropping the overflow is exactly what a report is for.
+    // Building the ValidationProblemDetails by hand carries none of that. The factory takes a
+    // ModelStateDictionary, and it is handed an EMPTY one; the mapper's dictionary is put into
+    // Errors afterward and never routed through it, for two reasons. A ModelStateDictionary is
+    // a prefix trie that refuses a key deeper than 32 nodes, and the path an ordinary recursive
+    // validator produces crosses that at sixteen collection levels — a few hundred bytes of
+    // request body. MVC's own JsonOptions.MaxDepth and MvcOptions.MaxValidationDepth stop a
+    // body that deep before any action filter runs, and an app that raises both to admit it
+    // must not then meet a 500 here, on an internal limit nothing it configures can move. And the
+    // framework's ValidationProblemDetails(ModelStateDictionary) constructor is quadratic in
+    // the number of keys once the trie's default error cap is lifted, which one issue per
+    // collection row demands — the shape every sample teaches, at a size an anonymous client
+    // chooses. Setting Errors directly also keeps both adapters serving one dictionary: the
+    // same key order, an empty message kept empty, case-differing paths kept apart. The errors
+    // are out of the factory's reach, and that touches two consumer seams the same way: a
+    // consumer's own ProblemDetailsFactory override receives the empty dictionary, and a
+    // ProblemDetailsOptions.CustomizeProblemDetails hook runs inside the factory before Errors
+    // is set. Either sees an empty Errors on this path, where the endpoint filter's
+    // TypedResults.ValidationProblem shows the hook the full set and asks no
+    // ProblemDetailsFactory for anything, so anything either derives from the errors is derived
+    // from nothing, and an Errors entry either writes is replaced by the assignment below.
+    // Everything else either does — reading the request, adding an extension — lands on the
+    // response exactly as it does for the app's other 400s.
     private static ValidationProblemDetails BuildProblem(HttpContext httpContext, ValidationReport report)
     {
-        var modelState = new ModelStateDictionary { MaxAllowedErrors = int.MaxValue };
-
-        foreach (var (path, messages) in ValidationReportProblemMapper.ToErrorDictionary(report))
-        {
-            foreach (var message in messages)
-            {
-                modelState.AddModelError(path, message);
-            }
-        }
-
-        return httpContext.RequestServices
+        var problem = httpContext.RequestServices
             .GetRequiredService<ProblemDetailsFactory>()
-            .CreateValidationProblemDetails(httpContext, modelState, StatusCodes.Status400BadRequest);
+            .CreateValidationProblemDetails(
+                httpContext, new ModelStateDictionary(), StatusCodes.Status400BadRequest);
+        problem.Errors = ValidationReportProblemMapper.ToErrorDictionary(report);
+        return problem;
     }
 
     private bool ShouldValidate(Type argumentType, IServiceProvider services)
@@ -435,6 +446,16 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
         // implementations alike.
         var method = ValidateAsyncMethods.GetOrAdd(argumentType, static type =>
             typeof(IModelValidator<>).MakeGenericType(type).GetMethod(nameof(IModelValidator<object>.ValidateAsync))!);
-        return (Task<ValidationReport>)method.Invoke(validator, [model, profile, cancellationToken])!;
+
+        // DoNotWrapExceptions: a hand-rolled validator that throws before returning its task
+        // surfaces its own exception type, exactly as it does through the endpoint filter's
+        // direct call, rather than a TargetInvocationException that middleware mapping the
+        // validator's exception to a status or a log category would not recognise.
+        return (Task<ValidationReport>)method.Invoke(
+            validator,
+            BindingFlags.DoNotWrapExceptions,
+            binder: null,
+            [model, profile, cancellationToken],
+            culture: null)!;
     }
 }

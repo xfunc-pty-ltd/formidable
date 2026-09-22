@@ -2393,6 +2393,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _logger?.LogWarning(
             "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
             path);
+
+        // The callbacks receive the issue as received. The sanitized path above is for the two
+        // text channels the library writes itself; a callback that writes text of its own owes
+        // the path the same treatment, and the options' documentation says so.
         _options.SuppressedIssueDiagnostic?.Invoke(issue);
 
         if (_options.NeverRegisteredFieldDiagnostic is not null && !Registry.HasEverRegistered(Resolve(issue)))

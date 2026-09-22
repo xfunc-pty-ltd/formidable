@@ -322,6 +322,14 @@ public sealed class FormidableOptions
     /// bypasses the registry rather than suppressing). A Trace-output warning is emitted regardless, and
     /// so is a logged warning when the host resolved an <c>ILoggerFactory</c> — WASM's default
     /// logging provider is the browser console, so that channel needs no wiring here to be seen.
+    /// The issue arrives as the reporting site holds it, and on the <c>ApplyServerIssues</c> route
+    /// that is the response body's own strings: its <see cref="ValidationIssue.Path"/>,
+    /// <see cref="ValidationIssue.Message"/> and <see cref="ValidationIssue.DisplayName"/> are
+    /// whatever the server, or whatever answered in its place, wrote. The library's own Trace and
+    /// log lines neutralize control characters in the path and bound its length before writing
+    /// it; a callback that writes any of those strings into a log line or a terminal owes them the
+    /// same, or a crafted path forges a log record one layer up from the lines the library guards.
+    /// A Blazor render encodes them, so a list shown on the page needs nothing more.
     /// </summary>
     public Action<ValidationIssue>? SuppressedIssueDiagnostic { get; set; }
 
@@ -335,7 +343,9 @@ public sealed class FormidableOptions
     /// opened yet — both look identical on a first submit, since neither field has ever been
     /// registered. It stays silent for a field that WAS registered and later unregistered (a
     /// visited-then-collapsed section), which is unambiguous — that shape is unchanged and still
-    /// reports only to <see cref="SuppressedIssueDiagnostic"/>.
+    /// reports only to <see cref="SuppressedIssueDiagnostic"/>. It hands over the same issue that
+    /// callback does, response strings and all, so what its documentation says about writing
+    /// them into a log applies here unchanged.
     /// </summary>
     public Action<ValidationIssue>? NeverRegisteredFieldDiagnostic { get; set; }
 

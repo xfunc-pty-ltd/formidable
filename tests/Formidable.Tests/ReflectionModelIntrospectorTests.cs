@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Formidable.Introspection;
@@ -64,6 +66,28 @@ public class ReflectionModelIntrospectorTests
             .GetField("_propertyCache", BindingFlags.NonPublic | BindingFlags.Instance)!;
         var cache = (ConcurrentDictionary<(Type, string), PropertyInfo?>)field.GetValue(introspector)!;
         return cache.TryGetValue((type, propertyName), out property);
+    }
+
+    /// <summary>
+    /// Reads one of the two cap counters (<c>_cachedPathCount</c> / <c>_cachedPropertyCount</c>)
+    /// the introspector checks a new entry against, for tests only.
+    /// </summary>
+    private static int GetCapCounter(ReflectionModelIntrospector introspector, string counterField)
+    {
+        var field = typeof(ReflectionModelIntrospector)
+            .GetField(counterField, BindingFlags.NonPublic | BindingFlags.Instance)!;
+        return (int)field.GetValue(introspector)!;
+    }
+
+    /// <summary>
+    /// Places a cap counter at a chosen value, so a state that takes 2^31 misses to reach can be
+    /// tested from the miss after it rather than driven there.
+    /// </summary>
+    private static void SetCapCounter(ReflectionModelIntrospector introspector, string counterField, int value)
+    {
+        var field = typeof(ReflectionModelIntrospector)
+            .GetField(counterField, BindingFlags.NonPublic | BindingFlags.Instance)!;
+        field.SetValue(introspector, value);
     }
 
     [Fact]
@@ -419,6 +443,73 @@ public class ReflectionModelIntrospectorTests
         Assert.Equal("Foo", field.PropertyName);
     }
 
+    /// <summary>
+    /// The list shapes that implement the non-generic <see cref="IList"/> and still refuse the
+    /// read that decides an index: <see cref="Array"/> does whatever its rank and throws from
+    /// <c>this[int]</c> past rank one, a default <see cref="ImmutableArray{T}"/> is a value
+    /// rather than a null and throws from <c>Count</c>, and a consumer's own list can do either.
+    /// Every path through them is one a server response can name.
+    /// </summary>
+    private sealed class HostileLists
+    {
+        public int[,] Grid { get; } = new int[2, 2];
+
+        public ImmutableArray<IndexedRow> Rows { get; }
+
+        public ArrayList Bad { get; } = new ThrowingIndexerList { "one" };
+    }
+
+    private sealed class ThrowingIndexerList : ArrayList
+    {
+        public override object? this[int index]
+        {
+            get => throw new NotSupportedException("indexer failure");
+            set => throw new NotSupportedException("indexer failure");
+        }
+    }
+
+    [Fact]
+    public void A_rank_two_array_intermediate_falls_back_rather_than_throwing()
+    {
+        // The class contract promises that a failure to navigate lands on the deepest owner
+        // reached, and the two-indexer pin above holds it for the indexer-property arm. The IList
+        // arm answers the same shape of path, so it owes the same answer: the array is the owner
+        // the walk reached, and the index it could not take is what is left of the path.
+        var model = new HostileLists();
+
+        var field = _introspector.Resolve(model, "Grid[0].X");
+
+        Assert.Same(model.Grid, field.Owner);
+        Assert.Equal("[0].X", field.PropertyName);
+    }
+
+    [Fact]
+    public void A_default_ImmutableArray_intermediate_falls_back_rather_than_throwing()
+    {
+        // Reflection boxes the default struct and hands it back as a value, so the null
+        // fallback never fires; the boxed array is then the IList whose Count throws. The owner
+        // reached is that box, which is why the assertion is on its type rather than its identity.
+        var model = new HostileLists();
+
+        var field = _introspector.Resolve(model, "Rows[0].Name");
+
+        Assert.IsType<ImmutableArray<IndexedRow>>(field.Owner);
+        Assert.Equal("[0].Name", field.PropertyName);
+    }
+
+    [Fact]
+    public void A_list_whose_indexer_throws_falls_back_rather_than_throwing()
+    {
+        // The in-range half of the arm: Count answers, the index is inside it, and the read
+        // itself is what throws.
+        var model = new HostileLists();
+
+        var field = _introspector.Resolve(model, "Bad[0].X");
+
+        Assert.Same(model.Bad, field.Owner);
+        Assert.Equal("[0].X", field.PropertyName);
+    }
+
     [Fact]
     public void A_path_longer_than_the_cache_length_cap_resolves_but_is_never_remembered()
     {
@@ -450,6 +541,112 @@ public class ReflectionModelIntrospectorTests
         introspector.Resolve(order, atCap);
 
         Assert.True(TryGetCachedParse(introspector, atCap, out _));
+    }
+
+    [Fact]
+    public void A_member_name_longer_than_the_cache_length_cap_resolves_but_is_never_remembered()
+    {
+        // The member-name half of the property cache's key is a path segment, so it arrives as
+        // unfiltered as the path it was cut from, and an entry holds a copy of it: the count cap
+        // bounds how many names are kept and this bounds how long one may be, the same pair the
+        // path cache holds. A name no type could declare is reflected, answered and dropped —
+        // and spends none of the count budget on the way, so a flood of them cannot spend it.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var overlong = new string('a', GetMaxCachedPathLength() + 1);
+
+        var field = introspector.Resolve(order, $"{overlong}.Leaf");
+
+        Assert.Same(order, field.Owner);
+        Assert.Equal($"{overlong}.Leaf", field.PropertyName);
+        Assert.False(TryGetCachedProperty(introspector, typeof(TestOrder), overlong, out _));
+        Assert.Equal(0, GetPropertyCacheCount(introspector));
+        Assert.Equal(0, GetCapCounter(introspector, "_cachedPropertyCount"));
+    }
+
+    [Fact]
+    public void A_member_name_at_the_cache_length_cap_is_still_remembered()
+    {
+        // The control for the refusal above, through the read that reaches the property cache
+        // with no path parse in front of it: a name exactly at the cap is cached, its miss
+        // included.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var atCap = new string('a', GetMaxCachedPathLength());
+
+        Assert.False(introspector.TryReadValue(order, atCap, out _, out _));
+
+        Assert.True(TryGetCachedProperty(introspector, typeof(TestOrder), atCap, out var cached));
+        Assert.Null(cached);
+    }
+
+    [Fact]
+    public void Path_cache_counter_stops_at_the_cap_rather_than_counting_every_later_miss()
+    {
+        // The counter IS the cap. One that kept counting every miss past it would wrap negative
+        // after 2^31 of them and pass the check again, re-opening the cache to as many entries
+        // more; stopping at the cap is what makes that unreachable.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var cap = GetMaxCachedPaths();
+
+        for (var i = 0; i < cap + 50; i++)
+        {
+            introspector.Resolve(order, $"Field{i}");
+        }
+
+        Assert.Equal(cap, GetPathCacheCount(introspector));
+        Assert.Equal(cap, GetCapCounter(introspector, "_cachedPathCount"));
+    }
+
+    [Fact]
+    public void Path_cache_counter_at_the_wrap_edge_admits_nothing_and_does_not_move()
+    {
+        // The state 2^31 misses would reach, entered directly: the counter one miss from
+        // wrapping, then the misses the wrap would have admitted.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        SetCapCounter(introspector, "_cachedPathCount", int.MaxValue);
+
+        for (var i = 0; i < 50; i++)
+        {
+            introspector.Resolve(order, $"Field{i}");
+        }
+
+        Assert.Equal(0, GetPathCacheCount(introspector));
+        Assert.Equal(int.MaxValue, GetCapCounter(introspector, "_cachedPathCount"));
+    }
+
+    [Fact]
+    public void Property_cache_counter_stops_at_the_cap_rather_than_counting_every_later_miss()
+    {
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var cap = GetMaxCachedProperties();
+
+        for (var i = 0; i < cap + 50; i++)
+        {
+            introspector.Resolve(order, $"RandomProp{i}.Leaf");
+        }
+
+        Assert.Equal(cap, GetPropertyCacheCount(introspector));
+        Assert.Equal(cap, GetCapCounter(introspector, "_cachedPropertyCount"));
+    }
+
+    [Fact]
+    public void Property_cache_counter_at_the_wrap_edge_admits_nothing_and_does_not_move()
+    {
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        SetCapCounter(introspector, "_cachedPropertyCount", int.MaxValue);
+
+        for (var i = 0; i < 50; i++)
+        {
+            introspector.Resolve(order, $"RandomProp{i}.Leaf");
+        }
+
+        Assert.Equal(0, GetPropertyCacheCount(introspector));
+        Assert.Equal(int.MaxValue, GetCapCounter(introspector, "_cachedPropertyCount"));
     }
 
     private class NonPublicMembers

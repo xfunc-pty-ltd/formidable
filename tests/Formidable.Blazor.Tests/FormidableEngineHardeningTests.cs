@@ -214,10 +214,12 @@ public class FormidableEngineHardeningTests
     // Both ReportSuppressed (above) and FirstErrorFocus.ReportFallbackMiss echo a
     // ValidationIssue.Path into a Trace line and a formatted log message. That Path is
     // payload-supplied on the ApplyServerIssues route - nothing upstream constrains its shape -
-    // so a forged one carrying '\r'/'\n' would split either line, and an unbounded one costs the
-    // line whatever length the payload names. DiagnosticPathSanitizer.ForDiagnostic is the shared
-    // fix; these four pins cover both call sites for both contracts, so bypassing the sanitizer at
-    // either site fails that site's own pair on its own.
+    // so a forged one carrying '\r'/'\n' would split either line, one carrying an escape sequence
+    // or a backspace would redraw or overwrite the line on a sink that honours them, and an
+    // unbounded one costs the line whatever length the payload names.
+    // DiagnosticPathSanitizer.ForDiagnostic is the shared fix; these six pins cover both call
+    // sites for all three contracts, so bypassing the sanitizer at either site fails that site's
+    // own trio on its own.
 
     [Fact]
     public void Suppressed_issue_diagnostic_neutralizes_a_forged_newline_in_the_path()
@@ -277,6 +279,37 @@ public class FormidableEngineHardeningTests
         var logged = Assert.Single(logger.Messages);
         Assert.DoesNotContain(forgedPath, logged);
         Assert.Contains("more", logged);
+    }
+
+    [Fact]
+    public void Suppressed_issue_diagnostic_neutralizes_control_characters_in_the_path()
+    {
+        var order = new EngineOrder();
+        var logger = new CapturingLogger();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider(), logger: logger);
+
+        // ESC[2K ESC[1G erases the line and returns the cursor to column one on a terminal that
+        // honours ANSI escapes, so what follows paints over the prefix the library wrote; the
+        // backspaces and the bell are the rest of the C0 class, DEL and the one-byte C1 CSI are
+        // the controls outside it, and the vertical tab is the one a line-ending replacement
+        // alone lets through.
+        const string marker = "forged control-character log line";
+        var forgedPath = $"Description\u001b[2K\u001b[1G{marker}\b\b\a\v\u007f\u009b";
+        var traceLines = CaptureTrace(() =>
+            engine.ApplyServerIssues(
+                [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
+
+        // Matched by content, not by count - see the sibling CRLF pin above for why.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.All(traceLine, c => Assert.False(char.IsControl(c)));
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.All(logged, c => Assert.False(char.IsControl(c)));
     }
 
     [Fact]
@@ -345,6 +378,37 @@ public class FormidableEngineHardeningTests
         var logged = Assert.Single(logger.Messages);
         Assert.DoesNotContain(forgedPath, logged);
         Assert.Contains("more", logged);
+    }
+
+    [Fact]
+    public async Task Fallback_miss_diagnostic_neutralizes_control_characters_in_the_path()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(), new FakeTimeProvider());
+
+        // The same forged path as the suppressed-issue sibling, reaching the other call site.
+        const string marker = "forged control-character fallback line";
+        var forgedPath = $"Description\u001b[2K\u001b[1G{marker}\b\b\a\v\u007f\u009b";
+        engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
+
+        var focus = new RecordingFocusService { Lands = false };
+        var logger = new CapturingLogger();
+        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+
+        var traceLines = await CaptureTraceAsync(
+            () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
+
+        // Matched by content, not by count - see the sibling CRLF pin above for why.
+        var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
+        Assert.All(traceLine, c => Assert.False(char.IsControl(c)));
+
+        var logged = Assert.Single(logger.Messages);
+        Assert.All(logged, c => Assert.False(char.IsControl(c)));
     }
 
     /// <summary>

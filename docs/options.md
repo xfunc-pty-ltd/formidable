@@ -403,11 +403,22 @@ so automatically when one is registered), the same suppression also logs a `LogW
 default logging provider is the browser console, so this is the channel that needs no consumer
 wiring at all to be seen.
 
+What the callback hands you is the issue as the reporting site holds it, and on the
+`ApplyServerIssues` route that is the response body's own strings: `Path`, `Message` and
+`DisplayName` are whatever the server, or whatever answered in its place, wrote. The library's own
+Trace and log lines neutralize control characters in the path and bound its length before writing
+it. Telemetry that writes `issue.Path` into a log line owes it the same, or a crafted path can forge
+a log record one layer up from the lines the library already guards. A Blazor render encodes it, so
+a list on the page — the sample's own callback [below](#formidableoptions-is-read-once) — needs
+nothing more.
+
 ### `NeverRegisteredFieldDiagnostic`
 
 `Action<ValidationIssue>?`, defaults to `null`. Invoked alongside `SuppressedIssueDiagnostic`, for
 the narrower half of what it reports: a suppressed issue whose field has no registration history at
-all — nothing has rendered it since the engine was built.
+all — nothing has rendered it since the engine was built. It receives the same issue
+`SuppressedIssueDiagnostic` does, response strings and all, so what that section says about writing
+its `Path` into a log applies here unchanged.
 
 That is the signature of a rule whose `.When(...)` fails to mirror the `@if` gating its field, so
 the rule can fail in a state the field never renders in. It is *also* the signature of a perfectly

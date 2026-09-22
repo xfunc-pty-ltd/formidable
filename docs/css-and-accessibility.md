@@ -480,15 +480,32 @@ punctuation intact, is what separates them again.
 
 It sits in front of the sanitized name rather than after it. The owner segment is an
 object-identity hash, which is opaque rather than addressable: it names the instance, so a
-different model or a different collection row gives a different one, and its value is drawn from
-a sequence the runtime advances on each first identity-hash request, so anything the app asks
-about earlier moves it along. Nothing you write can name it. The suffix is what stays put, and
-putting the name anywhere but last would take that away. The name hash itself is spelled out in
-the library rather than taken from `string.GetHashCode()`, which — unlike the identity hash
-beside it — really is randomized per process, so an id computed in your test run would not match
-the one the app renders. Thirty-two bits over the names one object owns makes two ids
-overwhelmingly likely to differ rather than certain to; the sanitizer collision it replaces was
-certain.
+different model or a different collection row gives a different one (all but certainly; the next
+paragraph is the exception), and its value is drawn from a sequence the runtime advances on each
+first identity-hash request, so anything the app asks about earlier moves it along. Nothing you
+write can name it. The suffix is what stays put, and putting the name anywhere but last would
+take that away. The name hash itself is spelled out in the library rather than taken from
+`string.GetHashCode()`, which — unlike the identity hash beside it — really is randomized per
+process, so an id computed in your test run would not match the one the app renders. Thirty-two
+bits over the names one object owns makes two ids overwhelmingly likely to differ rather than
+certain to; the sanitizer collision it replaces was certain.
+
+The owner segment prints in the same eight hex digits and is narrower than it looks. The runtime
+keeps an object's identity hash in part of the object's header rather than in a full `int`
+(twenty-six bits of it on CoreCLR, the runtime under Blazor Server and every server-side render),
+so among enough owner objects rendered at once two can draw the same value, and their same-named
+fields then render the same id. The odds climb with the square of the count: negligible for the
+hundreds of rows a form usually shows, under one percent at a thousand rendered at once, about one
+in six at five thousand. Validation is untouched, because the engine tells fields apart by the
+owner reference and never by this hash. What a duplicate id disturbs is whatever is keyed by the
+id. A site that reaches an element through it reaches the first of the two in the document: a
+summary click or a blocked submit's focus lands on the first row, the second row's
+`aria-describedby` names the first row's message list, and the value sync on blur writes into the
+first row's box. The field-order service keys its answer by id as well, and there a shared id can
+name only one field: the one the registry lists later keeps it and takes the first row's place in
+the resolved order, and the other never enters that order, so its issues sort after every placed
+field's. Virtualizing a form that large keeps the rendered set to the rows in view, which is the
+count that matters.
 
 The model-level field — an empty `FieldIdentifier.FieldName`, the one the defensive
 all-suppressed gate in [Disclosure](disclosure.md) targets — gets `form` as its name

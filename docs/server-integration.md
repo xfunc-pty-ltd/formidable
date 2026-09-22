@@ -31,19 +31,17 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
 adapters funnel into one wire format, defined once in the dependency-free core package, so
-whichever one rejects a request on its validators' verdict, the same paths carry the same
-messages and the `advisories` extension is identical. Each then builds the ProblemDetails around them the way its own half of
-the framework does — the endpoint filter through `TypedResults.ValidationProblem`, the action
-filter through the app's `ProblemDetailsFactory` — and three differences follow from that, all of
-them the framework's rather than Formidable's. The action filter's `errors` reach the response
-through a `ModelStateDictionary`, which is a prefix trie, so it **orders its keys its own way**
-where the endpoint filter serves them in report order; a `ModelStateDictionary` also **substitutes
-its own text for an empty message**, so an issue carrying none arrives as `""` from the endpoint
-filter and as a sentence of MVC's from the action filter; and MVC's factory writes a **`traceId`
-whatever the host configured**, where `TypedResults.ValidationProblem` writes one only under
-`AddProblemDetails()`. A client keying on paths and reading messages is unaffected by all three.
-The one divergence that is not presentation happens before either adapter has a verdict to send
-at all, over a request body that bound to `null`: [Minimal APIs](#minimal-apis) below.
+whichever one rejects a request on its validators' verdict, the `errors` dictionary is the same
+one: the same paths in the same order (the report's), carrying the same messages, an empty message
+kept empty, and the `advisories` extension identical beside it. Each builds the ProblemDetails
+around that dictionary the way its own half of the framework does (the endpoint filter through
+`TypedResults.ValidationProblem`, the action filter through the app's `ProblemDetailsFactory`),
+and one difference in the envelope itself follows from that, the framework's rather than
+Formidable's: MVC's factory writes a **`traceId` whatever the host configured**, where
+`TypedResults.ValidationProblem` writes one only under `AddProblemDetails()`. A client keying on
+paths and reading messages never sees it. The one divergence that is not presentation happens
+before either adapter has a verdict to send at all, over a request body that bound to `null`:
+[Minimal APIs](#minimal-apis) below.
 On the client side,
 closing the loop is two calls: deserialize the 400 body, and hand it to
 `FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
@@ -673,14 +671,30 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 or failed to bind: the one strictness check that runs per request is the line above it, and it
 reads the action's declared parameters rather than its arguments — both halves are described
 below. `BuildProblem`, just out
-of view above, is where the errors become a response: it copies the mapper's dictionary into a
-`ModelStateDictionary` — lifting that dictionary's default error cap, since a validation report
-legitimately runs to one issue per collection row — and hands it to the app's own
-`ProblemDetailsFactory`, which is what `ControllerBase.ValidationProblem()` uses. That is where
-this filter's 400 picks up the trace identifier, the `ApiBehaviorOptions.ClientErrorMapping` type
-link and any consumer factory's own additions, and it is the hop the three differences at the top
-of this page come from. The merge is
-deliberately flat: the 400's `errors` dictionary keys each issue by its own property path with
+of view above, is where the errors become a response: it asks the app's own
+`ProblemDetailsFactory`, which is what `ControllerBase.ValidationProblem()` uses, for the envelope,
+handing it an empty `ModelStateDictionary`, and then puts the mapper's dictionary into `Errors`
+directly. That is where this filter's 400 picks up the trace identifier, the
+`ApiBehaviorOptions.ClientErrorMapping` type link and any consumer factory's own additions. No
+error passes through the `ModelStateDictionary`, deliberately: it is a prefix trie 32 nodes deep
+at most, so the path an ordinary recursive validator produces
+(`RuleForEach(n => n.Children).SetValidator(this)`) would throw out of the response builder from
+sixteen collection levels down, a few hundred bytes of request body; and the framework's
+`ValidationProblemDetails` constructor over a populated one is quadratic in the number of keys,
+which one issue per collection row reaches quickly. A document that deep has to be let in by MVC
+itself first: its JSON formatter caps nesting at `JsonOptions.MaxDepth` (32 on MVC, where minimal
+APIs read System.Text.Json's own 64) and its validation visitor stops at
+`MvcOptions.MaxValidationDepth` (32), each stopping the request before any action filter runs.
+Raise both, and `[Validate]` adds no cap of its own. The errors are out of the factory's reach,
+and that touches two consumer seams the same way: an app's own `ProblemDetailsFactory` override
+receives the empty `ModelStateDictionary`, and `ProblemDetailsOptions.CustomizeProblemDetails`
+runs inside the factory before the dictionary is set. Either sees an empty `Errors` on this path
+where `TypedResults.ValidationProblem` shows the hook the full set and asks no
+`ProblemDetailsFactory` for anything, so anything either derives from the errors (a count, a log
+line) is derived from nothing, and an `Errors` entry either writes is replaced by the mapper's
+dictionary. Everything else either does (reading the request, adding an extension) lands on the
+response as it does for the app's other 400s. The merge
+is deliberately flat: the 400's `errors` dictionary keys each issue by its own property path with
 no per-argument prefix, so two validated models sharing a property name land under one key. The
 stash just above the `IsValid` gate is what `GetFormidableValidationReport` reads back: the
 aggregate, whether the request went on to a 400 or to the action (see

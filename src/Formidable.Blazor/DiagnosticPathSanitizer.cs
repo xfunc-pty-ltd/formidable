@@ -25,21 +25,30 @@ internal static class DiagnosticPathSanitizer
     private const int MaxLength = 256;
 
     /// <summary>
+    /// What stands in for a control character. Visible rather than a space, so a path that
+    /// carried one shows where it was instead of reading as a real, if odd, path.
+    /// </summary>
+    private const char Placeholder = '?';
+
+    /// <summary>
     /// Replaces every line-ending sequence <see cref="string.ReplaceLineEndings(string)"/>
     /// recognizes — CR, LF, CRLF, form feed, NEL, and the Unicode line and paragraph
     /// separators — with a single space, so none of those can split the single line a Trace
-    /// entry or a formatted log message is meant to occupy. That set is what the guarantee is
-    /// scoped to: it is not every character a console renders as a move to the next row, and a
-    /// vertical tab is the one outside it, passed through to wrap a console line rather than
-    /// forge a record. Then caps the result at <see cref="MaxLength"/> — appending a marker
-    /// naming how much was cut, rather than truncating silently to something that reads as a
-    /// real, if short, path.
+    /// entry or a formatted log message is meant to occupy; then every control character still
+    /// standing (<see cref="char.IsControl(char)"/>: the C0 range, DEL and the C1 range) with
+    /// <see cref="Placeholder"/>, so an escape sequence cannot redraw the line on a terminal
+    /// that honours one, a backspace cannot overwrite what the line already said, and a bell
+    /// cannot ring — what the sink shows is the line the library wrote. Two passes rather than
+    /// one, because neither covers the other: a line or paragraph separator is not a control
+    /// character, and a CRLF pair is one line ending rather than two placeholders. Caps the
+    /// result at <see cref="MaxLength"/> — appending a marker naming how much was cut, rather
+    /// than truncating silently to something that reads as a real, if short, path.
     /// </summary>
     internal static string ForDiagnostic(string path)
     {
         var oneLine = path.ReplaceLineEndings(" ");
-        return oneLine.Length <= MaxLength
-            ? oneLine
-            : $"{oneLine[..MaxLength]}…[+{oneLine.Length - MaxLength} more]";
+        var cut = Math.Max(0, oneLine.Length - MaxLength);
+        var visible = string.Concat(oneLine.Take(MaxLength).Select(c => char.IsControl(c) ? Placeholder : c));
+        return cut == 0 ? visible : $"{visible}…[+{cut} more]";
     }
 }
