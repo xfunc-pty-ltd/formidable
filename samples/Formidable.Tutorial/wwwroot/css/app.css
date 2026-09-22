@@ -1,29 +1,67 @@
-.tutorial-styled .formidable-invalid {
-    border: 2px solid red;
+.tutorial-styled form {
+    max-width: 29rem;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #1f2937;
 }
 
-.tutorial-styled .formidable-valid {
-    border: 2px solid green;
+.tutorial-styled label {
+    display: block;
+    margin-top: 1rem;
+    font-weight: 600;
 }
 
-.tutorial-styled .formidable-warning {
-    border: 2px solid orange;
+.tutorial-styled input,
+.tutorial-styled textarea {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    margin-top: 0.25rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 400;
 }
 
-.tutorial-styled .formidable-info {
-    border: 2px solid blue;
-}
+.tutorial-styled textarea { min-height: 6rem; }
 
-.tutorial-styled .formidable-pending {
-    border: 2px dashed gray;
-}
+.tutorial-styled .formidable-invalid { border: 2px solid #b91c1c; }
+.tutorial-styled .formidable-valid { border: 2px solid #15803d; }
+.tutorial-styled .formidable-warning { border: 2px solid #b45309; }
+.tutorial-styled .formidable-info { border: 2px solid #1d4ed8; }
+.tutorial-styled .formidable-pending { border: 2px dashed #9ca3af; }
 
-.tutorial-styled .formidable-message {
-    font-size: 0.85em;
-    color: red;
-}
-
-.tutorial-styled .formidable-message-list {
-    list-style: none;
+.tutorial-styled .formidable-message-list,
+.tutorial-styled .formidable-summary__group {
+    margin: 0.375rem 0 0;
     padding: 0;
+    list-style: none;
+}
+
+.tutorial-styled .formidable-message { font-size: 0.875rem; color: #b91c1c; }
+.tutorial-styled .formidable-message--warning { color: #b45309; }
+.tutorial-styled .formidable-message--info { color: #1d4ed8; }
+
+.tutorial-styled .formidable-summary__band { font-size: 0.875rem; color: #b91c1c; }
+.tutorial-styled .formidable-summary__band--warning { color: #b45309; }
+.tutorial-styled .formidable-summary__band--info { color: #1d4ed8; }
+
+.tutorial-styled .formidable-summary__link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tutorial-styled button:not(.formidable-summary__link) {
+    margin: 1.25rem 0.5rem 0 0;
+    padding: 0.5rem 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #f8fafc;
+    font: inherit;
+    cursor: pointer;
 }

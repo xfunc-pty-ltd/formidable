@@ -2,8 +2,8 @@
 
 **You should already know:** why the server needs to run the same validator at all, and roughly
 what `ApplyServerIssues` does with what comes back
-([Async and server](async-and-server.md)), plus the draft/submit split that decides
-which profile a request runs under ([Core concepts](core-concepts.md)).
+([The server round trip](tutorial/6-server.md)), plus the draft/submit split that decides
+which profile a request runs under ([Profiles](profiles.md)).
 
 A form's client-side code is never something a server can trust on its own. A request can skip
 the browser entirely, replay old values, or arrive from a client that never ran a single rule.
@@ -522,28 +522,28 @@ FluentValidation `IValidator<T>`; passed explicit types, it validates exactly th
 types regardless of how their `IModelValidator<T>` adapter is registered:
 
 ```csharp
-    /// <summary>Validates arguments discovered by validator registration.</summary>
-    public ValidateAttribute() => _modelTypes = [];
+/// <summary>Validates arguments discovered by validator registration.</summary>
+public ValidateAttribute() => _modelTypes = [];
 
-    /// <summary>Validates the arguments of exactly these model types.</summary>
-    public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
+/// <summary>Validates the arguments of exactly these model types.</summary>
+public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
 ```
 
 <!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
 
 ```csharp
-    private bool ShouldValidate(Type argumentType, IServiceProvider services)
+private bool ShouldValidate(Type argumentType, IServiceProvider services)
+{
+    if (_modelTypes.Length > 0)
     {
-        if (_modelTypes.Length > 0)
-        {
-            return _modelTypes.Contains(argumentType);
-        }
-
-        // Probe the FluentValidation registration directly: resolving IModelValidator<T>
-        // through the open-generic adapter THROWS when no IValidator<T> exists, so the
-        // validator interface itself is the safe presence check for the shipped path.
-        return services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is not null;
+        return _modelTypes.Contains(argumentType);
     }
+
+    // Probe the FluentValidation registration directly: resolving IModelValidator<T>
+    // through the open-generic adapter THROWS when no IValidator<T> exists, so the
+    // validator interface itself is the safe presence check for the shipped path.
+    return services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is not null;
+}
 ```
 
 <!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
@@ -570,98 +570,98 @@ on every one of them and aggregates every issue from every argument into a singl
 before deciding whether to short-circuit — one 400 for the whole action, not one per argument:
 
 ```csharp
-    public override async Task OnActionExecutionAsync(
-        ActionExecutingContext context, ActionExecutionDelegate next)
+public override async Task OnActionExecutionAsync(
+    ActionExecutingContext context, ActionExecutionDelegate next)
+{
+    var profile = ValidationProfile.FromName(Profile);
+    var services = context.HttpContext.RequestServices;
+    ThrowIfDiscoveryResolvesNoValidator(context.ActionDescriptor, services);
+
+    var issues = new List<ValidationIssue>();
+    var validatedAny = false;
+
+    foreach (var (name, argument) in context.ActionArguments)
     {
-        var profile = ValidationProfile.FromName(Profile);
-        var services = context.HttpContext.RequestServices;
-        ThrowIfDiscoveryResolvesNoValidator(context.ActionDescriptor, services);
-
-        var issues = new List<ValidationIssue>();
-        var validatedAny = false;
-
-        foreach (var (name, argument) in context.ActionArguments)
+        if (argument is null)
         {
-            if (argument is null)
-            {
-                continue;
-            }
-
-            var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
-            if (argumentType is null)
-            {
-                continue;
-            }
-
-            validatedAny = true;
-            (argument as INormalizableModel)?.Normalize();
-
-            object validator;
-            try
-            {
-                validator = services.GetRequiredService(typeof(IModelValidator<>).MakeGenericType(argumentType));
-            }
-            catch (InvalidOperationException ex)
-                when (services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is null)
-            {
-                // The open-generic adapter is registered but the validator it wraps is not, so
-                // resolving it throws during activation rather than returning null. Reached
-                // through the explicit-types path, which names the type instead of probing for
-                // a validator — the discovery path cannot get here, because ShouldValidate only
-                // returns true for a type whose IValidator<T> it just found.
-                throw new InvalidOperationException(MissingFluentValidatorMessage.For(argumentType), ex);
-            }
-            catch (InvalidOperationException ex)
-            {
-                // A registered IValidator<T> contradicts the diagnosis above, so this failure
-                // has some other cause — the adapter itself was never wired up, almost always
-                // because AddFormidable() was never called.
-                throw new InvalidOperationException(
-                    $"No IModelValidator<{FriendlyTypeName.Of(argumentType)}> is resolvable — call services.AddFormidable() to register the FluentValidation adapter.",
-                    ex);
-            }
-
-            var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
-            issues.AddRange(report.Issues);
+            continue;
         }
 
-        var aggregate = new ValidationReport(issues);
-
-        if (validatedAny)
+        var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
+        if (argumentType is null)
         {
-            // Stashed before the 400/pass-through decision so the request can always read the
-            // verdict the validators produced. Gated on validatedAny: when nothing was
-            // validated, the accessor answers null rather than serving an empty report that
-            // implies rules ran and passed.
-            context.HttpContext.SetFormidableValidationReport(aggregate);
+            continue;
         }
 
-        if (!aggregate.IsValid)
+        validatedAny = true;
+        (argument as INormalizableModel)?.Normalize();
+
+        object validator;
+        try
         {
-            var problem = BuildProblem(context.HttpContext, aggregate);
-
-            var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
-            if (extensions is not null)
-            {
-                foreach (var (key, value) in extensions)
-                {
-                    problem.Extensions[key] = value;
-                }
-            }
-
-            // The media type is set outright rather than left to BadRequestObjectResult's
-            // implicit content negotiation, which is what makes this a problem+json response
-            // whatever the request's Accept header asks for.
-            context.Result = new ObjectResult(problem)
-            {
-                StatusCode = StatusCodes.Status400BadRequest,
-                ContentTypes = { "application/problem+json" }
-            };
-            return;
+            validator = services.GetRequiredService(typeof(IModelValidator<>).MakeGenericType(argumentType));
+        }
+        catch (InvalidOperationException ex)
+            when (services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is null)
+        {
+            // The open-generic adapter is registered but the validator it wraps is not, so
+            // resolving it throws during activation rather than returning null. Reached
+            // through the explicit-types path, which names the type instead of probing for
+            // a validator — the discovery path cannot get here, because ShouldValidate only
+            // returns true for a type whose IValidator<T> it just found.
+            throw new InvalidOperationException(MissingFluentValidatorMessage.For(argumentType), ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // A registered IValidator<T> contradicts the diagnosis above, so this failure
+            // has some other cause — the adapter itself was never wired up, almost always
+            // because AddFormidable() was never called.
+            throw new InvalidOperationException(
+                $"No IModelValidator<{FriendlyTypeName.Of(argumentType)}> is resolvable — call services.AddFormidable() to register the FluentValidation adapter.",
+                ex);
         }
 
-        await next();
+        var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
+        issues.AddRange(report.Issues);
     }
+
+    var aggregate = new ValidationReport(issues);
+
+    if (validatedAny)
+    {
+        // Stashed before the 400/pass-through decision so the request can always read the
+        // verdict the validators produced. Gated on validatedAny: when nothing was
+        // validated, the accessor answers null rather than serving an empty report that
+        // implies rules ran and passed.
+        context.HttpContext.SetFormidableValidationReport(aggregate);
+    }
+
+    if (!aggregate.IsValid)
+    {
+        var problem = BuildProblem(context.HttpContext, aggregate);
+
+        var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
+        if (extensions is not null)
+        {
+            foreach (var (key, value) in extensions)
+            {
+                problem.Extensions[key] = value;
+            }
+        }
+
+        // The media type is set outright rather than left to BadRequestObjectResult's
+        // implicit content negotiation, which is what makes this a problem+json response
+        // whatever the request's Accept header asks for.
+        context.Result = new ObjectResult(problem)
+        {
+            StatusCode = StatusCodes.Status400BadRequest,
+            ContentTypes = { "application/problem+json" }
+        };
+        return;
+    }
+
+    await next();
+}
 ```
 
 <!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
@@ -707,17 +707,17 @@ aggregate, whether the request went on to a 400 or to the action (see
 type is resolved by `ResolveValidatedType`:
 
 ```csharp
-    private Type? ResolveValidatedType(ActionDescriptor actionDescriptor, string parameterName, object argument, IServiceProvider services)
+private Type? ResolveValidatedType(ActionDescriptor actionDescriptor, string parameterName, object argument, IServiceProvider services)
+{
+    var declaredType = DeclaredParameterType(actionDescriptor, parameterName) ?? argument.GetType();
+    if (ShouldValidate(declaredType, services))
     {
-        var declaredType = DeclaredParameterType(actionDescriptor, parameterName) ?? argument.GetType();
-        if (ShouldValidate(declaredType, services))
-        {
-            return declaredType;
-        }
-
-        var runtimeType = argument.GetType();
-        return runtimeType != declaredType && ShouldValidate(runtimeType, services) ? runtimeType : null;
+        return declaredType;
     }
+
+    var runtimeType = argument.GetType();
+    return runtimeType != declaredType && ShouldValidate(runtimeType, services) ? runtimeType : null;
+}
 ```
 
 <!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
@@ -799,20 +799,20 @@ against the same two conventional profiles the client uses (see [Profiles](profi
 string, shared by any other string-typed configuration surface too:
 
 ```csharp
-    public static ValidationProfile FromName(string name)
+public static ValidationProfile FromName(string name)
+{
+    if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
     {
-        if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
-        {
-            return Draft;
-        }
-
-        if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
-        {
-            return Submit;
-        }
-
-        return Named(name, includeDefaultRules: true, name);
+        return Draft;
     }
+
+    if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
+    {
+        return Submit;
+    }
+
+    return Named(name, includeDefaultRules: true, name);
+}
 ```
 
 <!-- Source: `src/Formidable/ValidationProfile.cs` -->
@@ -926,44 +926,44 @@ wire-deserialized one.
 `IFormidableEngine.ApplyServerIssues` documents its own contract in full:
 
 ```csharp
-    /// <summary>
-    /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
-    /// submit results: the server's verdict applies at the severity it carries. Errors land on
-    /// their fields and reach the EditContext's message store; warnings and infos land as
-    /// advisories, which the reads above surface and the store — an error-only surface — does not.
-    /// The payload is treated as the server's CURRENT verdict: it replaces the server's previous
-    /// one outright rather than accumulating with it, so re-submitting the same or a corrected
-    /// payload does not duplicate inline messages. The server's issues are held apart from the
-    /// client's own, so a replace cannot disturb a client-sourced issue on the same field, and an
-    /// advisory whose message a client rule already disclosed for that field shows once, as the
-    /// client's copy. Applying is itself a disclosure event for the fields it names: a client
-    /// error the last submit computed but had nowhere to show surfaces alongside the server's.
-    /// The server's verdict stands until a newer whole-model answer supersedes it — the next
-    /// debounced refresh, the next submit, or a page saying what its freshly loaded values have
-    /// earned through <see cref="DiscloseLoadedValuesAsync"/> — at which point a server-only
-    /// issue with no matching client rule goes, while one a client rule agrees with keeps showing
-    /// through the client's own answer. Because the payload is treated as a submit result,
-    /// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
-    /// server-side reaches the submitted state through this call alone — and it clears any
-    /// standing incomplete-validation fault, whatever the client is doing: a verdict has arrived
-    /// to stand in for the one a faulted pass could not finish. Call from the renderer's
-    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
-    /// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
-    /// once.
-    /// </summary>
-    /// <remarks>
-    /// Errors bypass the field registry: the server judged what was actually submitted, so an error
-    /// shows whether or not the client rendered its field, and only a disclosure override returning
-    /// <see langword="false"/> hides one. Advisories take the same override-aware visibility
-    /// answer the client's own do: a disclosure override settles it in either direction, and
-    /// where none speaks, one with no rendered field is not shown — because an advisory blocks
-    /// nothing, so hiding one strands no verdict. Reporting is where the two part company: a
-    /// suppressed advisory here reaches the suppressed-issue diagnostic, where a submit's own
-    /// reaches nothing at all — no Trace line, no logged warning, no callback. A payload
-    /// carrying the same message twice for one field at one severity lands it once: a reader
-    /// has no use for it twice.
-    /// </remarks>
-    void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
+/// <summary>
+/// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
+/// submit results: the server's verdict applies at the severity it carries. Errors land on
+/// their fields and reach the EditContext's message store; warnings and infos land as
+/// advisories, which the reads above surface and the store — an error-only surface — does not.
+/// The payload is treated as the server's CURRENT verdict: it replaces the server's previous
+/// one outright rather than accumulating with it, so re-submitting the same or a corrected
+/// payload does not duplicate inline messages. The server's issues are held apart from the
+/// client's own, so a replace cannot disturb a client-sourced issue on the same field, and an
+/// advisory whose message a client rule already disclosed for that field shows once, as the
+/// client's copy. Applying is itself a disclosure event for the fields it names: a client
+/// error the last submit computed but had nowhere to show surfaces alongside the server's.
+/// The server's verdict stands until a newer whole-model answer supersedes it — the next
+/// debounced refresh, the next submit, or a page saying what its freshly loaded values have
+/// earned through <see cref="DiscloseLoadedValuesAsync"/> — at which point a server-only
+/// issue with no matching client rule goes, while one a client rule agrees with keeps showing
+/// through the client's own answer. Because the payload is treated as a submit result,
+/// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
+/// server-side reaches the submitted state through this call alone — and it clears any
+/// standing incomplete-validation fault, whatever the client is doing: a verdict has arrived
+/// to stand in for the one a faulted pass could not finish. Call from the renderer's
+/// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
+/// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
+/// once.
+/// </summary>
+/// <remarks>
+/// Errors bypass the field registry: the server judged what was actually submitted, so an error
+/// shows whether or not the client rendered its field, and only a disclosure override returning
+/// <see langword="false"/> hides one. Advisories take the same override-aware visibility
+/// answer the client's own do: a disclosure override settles it in either direction, and
+/// where none speaks, one with no rendered field is not shown — because an advisory blocks
+/// nothing, so hiding one strands no verdict. Reporting is where the two part company: a
+/// suppressed advisory here reaches the suppressed-issue diagnostic, where a submit's own
+/// reaches nothing at all — no Trace line, no logged warning, no callback. A payload
+/// carrying the same message twice for one field at one severity lands it once: a reader
+/// has no use for it twice.
+/// </remarks>
+void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
 <!-- Source: `src/Formidable.Blazor/IFormidableEngine.cs` -->
@@ -1050,53 +1050,53 @@ The sample deliberately skips client-side submit validation so the round trip is
 press Send and the server's 400 lands on the exact fields.
 
 ```csharp
-    private async Task Send()
+private async Task Send()
+{
+    // Normalizing before the POST keeps the client's line list identical to what the
+    // server validates (its filter normalizes too) - so issue paths always match rows.
+    _order.Normalize();
+    var response = await Http.PostAsJsonAsync(_endpoint, _order);
+
+    if (response.IsSuccessStatusCode)
     {
-        // Normalizing before the POST keeps the client's line list identical to what the
-        // server validates (its filter normalizes too) - so issue paths always match rows.
-        _order.Normalize();
-        var response = await Http.PostAsJsonAsync(_endpoint, _order);
-
-        if (response.IsSuccessStatusCode)
-        {
-            _status = "Server accepted the order.";
-            return;
-        }
-
-        // A 400 says the request was rejected, not that the endpoint is what rejected it. A
-        // reverse proxy, a gateway or a WAF in front of it answers with its own HTML page or its
-        // own JSON, and the parse reads the Content-Type header's character set as well as the
-        // body, so either can be something it cannot make sense of. The JSON literal null throws
-        // nothing and deserializes to nothing at all. A rejection the page cannot read is still a
-        // rejection, and none of these is an exception the visitor should meet.
-        FormidableValidationProblem? problem;
-        try
-        {
-            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-        {
-            problem = null;
-        }
-
-        if (problem is null)
-        {
-            // The last verdict stays on screen. An unreadable response is no evidence that it
-            // stopped being true, and the reverse case is real too: a corrected resubmission that
-            // comes back unreadable leaves the old reasons standing under the new status line. A
-            // page that would rather show nothing hands ApplyServerIssues an empty sequence here.
-            _status = "Rejected — but the response is not a verdict this page can read.";
-            return;
-        }
-
-        // One call for the whole verdict: every issue lands on the field it names, at the
-        // severity it carries, so the page needs no advisory plumbing of its own. Each call
-        // replaces the previous server verdict — pressing Send again with new input swaps the
-        // old messages for the new ones, rather than accumulating them, so a corrected
-        // resubmission cannot leave a stale one behind.
-        _form!.ApplyServerIssues(problem);
-        _status = "Server rejected the order — its verdict is now inline.";
+        _status = "Server accepted the order.";
+        return;
     }
+
+    // A 400 says the request was rejected, not that the endpoint is what rejected it. A
+    // reverse proxy, a gateway or a WAF in front of it answers with its own HTML page or its
+    // own JSON, and the parse reads the Content-Type header's character set as well as the
+    // body, so either can be something it cannot make sense of. The JSON literal null throws
+    // nothing and deserializes to nothing at all. A rejection the page cannot read is still a
+    // rejection, and none of these is an exception the visitor should meet.
+    FormidableValidationProblem? problem;
+    try
+    {
+        problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+    }
+    catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+    {
+        problem = null;
+    }
+
+    if (problem is null)
+    {
+        // The last verdict stays on screen. An unreadable response is no evidence that it
+        // stopped being true, and the reverse case is real too: a corrected resubmission that
+        // comes back unreadable leaves the old reasons standing under the new status line. A
+        // page that would rather show nothing hands ApplyServerIssues an empty sequence here.
+        _status = "Rejected — but the response is not a verdict this page can read.";
+        return;
+    }
+
+    // One call for the whole verdict: every issue lands on the field it names, at the
+    // severity it carries, so the page needs no advisory plumbing of its own. Each call
+    // replaces the previous server verdict — pressing Send again with new input swaps the
+    // old messages for the new ones, rather than accumulating them, so a corrected
+    // resubmission cannot leave a stale one behind.
+    _form!.ApplyServerIssues(problem);
+    _status = "Server rejected the order — its verdict is now inline.";
+}
 ```
 
 <!-- Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs` -->

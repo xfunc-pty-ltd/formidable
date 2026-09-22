@@ -709,7 +709,7 @@ Also reading checks, done from the repo.
 
 - [ ] `docs/quickstart.md` builds a form out of three files — one page holding the model, the
       validator and the markup together, one `_Imports.razor` line, two `Program.cs`
-      registrations — and its closing section says how to split that page up as the form grows
+      registrations — and its Recap says when to move the model and the validator out
 - [ ] The README's *5-minute quickstart* teaches the same three files, in the same order, and
       links on to `docs/quickstart.md` and the sample's Quickstart page (the app's home page)
 - [ ] `docs/testing.md`'s **Testing your forms** section comes before the suite walk and covers

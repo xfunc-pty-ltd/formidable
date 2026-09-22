@@ -2,8 +2,8 @@
 
 **You should already know:** the four components that make a working form
 ([Quickstart](quickstart.md)), and the first look at `FormidableField` and
-`FormidableCollectionMessage` for fields and collections beyond the kit's typed inputs
-([Fields and collections](fields-and-collections.md)).
+`FormidableCollectionMessage` around a list of rows
+([A list of members](tutorial/4-collections.md)).
 
 Every Blazor form needs the same handful of things wired up: something to own the
 `EditContext`, a state class on each input that tracks validity, `aria-invalid`/
@@ -34,28 +34,28 @@ it resolves what it needs from either an argument or the DI container, and refus
 `FormidableValidator` resolves identically, because both hosts go through the same factory:
 
 ```csharp
-    internal static FormidableEngine<TModel> Create<TModel>(
-        TModel model,
-        EditContext editContext,
-        IServiceProvider services,
-        IModelValidator<TModel>? validator,
-        FormidableOptions? options,
-        Func<Func<Task>, Task> renderDispatch)
-        where TModel : class =>
-        new(
-            model,
-            editContext,
-            validator ?? ResolveValidator<TModel>(services),
-            ResolveIntrospector(services),
-            options ?? ResolveOptions(services),
-            timeProvider: ResolveTimeProvider(services),
-            renderDispatch: renderDispatch,
-            logger: ResolveLogger(services));
+internal static FormidableEngine<TModel> Create<TModel>(
+    TModel model,
+    EditContext editContext,
+    IServiceProvider services,
+    IModelValidator<TModel>? validator,
+    FormidableOptions? options,
+    Func<Func<Task>, Task> renderDispatch)
+    where TModel : class =>
+    new(
+        model,
+        editContext,
+        validator ?? ResolveValidator<TModel>(services),
+        ResolveIntrospector(services),
+        options ?? ResolveOptions(services),
+        timeProvider: ResolveTimeProvider(services),
+        renderDispatch: renderDispatch,
+        logger: ResolveLogger(services));
 ```
 
 ```csharp
-    private static FormidableOptions ResolveOptions(IServiceProvider services) =>
-        (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
+private static FormidableOptions ResolveOptions(IServiceProvider services) =>
+    (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs` -->
@@ -89,26 +89,26 @@ The validator's two failures are worth reading in full, because between them the
 form fails to start:
 
 ```csharp
-        return resolved ?? throw new InvalidOperationException(
-            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered in the " +
-            "container this render is resolving from — call services.AddFormidableBlazor() and " +
-            "register the FluentValidation validator there. A two-project Blazor Web App has " +
-            "one container per project, and a page that prerenders or runs on the server's " +
-            "circuit resolves from the server's, so register there too.");
+return resolved ?? throw new InvalidOperationException(
+    $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered in the " +
+    "container this render is resolving from — call services.AddFormidableBlazor() and " +
+    "register the FluentValidation validator there. A two-project Blazor Web App has " +
+    "one container per project, and a page that prerenders or runs on the server's " +
+    "circuit resolves from the server's, so register there too.");
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs` -->
 
 ```csharp
-    /// <summary>Names the missing validator registration and the two ways to make it.</summary>
-    internal static string For(Type modelType)
-    {
-        var name = FriendlyTypeName.Of(modelType);
-        return $"No FluentValidation validator for '{name}' is registered, so Formidable's " +
-            $"IModelValidator<{name}> adapter cannot be constructed. Register one with " +
-            $"services.AddScoped<IValidator<{name}>, {name}Validator>(), or register a whole " +
-            "assembly's validators at once with services.AddValidatorsFromAssembly().";
-    }
+/// <summary>Names the missing validator registration and the two ways to make it.</summary>
+internal static string For(Type modelType)
+{
+    var name = FriendlyTypeName.Of(modelType);
+    return $"No FluentValidation validator for '{name}' is registered, so Formidable's " +
+        $"IModelValidator<{name}> adapter cannot be constructed. Register one with " +
+        $"services.AddScoped<IValidator<{name}>, {name}Validator>(), or register a whole " +
+        "assembly's validators at once with services.AddValidatorsFromAssembly().";
+}
 ```
 
 <!-- Source: `src/Shared/MissingFluentValidatorMessage.cs` -->
@@ -117,7 +117,7 @@ The first fires when the container this render is resolving from has no
 `IModelValidator<TModel>`. A
 single-project app has one container, so that means no `AddFormidableBlazor()` call anywhere; a
 two-project Blazor Web App has one container per project, and a page that prerenders or runs on the
-server's circuit resolves from the server's — [Hosting models](quickstart.md#hosting-models) has
+server's circuit resolves from the server's — [Hosting models](hosting-models.md#the-server-builds-the-form-too) has
 the one page shape the server never builds. The second is the far commoner one: Formidable is
 registered, so the open-generic adapter exists, but the FluentValidation validator it wraps does
 not. That state makes the container throw while *building* the adapter rather than return null, so
@@ -143,58 +143,58 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
 `DataAnnotationsValidator` alongside it) keeps working:
 
 ```csharp
-    /// <inheritdoc />
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
+/// <inheritdoc />
+protected override void BuildRenderTree(RenderTreeBuilder builder)
+{
+    // Keys the cascade below on _context's own identity (the same idiom EditForm itself uses
+    // for EditContext) — see the trailing comment for why this region exists.
+    builder.OpenRegion(_context!.GetHashCode());
+    builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
+    builder.AddComponentParameter(1, "IsFixed", true);
+    builder.AddComponentParameter(2, "Value", _context);
+    builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
     {
-        // Keys the cascade below on _context's own identity (the same idiom EditForm itself uses
-        // for EditContext) — see the trailing comment for why this region exists.
-        builder.OpenRegion(_context!.GetHashCode());
-        builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
-        builder.AddComponentParameter(1, "IsFixed", true);
-        builder.AddComponentParameter(2, "Value", _context);
-        builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
-        {
-            inner.OpenComponent<EditForm>(0);
-            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _engine!.EditContext);
-            inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
-            // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
-            // The default is deliberate: without it, any native constraint attribute inside the
-            // form — a splatted required/pattern/min/max, a type="email" — has the browser block
-            // the submit and front its own bubble before OnSubmit ever fires, so the message the
-            // visitor sees stops being FluentValidation's. novalidate switches off only that
-            // interactive check: :invalid still matches, ValidityState is still computed, and
-            // checkValidity()/reportValidity() still work when called.
-            inner.AddAttribute(3, "novalidate", true);
-            inner.AddMultipleAttributes(4, AdditionalAttributes!);
-            // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
-            // because the all-suppressed gate's summary entry addresses the form by this id (see
-            // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
-            // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
-            // policy. aria-describedby, added in this same position, does not win outright — see
-            // ComputeModelLevelAriaDescribedBy for why it merges instead.
-            inner.AddAttribute(5, "id", _modelLevelFieldId);
-            inner.AddAttribute(6, "tabindex", "-1");
-            inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
-            inner.AddComponentParameter(8, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
-            inner.CloseComponent();
-        }));
-        builder.CloseComponent();
-        builder.CloseRegion();
-        // IsFixed: a non-fixed CascadingValue re-supplies every subscriber's parameters from a
-        // snapshot of the parent's PREVIOUS render on every re-render of this component, even
-        // though FormidableFormContext is the same instance — that stale re-supply is what let a
-        // kit input's own just-committed Value be overwritten with the value it held a moment
-        // earlier (a caret jump in text, a wiped segment in a date input). Losing that
-        // notification costs nothing an input needs: ongoing state (touched, validating, errors)
-        // never travels through the cascade at all, fixed or not — it travels through
-        // Engine.StateChanged, which every kit input subscribes to directly (see
-        // FormContextBinding). The cascade's only remaining job is handing a descendant ITS OWN
-        // reference to the context once, at mount. The region above turns a Model swap into
-        // exactly that kind of mount for every descendant: it keys this cascade on _context's own
-        // identity, so a swap destroys this component — not merely what renders below it — and a
-        // fresh instance takes its place, whose subscribers are therefore all newly mounted and
-        // read the swapped-in Value on their own first render, with no notification to miss.
-    }
+        inner.OpenComponent<EditForm>(0);
+        inner.AddComponentParameter(1, nameof(EditForm.EditContext), _engine!.EditContext);
+        inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
+        // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
+        // The default is deliberate: without it, any native constraint attribute inside the
+        // form — a splatted required/pattern/min/max, a type="email" — has the browser block
+        // the submit and front its own bubble before OnSubmit ever fires, so the message the
+        // visitor sees stops being FluentValidation's. novalidate switches off only that
+        // interactive check: :invalid still matches, ValidityState is still computed, and
+        // checkValidity()/reportValidity() still work when called.
+        inner.AddAttribute(3, "novalidate", true);
+        inner.AddMultipleAttributes(4, AdditionalAttributes!);
+        // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
+        // because the all-suppressed gate's summary entry addresses the form by this id (see
+        // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
+        // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
+        // policy. aria-describedby, added in this same position, does not win outright — see
+        // ComputeModelLevelAriaDescribedBy for why it merges instead.
+        inner.AddAttribute(5, "id", _modelLevelFieldId);
+        inner.AddAttribute(6, "tabindex", "-1");
+        inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
+        inner.AddComponentParameter(8, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
+        inner.CloseComponent();
+    }));
+    builder.CloseComponent();
+    builder.CloseRegion();
+    // IsFixed: a non-fixed CascadingValue re-supplies every subscriber's parameters from a
+    // snapshot of the parent's PREVIOUS render on every re-render of this component, even
+    // though FormidableFormContext is the same instance — that stale re-supply is what let a
+    // kit input's own just-committed Value be overwritten with the value it held a moment
+    // earlier (a caret jump in text, a wiped segment in a date input). Losing that
+    // notification costs nothing an input needs: ongoing state (touched, validating, errors)
+    // never travels through the cascade at all, fixed or not — it travels through
+    // Engine.StateChanged, which every kit input subscribes to directly (see
+    // FormContextBinding). The cascade's only remaining job is handing a descendant ITS OWN
+    // reference to the context once, at mount. The region above turns a Model swap into
+    // exactly that kind of mount for every descendant: it keys this cascade on _context's own
+    // identity, so a swap destroys this component — not merely what renders below it — and a
+    // fresh instance takes its place, whose subscribers are therefore all newly mounted and
+    // read the swapped-in Value on their own first render, with no notification to miss.
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
@@ -287,31 +287,31 @@ lifecycle itself. (`ResetAsync` below is the same rebuild asked for directly, ra
 parameter change.)
 
 ```csharp
-    /// <inheritdoc />
-    protected override void OnParametersSet()
+/// <inheritdoc />
+protected override void OnParametersSet()
+{
+    VerifyInteractiveRenderMode();
+
+    if (Model is null)
     {
-        VerifyInteractiveRenderMode();
-
-        if (Model is null)
-        {
-            throw new InvalidOperationException(
-                $"{nameof(FormidableForm<TModel>)} requires a Model parameter (none was supplied) — set Model " +
-                "to the object being edited, e.g. <FormidableForm Model=\"_order\">.");
-        }
-
-        if (!ReferenceEquals(_boundModel, Model))
-        {
-            RebuildEngine(Model);
-        }
-        else
-        {
-            FormidableEngineFactory.VerifyOptionsUnchanged(
-                nameof(FormidableForm<TModel>),
-                _boundOptions,
-                Options,
-                "swap the Model parameter alongside Options to rebuild the engine");
-        }
+        throw new InvalidOperationException(
+            $"{nameof(FormidableForm<TModel>)} requires a Model parameter (none was supplied) — set Model " +
+            "to the object being edited, e.g. <FormidableForm Model=\"_order\">.");
     }
+
+    if (!ReferenceEquals(_boundModel, Model))
+    {
+        RebuildEngine(Model);
+    }
+    else
+    {
+        FormidableEngineFactory.VerifyOptionsUnchanged(
+            nameof(FormidableForm<TModel>),
+            _boundOptions,
+            Options,
+            "swap the Model parameter alongside Options to rebuild the engine");
+    }
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
@@ -339,46 +339,46 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 `OnInvalidSubmit`:
 
 ```csharp
-    /// <summary>
-    /// Runs the submit pipeline programmatically. Call from the renderer's synchronization
-    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders. If
-    /// <see cref="ResetAsync(TModel?)"/> rebuilds the engine while this call is still awaiting the
-    /// pipeline, the engine that started is gone by the time the verdict lands: neither
-    /// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
-    /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
-    /// must not surface as if it were current. That includes the return value: cancelling the
-    /// abandoned pass's token is what usually stops it short, but a validator that does not honour
-    /// the token can still run to completion, so a blocked <see cref="SubmitOutcome"/> carrying
-    /// nothing is returned instead of whatever that pass actually decided.
-    /// </summary>
-    public async Task<SubmitOutcome> SubmitAsync()
+/// <summary>
+/// Runs the submit pipeline programmatically. Call from the renderer's synchronization
+/// context (a Blazor event handler or <c>InvokeAsync</c>) — it triggers renders. If
+/// <see cref="ResetAsync(TModel?)"/> rebuilds the engine while this call is still awaiting the
+/// pipeline, the engine that started is gone by the time the verdict lands: neither
+/// <see cref="OnValidSubmit"/> nor <see cref="OnInvalidSubmit"/> fires, focus is not moved, and
+/// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
+/// must not surface as if it were current. That includes the return value: cancelling the
+/// abandoned pass's token is what usually stops it short, but a validator that does not honour
+/// the token can still run to completion, so a blocked <see cref="SubmitOutcome"/> carrying
+/// nothing is returned instead of whatever that pass actually decided.
+/// </summary>
+public async Task<SubmitOutcome> SubmitAsync()
+{
+    var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
+    if (outcome is null)
     {
-        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
-        if (outcome is null)
-        {
-            return RootSubmit.Superseded;
-        }
-
-        if (outcome.CanProceed)
-        {
-            await OnValidSubmit.InvokeAsync(outcome);
-        }
-        else
-        {
-            // A fresh context per blocked submit, which is the whole of what keeps suppression
-            // from latching: the handler's answer lives on the object it was handed, and the next
-            // submit hands it a different one.
-            var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
-            await OnInvalidSubmit.InvokeAsync(invalidSubmit);
-            if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
-            {
-                await FocusFirstErrorAsync();
-            }
-        }
-
-        StateHasChanged();
-        return outcome;
+        return RootSubmit.Superseded;
     }
+
+    if (outcome.CanProceed)
+    {
+        await OnValidSubmit.InvokeAsync(outcome);
+    }
+    else
+    {
+        // A fresh context per blocked submit, which is the whole of what keeps suppression
+        // from latching: the handler's answer lives on the object it was handed, and the next
+        // submit hands it a different one.
+        var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
+        await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+        if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
+        {
+            await FocusFirstErrorAsync();
+        }
+    }
+
+    StateHasChanged();
+    return outcome;
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
@@ -584,11 +584,11 @@ properties notifies nothing, so the values appear in the boxes and the form goes
 about them. `DiscloseLoadedValuesAsync` is the one call that answers for what is already there:
 
 ```csharp
-        _proposal.Title = "Progressive disclosure in practice";
-        _proposal.ContactEmail = "ada.lovelace";
-        _proposal.Summary = string.Empty;
+_proposal.Title = "Progressive disclosure in practice";
+_proposal.ContactEmail = "ada.lovelace";
+_proposal.Summary = string.Empty;
 
-        await _form!.DiscloseLoadedValuesAsync();
+await _form!.DiscloseLoadedValuesAsync();
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs` -->
@@ -662,26 +662,26 @@ shares, so it lives one level further down, on `FormidableComponentBase`: bind w
 set, rebind when the context instance is replaced, release on disposal.
 
 ```csharp
-    protected override void OnParametersSet()
+protected override void OnParametersSet()
+{
+    if (_binding.IsBound(Context))
     {
-        if (_binding.IsBound(Context))
-        {
-            VerifyRowKey();
-            return;
-        }
-
-        _binding.Update(
-            Context,
-            GetType(),
-            register: Register,
-            stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
-
-        var options = Context!.Engine.Options;
-        _verifyRowKeys = options.VerifyRowKeys;
-        _reportStaleRegistrations = options.ReportStaleRegistrations;
-        _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
-        _staleReported = false;
+        VerifyRowKey();
+        return;
     }
+
+    _binding.Update(
+        Context,
+        GetType(),
+        register: Register,
+        stateChanged: ObservesEngineState ? OnEngineStateChanged : null);
+
+    var options = Context!.Engine.Options;
+    _verifyRowKeys = options.VerifyRowKeys;
+    _reportStaleRegistrations = options.ReportStaleRegistrations;
+    _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
+    _staleReported = false;
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableComponentBase.cs` -->
@@ -706,15 +706,15 @@ What an input contributes to that lifecycle is its `Register`: it resolves the f
 the component stays mounted (see [Disclosure](disclosure.md)):
 
 ```csharp
-    protected sealed override FieldRegistration? Register(FormidableFormContext context)
-    {
-        // A commit made against the outgoing context is not delivered to its successor.
-        _notificationPending = false;
-        Field = ResolveField();
-        ElementId = FormidableFieldId.For(Field);
-        MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
-        return context.Registry.Register(Field, KeepRegistered);
-    }
+protected sealed override FieldRegistration? Register(FormidableFormContext context)
+{
+    // A commit made against the outgoing context is not delivered to its successor.
+    _notificationPending = false;
+    Field = ResolveField();
+    ElementId = FormidableFieldId.For(Field);
+    MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
+    return context.Registry.Register(Field, KeepRegistered);
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
@@ -748,28 +748,28 @@ replacing it — `CssClass` is the protected property, and one computation answe
 for the shared call below:
 
 ```csharp
-    private string ComputeCssClass(FieldState state) =>
-        FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
+private string ComputeCssClass(FieldState state) =>
+    FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 ```csharp
-    internal static string CombineSplatted(IReadOnlyDictionary<string, object>? attributes, string attributeName, string computed)
+internal static string CombineSplatted(IReadOnlyDictionary<string, object>? attributes, string attributeName, string computed)
+{
+    if (attributes is null || !attributes.TryGetValue(attributeName, out var splatted))
     {
-        if (attributes is null || !attributes.TryGetValue(attributeName, out var splatted))
-        {
-            return computed;
-        }
-
-        var splattedValue = Convert.ToString(splatted, CultureInfo.InvariantCulture);
-        if (string.IsNullOrEmpty(splattedValue))
-        {
-            return computed;
-        }
-
-        return computed.Length == 0 ? splattedValue : $"{splattedValue} {computed}";
+        return computed;
     }
+
+    var splattedValue = Convert.ToString(splatted, CultureInfo.InvariantCulture);
+    if (string.IsNullOrEmpty(splattedValue))
+    {
+        return computed;
+    }
+
+    return computed.Length == 0 ? splattedValue : $"{splattedValue} {computed}";
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableCss.cs` -->
@@ -800,33 +800,33 @@ the id, the class and the aria attributes, and the order it renders them in is w
 consumer-facing guarantees rest on:
 
 ```csharp
-    protected void AddCommonAttributes(RenderTreeBuilder builder, int sequence)
+protected void AddCommonAttributes(RenderTreeBuilder builder, int sequence)
+{
+    var state = State;
+    var issues = Context!.Engine.GetIssues(Field);
+
+    builder.AddMultipleAttributes(sequence, AdditionalAttributes!);
+    builder.AddAttribute(sequence + 1, "id", ElementId);
+    builder.AddAttribute(sequence + 2, "class", ComputeCssClass(state));
+
+    // The aria attributes share one sequence number: attribute frames diff by name rather than
+    // by sequence, and sharing it keeps this call's budget at four numbers for a control
+    // numbering its own attributes around it.
+    if (state.HasErrors)
     {
-        var state = State;
-        var issues = Context!.Engine.GetIssues(Field);
-
-        builder.AddMultipleAttributes(sequence, AdditionalAttributes!);
-        builder.AddAttribute(sequence + 1, "id", ElementId);
-        builder.AddAttribute(sequence + 2, "class", ComputeCssClass(state));
-
-        // The aria attributes share one sequence number: attribute frames diff by name rather than
-        // by sequence, and sharing it keeps this call's budget at four numbers for a control
-        // numbering its own attributes around it.
-        if (state.HasErrors)
-        {
-            builder.AddAttribute(sequence + 3, "aria-invalid", "true");
-        }
-
-        if (issues.Count > 0)
-        {
-            builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
-        }
-
-        if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
-        {
-            builder.AddAttribute(sequence + 3, "aria-required", "true");
-        }
+        builder.AddAttribute(sequence + 3, "aria-invalid", "true");
     }
+
+    if (issues.Count > 0)
+    {
+        builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
+    }
+
+    if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
+    {
+        builder.AddAttribute(sequence + 3, "aria-required", "true");
+    }
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
@@ -851,40 +851,40 @@ re-deciding which DOM event to bind. There are three overloads, differing in how
 becomes the field's value, and one implementation underneath all three:
 
 ```csharp
-    private void AddCommitBinding<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TBound>(
-        RenderTreeBuilder builder,
-        int sequence,
-        TBound current,
-        Func<TBound, Task<bool>> commitAsync,
-        bool inputEventAvailable)
+private void AddCommitBinding<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TBound>(
+    RenderTreeBuilder builder,
+    int sequence,
+    TBound current,
+    Func<TBound, Task<bool>> commitAsync,
+    bool inputEventAvailable)
+{
+    // OnBlur is the one mode that splits commit from notify, so it is the one mode where the
+    // commit's report earns nothing immediately and blur has a notification to deliver.
+    var deferNotification = UpdateOn == InputUpdateMode.OnBlur;
+
+    builder.AddAttribute(
+        sequence,
+        inputEventAvailable && UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
+        EventCallback.Factory.CreateBinder<TBound>(this, value => CommitThenNotifyAsync(value), current));
+
+    // Marks the attribute just added, so it has to follow that AddAttribute and precede the
+    // blur binding below.
+    builder.SetUpdatesAttributeName("value");
+
+    if (deferNotification || SyncsDomValueOnBlur)
     {
-        // OnBlur is the one mode that splits commit from notify, so it is the one mode where the
-        // commit's report earns nothing immediately and blur has a notification to deliver.
-        var deferNotification = UpdateOn == InputUpdateMode.OnBlur;
+        AddBlurBinding(builder, sequence + 1);
+    }
 
-        builder.AddAttribute(
-            sequence,
-            inputEventAvailable && UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
-            EventCallback.Factory.CreateBinder<TBound>(this, value => CommitThenNotifyAsync(value), current));
-
-        // Marks the attribute just added, so it has to follow that AddAttribute and precede the
-        // blur binding below.
-        builder.SetUpdatesAttributeName("value");
-
-        if (deferNotification || SyncsDomValueOnBlur)
+    async Task CommitThenNotifyAsync(TBound value)
+    {
+        var committed = await commitAsync(value);
+        if (committed && !deferNotification)
         {
-            AddBlurBinding(builder, sequence + 1);
-        }
-
-        async Task CommitThenNotifyAsync(TBound value)
-        {
-            var committed = await commitAsync(value);
-            if (committed && !deferNotification)
-            {
-                NotifyChanged();
-            }
+            NotifyChanged();
         }
     }
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
@@ -909,11 +909,11 @@ driving a commit from a handler of its own reaches for — it assigns `Value`, i
 validation pass runs:
 
 ```csharp
-    protected async Task SetCurrentValueAsync(TValue? value)
-    {
-        await CommitValueAsync(value);
-        NotifyChanged();
-    }
+protected async Task SetCurrentValueAsync(TValue? value)
+{
+    await CommitValueAsync(value);
+    NotifyChanged();
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
@@ -965,8 +965,8 @@ If markup needs to label the input without relying on implicit wrapping, address
 the context's id instead of assuming a consumer id sticks:
 
 ```razor
-    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
-        <FormidableFieldMessage For="() => _contact.Name" /></div>
+<div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+    <FormidableFieldMessage For="() => _contact.Name" /></div>
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor` -->
@@ -1137,17 +1137,17 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
 `<option>`s, and converts between the two the same way Blazor's own `InputSelect<TValue>` does:
 
 ```csharp
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        var formattedValue = FormatValueAsString(Value);
+protected override void BuildRenderTree(RenderTreeBuilder builder)
+{
+    var formattedValue = FormatValueAsString(Value);
 
-        builder.OpenElement(0, "select");
-        AddCommonAttributes(builder, 1);
-        builder.AddAttribute(5, "value", formattedValue);
-        AddValueBinding(builder, 6, formattedValue, TryCommitAsync);
-        builder.AddContent(8, ChildContent);
-        builder.CloseElement();
-    }
+    builder.OpenElement(0, "select");
+    AddCommonAttributes(builder, 1);
+    builder.AddAttribute(5, "value", formattedValue);
+    AddValueBinding(builder, 6, formattedValue, TryCommitAsync);
+    builder.AddContent(8, ChildContent);
+    builder.CloseElement();
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputSelect.cs` -->
@@ -1174,47 +1174,47 @@ Conversion mirrors native closely — the same
 attributes, not form values):
 
 ```csharp
-    private static bool TryParseValue(string? value, out TValue? result)
+private static bool TryParseValue(string? value, out TValue? result)
+{
+    try
     {
-        try
+        if (typeof(TValue) == typeof(bool))
         {
-            if (typeof(TValue) == typeof(bool))
+            if (bool.TryParse(value, out var boolValue))
             {
-                if (bool.TryParse(value, out var boolValue))
-                {
-                    result = (TValue)(object)boolValue;
-                    return true;
-                }
+                result = (TValue)(object)boolValue;
+                return true;
             }
-            else if (typeof(TValue) == typeof(bool?))
+        }
+        else if (typeof(TValue) == typeof(bool?))
+        {
+            if (string.IsNullOrEmpty(value))
             {
-                if (string.IsNullOrEmpty(value))
-                {
-                    result = default;
-                    return true;
-                }
-
-                if (bool.TryParse(value, out var boolValue))
-                {
-                    result = (TValue)(object)boolValue;
-                    return true;
-                }
-            }
-            else if (BindConverter.TryConvertTo<TValue>(value, CultureInfo.CurrentCulture, out var parsedValue))
-            {
-                result = parsedValue;
+                result = default;
                 return true;
             }
 
-            result = default;
-            return false;
+            if (bool.TryParse(value, out var boolValue))
+            {
+                result = (TValue)(object)boolValue;
+                return true;
+            }
         }
-        catch (InvalidOperationException ex)
+        else if (BindConverter.TryConvertTo<TValue>(value, CultureInfo.CurrentCulture, out var parsedValue))
         {
-            throw new InvalidOperationException(
-                $"{FriendlyTypeName.Of(typeof(FormidableInputSelect<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'.", ex);
+            result = parsedValue;
+            return true;
         }
+
+        result = default;
+        return false;
     }
+    catch (InvalidOperationException ex)
+    {
+        throw new InvalidOperationException(
+            $"{FriendlyTypeName.Of(typeof(FormidableInputSelect<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'.", ex);
+    }
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputSelect.cs` -->
@@ -1241,7 +1241,7 @@ expression overload of `FormidableFieldId.For`, so there's no `nameof` step to k
 the property it names:
 
 ```csharp
-    private string CategoryId => FormidableFieldId.For(_post, p => p.Category);
+private string CategoryId => FormidableFieldId.For(_post, p => p.Category);
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/CustomProfiles.razor.cs` -->
@@ -1292,21 +1292,21 @@ the current thread's culture. Under a comma-decimal culture, that overload would
 parser rather than the base's own conversion:
 
 ```csharp
-    static FormidableInputNumber()
+static FormidableInputNumber()
+{
+    var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
+    if (targetType != typeof(int) &&
+        targetType != typeof(long) &&
+        targetType != typeof(short) &&
+        targetType != typeof(float) &&
+        targetType != typeof(double) &&
+        targetType != typeof(decimal))
     {
-        var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
-        if (targetType != typeof(int) &&
-            targetType != typeof(long) &&
-            targetType != typeof(short) &&
-            targetType != typeof(float) &&
-            targetType != typeof(double) &&
-            targetType != typeof(decimal))
-        {
-            throw new InvalidOperationException(
-                $"{FriendlyTypeName.Of(typeof(FormidableInputNumber<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'. " +
-                "Supported types are int, long, short, float, double, decimal, and their nullable forms.");
-        }
+        throw new InvalidOperationException(
+            $"{FriendlyTypeName.Of(typeof(FormidableInputNumber<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'. " +
+            "Supported types are int, long, short, float, double, decimal, and their nullable forms.");
     }
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputNumber.cs` -->
@@ -1318,18 +1318,18 @@ thrown `InvalidOperationException` in a `TypeInitializationException` the first 
 generic type is touched, the standard shape for any failing static constructor.
 
 ```csharp
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        var formattedValue = FormatValueAsString(Value);
+protected override void BuildRenderTree(RenderTreeBuilder builder)
+{
+    var formattedValue = FormatValueAsString(Value);
 
-        builder.OpenElement(0, "input");
-        builder.AddAttribute(1, "step", "any");
-        AddCommonAttributes(builder, 2);
-        builder.AddAttribute(6, "type", "number");
-        builder.AddAttribute(7, "value", formattedValue);
-        AddValueBinding(builder, 8, formattedValue, TryParseValue);
-        builder.CloseElement();
-    }
+    builder.OpenElement(0, "input");
+    builder.AddAttribute(1, "step", "any");
+    AddCommonAttributes(builder, 2);
+    builder.AddAttribute(6, "type", "number");
+    builder.AddAttribute(7, "value", formattedValue);
+    AddValueBinding(builder, 8, formattedValue, TryParseValue);
+    builder.CloseElement();
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputNumber.cs` -->
@@ -1386,21 +1386,21 @@ failing, so `FormidableInputDate<TValue>` formats and parses through that exact 
 under `CultureInfo.InvariantCulture`:
 
 ```csharp
-    private static string? FormatValueAsString(TValue? value)
+private static string? FormatValueAsString(TValue? value)
+{
+    if (value is null)
     {
-        if (value is null)
-        {
-            return null;
-        }
-
-        return value switch
-        {
-            DateTime dateTime => BindConverter.FormatValue(dateTime, IsoDateFormat, CultureInfo.InvariantCulture),
-            DateTimeOffset dateTimeOffset => BindConverter.FormatValue(dateTimeOffset, IsoDateFormat, CultureInfo.InvariantCulture),
-            DateOnly dateOnly => BindConverter.FormatValue(dateOnly, IsoDateFormat, CultureInfo.InvariantCulture),
-            _ => value.ToString(),
-        };
+        return null;
     }
+
+    return value switch
+    {
+        DateTime dateTime => BindConverter.FormatValue(dateTime, IsoDateFormat, CultureInfo.InvariantCulture),
+        DateTimeOffset dateTimeOffset => BindConverter.FormatValue(dateTimeOffset, IsoDateFormat, CultureInfo.InvariantCulture),
+        DateOnly dateOnly => BindConverter.FormatValue(dateOnly, IsoDateFormat, CultureInfo.InvariantCulture),
+        _ => value.ToString(),
+    };
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputDate.cs` -->
@@ -1462,15 +1462,15 @@ option unset the kit computes no `aria-live`, so a splatted one stands.
 One base method decides whether rendering a message list also registers the field it lists:
 
 ```csharp
-    /// <summary>
-    /// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
-    /// returns null to skip registration. Messages are not inputs, so the base implementation
-    /// (used by <see cref="FormidableFieldMessage{TValue}"/>) never registers;
-    /// <see cref="FormidableCollectionMessage{TValue}"/> overrides this to mark its
-    /// collection-level path revealed so collection-level rules
-    /// surface even though the collection itself has no validated input registering it.
-    /// </summary>
-    private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
+/// <summary>
+/// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
+/// returns null to skip registration. Messages are not inputs, so the base implementation
+/// (used by <see cref="FormidableFieldMessage{TValue}"/>) never registers;
+/// <see cref="FormidableCollectionMessage{TValue}"/> overrides this to mark its
+/// collection-level path revealed so collection-level rules
+/// surface even though the collection itself has no validated input registering it.
+/// </summary>
+private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
@@ -1523,9 +1523,9 @@ therefore show the gate, the one message whose whole purpose is being seen, nowh
 fixed:
 
 ```razor
-    <FormidableForm Model="_inlineRequest" Options="_inlineOptions"
-                    OnValidSubmit="HandleInlineValid">
-        <FormidableModelMessage />
+<FormidableForm Model="_inlineRequest" Options="_inlineOptions"
+                OnValidSubmit="HandleInlineValid">
+    <FormidableModelMessage />
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor` -->
@@ -1565,8 +1565,8 @@ Marks a field the submit profile demands a value for. It renders
 otherwise — and nothing at all for a field the rules do not demand:
 
 ```razor
-    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
-        <FormidableFieldMessage For="() => _proposal.Title" /></div>
+<div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
+    <FormidableFieldMessage For="() => _proposal.Title" /></div>
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor` -->
@@ -1708,28 +1708,28 @@ parameter, so changing it at runtime while matching issues are already on screen
 and its first band still share a render:
 
 ```csharp
-    private const string ErrorsRegionClass = "formidable-summary__region formidable-summary__region--errors";
-    private const string AdvisoriesRegionClass = "formidable-summary__region formidable-summary__region--advisories";
+private const string ErrorsRegionClass = "formidable-summary__region formidable-summary__region--errors";
+private const string AdvisoriesRegionClass = "formidable-summary__region formidable-summary__region--advisories";
 ```
 
 ```csharp
-        builder.OpenElement(0, "div");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "class", FormidableCss.CombineClassNames(AdditionalAttributes, "formidable-summary"));
+builder.OpenElement(0, "div");
+builder.AddMultipleAttributes(1, AdditionalAttributes!);
+builder.AddAttribute(2, "class", FormidableCss.CombineClassNames(AdditionalAttributes, "formidable-summary"));
 
-        if (Show is SummaryFilter.All or SummaryFilter.Errors)
-        {
-            builder.OpenRegion(3);
-            BuildRegion(builder, ErrorsRegionClass, "alert", visibleIssues, errorRegion: true);
-            builder.CloseRegion();
-        }
+if (Show is SummaryFilter.All or SummaryFilter.Errors)
+{
+    builder.OpenRegion(3);
+    BuildRegion(builder, ErrorsRegionClass, "alert", visibleIssues, errorRegion: true);
+    builder.CloseRegion();
+}
 
-        if (Show is not SummaryFilter.Errors)
-        {
-            builder.OpenRegion(4);
-            BuildRegion(builder, AdvisoriesRegionClass, "status", visibleIssues, errorRegion: false);
-            builder.CloseRegion();
-        }
+if (Show is not SummaryFilter.Errors)
+{
+    builder.OpenRegion(4);
+    BuildRegion(builder, AdvisoriesRegionClass, "status", visibleIssues, errorRegion: false);
+    builder.CloseRegion();
+}
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
@@ -1751,7 +1751,7 @@ Each item is a button, and a click on it runs the component's own `ActivateAsync
 focus to the offending field through `IFormidableFocusService`:
 
 ```csharp
-                builder.AddAttribute(entrySequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
+builder.AddAttribute(entrySequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableSummary.cs` -->
@@ -1782,7 +1782,7 @@ test can fake the seam instead of standing up module interop (see
 The seam's currency is the field, not its rendered element id:
 
 ```csharp
-    ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields);
+ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields);
 ```
 
 <!-- Source: `src/Formidable.Blazor/IFormidableFieldOrderService.cs` -->
@@ -2320,8 +2320,9 @@ Everything a hand-rolled control needs is on that context: `ElementId` for the i
 follows — `InputAttributes` to splat the rendered forms of all of them in one go (`Requirement`
 rides only as `aria-required`, and only when it is `Required`), and
 `NotifyChanged()`/`MarkTouched()` to drive the engine the way a Formidable input's own change
-handler does internally. The worked example — wrapping a plain `<select>`, including how to
-label it correctly — is one of the seams below, in
+handler does internally. Call `MarkTouched()` on its own and the field goes touched without a
+live pass ever running, which looks like validation silently doing nothing. The worked example —
+wrapping a plain `<select>`, including how to label it correctly — is one of the seams below, in
 [The foreign-control pattern](#the-foreign-control-pattern).
 
 ### Naming a field whose type your own component doesn't know
@@ -2447,11 +2448,11 @@ because the label has to target the foreign element's own id — and only the fi
 it. The change handler lives in the code-behind:
 
 ```csharp
-    private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
-    {
-        _order.Colour = args.Value?.ToString() ?? string.Empty;
-        field.NotifyChanged();
-    }
+private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
+{
+    _order.Colour = args.Value?.ToString() ?? string.Empty;
+    field.NotifyChanged();
+}
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor.cs` -->
@@ -2472,17 +2473,17 @@ whose row sits outside a `Virtualize` container's current render window keeps it
 inside a closed `<details>` has one that refuses. `FocusFallback` is the escape hatch for both:
 
 ```csharp
-    /// <summary>
-    /// Invoked when a clicked issue's element does not take focus (focus miss) — nothing on the
-    /// page carries the field's id, as for a virtualized row outside the render window, or the
-    /// element that carries it will not take focus, as one inside a collapsed section will not.
-    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
-    /// that section) and the summary retries the focus exactly once; return <c>false</c> to leave
-    /// the miss as-is. When unset, a miss is silently ignored, matching the component's
-    /// pre-fallback behaviour.
-    /// </summary>
-    [Parameter]
-    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+/// <summary>
+/// Invoked when a clicked issue's element does not take focus (focus miss) — nothing on the
+/// page carries the field's id, as for a virtualized row outside the render window, or the
+/// element that carries it will not take focus, as one inside a collapsed section will not.
+/// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+/// that section) and the summary retries the focus exactly once; return <c>false</c> to leave
+/// the miss as-is. When unset, a miss is silently ignored, matching the component's
+/// pre-fallback behaviour.
+/// </summary>
+[Parameter]
+public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableSummary.cs` -->
@@ -2501,19 +2502,19 @@ makes (see [above](#formidableformtmodel)) can miss the same way a summary click
 `FocusFallback` parameter recovers it the same way:
 
 ```csharp
-    /// <summary>
-    /// Invoked once when the first error one of this form's own focus moves aimed at does not
-    /// take focus: no element renders its id, as for a virtualized row outside the render window,
-    /// or the element that does will not take focus, as one inside a collapsed section will not.
-    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
-    /// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
-    /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
-    /// wiring both typically passes the same callback to each. When unset, a miss reports a
-    /// diagnostic instead of the summary's silent default: those moves have nowhere else for the
-    /// visitor to land, where the summary's own click just leaves the click without effect.
-    /// </summary>
-    [Parameter]
-    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+/// <summary>
+/// Invoked once when the first error one of this form's own focus moves aimed at does not
+/// take focus: no element renders its id, as for a virtualized row outside the render window,
+/// or the element that does will not take focus, as one inside a collapsed section will not.
+/// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+/// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+/// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
+/// wiring both typically passes the same callback to each. When unset, a miss reports a
+/// diagnostic instead of the summary's silent default: those moves have nowhere else for the
+/// visitor to land, where the summary's own click just leaves the click without effect.
+/// </summary>
+[Parameter]
+public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
@@ -2622,21 +2623,21 @@ The one-call registration for a Blazor client — everything `AddFormidable()` r
 mirrors) plus the three JS-backed services: focus, DOM value sync, and field order:
 
 ```csharp
-    /// <summary>
-    /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-    /// plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and
-    /// <see cref="IFormidableFieldOrderService"/>. The one-call registration for Blazor consumers.
-    /// Existing registrations are respected.
-    /// </summary>
-    public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        services.AddFormidable();
-        services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
-        services.TryAddScoped<IFormidableDomValueSync, FormidableDomValueSync>();
-        services.TryAddScoped<IFormidableFieldOrderService, FormidableFieldOrderService>();
-        return services;
-    }
+/// <summary>
+/// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
+/// plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and
+/// <see cref="IFormidableFieldOrderService"/>. The one-call registration for Blazor consumers.
+/// Existing registrations are respected.
+/// </summary>
+public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
+{
+    ArgumentNullException.ThrowIfNull(services);
+    services.AddFormidable();
+    services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
+    services.TryAddScoped<IFormidableDomValueSync, FormidableDomValueSync>();
+    services.TryAddScoped<IFormidableFieldOrderService, FormidableFieldOrderService>();
+    return services;
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs` -->
@@ -2656,39 +2657,39 @@ An overload takes an `Action<FormidableOptions>` and registers the configured in
 app-wide default, which every form that omits its own `Options` parameter then uses:
 
 ```csharp
-    /// <summary>
-    /// Registers everything <see cref="AddFormidableBlazor(IServiceCollection)"/> does, plus a
-    /// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
-    /// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
-    /// design system's class names or a team's debounce are stated once for the whole app instead
-    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed, and
-    /// wins whole: resolution has no merging step, so a form that differs in one setting copies
-    /// this instance rather than restating the rest — see
-    /// <see cref="FormidableOptions(FormidableOptions)"/>.
-    /// Existing registrations are respected.
-    /// </summary>
-    /// <remarks>
-    /// The configured instance is a singleton the whole app shares, and an engine reads each of
-    /// its properties at each use — a pass selecting its profile, a timer arming, a render asking
-    /// for a class name — so mutating it at runtime changes behaviour in every live form, not just
-    /// the one being looked at. Where a property's own remarks state a coarser read, that
-    /// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root, and
-    /// <see cref="FormidableOptions.VerifyRowKeys"/> and
-    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> once per bound component, so a
-    /// change to any of the three reaches nothing that has already read it.
-    /// </remarks>
-    public static IServiceCollection AddFormidableBlazor(
-        this IServiceCollection services, Action<FormidableOptions> configureDefaults)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configureDefaults);
-        services.AddFormidableBlazor();
+/// <summary>
+/// Registers everything <see cref="AddFormidableBlazor(IServiceCollection)"/> does, plus a
+/// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
+/// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
+/// design system's class names or a team's debounce are stated once for the whole app instead
+/// of on every form. A form's own <c>Options</c> parameter still wins where it is passed, and
+/// wins whole: resolution has no merging step, so a form that differs in one setting copies
+/// this instance rather than restating the rest — see
+/// <see cref="FormidableOptions(FormidableOptions)"/>.
+/// Existing registrations are respected.
+/// </summary>
+/// <remarks>
+/// The configured instance is a singleton the whole app shares, and an engine reads each of
+/// its properties at each use — a pass selecting its profile, a timer arming, a render asking
+/// for a class name — so mutating it at runtime changes behaviour in every live form, not just
+/// the one being looked at. Where a property's own remarks state a coarser read, that
+/// governs: <see cref="FormidableOptions.ClickRecovery"/> is read once per root, and
+/// <see cref="FormidableOptions.VerifyRowKeys"/> and
+/// <see cref="FormidableOptions.ReportStaleRegistrations"/> once per bound component, so a
+/// change to any of the three reaches nothing that has already read it.
+/// </remarks>
+public static IServiceCollection AddFormidableBlazor(
+    this IServiceCollection services, Action<FormidableOptions> configureDefaults)
+{
+    ArgumentNullException.ThrowIfNull(services);
+    ArgumentNullException.ThrowIfNull(configureDefaults);
+    services.AddFormidableBlazor();
 
-        var defaults = new FormidableOptions();
-        configureDefaults(defaults);
-        services.TryAddSingleton(defaults);
-        return services;
-    }
+    var defaults = new FormidableOptions();
+    configureDefaults(defaults);
+    services.TryAddSingleton(defaults);
+    return services;
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs` -->
@@ -2785,27 +2786,27 @@ does — no click required to reach the row a submit's first error names. What's
 `ScrollToRowAsync` itself, the code-behind method wired to both:
 
 ```csharp
-    private const float RowHeight = 118f;
+private const float RowHeight = 118f;
 ```
 
 ```csharp
-    private async ValueTask<bool> ScrollToRowAsync(FieldIdentifier field)
+private async ValueTask<bool> ScrollToRowAsync(FieldIdentifier field)
+{
+    if (field.Model is not Gadget gadget)
     {
-        if (field.Model is not Gadget gadget)
-        {
-            return false;
-        }
-
-        var index = _order.Gadgets.IndexOf(gadget);
-        if (index < 0)
-        {
-            return false;
-        }
-
-        await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * RowHeight);
-        await Task.Delay(120);
-        return true;
+        return false;
     }
+
+    var index = _order.Gadgets.IndexOf(gadget);
+    if (index < 0)
+    {
+        return false;
+    }
+
+    await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * RowHeight);
+    await Task.Delay(120);
+    return true;
+}
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor.cs` -->
@@ -2862,7 +2863,7 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
 `InputBase` descendant in the form picks it up automatically, Formidable-aware or not:
 
 ```csharp
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
+editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableEngine.cs` -->

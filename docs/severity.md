@@ -1,8 +1,8 @@
 # Severity levels
 
-**You should already know:** the draft/submit split and which profile runs when
-([Core concepts](core-concepts.md)), and how a `ValidationProfile` selects rules out of
-one validator ([Profiles](profiles.md)).
+**You should already know:** the draft/submit split
+([Draft and submit rules](tutorial/2-draft-and-submit.md)), plus how a `ValidationProfile` selects
+rules out of one validator and which profile runs when ([Profiles](profiles.md)).
 
 A validation rule looks binary until product wants a nudge instead of a wall. A listing with no
 title should block — there's nothing to sell without a name. A listing whose description has three
@@ -124,11 +124,11 @@ it's shown.
 ## Warnings and infos never block
 
 ```csharp
-    /// <summary>
-    /// True when there are no <see cref="ValidationSeverity.Error"/> issues.
-    /// Warnings and infos do not affect validity.
-    /// </summary>
-    public bool IsValid => Errors.Count == 0;
+/// <summary>
+/// True when there are no <see cref="ValidationSeverity.Error"/> issues.
+/// Warnings and infos do not affect validity.
+/// </summary>
+public bool IsValid => Errors.Count == 0;
 ```
 
 <!-- Source: `src/Formidable/ValidationReport.cs` -->
@@ -187,13 +187,13 @@ The submit handler in the code-behind routes purely on `CanProceed`, and reports
 through without blocking:
 
 ```csharp
-    private async Task Submit()
-    {
-        var outcome = await _form!.SubmitAsync();
-        _status = outcome.CanProceed
-            ? $"Submitted with {outcome.Report.Warnings.Count()} warning(s) and {outcome.Report.Infos.Count()} info(s) — none of them blocked."
-            : "Blocked by errors — fix them and resubmit.";
-    }
+private async Task Submit()
+{
+    var outcome = await _form!.SubmitAsync();
+    _status = outcome.CanProceed
+        ? $"Submitted with {outcome.Report.Warnings.Count()} warning(s) and {outcome.Report.Infos.Count()} info(s) — none of them blocked."
+        : "Blocked by errors — fix them and resubmit.";
+}
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor.cs` -->
@@ -211,11 +211,11 @@ every current issue for a field as a list item, whatever its severity, with a cl
 straight from it:
 
 ```csharp
-            builder.OpenElement(sequence++, "li");
-            builder.AddAttribute(
-                sequence++,
-                "class",
-                FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
+builder.OpenElement(sequence++, "li");
+builder.AddAttribute(
+    sequence++,
+    "class",
+    FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
@@ -233,16 +233,16 @@ warnings, then infos — one list per non-empty group, the same convention appli
 itself:
 
 ```csharp
-        foreach (var group in groups)
-        {
+foreach (var group in groups)
+{
 ```
 
 ```csharp
-            builder.OpenElement(sequence++, "ul");
-            builder.AddAttribute(
-                sequence++,
-                "class",
-                FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
+builder.OpenElement(sequence++, "ul");
+builder.AddAttribute(
+    sequence++,
+    "class",
+    FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->

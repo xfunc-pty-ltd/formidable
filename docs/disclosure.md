@@ -1,8 +1,8 @@
 # Progressive disclosure
 
-**You should already know:** how a live pass differs from submit
-([Core concepts](core-concepts.md)), and how a `ValidationProfile` picks which rules run
-at which moment ([Profiles](profiles.md)).
+**You should already know:** that a submit runs both rule buckets while an unchanged field stays
+quiet until one ([Draft and submit rules](tutorial/2-draft-and-submit.md)), and how a
+`ValidationProfile` picks which rules run at which moment ([Profiles](profiles.md)).
 
 Hiding a field looks simple until its validation rule keeps running. Gate a shipping address
 behind "ship to a different address," gate step two behind step one passing, and the rule
@@ -32,8 +32,8 @@ explanation instead of quietly doing nothing —
 > blocks that case with a form-level explanation instead.
 
 ```csharp
-    public string DefensiveGateMessage { get; set; } =
-        "The form cannot be submitted because information that is not currently displayed is invalid.";
+public string DefensiveGateMessage { get; set; } =
+    "The form cannot be submitted because information that is not currently displayed is invalid.";
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableOptions.cs` -->
@@ -221,20 +221,20 @@ it is unconditional, so it always runs; whether it is *visible* depends entirely
 user has opened the section:
 
 ```razor
-    <p>
-        <button type="button"
-                @onclick="() => _showDetails = !_showDetails">
-            @(_showDetails ? "Hide" : "Show") traveler details
-        </button>
-    </p>
-    @if (_showDetails)
-    {
-        <div class="field">
-            <label>Traveler name <FormidableRequiredIndicator For="() => _request.TravelerName" />
-                <FormidableInputText @bind-Value="_request.TravelerName" /></label>
-            <FormidableFieldMessage For="() => _request.TravelerName" />
-        </div>
-    }
+<p>
+    <button type="button"
+            @onclick="() => _showDetails = !_showDetails">
+        @(_showDetails ? "Hide" : "Show") traveler details
+    </button>
+</p>
+@if (_showDetails)
+{
+    <div class="field">
+        <label>Traveler name <FormidableRequiredIndicator For="() => _request.TravelerName" />
+            <FormidableInputText @bind-Value="_request.TravelerName" /></label>
+        <FormidableFieldMessage For="() => _request.TravelerName" />
+    </div>
+}
 ```
 
 <!-- Source: `samples/Formidable.Sample/Pages/Disclosure.razor` -->
@@ -242,7 +242,7 @@ user has opened the section:
 The corresponding rule has no `.When(...)` at all:
 
 ```csharp
-        RuleFor(t => t.TravelerName).NotEmpty().WithMessage("Traveler name is required");
+RuleFor(t => t.TravelerName).NotEmpty().WithMessage("Traveler name is required");
 ```
 
 <!-- Source: `samples/Formidable.Sample.Shared/TravelRequest.cs` -->
@@ -267,45 +267,45 @@ the submit profile demands a value for. The context also exposes the `NotifyChan
 way it would for a Formidable-wrapped input:
 
 ```razor
-    @if (_request.NeedsAccommodation == true)
-    {
-        <fieldset>
-            <legend>Accommodation</legend>
-            <FormidableField For="() => _request.AccommodationType" Context="field">
-                <label>Type
-                    <select id="@field.ElementId" class="@field.CssClass"
-                            aria-invalid="@(field.AriaInvalid ? "true" : null)"
-                            aria-describedby="@field.AriaDescribedBy"
-                            value="@_request.AccommodationType"
-                            @onchange="args => OnTypeChanged(args, field)">
-                        <option value="">Choose…</option>
-                        <option>Hotel</option>
-                        <option>Serviced apartment</option>
-                        <option>Accessible</option>
-                    </select>
-                </label>
-            </FormidableField>
-            <FormidableFieldMessage For="() => _request.AccommodationType" />
+@if (_request.NeedsAccommodation == true)
+{
+    <fieldset>
+        <legend>Accommodation</legend>
+        <FormidableField For="() => _request.AccommodationType" Context="field">
+            <label>Type
+                <select id="@field.ElementId" class="@field.CssClass"
+                        aria-invalid="@(field.AriaInvalid ? "true" : null)"
+                        aria-describedby="@field.AriaDescribedBy"
+                        value="@_request.AccommodationType"
+                        @onchange="args => OnTypeChanged(args, field)">
+                    <option value="">Choose…</option>
+                    <option>Hotel</option>
+                    <option>Serviced apartment</option>
+                    <option>Accessible</option>
+                </select>
+            </label>
+        </FormidableField>
+        <FormidableFieldMessage For="() => _request.AccommodationType" />
 
-            @if (_request.AccommodationType == "Accessible")
-            {
-                <div class="field">
-                    <label>Special requirements
-                        <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
-                    <FormidableFieldMessage For="() => _request.SpecialRequirements" />
-                </div>
-            }
-        </fieldset>
-    }
+        @if (_request.AccommodationType == "Accessible")
+        {
+            <div class="field">
+                <label>Special requirements
+                    <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
+                <FormidableFieldMessage For="() => _request.SpecialRequirements" />
+            </div>
+        }
+    </fieldset>
+}
 ```
 
 <!-- Source: `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
 ```csharp
-        RuleFor(t => t.AccommodationType).NotEmpty().WithMessage("Choose an accommodation type")
-            .When(t => t.NeedsAccommodation == true);
-        RuleFor(t => t.SpecialRequirements).NotEmpty().WithMessage("Describe the special requirements")
-            .When(t => t.NeedsAccommodation == true && t.AccommodationType == "Accessible");
+RuleFor(t => t.AccommodationType).NotEmpty().WithMessage("Choose an accommodation type")
+    .When(t => t.NeedsAccommodation == true);
+RuleFor(t => t.SpecialRequirements).NotEmpty().WithMessage("Describe the special requirements")
+    .When(t => t.NeedsAccommodation == true && t.AccommodationType == "Accessible");
 ```
 
 <!-- Source: `samples/Formidable.Sample.Shared/TravelRequest.cs` -->
@@ -332,15 +332,15 @@ nickname field is one shipped example (`/workout`'s venue region and `/attach`'s
 are the same wiring):
 
 ```razor
-    <div class="field">
-        <label>Nickname (native InputText)
-            <InputText @bind-Value="_order.Nickname"
-                       id="@NicknameId"
-                       aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@NicknameAriaDescribedBy" /></label>
-        <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
-        <FormidableFieldAnchor For="() => _order.Nickname" />
-    </div>
+<div class="field">
+    <label>Nickname (native InputText)
+        <InputText @bind-Value="_order.Nickname"
+                   id="@NicknameId"
+                   aria-invalid="@NicknameAriaInvalid"
+                   aria-describedby="@NicknameAriaDescribedBy" /></label>
+    <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
+    <FormidableFieldAnchor For="() => _order.Nickname" />
+</div>
 ```
 
 <!-- Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor` -->

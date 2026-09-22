@@ -5,7 +5,7 @@
 <h1>Stage 3: a warning alongside an error</h1>
 
 <div class="tutorial-styled">
-    <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+    <FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
         <FormidableSummary />
 
         <label>Name
@@ -34,7 +34,7 @@
 
     @if (_draftFailureCount is not null)
     {
-        <p>Draft check: @_draftFailureCount failure(s).</p>
+        <p>Draft check: @_draftFailureCount finding(s).</p>
     }
 </div>
 

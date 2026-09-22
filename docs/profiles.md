@@ -5,7 +5,7 @@
 
 One validator ends up serving more than two moments the instant a form grows past a toy
 example. A signup form's email needs a shape check while the visitor is typing and a presence
-check at submit — core concepts already covers that split. Add a save-draft button and there's a
+check at submit — that is two moments already. Add a save-draft button and there's a
 third moment: valid enough to keep, not yet valid enough to send. Add an approval step behind
 submit and there's a fourth: valid enough to submit, not yet valid enough to approve. Write a
 separate validator per moment and the same `RuleFor(x => x.Email)` exists in every one of them,
@@ -75,7 +75,7 @@ and its `ConfigureAdditionalProfiles()` override registers an `"Approve"` rulese
 draft/submit pair it already gets for free.
 
 ```csharp
-        var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
+var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
 ```
 
 <!-- Source: `tests/Formidable.Tests/DraftSubmitValidatorTests.cs` -->
@@ -108,6 +108,13 @@ A rule that needs membership in two rulesets without existing twice takes a comm
 `Profile("Step1,Step2", ...)` tags every rule inside with both, and either name composes into a
 profile on its own — see [narrow what the live channel
 validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates) for a worked example.
+
+A `ProfiledValidator<T>` checks a profile's ruleset names before it validates against it, once
+per distinct profile. A name the validator never registered throws rather than quietly selecting
+nothing. FluentValidation's own `"*"` and `"default"` always pass: its selector honours those
+without any validator declaring them. The check rides the profile-taking
+`Validate`/`ValidateAsync` overloads `ValidatorProfileExtensions` adds, so a plain
+`AbstractValidator<T>` called through them is not covered.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a
 third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
@@ -142,13 +149,13 @@ is doing — it's a separate, lenient validation call straight against the injec
 `IModelValidator<T>` with the `Draft` profile:
 
 ```csharp
-    private async Task SaveDraft()
-    {
-        var report = await Validator.ValidateAsync(_brief, ValidationProfile.Draft);
-        _status = report.IsValid
-            ? "Draft saved — completeness rules were not enforced."
-            : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
-    }
+private async Task SaveDraft()
+{
+    var report = await Validator.ValidateAsync(_brief, ValidationProfile.Draft);
+    _status = report.IsValid
+        ? "Draft saved — completeness rules were not enforced."
+        : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+}
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs` -->

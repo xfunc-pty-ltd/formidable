@@ -1,7 +1,7 @@
 # Engine options
 
 **You should already know:** the live/submit split and why one validator serves both moments
-([Core concepts](core-concepts.md)), and the debounced refresh a submitted form runs on
+([Profiles](profiles.md)), and the debounced refresh a submitted form runs on
 every further edit ([Async validation](async-validation.md)).
 
 Every default is somebody's opinion about how your form should behave, and the moment a form
@@ -758,17 +758,17 @@ Build the `FormidableOptions` once, up front, and hold it in a field for the lif
 exactly what the sample below does:
 
 ```csharp
-    protected override void OnInitialized()
+protected override void OnInitialized()
+{
+    _options = new FormidableOptions
     {
-        _options = new FormidableOptions
+        SuppressedIssueDiagnostic = issue =>
         {
-            SuppressedIssueDiagnostic = issue =>
-            {
-                _suppressed.Add($"{issue.Path}: {issue.Message}");
-                _ = InvokeAsync(StateHasChanged);
-            }
-        };
-    }
+            _suppressed.Add($"{issue.Path}: {issue.Message}");
+            _ = InvokeAsync(StateHasChanged);
+        }
+    };
+}
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs` -->

@@ -1,8 +1,9 @@
 # Collections and row-stable error identity
 
-**You should already know:** the draft/submit split ([Core concepts](core-concepts.md)),
-and the row-stable habits — `@key` by instance, `For` closed over it — at a glance
-([Fields and collections](fields-and-collections.md)).
+**You should already know:** the draft/submit split
+([Draft and submit rules](tutorial/2-draft-and-submit.md)), and the row-stable habits —
+`@key` by instance, `For` closed over it — at a glance
+([A list of members](tutorial/4-collections.md)).
 
 Delete row two from a list of three and, in a validator that keys errors by position, row three
 quietly inherits row two's error. FluentValidation reports collection failures as positional
@@ -26,19 +27,19 @@ closing over the same instance, and a `FormidableCollectionMessage` for every co
 rule.
 
 ```razor
-                        <ul class="member-list">
-                            @foreach (var member in team.Members)
-                            {
-                                <li class="field" @key="member">
-                                    <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
-                                    <FormidableFieldMessage For="() => member.Alias" />
-                                    <div class="actions">
-                                        <button type="button" @onclick="() => RemoveItem(team.Members, member, membersField)">Remove</button>
-                                        <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
-                                    </div>
-                                </li>
-                            }
-                        </ul>
+<ul class="member-list">
+    @foreach (var member in team.Members)
+    {
+        <li class="field" @key="member">
+            <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+            <FormidableFieldMessage For="() => member.Alias" />
+            <div class="actions">
+                <button type="button" @onclick="() => RemoveItem(team.Members, member, membersField)">Remove</button>
+                <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
+            </div>
+        </li>
+    }
+</ul>
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
@@ -69,6 +70,12 @@ server apply naming it, and a silent page-driven edit supplies none of those. Re
 member doesn't just shrink a list on screen — it can flip a collection rule from passing to
 failing, and no prune can invent a failure no pass produced.
 
+The engine does notice the row leave. It prunes that row's live issues rather than go on showing
+a verdict for a row that is gone, and arms a reconciling refresh. After a submit, or a server
+apply that put fields on watch, that refresh brings the disclosed verdict back into line with the
+shorter list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's
+promise current.
+
 The wrapping `FormidableField` needs the same `@key` discipline as the `<li>` above, for the same
 reason: key it by the row, and its registration, notify target, and container id all travel with
 the object. Skip the key and Blazor reuses the component positionally instead — a reordered row's
@@ -98,7 +105,7 @@ least one team" would have nowhere to register and nowhere to become visible.
 `FormidableCollectionMessage` closes that gap:
 
 ```razor
-    <FormidableCollectionMessage For="() => _roster.Teams" />
+<FormidableCollectionMessage For="() => _roster.Teams" />
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
@@ -135,17 +142,17 @@ that's the real `Member` instance currently sitting at that position. The engine
 into a Blazor `FieldIdentifier` built from the instance itself, not the path string:
 
 ```csharp
-    public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
+public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object rootModel, string originalPath)
+{
+    ArgumentNullException.ThrowIfNull(rootModel);
+
+    if (field.Owner.GetType().IsValueType)
     {
-        ArgumentNullException.ThrowIfNull(rootModel);
-
-        if (field.Owner.GetType().IsValueType)
-        {
-            return new FieldIdentifier(rootModel, originalPath);
-        }
-
-        return new FieldIdentifier(field.Owner, field.PropertyName);
+        return new FieldIdentifier(rootModel, originalPath);
     }
+
+    return new FieldIdentifier(field.Owner, field.PropertyName);
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
@@ -238,14 +245,14 @@ The validator behind it mirrors the nesting with `RuleForEach(...).ChildRules(..
 teams and a second, nested level for each team's members:
 
 ```csharp
-        RuleFor(r => r.Teams).NotEmpty().WithMessage("Add at least one team");
-        RuleForEach(r => r.Teams).ChildRules(team =>
-        {
-            team.RuleFor(t => t.Name).NotEmpty().WithMessage("Team name is required");
-            team.RuleFor(t => t.Members).NotEmpty().WithMessage("Every team needs at least one member");
-            team.RuleForEach(t => t.Members).ChildRules(member =>
-                member.RuleFor(m => m.Alias).NotEmpty().WithMessage("Alias is required"));
-        });
+RuleFor(r => r.Teams).NotEmpty().WithMessage("Add at least one team");
+RuleForEach(r => r.Teams).ChildRules(team =>
+{
+    team.RuleFor(t => t.Name).NotEmpty().WithMessage("Team name is required");
+    team.RuleFor(t => t.Members).NotEmpty().WithMessage("Every team needs at least one member");
+    team.RuleForEach(t => t.Members).ChildRules(member =>
+        member.RuleFor(m => m.Alias).NotEmpty().WithMessage("Alias is required"));
+});
 ```
 
 <!-- Source: `samples/Formidable.Sample.Shared/Roster.cs` -->

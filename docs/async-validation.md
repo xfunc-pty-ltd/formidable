@@ -1,9 +1,9 @@
 # Async validation rules
 
 **You should already know:** the two profiles and the live-versus-submit split
-([Core concepts](core-concepts.md)), and what an async rule looks like from the
+([Profiles](profiles.md)), and what an async rule looks like from the
 outside — `MustAsync`, plus the `IsValidating` pending flag a field carries while one is in
-flight ([Async and server](async-and-server.md)).
+flight ([Async rules](tutorial/5-async.md)).
 
 Async validation is hard. Not hard to write, since `MustAsync` is one method, but hard to
 *order*: the moment a rule takes real time to answer, its answer stops being about the value on
@@ -109,21 +109,21 @@ Then render the pending flag. `FormidableField`'s cascaded `FormidableFieldConte
 as `field.State.IsValidating`:
 
 ```razor
-    <FormidableField For="() => _handle.Username" Context="field">
-        <div class="field">
-            <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
-            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
-        </div>
-        <FormidableFieldMessage For="() => _handle.Username" />
-    </FormidableField>
+<FormidableField For="() => _handle.Username" Context="field">
+    <div class="field">
+        <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+    </div>
+    <FormidableFieldMessage For="() => _handle.Username" />
+</FormidableField>
 
-    <FormidableField For="() => _handle.DisplayName" Context="field">
-        <div class="field">
-            <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
-            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
-        </div>
-        <FormidableFieldMessage For="() => _handle.DisplayName" />
-    </FormidableField>
+<FormidableField For="() => _handle.DisplayName" Context="field">
+    <div class="field">
+        <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+    </div>
+    <FormidableFieldMessage For="() => _handle.DisplayName" />
+</FormidableField>
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/AsyncRules.razor` -->
@@ -366,8 +366,8 @@ property, a late server response writing into the model while a refresh window i
 nothing the engine reads moves. The stored verdicts go on looking fresh, and the next pass
 serves answers computed against the model as it was. Mutating a bound model without notifying is
 outside the contract everywhere in Formidable, and covered under
-[Fields and collections](fields-and-collections.md); this is the place where the price is a
-wrong verdict rather than a stale message. `field.NotifyChanged()` (or
+[Collections and row identity](collections-and-row-identity.md); this is the place where the
+price is a wrong verdict rather than a stale message. `field.NotifyChanged()` (or
 `EditContext.NotifyFieldChanged`) is what keeps it right.
 
 `FormidableOptions.LiveDebounce` changes when a keystroke's own live pass starts: it accumulates

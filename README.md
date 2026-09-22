@@ -64,8 +64,11 @@ only on `Formidable`.
 
 Five minutes in an interactive project: `dotnet new blazorwasm`, or a Blazor Web App page
 carrying `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` or
-`@rendermode InteractiveAuto`. `FormidableForm` refuses to render on a statically rendered page,
-since a form there could be filled in but never submitted.
+`@rendermode InteractiveAuto`.
+
+> [!NOTE]
+> Which render mode a page needs, and why `FormidableForm` refuses to render without one:
+> [Hosting models](docs/hosting-models.md#does-the-page-need-a-render-mode).
 
 Install the Blazor package — it carries the core `Formidable` package with it:
 
@@ -86,25 +89,39 @@ no profiles required:
 ```razor
 @page "/signup"
 @using FluentValidation
+```
 
-<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+The rest of the file holds the model, the validator, and the form together:
+
+```razor
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
     <FormidableSummary />
 
-    <label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+    <label>Name
+        <FormidableInputText @bind-Value="_contact.Name" />
+    </label>
     <FormidableFieldMessage For="() => _contact.Name" />
 
-    <label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
+    <label>Email
+        <FormidableInputText @bind-Value="_contact.Email" />
+    </label>
     <FormidableFieldMessage For="() => _contact.Email" />
 
     <button type="submit">Submit</button>
 </FormidableForm>
 
+@if (_saved)
+{
+    <p>Saved.</p>
+}
+
 @code {
     private readonly Contact _contact = new();
+    private bool _saved;
 
     private void HandleValid()
     {
-        // Save it.
+        _saved = true;
     }
 
     public class Contact
@@ -120,11 +137,13 @@ no profiles required:
             RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
             RuleFor(c => c.Email).Cascade(CascadeMode.Stop)
                 .NotEmpty().WithMessage("Email is required")
-                .EmailAddress().WithMessage("A valid email is required");
+                .EmailAddress().WithMessage("Enter a valid email address");
         }
     }
 }
 ```
+
+<!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage1.razor` -->
 
 Two registrations in `Program.cs` finish it, `using` directives included — the model and
 validator are nested in the page class, so they are named through it:
@@ -141,17 +160,19 @@ builder.Services.AddScoped<IValidator<Signup.Contact>, Signup.ContactValidator>(
 That `using` is the page's own namespace, which each template decides by where it puts the page
 file: `YourApp.Pages` in a standalone WebAssembly app, `YourApp.Components.Pages` in a Blazor Web
 App, and `YourApp.Client.Pages` in the `.Client` project of one created with
-`dotnet new blazor -int Auto` or `-int WebAssembly`. Those two-project Web Apps register in
-**both** projects, because the server builds the form whenever the page prerenders (on by default)
-or runs on the server's circuit, which `InteractiveServer` does every visit and `InteractiveAuto`
-does on the first one. In those apps, only a page written `InteractiveWebAssembly` with
-`prerender: false` skips the server entirely. [Hosting models](docs/quickstart.md#hosting-models)
-covers what else differs.
+`dotnet new blazor -int Auto` or `-int WebAssembly`.
+
+> [!NOTE]
+> A two-project Blazor Web App registers in **both** `Program.cs` files, because the server builds
+> the form too whenever a page prerenders or runs on its circuit:
+> [Hosting models](docs/hosting-models.md#the-server-builds-the-form-too).
 
 That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
 registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
-`FormidableSummary` render whatever the validator reports. The same four pieces taken slowly, with
-each line explained and a run at the end, are in [Quickstart](docs/quickstart.md); the sample app's
+`FormidableSummary` render whatever the validator reports — `Saved.` appears once a submit
+lands, and `OnInvalidSubmit` clears it the moment a later one is blocked. The same four pieces
+taken slowly, with each line explained and a run at the end, are in
+[Quickstart](docs/quickstart.md); the sample app's
 [Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor), which is its home page, is
 this same form grown up a little, with the model in a shared project and the handler in a
 code-behind.
@@ -189,15 +210,17 @@ thing. The second is the shelf you come back to afterwards.
 
 ### Learn the library
 
-Six pages, in reading order. Start at the top and keep going.
+Eight documents, in reading order. Start at the top and keep going.
 
 | Doc | What's in it |
 |---|---|
 | [Why Formidable](docs/why-formidable.md) | Why this layer exists, with one row per workaround it replaces. |
 | [Quickstart](docs/quickstart.md) | A model, a validator, and the four components that render it. |
-| [Core concepts](docs/core-concepts.md) | Draft and submit profiles, which pass runs when, and what severity decides. |
-| [Fields and collections](docs/fields-and-collections.md) | Rows that keep their errors, collection-level messages, and controls the kit ships no input for. |
-| [Async and server](docs/async-and-server.md) | Rules that take time, the pending state they carry, and the server running the same validator. |
+| [Draft and submit rules](docs/tutorial/2-draft-and-submit.md) | One validator carrying draft rules and submit rules, a draft save that demands nothing, and field state made visible. |
+| [A warning alongside an error](docs/tutorial/3-severity.md) | A rule that advises instead of blocking, and a submit that goes through with the warning still showing. |
+| [A list of members](docs/tutorial/4-collections.md) | Rows that keep their errors, a rule for the list itself, and the notify a page-driven edit owes. |
+| [Async rules](docs/tutorial/5-async.md) | An async rule that asks a service for an answer, and the pending state that shows while it waits. |
+| [The server round trip](docs/tutorial/6-server.md) | The same validator running on the server, and a rejected submit landing back on the fields it names. |
 | [Recipes](docs/recipes.md) | "I want to…" answered with code, plus a symptom-to-fix troubleshooting table. |
 
 ### Reference

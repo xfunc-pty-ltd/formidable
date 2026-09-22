@@ -4,7 +4,7 @@
 <PageTitle>Stage 1</PageTitle>
 <h1>Stage 1: a validated form</h1>
 
-<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
     <FormidableSummary />
 
     <label>Name

@@ -391,7 +391,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 <!-- Source: `src/Formidable.Blazor/FormidableFieldCssClassProvider.cs` -->
 
 ```csharp
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
+editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableEngine.cs` -->
@@ -440,35 +440,35 @@ service looks for — comes from one function, keyed by the owning object instan
 name together:
 
 ```csharp
-    public static string For(FieldIdentifier field)
-    {
-        var name = field.FieldName.Length == 0
-            ? "form"
-            : string.Concat(field.FieldName.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-'));
-        return $"formidable-{RuntimeHelpers.GetHashCode(field.Model):x8}-{NameHash(field.FieldName):x8}-{name}";
-    }
+public static string For(FieldIdentifier field)
+{
+    var name = field.FieldName.Length == 0
+        ? "form"
+        : string.Concat(field.FieldName.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-'));
+    return $"formidable-{RuntimeHelpers.GetHashCode(field.Model):x8}-{NameHash(field.FieldName):x8}-{name}";
+}
 
-    /// <summary>
-    /// FNV-1a over the name's UTF-16 code units. Spelled out rather than delegated: see the
-    /// remarks on <see cref="For(FieldIdentifier)"/> for why a per-process hash cannot serve here.
-    /// </summary>
-    private static uint NameHash(string name)
-    {
-        const uint offsetBasis = 2166136261;
-        const uint prime = 16777619;
+/// <summary>
+/// FNV-1a over the name's UTF-16 code units. Spelled out rather than delegated: see the
+/// remarks on <see cref="For(FieldIdentifier)"/> for why a per-process hash cannot serve here.
+/// </summary>
+private static uint NameHash(string name)
+{
+    const uint offsetBasis = 2166136261;
+    const uint prime = 16777619;
 
-        var hash = offsetBasis;
-        foreach (var c in name)
+    var hash = offsetBasis;
+    foreach (var c in name)
+    {
+        unchecked
         {
-            unchecked
-            {
-                hash = (hash ^ (byte)c) * prime;
-                hash = (hash ^ (byte)(c >> 8)) * prime;
-            }
+            hash = (hash ^ (byte)c) * prime;
+            hash = (hash ^ (byte)(c >> 8)) * prime;
         }
-
-        return hash;
     }
+
+    return hash;
+}
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableFieldId.cs` -->
@@ -545,15 +545,15 @@ state the CSS class rule reads. It renders one more attribute the excerpt leaves
 anything the field's current state is doing:
 
 ```csharp
-        if (state.HasErrors)
-        {
-            builder.AddAttribute(sequence + 3, "aria-invalid", "true");
-        }
+if (state.HasErrors)
+{
+    builder.AddAttribute(sequence + 3, "aria-invalid", "true");
+}
 
-        if (issues.Count > 0)
-        {
-            builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
-        }
+if (issues.Count > 0)
+{
+    builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
+}
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
@@ -569,10 +569,10 @@ the value is the messages id alone: `FormidableFieldId.MessagesFor(field)`, the 
 `FormidableFieldMessage` or `FormidableCollectionMessage` rendered it:
 
 ```csharp
-        builder.OpenElement(sequence++, "ul");
-        builder.AddMultipleAttributes(sequence++, additionalAttributes!);
-        builder.AddAttribute(sequence++, "id", listElementId);
-        builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
+builder.OpenElement(sequence++, "ul");
+builder.AddMultipleAttributes(sequence++, additionalAttributes!);
+builder.AddAttribute(sequence++, "id", listElementId);
+builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
@@ -591,8 +591,8 @@ because the consumer composes the markup themselves — a control that also carr
 the hint's id and `field.AriaDescribedBy` into the attribute in that order by hand:
 
 ```csharp
-        AriaInvalid = state.HasErrors;
-        AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
+AriaInvalid = state.HasErrors;
+AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableFieldContext.cs` -->
@@ -700,18 +700,18 @@ element ever changes, and every issue that arrives after a region's own first re
 a live region whose role was already there:
 
 ```csharp
-    // One fixed-role region: the element and its role render whether or not any issue currently
-    // matches, so a band arriving later inserts into a live region assistive technology has
-    // already been told about — a role, once in the DOM, never changes, and the element carrying
-    // it outlives every band that comes and goes inside it. Show is what decides a region exists
-    // at all, so a runtime Show change is where a region and its first band still share a render.
+// One fixed-role region: the element and its role render whether or not any issue currently
+// matches, so a band arriving later inserts into a live region assistive technology has
+// already been told about — a role, once in the DOM, never changes, and the element carrying
+// it outlives every band that comes and goes inside it. Show is what decides a region exists
+// at all, so a runtime Show change is where a region and its first band still share a render.
 ```
 
 ```csharp
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", regionClass);
-        builder.AddAttribute(sequence++, "role", role);
-        builder.AddAttribute(sequence++, "aria-atomic", "false");
+builder.OpenElement(sequence++, "div");
+builder.AddAttribute(sequence++, "class", regionClass);
+builder.AddAttribute(sequence++, "role", role);
+builder.AddAttribute(sequence++, "aria-atomic", "false");
 ```
 
 <!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
@@ -818,11 +818,11 @@ The shipped implementation is a thin JS-interop wrapper: it computes the field's
 passes both id strings across the interop boundary, returning whatever the JS side reports:
 
 ```csharp
-    public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
-        Module.InvokeAsync<bool>(
-            "focusField",
-            FormidableFieldId.For(field),
-            FormidableFieldId.MessagesFor(field));
+public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
+    Module.InvokeAsync<bool>(
+        "focusField",
+        FormidableFieldId.For(field),
+        FormidableFieldId.MessagesFor(field));
 ```
 
 <!-- Source: `src/Formidable.Blazor/FormidableFocusService.cs` -->
