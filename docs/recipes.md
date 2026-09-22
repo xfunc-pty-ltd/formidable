@@ -477,9 +477,9 @@ A child validator scoped by the `SetValidator` call itself
 selection FluentValidation runs it with, built from those ruleset names and replacing the profile's
 own.
 
-A rule tagged into those rulesets demands its field whenever the holding rule is selected. Any other
-rule inside the child, tagged into a set the call does not name or not tagged at all, draws no mark
-anywhere, because FluentValidation runs it under no profile.
+A rule tagged into those rulesets demands its field whenever the holding rule is selected. A rule
+inside the child that the call's selection does not pick draws no mark anywhere, because
+FluentValidation never runs it.
 
 **Read more:**
 

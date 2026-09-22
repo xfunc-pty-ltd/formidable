@@ -184,6 +184,11 @@ front of you reaches:
 | `disconnectLayoutObserver` | that observer is released | `SetupVoid` |
 | `syncValue` | a `FormidableInputNumber` or `FormidableInputDate` blurs | `SetupVoid` |
 
+Every call carries arguments, so plan each one with a matcher (`_ => true` accepts any) and give it
+its result: `.SetResult(...)` on a typed plan, `.SetVoidResult()` on a void one. A plan with no
+result faults the awaiting call with `JSRuntimeInvocationNotSetException`, and an identifier-only
+plan matches nothing the kit calls.
+
 Strict mode is bUnit's default, and an unplanned call throws
 `JSRuntimeUnhandledInvocationException`. That type derives from `Exception` rather than
 `JSException`, so the order resolve's own tolerance for a failed interop call never catches it.
