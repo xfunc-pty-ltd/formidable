@@ -270,11 +270,11 @@ relying on implicit wrapping, address it by the context's id instead of assuming
 sticks:
 
 ```razor
-    <p><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
-        <FieldMessage For="() => _contact.Name" /></p>
+    <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+        <FieldMessage For="() => _contact.Name" /></div>
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Quickstart.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor`*
 
 — label-wrapping is what every sample using `FormidableInputText` does, since the label needs no
 explicit `for` when it wraps the control. `FormidableField`'s renderless template is the other
@@ -353,17 +353,11 @@ The sample page for it wraps a plain `<select>` — a control Formidable does no
 how to, wrap itself:
 
 ```razor
-@page "/foreign"
-
-<PageTitle>Wrapping a foreign control</PageTitle>
-<h1>Wrapping a foreign control</h1>
-<p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> instead of wrapping the control in a label — wrapping isn't possible because the label must target the foreign element's own id, which only the field context supplies; every other page in this sample wraps.</p>
-
-<FormidableForm Model="_order">
+<FormidableForm Model="_order" OnValidSubmit="HandleValid">
     <FormSummary />
 
     <FormidableField For="() => _order.Colour" Context="field">
-        <p>
+        <div class="field">
             <label for="@field.ElementId">Colour</label>
             <select id="@field.ElementId" class="@field.CssClass"
                     aria-invalid="@(field.AriaInvalid ? "true" : null)"
@@ -374,25 +368,32 @@ how to, wrap itself:
                 <option>Green</option>
                 <option>Blue</option>
             </select>
-        </p>
+        </div>
         <FieldMessage For="() => _order.Colour" />
     </FormidableField>
 
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
+```
 
-@code {
-    private readonly GadgetOrder _order = new() { Nickname = "sample" };
+*Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor`* — the page also carries a
+teaching panel above the form.
 
+The page uses `<label for="@field.ElementId">` rather than wrapping the control in a label,
+because the label has to target the foreign element's own id — and only the field context knows
+it. The change handler lives in the code-behind:
+
+```csharp
     private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
     {
         _order.Colour = args.Value?.ToString() ?? string.Empty;
         field.NotifyChanged();
     }
-}
 ```
 
-*Source: `samples/Formidable.Sample/Pages/ForeignControl.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor.cs`*
 
 `field.NotifyChanged()` in the change handler is doing exactly what `SetCurrentValueAsync` does
 for `ValidatedInputBase` descendants — mark touched, notify the `EditContext` — just called
@@ -517,10 +518,11 @@ Renders a live, severity-grouped list of every currently-visible issue across th
 
 *Source: `src/Formidable.Blazor/FormSummary.cs`*
 
-Each item is a button that moves focus to the offending field through `IFormidableFocusService`:
+Each item is a button that moves focus to the offending field through `IFormidableFocusService`,
+via the component's own `FocusWithFallbackAsync` (the fallback hop described below):
 
 ```csharp
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusService.FocusAsync(visibleIssue.Field).AsTask()));
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusWithFallbackAsync(visibleIssue.Field)));
 ```
 
 *Source: `src/Formidable.Blazor/FormSummary.cs`*
@@ -667,31 +669,24 @@ unmodified — a native `InputText` and `ValidationMessage` beside a Formidable 
 form:
 
 ```razor
-@page "/vanilla"
-
-<PageTitle>Vanilla interop</PageTitle>
-<h1>Vanilla interop</h1>
-<p>A native InputText and ValidationMessage working beside a Formidable input in the same form — the css provider even gives the native input the same state classes.</p>
-
-<FormidableForm Model="_order">
+<FormidableForm Model="_order" OnValidSubmit="HandleValid">
     <FormSummary />
 
-    <p><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
         <ValidationMessage For="() => _order.Nickname" />
-        <FieldAnchor For="() => _order.Nickname" /></p>
+        <FieldAnchor For="() => _order.Nickname" /></div>
 
-    <p><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
-        <FieldMessage For="() => _order.Colour" /></p>
+    <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+        <FieldMessage For="() => _order.Colour" /></div>
 
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
-
-@code {
-    private readonly GadgetOrder _order = new();
-}
 ```
 
-*Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/VanillaInterop.razor`* — the page also carries a
+teaching panel above the form.
 
 The native `InputText` gets the same state classes a Formidable input would, because the engine
 installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at construction — every

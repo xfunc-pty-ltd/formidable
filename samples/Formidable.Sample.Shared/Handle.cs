@@ -13,6 +13,10 @@ public class HandleValidator : DraftSubmitValidator<Handle>
     private static readonly string[] Taken = ["admin", "root", "formidable"];
     private static readonly string[] TakenDisplayNames = ["Administrator", "Root User", "Formidable"];
 
+    // Mutable so the sample page can slow the simulated call down and make cancellation
+    // visible; a real validator would inject a clock/service rather than hold mutable state.
+    public static int SimulatedDelayMs { get; set; } = 600;
+
     protected override void ConfigureDraftRules()
     {
         // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
@@ -21,7 +25,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         RuleFor(h => h.Username)
             .MustAsync(async (username, cancellationToken) =>
             {
-                await Task.Delay(600, cancellationToken);
+                await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !Taken.Contains(username, StringComparer.OrdinalIgnoreCase);
             })
             .WithMessage("That username is taken")
@@ -32,7 +36,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         RuleFor(h => h.DisplayName)
             .MustAsync(async (displayName, cancellationToken) =>
             {
-                await Task.Delay(600, cancellationToken);
+                await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !TakenDisplayNames.Contains(displayName, StringComparer.OrdinalIgnoreCase);
             })
             .WithMessage("That display name is taken")

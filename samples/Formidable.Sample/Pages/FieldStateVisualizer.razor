@@ -1,0 +1,71 @@
+@page "/field-state"
+
+<PageTitle>Field-state visualizer</PageTitle>
+<h1>Field-state visualizer</h1>
+<p>Every CSS class and pending indicator the kit renders is a decision made from one small record: <code>FieldState</code>. This page puts it on screen directly, live, for both fields below.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "Handle.cs", "FieldStateVisualizer.razor", "FieldStateVisualizer.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Touched</strong> — the user has interacted with the field.</li>
+            <li><strong>Modified</strong> — the EditContext says the value changed.</li>
+            <li><strong>Validating</strong> — a validation pass involving this field is in flight; scoped to the field for live/refresh passes, form-wide for submit.</li>
+            <li><strong>Blur</strong> marks touched on this page: it wires <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. The built-in inputs mark touched on the first value commit, so without this wiring, tabbing through never touches.</li>
+            <li><strong>Errors</strong> — the field currently carries error-severity messages.</li>
+            <li><strong>Warnings</strong> — the field currently carries warning-severity messages.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Tab into Username and out — Touched flips to True, Modified stays False.</li>
+            <li>Type <code>admin</code> — Modified and Validating flip to True, then Errors flips once the taken-check lands.</li>
+            <li>Submit — both rows' Validating flip together: submit is a form-wide pass, not a per-field one.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_handle" OnValidSubmit="HandleValid">
+    <FormSummary />
+
+    <FormidableField For="() => _handle.Username" Context="field">
+        <div class="field">
+            <label>Username <FormidableInputText For="() => _handle.Username" @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
+            @if (field.State.IsValidating)
+            {
+                <em role="status">checking…</em>
+            }
+        </div>
+        <FieldMessage For="() => _handle.Username" />
+    </FormidableField>
+
+    <FormidableField For="() => _handle.DisplayName" Context="field">
+        <div class="field">
+            <label>Display name <FormidableInputText For="() => _handle.DisplayName" @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
+            @if (field.State.IsValidating)
+            {
+                <em role="status">checking…</em>
+            }
+        </div>
+        <FieldMessage For="() => _handle.DisplayName" />
+    </FormidableField>
+
+    <table class="state-table">
+        <thead><tr><th>Field</th><th>Touched</th><th>Modified</th><th>Validating</th><th>Errors</th><th>Warnings</th></tr></thead>
+        <tbody>
+            <FormidableField For="() => _handle.Username" Context="field">
+                <tr><td>Username</td><td>@field.State.IsTouched</td><td>@field.State.IsModified</td><td>@field.State.IsValidating</td><td>@field.State.HasErrors</td><td>@field.State.HasWarnings</td></tr>
+            </FormidableField>
+            <FormidableField For="() => _handle.DisplayName" Context="field">
+                <tr><td>Display name</td><td>@field.State.IsTouched</td><td>@field.State.IsModified</td><td>@field.State.IsValidating</td><td>@field.State.HasErrors</td><td>@field.State.HasWarnings</td></tr>
+            </FormidableField>
+        </tbody>
+    </table>
+
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
+</FormidableForm>
+
+<p role="status">@_status</p>
+
+<p><small>The table rows above are not a read-only view bolted on the side — each is its own <code>FormidableField</code>, registered with the form exactly like the inputs above it. That is why they re-render the instant a flag changes: render-registration means any markup a field renders, table row included, is the live proof of that field's state.</small></p>

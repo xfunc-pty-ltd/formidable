@@ -1,0 +1,53 @@
+@page "/scroll-focus"
+
+<PageTitle>Scroll &amp; focus</PageTitle>
+<h1>Scroll &amp; focus — click-to-focus across a long form</h1>
+<p>Twelve teams of three members, all static — this page is about distance, not editing. Submit, then click any entry in the summary: the page scrolls the element into view, centred, and focuses it.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "ScrollFocus.razor", "ScrollFocus.razor.cs" })">
+    <Rules>
+        <ul>
+            <li>The summary lists every visible issue. Clicking an entry scrolls its element into view (centred) and focuses it.</li>
+            <li>The focus service targets elements in the DOM — and on this page, everything IS in the DOM, so every entry works with no fallback.</li>
+            <li>Contrast the Virtualized page: its rows leave the DOM when scrolled out of the render window, so it needs a <code>FocusFallback</code> to bring one back before focusing it. Here there is nothing to bring back.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit — a long summary appears.</li>
+            <li>Click the LAST entry — the page scrolls to the bottom row and focuses it.</li>
+            <li>Fix it, submit, click another far entry — same ride back.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_roster" OnValidSubmit="HandleValid">
+    <FormSummary />
+    <CollectionMessage For="() => _roster.Teams" />
+
+    @foreach (var team in _roster.Teams)
+    {
+        <fieldset @key="team">
+            <legend>Team</legend>
+            <div class="field"><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                <FieldMessage For="() => team.Name" /></div>
+
+            <CollectionMessage For="() => team.Members" />
+            <ul class="member-list">
+                @foreach (var member in team.Members)
+                {
+                    <li class="field" @key="member">
+                        <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
+                        <FieldMessage For="() => member.Alias" />
+                    </li>
+                }
+            </ul>
+        </fieldset>
+    }
+
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
+</FormidableForm>
+
+<p role="status">@_status</p>

@@ -82,53 +82,45 @@ public class QuickContact
 
 // The five-minute experience: one plain FluentValidation validator, no profiles.
 // Formidable's Draft/Submit profiles both include default rules, so an ordinary
-// AbstractValidator works unchanged.
+// AbstractValidator works unchanged. Email field uses Cascade.Stop so a missing value
+// shows one message; invalid format shows another.
 public class QuickContactValidator : AbstractValidator<QuickContact>
 {
     public QuickContactValidator()
     {
         RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
-        RuleFor(c => c.Email).NotEmpty().EmailAddress().WithMessage("A valid email is required");
+        RuleFor(c => c.Email).Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("Email is required")
+            .EmailAddress().WithMessage("A valid email is required");
     }
 }
 ```
 
 *Source: `samples/Formidable.Sample.Shared/QuickContact.cs`*
 
-The page:
+The page — routed at `@page "/"` in the sample:
 
 ```razor
-@page "/"
-
-<PageTitle>Quickstart</PageTitle>
-<h1>Quickstart</h1>
-<p>One model, one plain FluentValidation validator, three components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
-
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
     <FormSummary />
 
-    <p><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
-        <FieldMessage For="() => _contact.Name" /></p>
-    <p><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
-        <FieldMessage For="() => _contact.Email" /></p>
+    <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+        <FieldMessage For="() => _contact.Name" /></div>
+    <div class="field"><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
+        <FieldMessage For="() => _contact.Email" /></div>
 
-    <button type="submit">Submit</button>
+    <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
 
 @if (_submitted)
 {
     <p role="status">Submitted — thanks, @_contact.Name!</p>
 }
-
-@code {
-    private readonly QuickContact _contact = new();
-    private bool _submitted;
-
-    private void HandleValid() => _submitted = true;
-}
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Quickstart.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor`* — the `_contact` field and
+`HandleValid` handler live alongside in `Quickstart.razor.cs`. The `class` attributes are the
+sample app's own styling; the library ships none.
 
 That's it — `FormidableForm` owns the `EditContext`, `FormidableInputText` registers the field
 and applies validation CSS classes, and `FieldMessage`/`FormSummary` render whatever the

@@ -5,4 +5,16 @@
     <ItemGroup>
         <EmbeddedResource Include="*.cs" />
     </ItemGroup>
+    <ItemGroup>
+        <!-- Generates the strongly typed ValidationMessages accessor into obj/ so no designer
+             file has to be checked in and kept in step with the resx by hand. -->
+        <EmbeddedResource Update="Resources\ValidationMessages.resx">
+            <Generator>MSBuild:Compile</Generator>
+            <StronglyTypedFileName>$(IntermediateOutputPath)ValidationMessages.Designer.cs</StronglyTypedFileName>
+            <StronglyTypedLanguage>CSharp</StronglyTypedLanguage>
+            <StronglyTypedNamespace>Formidable.Sample.Shared.Resources</StronglyTypedNamespace>
+            <StronglyTypedClassName>ValidationMessages</StronglyTypedClassName>
+            <PublicClass>true</PublicClass>
+        </EmbeddedResource>
+    </ItemGroup>
 </Project>

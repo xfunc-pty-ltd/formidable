@@ -446,11 +446,16 @@ public class RoundTripOrder : INormalizableModel
     public string Description { get; set; } = string.Empty;
     public List<OrderLine> Lines { get; set; } = [];
 
-    public void Normalize() => Lines.RemoveAll(line => line.Sku.Length > 0 && string.IsNullOrWhiteSpace(line.Sku));
+    public void Normalize()
+    {
+        // Whitespace-only SKUs are noise - drop those lines entirely. A genuinely empty
+        // SKU ("") survives on purpose so NotEmpty can point at the row.
+        Lines.RemoveAll(line => line.Sku.Length > 0 && string.IsNullOrWhiteSpace(line.Sku));
+    }
 }
 ```
 
-*Source: `samples/Formidable.Sample.Shared/RoundTripOrder.cs`*
+*Excerpt from `samples/Formidable.Sample.Shared/RoundTripOrder.cs`*
 
 Both `ValidationEndpointFilter<TModel>` and `[Validate]` call `(model as INormalizableModel)?.Normalize()`
 in place, on the exact instance the framework already deserialized and bound — before that instance
@@ -506,7 +511,7 @@ end — press Send and the server's 400 lands on the exact fields:
         // server validates (its filter normalizes too) - so issue paths always match rows.
         _order.Normalize();
         _serverWarnings.Clear();
-        var response = await Http.PostAsJsonAsync("/api/orders/", _order);
+        var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
         if (response.IsSuccessStatusCode)
         {

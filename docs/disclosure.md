@@ -60,8 +60,8 @@ user has opened the section:
     <p><button type="button" @onclick="() => _showDetails = !_showDetails">@(_showDetails ? "Hide" : "Show") traveler details</button></p>
     @if (_showDetails)
     {
-        <p><label>Traveler name <FormidableInputText For="() => _request.TravelerName" @bind-Value="_request.TravelerName" /></label>
-            <FieldMessage For="() => _request.TravelerName" /></p>
+        <div class="field"><label>Traveler name <FormidableInputText For="() => _request.TravelerName" @bind-Value="_request.TravelerName" /></label>
+            <FieldMessage For="() => _request.TravelerName" /></div>
     }
 ```
 

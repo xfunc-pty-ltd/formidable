@@ -11,6 +11,7 @@ public partial class ServerRoundTrip
     private FormidableForm<RoundTripOrder>? _form;
     private readonly List<string> _serverWarnings = [];
     private string _status = string.Empty;
+    private string _endpoint = "/api/orders/";
 
     private async Task Send()
     {
@@ -18,7 +19,7 @@ public partial class ServerRoundTrip
         // server validates (its filter normalizes too) - so issue paths always match rows.
         _order.Normalize();
         _serverWarnings.Clear();
-        var response = await Http.PostAsJsonAsync("/api/orders/", _order);
+        var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
         if (response.IsSuccessStatusCode)
         {

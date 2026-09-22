@@ -72,7 +72,7 @@ The sample nests two collections — teams, and each team's members — and exer
 idioms at both levels:
 
 ```razor
-<FormidableForm Model="_roster">
+<FormidableForm Model="_roster" OnValidSubmit="HandleValid">
     <FormSummary />
     <CollectionMessage For="() => _roster.Teams" />
 
@@ -80,33 +80,41 @@ idioms at both levels:
     {
         <fieldset @key="team">
             <legend>Team</legend>
-            <p><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
-                <FieldMessage For="() => team.Name" /></p>
+            <div class="field"><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                <FieldMessage For="() => team.Name" /></div>
 
             <CollectionMessage For="() => team.Members" />
-            <ul>
+            <ul class="member-list">
                 @foreach (var member in team.Members)
                 {
-                    <li @key="member">
+                    <li class="field" @key="member">
                         <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
                         <FieldMessage For="() => member.Alias" />
-                        <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
-                        <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                        <div class="actions">
+                            <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
+                            <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                        </div>
                     </li>
                 }
             </ul>
-            <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
-            <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
-            <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+            <div class="actions">
+                <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
+                <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
+                <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+            </div>
         </fieldset>
     }
 
-    <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Collections.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`* — the page also carries a
+teaching panel above the form. The `class` attributes are the sample app's own styling; the
+library ships none.
 
 The validator behind it mirrors the nesting with `RuleForEach(...).ChildRules(...)`, one level
 for teams and a second, nested level for each team's members:

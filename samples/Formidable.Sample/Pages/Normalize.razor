@@ -1,0 +1,40 @@
+@page "/normalize"
+
+<PageTitle>Normalize</PageTitle>
+<h1>Normalize</h1>
+<p>Normalize() is model-owned cleanup that runs before validation. The server round-trip page calls it behind the scenes; this page calls it directly so you can watch the raw values change.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "TrimmedNote.cs", "Normalize.razor", "Normalize.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces.</li>
+            <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
+            <li>Client code has no automatic hook — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
+            <li>Messages describe the last validated value, not the model's current one — <em>Normalize now</em> changes only the model, so any message already on screen stays put until the next validation pass (e.g. submit) judges the cleaned value.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Type <code>"  spaced   out  title  "</code> into Title and click <em>Normalize now</em> — watch the raw value below snap clean.</li>
+            <li>Type <code>"    Meeting notes about the Q3 rollout    "</code> — 42 characters raw, 34 trimmed. <em>Normalize + submit</em>: trimming runs BEFORE validation, the length rule judges the cleaned value, and the submit succeeds.</li>
+            <li>Leave Title all spaces and click <em>Normalize + submit</em> — it trims to empty and "Title is required" fires.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm @ref="_form" Model="_note">
+    <FormSummary />
+
+    <div class="field"><label>Title <FormidableInputText For="() => _note.Title" @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <FieldMessage For="() => _note.Title" /></div>
+    <div class="field"><label>Body <FormidableInputText For="() => _note.Body" @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <FieldMessage For="() => _note.Body" /></div>
+
+    <div class="actions">
+        <button type="button" @onclick="NormalizeNow">Normalize now</button>
+        <button type="button" class="primary" @onclick="NormalizeAndSubmit">Normalize + submit</button>
+    </div>
+</FormidableForm>
+
+<p><small>Raw values — quotes show the whitespace: Title = "@_note.Title" · Body = "@_note.Body"</small></p>
+<p role="status">@_status</p>

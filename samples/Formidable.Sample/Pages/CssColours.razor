@@ -1,0 +1,46 @@
+@page "/css-colours"
+
+<PageTitle>CSS colours</PageTitle>
+<h1>CSS colours</h1>
+<p>The kit paints nothing itself — every border, message, and spinner you see reads a handful of CSS custom properties from the sample's stylesheet. Override those tokens on any ancestor and the whole validation surface recolours at once.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "Listing.cs", "CssColours.razor", "CssColours.razor.cs" })">
+    <Rules>
+        <ul>
+            <li>Everything the kit colours flows through CSS custom properties in the SAMPLE's stylesheet — invalid borders, messages, the summary accent, even the pending spinner all read the same handful of tokens.</li>
+            <li>Recolouring is overriding those tokens on any ancestor element — zero library involvement; the kit never sees a colour.</li>
+            <li>That is a different seam from renaming: the <a href="/bootstrap">Bootstrap page</a> uses <code>FormidableCssOptions</code> to remap the state class NAMES onto another library's classes. Token override recolours; class-name remap re-targets whose stylesheet applies.</li>
+            <li><strong>Title</strong> — required (error). <strong>Description</strong> — an exclamation mark draws a warning. <strong>Tags</strong> — more than five draws an info. Same validator as Severity levels.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit empty — then pick a new error colour and watch borders, messages, and the summary accent all follow.</li>
+            <li>Focus a field and change the accent — ring and spinner colours follow.</li>
+            <li>Type <code>!</code> in Description, blur, then recolour warning.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<div class="field"><label>Error <input type="color" @bind="Error" @bind:event="oninput" /></label></div>
+<div class="field"><label>Accent <input type="color" @bind="Accent" @bind:event="oninput" /></label></div>
+<div class="field"><label>Warning <input type="color" @bind="Warn" @bind:event="oninput" /></label></div>
+
+@* "26" is 15% alpha appended to the accent hex for the ring token; it assumes a 6-digit
+   hex, which is what <input type="color"> always produces. *@
+<div style="@WrapperStyle">
+    <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
+        <FormSummary />
+
+        <div class="field"><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
+            <FieldMessage For="() => _listing.Title" /></div>
+        <div class="field"><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
+            <FieldMessage For="() => _listing.Description" /></div>
+        <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
+            <FieldMessage For="() => _listing.Tags" /></div>
+
+        <div class="actions"><button type="submit">Submit</button></div>
+    </FormidableForm>
+</div>
+
+<p role="status">@_status</p>

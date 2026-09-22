@@ -99,32 +99,29 @@ public sealed record SubmitOutcome(
 so a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
-@page "/severity"
-
-<PageTitle>Severity levels</PageTitle>
-<h1>Severity levels</h1>
-<p>Warnings and infos render distinctly and never block submission; only errors do.</p>
-
 <FormidableForm @ref="_form" Model="_listing">
     <FormSummary />
 
-    <p><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
-        <FieldMessage For="() => _listing.Title" /></p>
-    <p><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
-        <FieldMessage For="() => _listing.Description" /></p>
-    <p><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
-        <FieldMessage For="() => _listing.Tags" /></p>
+    <div class="field"><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
+        <FieldMessage For="() => _listing.Title" /></div>
+    <div class="field"><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
+        <FieldMessage For="() => _listing.Description" /></div>
+    <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
+        <FieldMessage For="() => _listing.Tags" /></div>
 
-    <button type="button" @onclick="Submit">Submit</button>
+    <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
 </FormidableForm>
 
 <p role="status">@_status</p>
+```
 
-@code {
-    private readonly Listing _listing = new();
-    private FormidableForm<Listing>? _form;
-    private string _status = string.Empty;
+*Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor`* — the page also carries a
+teaching panel above the form.
 
+The submit handler in the code-behind routes purely on `CanProceed`, and reports what got through
+without blocking:
+
+```csharp
     private async Task Submit()
     {
         var outcome = await _form!.SubmitAsync();
@@ -132,10 +129,9 @@ so a model that's all warnings and infos, with no errors, submits successfully:
             ? $"Submitted with {outcome.Report.Warnings.Count()} warning(s) and {outcome.Report.Infos.Count()} info(s) — none of them blocked."
             : "Blocked by errors — fix them and resubmit.";
     }
-}
 ```
 
-*Source: `samples/Formidable.Sample/Pages/SeverityLevels.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor.cs`*
 
 Warnings never reach the `EditContext`'s own message store, either — only error-severity issues
 are written there, which is what built-in `InputBase`/`ValidationMessage` interop sees. The full

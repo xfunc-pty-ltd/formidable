@@ -110,16 +110,16 @@ Saving a draft doesn't go through the engine's submit pipeline at all — it's a
 validation call straight against the injected `IModelValidator<T>` with the `Draft` profile:
 
 ```csharp
-private async Task SaveDraft()
-{
-    var report = await Validator.ValidateAsync(_brief, ValidationProfile.Draft);
-    _status = report.IsValid
-        ? "Draft saved — completeness rules were not enforced."
-        : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
-}
+    private async Task SaveDraft()
+    {
+        var report = await Validator.ValidateAsync(_brief, ValidationProfile.Draft);
+        _status = report.IsValid
+            ? "Draft saved — completeness rules were not enforced."
+            : $"Draft blocked by format rules: {string.Join("; ", report.Errors.Select(e => e.Message))}";
+    }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Profiles.razor.cs`*
+*Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs`*
 
 ## Server-side profile selection
 

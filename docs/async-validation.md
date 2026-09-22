@@ -30,6 +30,10 @@ public class HandleValidator : DraftSubmitValidator<Handle>
     private static readonly string[] Taken = ["admin", "root", "formidable"];
     private static readonly string[] TakenDisplayNames = ["Administrator", "Root User", "Formidable"];
 
+    // Mutable so the sample page can slow the simulated call down and make cancellation
+    // visible; a real validator would inject a clock/service rather than hold mutable state.
+    public static int SimulatedDelayMs { get; set; } = 600;
+
     protected override void ConfigureDraftRules()
     {
         // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
@@ -38,7 +42,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         RuleFor(h => h.Username)
             .MustAsync(async (username, cancellationToken) =>
             {
-                await Task.Delay(600, cancellationToken);
+                await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !Taken.Contains(username, StringComparer.OrdinalIgnoreCase);
             })
             .WithMessage("That username is taken")
@@ -49,7 +53,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         RuleFor(h => h.DisplayName)
             .MustAsync(async (displayName, cancellationToken) =>
             {
-                await Task.Delay(600, cancellationToken);
+                await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !TakenDisplayNames.Contains(displayName, StringComparer.OrdinalIgnoreCase);
             })
             .WithMessage("That display name is taken")
@@ -110,45 +114,27 @@ ordinary `Validated*` inputs apply automatically.
 `FormidableField`'s cascaded `FormidableFieldContext` exposes this as `field.State.IsValidating`:
 
 ```razor
-@page "/async"
-
-<PageTitle>Async rules</PageTitle>
-<h1>Async rules</h1>
-<p>Type "admin" and pause: each keystroke starts the check immediately (the 600ms delay simulates a server call), shows a pending state, and a new keystroke cancels the in-flight check.</p>
-
-<FormidableForm Model="_handle">
-    <FormSummary />
-
     <FormidableField For="() => _handle.Username" Context="field">
-        <p>
+        <div class="field">
             <label>Username <FormidableInputText For="() => _handle.Username" @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>
             }
-        </p>
+        </div>
         <FieldMessage For="() => _handle.Username" />
     </FormidableField>
 
     <FormidableField For="() => _handle.DisplayName" Context="field">
-        <p>
+        <div class="field">
             <label>Display name <FormidableInputText For="() => _handle.DisplayName" @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>
             }
-        </p>
+        </div>
         <FieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
-
-    <button type="submit">Submit</button>
-</FormidableForm>
-
-<p><small>The pending flag is scoped to the field being edited during a live pass — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>
-
-@code {
-    private readonly Handle _handle = new();
-}
 ```
 
 *Source: `samples/Formidable.Sample/Pages/AsyncRules.razor`*

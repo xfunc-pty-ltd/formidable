@@ -1,4 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+    <PropertyGroup>
+        <!-- The culture is chosen at runtime, so the app cannot rely on the trimmed ICU shard
+             that matches the browser's own language: ship the full globalization data. -->
+        <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+    </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.10" PrivateAssets="all" />
@@ -7,5 +12,6 @@
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Pages\*.razor;Pages\*.razor.cs" />
+        <EmbeddedResource Include="..\Formidable.Sample.Api\Controllers\OrdersController.cs" Link="ApiSource\OrdersController.cs" />
     </ItemGroup>
 </Project>

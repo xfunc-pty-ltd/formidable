@@ -1,0 +1,48 @@
+@page "/localization"
+
+<PageTitle>Localization</PageTitle>
+<h1>Localization</h1>
+<p>Two mechanisms in one form: FluentValidation translates its own default messages by the current UI culture, and the one custom message comes from a resx pair. Switch the language and the messages, the date and the number all follow.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "LocalizedProfile.cs", "Localization.razor", "Localization.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Full Name</strong> — required, with <em>no</em> <code>WithMessage</code>. FluentValidation carries translations of its own default messages inside its assembly and picks one by <code>CultureInfo.CurrentUICulture</code>, so a rule that keeps the default message localizes for free.</li>
+            <li><strong>Age</strong> — a whole number between 18 and 130. This message is the app's own, so it comes from <code>ValidationMessages.resx</code> (English) and <code>ValidationMessages.de.resx</code> (German). It is passed as a message <em>factory</em>, so the resx lookup happens each time the rule runs and always matches the active culture.</li>
+            <li>WebAssembly fixes the culture at startup, so switching reloads the app: the stored choice is applied before the host runs, which is also the moment the German satellite assembly is downloaded.</li>
+            <li>FluentValidation's translated defaults still embed the property's display name in English (<code>'Full Name' darf nicht leer sein.</code>) — display-name localization is a separate concern (e.g. <code>WithName</code>) this page deliberately leaves out.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit the empty form in English — FluentValidation's own default answers for Full Name ("'Full Name' must not be empty."), and the resx message answers for Age.</li>
+            <li>Switch the language to <em>Deutsch</em>; the page reloads. Submit empty again — both messages arrive in German, one from FluentValidation, one from the resx.</li>
+            <li>Type <code>12</code> into Age and submit — the range message appears in whichever language is active.</li>
+            <li>Watch the line under the form: the long date and the grouped number reformat with the culture too.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<fieldset class="culture">
+    <legend>Language</legend>
+    <label>Messages and formats
+        <select value="@Culture" @onchange="SwitchCulture">
+            <option value="en-AU">English (Australia)</option>
+            <option value="de-DE">Deutsch (Deutschland)</option>
+        </select>
+    </label>
+</fieldset>
+
+<FormidableForm Model="_profile" OnValidSubmit="HandleValid">
+    <FormSummary />
+
+    <div class="field"><label>Full Name <FormidableInputText For="() => _profile.FullName" @bind-Value="_profile.FullName" /></label>
+        <FieldMessage For="() => _profile.FullName" /></div>
+    <div class="field"><label>Age <FormidableInputText For="() => _profile.Age" @bind-Value="_profile.Age" /></label>
+        <FieldMessage For="() => _profile.Age" /></div>
+
+    <div class="actions"><button type="submit">Submit</button></div>
+</FormidableForm>
+
+<p><small>Culture-sensitive formatting under @Culture — today: @DateTime.Today.ToString("D") · a number: @(1234.56.ToString("N2"))</small></p>
+<p role="status">@_status</p>

@@ -63,6 +63,18 @@ body {
     line-height: 1.5;
 }
 
+/* The Bootstrap fitting page loads Bootstrap's stylesheet after this one (via a HeadContent
+   outlet), and Bootstrap 5.3 without data-bs-theme carries its own light-only `body` rule;
+   being later, it wins the equal-specificity tie in dark mode and flips the whole shell light.
+   `html body` out-specifies it while leaving the demo area to theme itself through its own
+   data-bs-theme attribute. */
+@media (prefers-color-scheme: dark) {
+    html body {
+        background: var(--bg);
+        color: var(--text);
+    }
+}
+
 h1 {
     font-size: 1.45rem;
     margin: 0 0 .5rem;
@@ -141,6 +153,14 @@ code {
     padding: 0;
 }
 
+.sidebar h2 {
+    font-size: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    margin: 1rem 0 .3rem .6rem;
+}
+
 .sidebar a {
     display: block;
     padding: .38rem .6rem;
@@ -197,8 +217,11 @@ main {
     margin-bottom: .1rem;
 }
 
+/* .culture is the localization page's language picker: it sits outside the form, so it has to
+   ask for the field chrome the form selectors give every other select. */
 form input:where(:not([type=radio]):not([type=checkbox])),
-form select {
+form select,
+.culture select {
     display: block;
     width: 100%;
     margin-top: .3rem;
@@ -212,7 +235,8 @@ form select {
 }
 
 form input:where(:not([type=radio]):not([type=checkbox])):focus,
-form select:focus {
+form select:focus,
+.culture select:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--ring);
@@ -479,6 +503,18 @@ em[role=status] {
     overflow-x: auto;
     font-size: .8rem;
     line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* When the reader opens the code, grow the card into the empty space right of the
+   52rem column - sidebar (15rem) + main padding (4rem) + scrollbar allowance ~ 20rem.
+   Closed, every page keeps its reading measure. */
+@media (min-width: 72rem) {
+    .teaching:has(.teaching__code[open]) {
+        width: calc(100vw - 20rem);
+        max-width: 80rem;
+    }
 }
 
 .actions {
@@ -494,4 +530,25 @@ em[role=status] {
 
 p[role=status] {
     margin-top: 1rem;
+}
+
+/* ---------- field-state table ---------- */
+
+.state-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+    margin: 1rem 0 1.4rem;
+}
+
+.state-table th,
+.state-table td {
+    border: 1px solid var(--border);
+    padding: .4rem .6rem;
+    text-align: left;
+}
+
+.state-table thead {
+    color: var(--muted);
+    background: var(--field-bg);
 }

@@ -5,10 +5,10 @@ via the `Options` parameter; every property has a default, so omitting `Options`
 falls back to `new FormidableOptions()`) is a fully working configuration.
 
 ```razor
-<FormidableForm Model="_request" Options="_options">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form">
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
 
 ## Properties
 
@@ -65,8 +65,6 @@ parameter on a later render. Create the `FormidableOptions` once and treat it as
 the life of the rendered form:
 
 ```csharp
-    private FormidableOptions? _options;
-
     protected override void OnInitialized()
     {
         _options = new FormidableOptions
@@ -80,7 +78,8 @@ the life of the rendered form:
     }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor.cs`*
+*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs`* — `_options` is a
+`FormidableOptions?` field on the page, built once here and never reassigned.
 
 Passing a different `FormidableOptions` instance on a later render has no effect by itself,
 because nothing rebuilds — the engine only rebuilds when the `Model` reference changes. A new

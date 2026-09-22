@@ -1,0 +1,49 @@
+@host = http://localhost:5180
+
+### Minimal API - valid order (200)
+POST {{host}}/api/orders/
+Content-Type: application/json
+
+{
+  "description": "Quarterly stationery order",
+  "lines": [
+    { "sku": "PEN001" },
+    { "sku": "PAD014" }
+  ]
+}
+
+### Minimal API - invalid order (400): empty description, two empty SKUs
+POST {{host}}/api/orders/
+Content-Type: application/json
+
+{
+  "description": "",
+  "lines": [
+    { "sku": "" },
+    { "sku": "" }
+  ]
+}
+
+### MVC controller - valid order (200)
+POST {{host}}/api/controller/orders
+Content-Type: application/json
+
+{
+  "description": "Quarterly stationery order",
+  "lines": [
+    { "sku": "PEN001" },
+    { "sku": "PAD014" }
+  ]
+}
+
+### MVC controller - invalid order (400): empty description, two empty SKUs
+POST {{host}}/api/controller/orders
+Content-Type: application/json
+
+{
+  "description": "",
+  "lines": [
+    { "sku": "" },
+    { "sku": "" }
+  ]
+}
