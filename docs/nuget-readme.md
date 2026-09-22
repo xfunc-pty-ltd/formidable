@@ -62,13 +62,11 @@ with an interactive render mode (every page of a standalone WebAssembly app, or 
 App page carrying @rendermode InteractiveServer, @rendermode InteractiveWebAssembly or
 @rendermode InteractiveAuto).
 
-A Blazor Web App is two projects when it is created by dotnet new blazor -int Auto or by
-dotnet new blazor -int WebAssembly. It has a server project and a .Client project, each with its
-own Program.cs, and both of them need the same two lines: the server builds the form whenever the
-page prerenders (on by default) or runs on the server's circuit, as InteractiveServer does on
-every visit and InteractiveAuto does on the first one. Only a page written InteractiveWebAssembly
-with prerendering turned off skips the server entirely. Register on the client alone anywhere
-else and the server has no validator to resolve.
+In a Blazor Web App (the two-project template), add the same two lines to both Program.cs
+files: pages prerender and can run on the server, and a validator registered only in the
+.Client project is invisible there. The quickstart
+(https://github.com/xfunc/formidable/blob/main/docs/quickstart.md) has the exact settings per
+render mode.
 
 ## Links
 
