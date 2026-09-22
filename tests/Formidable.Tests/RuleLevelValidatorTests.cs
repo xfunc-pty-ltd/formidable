@@ -123,9 +123,9 @@ public class RuleLevelValidatorTests
     }
 
     /// <summary>
-    /// The shipped disclose-on-engagement shape in isolation: a dual-membership RuleForEach
-    /// whose ChildRules children carry the propagated declaration-scope tags. A plain
-    /// AbstractValidator so both engaged-pair profiles reach it without ruleset registration.
+    /// Comma-membership in isolation: a dual-membership RuleForEach whose ChildRules children
+    /// carry the propagated declaration-scope tags. A plain AbstractValidator so both profiles
+    /// of the pair reach it without ruleset registration.
     /// </summary>
     private sealed class EngagedListValidator : AbstractValidator<RuleModel>
     {
@@ -196,8 +196,8 @@ public class RuleLevelValidatorTests
     {
         "Draft" => ValidationProfile.Draft,
         "Submit" => ValidationProfile.Submit,
-        // The shipped disclose-on-engagement live profile shape: default rules plus the
-        // "Engaged" ruleset, reaching the dual rule through its second membership.
+        // A narrowed live profile's shape: default rules plus the "Engaged" ruleset, reaching
+        // the dual rule through its second membership.
         "Engaged" => ValidationProfile.Named("Engaged", includeDefaultRules: true, "Engaged"),
         // Ruleset-only selection: no default bucket at all.
         "EngagedOnly" => ValidationProfile.Named("EngagedOnly", includeDefaultRules: false, "Engaged"),
@@ -442,10 +442,13 @@ public class RuleLevelValidatorTests
     [Fact]
     public async Task A_propagated_tag_child_rule_stays_profile_independent()
     {
-        // The shipped disclose-on-engagement shape: ChildRules children carry the propagated
+        // Comma-membership at its hardest: ChildRules children carry the propagated
         // declaration-scope tags, so any profile selecting the rule admits them through those
-        // same tags — the verdict is reusable across the engaged/submit profile pair, which is
-        // the per-rule store's reuse target.
+        // same tags — the verdict is reusable across every profile that reaches the rule, which
+        // is what the per-rule store trades on. On the default profiles the pair sharing a
+        // verdict is a live pass and the refresh behind it, both selecting the submit profile;
+        // a dual-membership rule is the case where the two profiles differ by name and the
+        // verdict still travels.
         var adapter = new FluentValidationModelValidator<RuleModel>(new EngagedListValidator());
         var model = new RuleModel
         {

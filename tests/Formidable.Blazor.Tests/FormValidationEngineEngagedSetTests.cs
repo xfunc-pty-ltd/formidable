@@ -9,8 +9,9 @@ namespace Formidable.Blazor.Tests;
 /// Pins verdict application over the engaged field set: a live pass answers every field the user
 /// has committed a change to — the report's issues where it has them, the empty verdict where it
 /// says nothing — so a cross-field verdict clears, or appears, on a field the triggering edit
-/// never named. The fixture is a two-field cross-field rule in the DRAFT bucket, which the
-/// default <c>LiveProfile</c> selects with no profile configuration at all.
+/// never named. The fixture is a two-field cross-field rule in the DRAFT bucket, which a live
+/// pass selects under any profile here — the submit bucket is empty, so nothing turns on which
+/// one the live channel runs.
 /// </summary>
 public class FormValidationEngineEngagedSetTests
 {

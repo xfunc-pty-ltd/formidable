@@ -8,6 +8,7 @@
     <Rules>
         <ul>
             <li>Profiles are just named rule-set selections. <code>Draft</code> and <code>Submit</code> are the two built-ins <code>DraftSubmitValidator</code> wires up for you; this page's validator defines a third, <strong>AdminReview</strong>, which also includes <code>Submit</code>'s rules.</li>
+            <li>The picker moves the live channel with it. <code>LiveProfile</code> is left unset, so the live channel follows whichever <code>SubmitProfile</code> is in force: under <em>Standard submit</em> a field you have engaged answers the <code>Submit</code> ruleset, and under <em>Admin review</em> <strong>Review note</strong> joins the others and answers the same way. Engagement still decides which fields may speak — a field nobody has touched says nothing under either profile.</li>
             <li><strong>Title</strong>: required under every profile (a common rule).</li>
             <li><strong>Slug</strong>: required under the <code>Submit</code> ruleset.</li>
             <li><strong>Category</strong>: required under <code>Submit</code>. A <code>FormidableInputSelect</code> with <code>UpdateOn="OnBlur"</code>: picking an option commits it at once, but the message waits until you leave the control.</li>
@@ -21,7 +22,8 @@
         <ol>
             <li>With <em>Standard submit</em> selected, submit with everything empty — Category shows "Category is required" among the rest. Pick a category — the message waits until you leave the control, so it still reads "required" right after you pick; tab away and it clears.</li>
             <li>Fill Title, Slug, Read minutes and Publish date, leave Review note empty, and submit — it goes through.</li>
-            <li>Switch to <em>Admin review</em> — the form resets. Enter the same fields and submit — blocked: the review note is now required.</li>
+            <li>Switch to <em>Admin review</em> — the form resets. Before submitting anything, type something into Review note and leave the field, then come back, clear it and leave again: "A review note is required for admin review" appears on a form that has never been submitted, so the live channel is the only thing that can have put it there — and it is following the profile the picker installed. Under <em>Standard submit</em> the same two edits say nothing at all, because that profile selects no rule for the field.</li>
+            <li>Fill Title, Slug, Category, Read minutes and Publish date — the reset emptied all five — leave Review note empty, and submit: blocked, the review note is required under this profile.</li>
             <li>Fill in Review note and submit again — it goes through under admin review.</li>
         </ol>
     </TryIt>

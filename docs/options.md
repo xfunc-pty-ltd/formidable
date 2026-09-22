@@ -49,20 +49,42 @@ can show — where the sample demonstrates it.
 
 ### `LiveProfile`
 
-`ValidationProfile`, defaults to `ValidationProfile.Draft`. The profile every live pass — one
-per field change — validates against. See [Profiles](profiles.md).
+`ValidationProfile?`, defaults to `null`. The profile every live pass — one per field change —
+validates against; `null` means `SubmitProfile`, so a live message says what a submit would
+actually complain about, presence rules included. The engine resolves it at each pass's
+beginning and follows the instance the options hold, so a custom `SubmitProfile`, including one
+swapped at runtime, is what the live channel evaluates.
+
+Rule selection is not what keeps a live channel from nagging: a live pass files a verdict only
+for the fields a committed change has notified the engine about, so an untouched field says
+nothing whatever its rules would report. Set this where a submit rule is genuinely too expensive
+to run per change — a uniqueness check against a server, say — and it decides what the live pass
+evaluates from then on. `ValidationProfile.Draft` is the usual choice, leaving every
+submit-ruleset rule to the submit itself. Either way a save-progress flow is unaffected: it
+validates `ValidationProfile.Draft` at the save call, whatever the live channel is doing. See
+[Profiles](profiles.md), and the recipe for
+[narrowing what the live channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates).
 
 ### `SubmitProfile`
 
 `ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile the submit pipeline
-validates against, and the profile the debounced post-submit refresh re-validates against. See
-[Profiles](profiles.md).
+validates against, the profile the debounced refresh re-validates against, the profile
+`TrackFormValidity`'s probe answers for — and, unless `LiveProfile` narrows it, the profile every
+live pass validates against too. See [Profiles](profiles.md).
 
 ### `RefreshDebounce`
 
-`TimeSpan`, defaults to 300 ms. How long the engine waits, after a field change once a submit
-has happened, before the debounced refresh re-answers `SubmitProfile` to keep inline errors
-current. The refresh arms at this duration whether or not `LiveDebounce` is set.
+`TimeSpan`, defaults to 300 ms. How long the engine waits before the debounced refresh re-answers
+`SubmitProfile`, keeping inline errors current and the `Valid` class's vouch with them. Two things
+arm it: a field change once a submit has happened, and any move in the rendered field set, at any
+point in the form's life. The refresh arms at this duration whether or not `LiveDebounce` is set.
+
+Those two arm sites are not symmetric, which is worth knowing before building a page whose field
+set churns. Before a submit an edit arms nothing, so a field-set change followed by typing fires
+its pass this long after the change rather than sliding to the pause in the typing, and that pass
+evaluates the whole submit profile, async rules included, since the same change emptied the
+verdict store. A burst of field-set changes still collapses to one pass: they share a single
+timer, and each re-arms it.
 
 ### `LiveDebounce`
 
@@ -76,7 +98,7 @@ Reach for it when live rules are expensive enough that one per keystroke is the 
 async availability check being the obvious case. It changes how often live passes run — and, when
 `TrackFormValidity` is also on, how often its validity probe runs too, since the probe rides this
 same window rather than firing on a schedule of its own (see below). After a submit, the same edit
-that arms this window also arms the post-submit refresh.
+that arms this window also arms the refresh.
 
 The two arm independently: the refresh at plain `RefreshDebounce`, this window at its own width, and
 neither timer reads the other. At the default, with no live debounce at all, the live pass runs on
@@ -122,9 +144,9 @@ two starts first does not matter: an all-synchronous plan runs to completion bef
 started it returns, so whichever goes first has already filed everything the other would have
 planned, and they share in full. On any other
 validator there is no store to share, and each probe is one whole `SubmitProfile` validation on
-top of the live pass — usually the more expensive of the two,
-since `SubmitProfile` is by default a superset of `LiveProfile`: the default rules again plus the
-whole Submit ruleset, where the expensive async rules tend to live.
+top of the live pass. What that costs depends on `LiveProfile`: unset, the live pass is selecting
+those same rules, so the two evaluate identical work twice over. Where it narrows, the probe is
+the more expensive of the two, with the async and server-shaped rules among the difference.
 
 What the probe is not is an engine pass: no disclosure, no message-store write, no pending
 indicator, nothing about it ever reaches the screen. It runs once when the engine is built, so a
@@ -136,9 +158,15 @@ applied through `ApplyServerIssues` are not part of it.
 
 The verdicts a probe files are read by more than `IsFormValid`. They are also what lets a field
 wear the `Valid` class before any submit, since green asks whether the submit-selected rules would
-pass (see [CSS and accessibility](css-and-accessibility.md#need-to-know)). On a page whose
-`LiveProfile` doesn't already cover the submit profile, turning tracking on is what gets a clean
-field confirmed while the visitor types, rather than at the first submit.
+pass (see [CSS and accessibility](css-and-accessibility.md#need-to-know)). Three things make that
+worth turning on, and none of them is "so a clean field goes green while the visitor types" — an
+ordinary live pass already answers the submit-selected rules and lands them in the same store.
+What the probe adds is the answer on a form nobody has edited, since it runs once at construction
+and nothing else runs until an edit or a move in the rendered field set arms a pass; the answer on
+a page that narrows `LiveProfile`, where no live pass ever answers the rules green is asking
+about; and the answer on a validator with no rule-level seam, where a live pass is never taken as
+a coverage source at all, so `IsFormValid` and green would otherwise both wait for the next
+submit.
 
 A probe in flight doesn't cancel one already running from an earlier change — they overlap. Which
 answer sticks is decided by the stamp each probe took as it started, not by the order they finish
@@ -369,9 +397,13 @@ A field carrying only advisories earns `Warning`/`Info`, not `Valid` — deliber
 reads as cleared while it still has something to say. `Valid` asks for that third condition
 because green is a promise about submit: a field whose submit-selected rules have no answer for
 the value as it stands, or an answer that fails it without showing why, wears nothing rather than
-a confirmation it has not earned. `Pending` appends alongside whichever of the other four applies
-rather than replacing it — see [CSS and accessibility](css-and-accessibility.md) for how the five
-compose, and `TrackFormValidity` above for what keeps that answer current before a submit.
+a confirmation it has not earned. That answer outlives the page moving underneath it. A row
+arriving or a virtualized panel scrolling throws away the verdicts behind it, so the engine holds
+the answer it last gave until the refresh that same move arms returns a new one, and retires the
+held one as soon as a committed change leaves it describing an older model. `Pending` appends
+alongside whichever of the other four applies rather than replacing it — see [CSS and
+accessibility](css-and-accessibility.md) for how the five compose, and `TrackFormValidity` above
+for what answers it on a form nobody has edited.
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 
@@ -477,7 +509,9 @@ that resolved it, not the one on screen.
   [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) sample (which relies on the
   defaults rather than overriding them);
   [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) points
-  `SubmitProfile` at a profile of its own.
+  `SubmitProfile` at a profile of its own, and the live channel follows it;
+  [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) narrows `LiveProfile` to
+  `Draft` so the server is the only judge.
 - `LiveDebounce` — [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor), toggled against
   the immediate default.
 - `TrackFormValidity` (and `IsFormValid` with it) —

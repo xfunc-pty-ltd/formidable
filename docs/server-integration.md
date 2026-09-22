@@ -734,9 +734,10 @@ error on the page — the target a blocked client submit gets, under the same
 `FocusFirstErrorOnInvalidSubmit` switch (see
 [Component kit](component-kit.md#formidableformtmodel)). A payload with no error in it moves
 nothing, since nothing about it was rejected. `Engine.ApplyServerIssues(...)` is the quiet path
-for an apply nobody just asked for, and `FormidableValidator`'s forwarders are quiet for the
-reason attach mode has no automatic focus at all: the page owns the `<form>`, so it owns what
-happens after a rejection.
+for an apply nobody just asked for, and `FormidableValidator`'s forwarders are quiet for a
+narrower reason: attach mode does focus a blocked submit's first error, through its own
+`ValidateForSubmitAsync()`, but the round trip is the page's own, so what happens after a
+rejection is the page's to choose.
 
 The sample deliberately skips client-side submit validation so the round-trip is visible end to
 end — press Send and the server's 400 lands on the exact fields:

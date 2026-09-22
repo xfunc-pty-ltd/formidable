@@ -2,15 +2,15 @@
 
 <PageTitle>Draft vs Submit</PageTitle>
 <h1>Draft vs Submit profiles</h1>
-<p>Live typing runs the Draft profile (format rules only). Submit runs the Submit profile (completeness). Save Draft validates leniently with the same validator.</p>
+<p>Two profiles, one validator: <em>Save draft</em> validates leniently (format rules only), <em>Submit</em> validates for completeness. Typing follows the submit side — a field you have engaged says whatever would block a submit, while a field you have never touched stays quiet however badly its rule is failing.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "DraftedBrief.cs", "Profiles.razor", "Profiles.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Title</strong> — 60 characters max. A format rule in the Draft profile: enforced always, including while drafting.</li>
-            <li><strong>Title</strong> — required. A completeness rule in the Submit profile: enforced only when submitting.</li>
-            <li><strong>Summary</strong> — required. A completeness rule in the Submit profile: enforced only when submitting.</li>
-            <li><strong>Reset</strong> calls <code>_form.ResetAsync()</code> — a named verb for returning the SAME model instance to pristine: touched/modified state, messages and <code>HasSubmitted</code> all clear, without swapping to a different object.</li>
+            <li><strong>Title</strong>: 60 characters max. A format rule in the Draft profile: enforced always, including while drafting.</li>
+            <li><strong>Title</strong>: required. A completeness rule in the Submit profile: a draft save ignores it, and engaging the field is what puts it on screen.</li>
+            <li><strong>Summary</strong>: required. Its own completeness rule in the same profile, disclosed the same way: silent until you engage the field or press Submit.</li>
+            <li><strong>Reset</strong>: calls <code>_form.ResetAsync()</code> — a named verb for returning the SAME model instance to pristine: touched/modified state, messages and <code>HasSubmitted</code> all clear, without swapping to a different object.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -18,10 +18,11 @@
             <li>Type more than 60 characters into Title — the format error appears as you leave the field.</li>
             <li>Click <em>Save draft</em> — blocked: format rules run even for drafts.</li>
             <li>Shorten the title and <em>Save draft</em> again — it saves, even though Summary is empty.</li>
-            <li>Click <em>Submit</em> — now the completeness rules run and Summary is required.</li>
-            <li>Fill everything in and submit — the status line below confirms it.</li>
+            <li>Now clear Title altogether and leave the field — "Title is required to submit" appears at once, with no submit anywhere: the live channel runs the submit profile's rules, and Title is a field you have engaged. Summary is failing its own required rule and says nothing, because you have never touched it.</li>
+            <li>Click <em>Submit</em> — Summary speaks for the first time. Title's entry was already in the error summary from the step before, so the submit is what adds the second one.</li>
             <li>Click any entry in the error summary — it focuses the offending field.</li>
-            <li>Click <em>Reset</em> — the errors clear and the form returns to pristine, but the typed values stay: <code>ResetAsync()</code> never writes model properties.</li>
+            <li>Fill everything in and submit — the status line below confirms it.</li>
+            <li>Type a 61-character title again so the format error is showing, then click <em>Reset</em> — the error clears and the form returns to pristine, but the over-long title stays in the box: <code>ResetAsync()</code> never writes model properties.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

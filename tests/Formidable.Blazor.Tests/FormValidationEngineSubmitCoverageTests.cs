@@ -97,8 +97,9 @@ public class FormValidationEngineSubmitCoverageTests
         Assert.Equal(1, validator.SubmitRuleRuns);
         Assert.True(engine.IsFormValid);
 
-        // One edit: the live pass runs the draft bucket, and the probe that follows it finds
-        // that verdict already in the store — it executes the submit bucket alone.
+        // One edit: the live pass runs the stale selection — the same one the submit profile
+        // selects — and the probe that follows it finds every rule already answered in the
+        // store, so it executes nothing at all.
         editContext.NotifyFieldChanged(Description(order));
 
         Assert.Equal(2, validator.DraftRuleRuns);
@@ -128,7 +129,7 @@ public class FormValidationEngineSubmitCoverageTests
 
         // The window fire runs the probe first, then the live pass. The probe executes the
         // whole stale selection — draft and submit buckets, once each — and the live pass then
-        // finds its own draft selection served from the store, executing nothing.
+        // finds its own selection served from the store, executing nothing.
         editContext.NotifyFieldChanged(Description(order));
         time.Advance(TimeSpan.FromMilliseconds(400));
 
@@ -175,7 +176,7 @@ public class FormValidationEngineSubmitCoverageTests
         Assert.Equal(3, validator.SubmitRuleRuns);
 
         // The live window closes: the probe finds every submit-selected rule fresh and executes
-        // nothing, and the live pass finds its draft selection equally answered.
+        // nothing, and the live pass finds its own selection equally answered.
         time.Advance(TimeSpan.FromMilliseconds(100));
         await Task.Yield();
 
@@ -202,7 +203,10 @@ public class FormValidationEngineSubmitCoverageTests
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { TrackFormValidity = true },
+            // GatedValidator's gate is a submit-bucket rule, so narrowing the live channel to
+            // the empty draft bucket is what keeps the probe the only chain that ever blocks —
+            // the single-pending-chain precondition DispatchCounter states it needs.
+            new FormidableOptions { TrackFormValidity = true, LiveProfile = ValidationProfile.Draft },
             new FakeTimeProvider(),
             dispatches.Dispatch);
         var description = Description(order);
@@ -258,7 +262,7 @@ public class FormValidationEngineSubmitCoverageTests
         var editContext = new EditContext(order);
         var options = new FormidableOptions { TrackFormValidity = true };
         var counting = new CountingValidator(
-            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()), options.SubmitProfile);
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
         using var engine = new FormValidationEngine<EngineOrder>(
             order,
             editContext,
@@ -267,12 +271,15 @@ public class FormValidationEngineSubmitCoverageTests
             options,
             new FakeTimeProvider());
 
-        Assert.Equal(1, counting.SubmitProfileCallCount); // the construction probe
+        Assert.Equal(1, counting.CallCount); // the construction probe
 
         editContext.NotifyFieldChanged(Description(order));
 
-        // One live pass (LiveProfile) plus one whole-profile probe (SubmitProfile).
-        Assert.Equal(2, counting.SubmitProfileCallCount);
+        // Three whole-profile validations for one pristine form and one edit: the construction
+        // probe, the edit's live pass, and the edit's own probe. Nothing is shared, because there
+        // is no store to share through — which is the fallback's honest cost and the reason the
+        // count, not the profile, is what this pins.
+        Assert.Equal(3, counting.CallCount);
         Assert.True(engine.IsFormValid);
     }
 
@@ -282,10 +289,43 @@ public class FormValidationEngineSubmitCoverageTests
 
     // Mutation this breaks: the stale-blind Valid predicate — touched-or-modified with no
     // disclosed issues earning green while the submit rules that decide the field's fate have
-    // never answered for the model as it stands. The archetype: a required field, touched and
-    // then emptied, wearing the confirmation border on a value a submit would reject.
+    // never answered for the model as it stands. Reaching that state takes a narrowed live
+    // channel: a form that leaves the live channel alone has the field's own required rule
+    // answered by the edit that emptied it, which is what the pin below this one covers.
     [Fact]
     public void A_touched_then_emptied_required_field_earns_no_valid_class_while_its_submit_rule_is_stale()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
+            new FakeTimeProvider());
+        var description = Description(order);
+        using var registration = engine.Registry.Register(description);
+
+        order.Description = "draft";
+        editContext.NotifyFieldChanged(description);
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(description);
+
+        // Touched, modified, and free of disclosed issues — but the submit-selected NotEmpty
+        // rule has no verdict at this stamp, so nothing can vouch that the field would pass.
+        Assert.True(editContext.IsModified(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
+        Assert.Equal(string.Empty, editContext.FieldCssClass(description));
+        Assert.Equal(string.Empty, KitClass(engine, description));
+    }
+
+    // The same field on a form that narrows nothing: the edit that emptied it ran its required
+    // rule, so it wears the error rather than either the confirmation border or no class at all.
+    // Mutation this breaks: narrowing the live channel's rule selection by default, which puts
+    // the field back in the unvouched limbo above with the visitor told nothing.
+    [Fact]
+    public void A_touched_then_emptied_required_field_paints_invalid_under_the_default_live_channel()
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
@@ -304,12 +344,9 @@ public class FormValidationEngineSubmitCoverageTests
         order.Description = string.Empty;
         editContext.NotifyFieldChanged(description);
 
-        // Touched, modified, and free of disclosed issues — but the submit-selected NotEmpty
-        // rule has no verdict at this stamp, so nothing can vouch that the field would pass.
-        Assert.True(editContext.IsModified(description));
-        Assert.Empty(editContext.GetValidationMessages(description));
-        Assert.Equal(string.Empty, editContext.FieldCssClass(description));
-        Assert.Equal(string.Empty, KitClass(engine, description));
+        Assert.NotEmpty(editContext.GetValidationMessages(description));
+        Assert.Equal("formidable-invalid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-invalid", KitClass(engine, description));
     }
 
     // The other half of the honest rule: green is reachable, through any pass that answers the
@@ -377,6 +414,192 @@ public class FormValidationEngineSubmitCoverageTests
         Assert.Equal("formidable-valid", KitClass(engine, description));
     }
 
+    // Mutation this breaks: removing the coverage latch. A rendered field set that moves empties
+    // the verdict store — the model may have been mutated with no notification — and the vouch
+    // green rests on is derived from that store, so the border would drop the instant a row
+    // arrived or a virtualized panel scrolled, with nothing about the field itself having
+    // changed. The held answer was computed at this very edit stamp, and a field-set change
+    // moves no edit stamp, so it still speaks for the model as it stands.
+    [Fact]
+    public async Task Green_survives_a_field_set_change_and_the_re_answer_it_arms()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            time);
+        var description = Description(order);
+        using var registration = engine.Registry.Register(description);
+
+        // The edit's live pass selects the submit profile and files every verdict it runs, so the
+        // field is touched, clean and vouched for on both seams.
+        editContext.NotifyFieldChanged(description);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+
+        var submitBefore = validator.SubmitRuleRuns;
+
+        engine.OnRenderedFieldsChanged();
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+
+        // The same change armed a re-answer. It executes the whole selection, the store it would
+        // otherwise read having been emptied, and agrees — green from here on is earned rather
+        // than held.
+        time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+    }
+
+    // Mutation this breaks: keying the held answer on anything but the edit stamp — holding it
+    // unconditionally, or until the next pass happens to land. The stamp is the bound: it moves
+    // on a committed change and on nothing else, so an answer computed before this edit is one
+    // the edit has invalidated, and the field waits with no class at all until a pass answers
+    // for the model as it stands.
+    [Fact]
+    public void A_committed_edit_after_a_field_set_change_drops_the_held_green()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            // A live window wide enough that an edit can be observed before the pass it opens:
+            // with no debounce the answer lands in the same call and there is no moment at which
+            // an answer is owed.
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var description = Description(order);
+        using var registration = engine.Registry.Register(description);
+
+        editContext.NotifyFieldChanged(description);
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+
+        engine.OnRenderedFieldsChanged();
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+
+        // A committed change, with its pass still ahead of it. The held answer describes the
+        // model as it was before this edit, so it stops being served the instant the edit lands.
+        order.Description = "also ok";
+        editContext.NotifyFieldChanged(description);
+
+        Assert.Equal(string.Empty, editContext.FieldCssClass(description));
+        Assert.Equal(string.Empty, KitClass(engine, description));
+
+        // The window closes and the pass answers for the edited model: green, earned.
+        time.Advance(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+    }
+
+    // Mutation this breaks: holding the VERDICTS rather than the derived answer — keeping the
+    // store's entries across the field-set change, or putting a copy of them back. What is held
+    // is one answer about one model state; the rules behind it are gone, and the pass the change
+    // arms executes every one of them again. Carried by the counters, since a reused verdict and
+    // a recomputed one agree whenever the model has not moved — which is exactly this case.
+    [Fact]
+    public async Task A_held_vouch_leaves_the_verdict_store_empty_behind_it()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            time);
+        var description = Description(order);
+        using var registration = engine.Registry.Register(description);
+
+        editContext.NotifyFieldChanged(description);
+
+        // Reading the vouch is what computes it, and reading it is also what paints the class —
+        // so a field wearing green has necessarily asked, and this ask stands in for the render
+        // that would have.
+        Assert.True(engine.GetFieldState(description).WouldPassSubmit);
+
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        engine.OnRenderedFieldsChanged();
+
+        // The vouch stands while nothing has run to renew it.
+        Assert.True(engine.GetFieldState(description).WouldPassSubmit);
+        Assert.Equal(draftBefore, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+
+        time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+
+        // Every submit-selected rule executed: there was nothing in the store for the refresh to
+        // read, at a stamp where a surviving verdict would have read as fresh.
+        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+        Assert.True(engine.GetFieldState(description).WouldPassSubmit);
+    }
+
+    // Mutation this breaks: dropping the profile from the held answer's identity, leaving the edit
+    // stamp as its whole key. Options are re-read per pass rather than captured, so a page may
+    // widen SubmitProfile on the very instance the engine holds; the widened selection then
+    // reaches rules the store has never answered, and an answer keyed on the stamp alone would
+    // vouch for them on the strength of an evaluation that never selected them. Nothing bounds
+    // that green either: an options mutation raises no engine event, so no pass is armed to
+    // correct it and it stands until the next edit — which is what separates it from an ordinary
+    // staleness lag, and why the profile is part of the answer's identity rather than only of the
+    // cache key's.
+    [Fact]
+    public void A_widened_submit_profile_is_not_vouched_for_by_the_answer_before_it()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { SubmitProfile = ValidationProfile.Draft },
+            new FakeTimeProvider());
+        var description = Description(order);
+        using var registration = engine.Registry.Register(description);
+
+        // Under the draft profile the empty description passes every selected rule, so the edit's
+        // live pass answers the whole selection and the field is vouched for.
+        editContext.NotifyFieldChanged(description);
+        Assert.Equal("formidable-valid", editContext.FieldCssClass(description));
+        Assert.Equal("formidable-valid", KitClass(engine, description));
+
+        // The page widens the profile on the options instance the engine holds. Nothing is edited,
+        // so the edit stamp stands where it was — but the answer that stamp names was about the
+        // draft selection, and the submit selection contains a NotEmpty rule this value fails.
+        engine.Options.SubmitProfile = ValidationProfile.Submit;
+
+        Assert.Equal(string.Empty, editContext.FieldCssClass(description));
+        Assert.Equal(string.Empty, KitClass(engine, description));
+    }
+
     // ---------------------------------------------------------------------------------------
     // Honest valid (capability-less path)
     // ---------------------------------------------------------------------------------------
@@ -385,7 +608,10 @@ public class FormValidationEngineSubmitCoverageTests
     // COMPLETED submit-profile evaluation — submit, refresh, or probe — and it counts exactly
     // while it is current at the edit stamp. Stale: no green, however clean the field looks.
     // Current but carrying an error for the field: no green — the answer says submit would
-    // reject it. Current and clean: green, on both seams.
+    // reject it. Current and clean: green, on both seams. The live channel is narrowed to the
+    // draft bucket throughout, so what the field discloses stays separate from what vouches for
+    // it: the middle phase turns on the field being unvouched while nothing about the error is
+    // on screen, and an unnarrowed live channel would put it there.
     [Fact]
     public void A_capability_less_validators_green_follows_the_last_whole_profile_answer()
     {
@@ -397,7 +623,7 @@ public class FormValidationEngineSubmitCoverageTests
             new CapabilityHidingModelValidator<EngineOrder>(
                 new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator())),
             new ReflectionModelIntrospector(),
-            new FormidableOptions(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
             new FakeTimeProvider());
         var description = Description(order);
         using var registration = engine.Registry.Register(description);

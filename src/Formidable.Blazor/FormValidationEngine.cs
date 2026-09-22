@@ -186,6 +186,24 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private bool _coverageFresh;
     private HashSet<FieldIdentifier>? _coverageErrorFields;
 
+    // The last coverage answer that came out fresh, and the two coordinates it answers for. They
+    // are the cache key above minus exactly one member — the coverage version — and ignoring that
+    // one member is the whole of what holding an answer means. A rendered-field-set change empties
+    // the verdict store and moves that version, which leaves the walk below nothing to read about
+    // a model the edit stamp says has not moved; the held answer covers that window, until the
+    // re-answer the change arms lands or an edit strands it. The profile is part of the answer's
+    // identity and not merely of the cache's: an answer selected under one submit profile says
+    // nothing about the rules another selects. Every fresh answer is held, whichever branch
+    // produced it, so the field means one thing throughout; only the rule walk has a use for one.
+    // Held is the DERIVED answer alone, never a verdict: a stale verdict becomes a wrong message,
+    // where a held vouch is a border the pass behind it corrects. And held is the last answer a
+    // READ asked for, which is the only one worth holding — the Valid class IS that read, so a
+    // field wearing green has necessarily asked for an answer at the stamp it wears it at, and a
+    // stamp nothing ever asked about has no green to lose.
+    private int _heldCoverageStamp = -1;
+    private ValidationProfile? _heldCoverageProfile;
+    private HashSet<FieldIdentifier>? _heldCoverageErrorFields;
+
     // The capability-less coverage source: the edit stamp at which the last COMPLETED
     // whole-model SubmitProfile evaluation — a submit, a refresh, or a fallback probe — began,
     // and the fields its report failed. A validator with no rule-level seam has no verdicts to
@@ -296,7 +314,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
     /// validator's coverage is the last completed whole-model SubmitProfile evaluation —
     /// submit, refresh, or probe — current exactly while its begin stamp is still the current
-    /// edit stamp.
+    /// edit stamp. The rule-capable coverage can also be a HELD answer: a rendered-field-set
+    /// change empties the store while the edit stamp says the model those verdicts described has
+    /// not moved, and <see cref="ServeHeldCoverage"/> covers that gap, so green describes the
+    /// model rather than the page's registration churn. The fallback needs no cover of its own —
+    /// its source is not the store, and a field-set change leaves it exactly as current as the
+    /// edit stamp already found it.
     /// </summary>
     private bool WouldPassSubmit(FieldIdentifier field)
     {
@@ -312,6 +335,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// verdicts' issues to fields. A selection that throws (a typo'd ruleset name, say) reads
     /// as stale coverage rather than taking the render down: the next pass surfaces the same
     /// exception through its own fault policy, which is where a configuration error belongs.
+    /// Nothing held stands in for that one: a selection that cannot be walked leaves nothing
+    /// able to vouch for anything.
     /// </summary>
     private void EnsureSubmitCoverageCurrent()
     {
@@ -337,6 +362,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 _coverageErrorFields = _lastSubmitAnswerErrorFields.Count > 0
                     ? _lastSubmitAnswerErrorFields
                     : null;
+                HoldCoverage(profile);
             }
 
             return;
@@ -350,7 +376,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 if (!_ruleVerdicts.TryGetValue(rule, out var verdict)
                     || !verdict.IsFreshFor(_editStamp, profile))
                 {
-                    return; // a rule with no current answer: coverage is stale, fields moot
+                    // A rule with no current answer. The held answer stands in for it while it
+                    // still answers for the model as it stands — a rendered-field-set change
+                    // empties the store without moving the edit stamp, so an answer computed at
+                    // that stamp is one nothing since has invalidated. Otherwise coverage is
+                    // stale and its fields are moot.
+                    ServeHeldCoverage(profile);
+                    return;
                 }
 
                 foreach (var issue in verdict.Issues)
@@ -369,6 +401,43 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         _coverageFresh = true;
         _coverageErrorFields = errorFields;
+        HoldCoverage(profile);
+    }
+
+    /// <summary>
+    /// Holds the answer <see cref="EnsureSubmitCoverageCurrent"/> has just computed, together
+    /// with the edit stamp and profile it answers for. Called only where the answer came out
+    /// fresh: a stale read is not an answer, and holding one would be vouching for nothing.
+    /// </summary>
+    private void HoldCoverage(ValidationProfile profile)
+    {
+        _heldCoverageStamp = _editStamp;
+        _heldCoverageProfile = profile;
+        _heldCoverageErrorFields = _coverageErrorFields;
+    }
+
+    /// <summary>
+    /// Serves the held answer in place of a recomputed one, for the single case in which the
+    /// verdicts it was derived from are gone while the model it describes is not: a
+    /// rendered-field-set change empties the store and never moves the edit stamp. Matching that
+    /// stamp is therefore exactly the condition "nothing but the rendered field set has changed
+    /// since this was computed", and the profile match keeps an answer about one selection of
+    /// rules from vouching for another. Nothing else is asked, and nothing needs to be: the
+    /// change that emptied the store also arms the pass that replaces the held answer with an
+    /// earned one, and an edit before that lands moves the stamp past it. Between them they bound
+    /// what a held answer can be wrong about: a field-set change that silently mutated the model
+    /// leaves the vouch answering from the model as it was until that pass lands, which is the
+    /// lag <see cref="IsFormValid"/> has always carried, on the same terms.
+    /// </summary>
+    private void ServeHeldCoverage(ValidationProfile profile)
+    {
+        if (_heldCoverageStamp != _editStamp || !ReferenceEquals(_heldCoverageProfile, profile))
+        {
+            return;
+        }
+
+        _coverageFresh = true;
+        _coverageErrorFields = _heldCoverageErrorFields;
     }
 
     /// <summary>
@@ -547,8 +616,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
-    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing, so this one model-level
-    /// explanation stands in for the errors the user cannot see.</summary>
+    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing and nothing on screen
+    /// explains the block, so this one model-level explanation stands in for the errors the user
+    /// cannot see.</summary>
     private static readonly ValidationIssue GateIssue = new(
         string.Empty,
         "The form cannot be submitted because information that is not currently displayed is invalid.");
@@ -558,13 +628,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// than a stored entry, which is what makes it impossible for a refresh to delete: it stands,
     /// recomputed on every read, for as long as the submit that armed it stays the last word (a
     /// blocked submit that disclosed no error at all) and the submit-profile answer still carries
-    /// errors none of which any surface shows. It dissolves the moment a revealed error exists —
-    /// the ledger can reveal one mid-standing, since a server apply reveals fields — or a
-    /// server-declared error is on screen, or the answer comes back clean; a later submit
-    /// re-decides the arming outright. The arming half matters: an error that starts failing
-    /// on a never-revealed field AFTER a submit that disclosed everything it had raises no gate,
-    /// because no blocked submit was ever short an explanation — the field stays quiet until the
-    /// next submit, exactly as an undisclosed verdict always does.
+    /// errors none of which any surface shows. It dissolves the moment an error reaches the
+    /// screen on either channel — one the reveal ledger discloses (which it can do mid-standing,
+    /// since a server apply reveals fields), a server-declared one, or one an engaged field's
+    /// live verdict carries — or when the answer comes back clean; a later submit re-decides the
+    /// arming outright. Only an error dissolves it: a warning does not say why a submit was
+    /// refused. The arming half matters: an error that starts failing on a never-revealed field
+    /// AFTER a submit that disclosed everything it had raises no gate, because no blocked submit
+    /// was ever short an explanation — the field stays quiet until the next submit, exactly as an
+    /// undisclosed verdict always does.
     /// </summary>
     private bool GateActive
     {
@@ -578,6 +650,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             foreach (var errorField in _submitVerdictErrors.Keys)
             {
                 if (_revealedErrorFields.Contains(errorField))
+                {
+                    return false;
+                }
+            }
+
+            // The live channel explains a block just as well as the submit channel does, so it
+            // is read here too — through LiveEntries, which applies the one LiveDisclosure
+            // policy every live surface answers from, and never through a channel view, since
+            // the views synthesize the gate issue from this very predicate. Error severity
+            // alone dissolves it: a warning on screen does not say why a submit was refused.
+            // Evaluated last because the arming test above is false on virtually every form, so
+            // no form walks the engaged set unless a gate is actually standing.
+            foreach (var (_, issues) in LiveEntries())
+            {
+                if (issues.Any(i => i.Severity == ValidationSeverity.Error))
                 {
                     return false;
                 }
@@ -977,15 +1064,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// nothing at all starts no pass. The stored rule verdicts go too: the stamp they are
     /// checked against counts edits, a rendered-field-set move is not one, so a verdict taken
     /// before the move would read as fresh while answering for a page — and, when a collection
-    /// row was what left, a model — that no longer exists. Then a submitted form schedules a
-    /// refresh, the one pass that recomputes the submit channel's answer against the model as it
-    /// stands. That channel still speaks only for the revealed-field ledgers, never for what is
+    /// row was what left, a model — that no longer exists. Then a refresh is scheduled, whatever
+    /// the form's history: it is the one pass that recomputes the submit channel's answer
+    /// against the model as it stands, and it is owed twice over — once for that channel, and
+    /// once because the emptied store leaves the Valid class's vouch nothing of its own to read.
+    /// That channel still speaks only for the revealed-field ledgers, never for what is
     /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
     /// entry goes because its rule no longer fires, not because the row left the page — and an
     /// entry for a field a collapsed section took away survives, because the rule still fails.
-    /// A form that has never been submitted schedules nothing: it has disclosed no verdict to
-    /// reconcile, and a form the user has not asked to submit is not one to start reporting
-    /// failures at.
+    /// On a form that has never been submitted the ledgers are empty and the gate unarmed, so
+    /// the same pass reports nothing at all: it answers for coverage and
+    /// <see cref="IsFormValid"/> alone, and the empty edited set it is armed with scopes its
+    /// pending indicator to no field, so nothing on the page so much as flickers.
     /// A model whose CONTENTS changed needs a field-change notification of its own regardless.
     /// Dropping issues is all this can do, and a rule that must START failing because a row left —
     /// a collection that requires at least one entry — produces an issue no pass has computed yet.
@@ -1071,12 +1161,17 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // to write, so the clear cannot be undone by work that predates it.
         _ruleVerdicts.Clear();
         _storeGeneration++;
-        _coverageVersion++; // the emptied store answers for nothing: the coverage read re-derives
+        // The emptied store answers for nothing, so the coverage read re-derives — or, while the
+        // edit stamp says the model it described still stands, holds the answer it last gave.
+        _coverageVersion++;
 
-        if (HasSubmitted)
-        {
-            ScheduleRefresh();
-        }
+        // Unconditional, because what is owed here is owed by a form at any point in its life.
+        // The submit channel needs reconciling only once it has disclosed something, but the
+        // coverage the Valid class rests on was just emptied on every form alike, and this is
+        // the pass that refills it. Before a submit it is the quietest pass the engine runs: no
+        // ledger admits its findings and no field is flagged pending for it, so answering is
+        // all it does.
+        ScheduleRefresh();
     }
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
@@ -1508,8 +1603,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         // Captured beside the snapshot, and handed to the pass rather than read again later: the
         // option holds a mutable instance a consumer may swap at any moment, so the profile this
-        // pass ran under is only knowable by remembering it here.
-        var liveProfile = _options.LiveProfile;
+        // pass ran under is only knowable by remembering it here. Unset, the live channel runs
+        // the submit profile itself — the STORED instance, never a copy of it: the verdict
+        // store's freshness check and the submit-coverage cache both key on the profile by
+        // reference, and an equal-but-distinct object would silently defeat each of them.
+        var liveProfile = _options.LiveProfile ?? _options.SubmitProfile;
 
         await RunPassAsync(
             PassKind.Live,
@@ -1519,8 +1617,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             report =>
             {
                 // Every engaged field, not just the fields that triggered this pass: each live
-                // pass answers the whole model under the same LiveProfile — executing what is
-                // stale, assembling the rest from the store — so this report is a
+                // pass answers the whole model under the same resolved profile — executing what
+                // is stale, assembling the rest from the store — so this report is a
                 // complete answer for every field the user has committed a change to — a
                 // superseded pass's fields included, since they were engaged before this pass
                 // began. A field the report says nothing about gets an empty verdict, not a
@@ -1572,8 +1670,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// A probe that faults reports the only way a fire-and-forget evaluation can: through
     /// <see cref="ValidationFaulted"/>, exactly as a live or refresh pass's own fault does — never
     /// a form-level fault issue, which would disclose something an invisible probe promises never
-    /// to. Without this, a validator that throws on the submit profile (the profile a live pass
-    /// never runs, so the two can genuinely disagree on whether a rule throws) would freeze
+    /// to. Without this, a validator that throws on the submit profile — which a narrowed
+    /// <see cref="FormidableOptions.LiveProfile"/> can keep a live pass from ever selecting, so
+    /// the two can genuinely disagree on whether a rule throws — would freeze
     /// <see cref="IsFormValid"/> at its last value with no diagnostic anywhere, silently stranding
     /// a disable-submit button in whatever state it was last in.
     /// </summary>

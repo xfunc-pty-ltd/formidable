@@ -7,8 +7,9 @@ malformed email sits wrong through the whole form, discovered only when the visi
 commits. Split the rules by hand — one subset for typing, one for submitting — and every
 validator either duplicates its rules across two classes or grows an if/else keyed on a flag
 nobody remembers the meaning of six months later. Formidable answers this with two profiles
-built into the same validator: rules that check shape run live, rules that check presence
-wait for submit, and neither moment needs its own copy of anything.
+built into the same validator, and one rule about who is allowed to speak: shape rules and
+presence rules sit side by side, each declared once, and a fresh page stays quiet because a
+message waits for the visitor to change the field rather than because a rule was switched off.
 
 ## Draft and submit, not one rule set doing two jobs
 
@@ -35,13 +36,13 @@ public class ProfileFormValidator : DraftSubmitValidator<ProfileForm>
 {
     protected override void ConfigureDraftRules()
     {
-        // Format rule: enforced live, including while the form is still a draft.
+        // Format rule: what a lenient draft save still enforces.
         RuleFor(p => p.Bio).MaximumLength(280).WithMessage("Bio is 280 characters max");
     }
 
     protected override void ConfigureSubmitRules()
     {
-        // Completeness rule: enforced only when the form is submitted.
+        // Completeness rule: what a submit demands, and what a draft save leaves alone.
         RuleFor(p => p.DisplayName).NotEmpty().WithMessage("Display name is required");
     }
 }
@@ -49,25 +50,33 @@ public class ProfileFormValidator : DraftSubmitValidator<ProfileForm>
 
 ## Which profile runs when
 
-`FormidableForm`'s engine reads two profiles off `FormidableOptions`. `LiveProfile` runs on
-every field change and defaults to `ValidationProfile.Draft`. `SubmitProfile` runs when the
-form submits, and answers for the debounced refresh that follows too — running only what a
-live pass has not already answered for the current edit (see
-[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)) —
-defaulting to `ValidationProfile.Submit`:
+`FormidableForm`'s engine reads two profiles off `FormidableOptions`. `SubmitProfile` runs when
+the form submits, defaults to `ValidationProfile.Submit`, and answers for the debounced refresh
+that follows too — running only what a live pass has not already answered for the current edit
+(see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
+`LiveProfile` runs on every field change, and defaults to `null`, meaning the submit profile
+itself. So a live message says what a submit would actually complain about, presence rules and
+all.
+
+That does not turn a fresh form into a nag, because rule selection is not what holds a message
+back. A live pass files a verdict only for the fields a committed change has notified the engine
+about, so `DisplayName` above says nothing until the visitor has typed in it — and once they
+have, clearing it again earns the message as soon as that edit commits, with no submit anywhere.
+Set `LiveProfile` to narrow the selection when a submit rule is too expensive to run per change;
+`ValidationProfile.Draft` leaves every submit-ruleset rule to the submit itself:
 
 ```csharp
 var options = new FormidableOptions
 {
-    LiveProfile = ValidationProfile.Draft,
-    SubmitProfile = ValidationProfile.Submit
+    LiveProfile = ValidationProfile.Draft
 };
 ```
 
 Pass that instance through the form's `Options` parameter to point either moment at a
 different profile — a wizard step, an approval stage — without touching the validator at all.
 
-Saving a draft skips the form's submit pipeline entirely. It's a plain call against the same
+Saving a draft skips the form's submit pipeline entirely, whatever the live channel is
+evaluating. It's a plain call against the same
 validator you registered, taken into the page with `@inject IValidator<ProfileForm> Validator`
 and handed the model plus the profile you want:
 
@@ -99,9 +108,10 @@ RuleFor(p => p.DisplayName)
     .WithMessage("Display names over 40 characters may be truncated in some views");
 ```
 
-Warnings and infos don't get a disclosure rule of their own — a submit is what discloses them
-too, precisely as it discloses an error. From there, whatever's showing keeps refreshing live
-while the visitor edits: it clears the moment they fix it, returns if they break it again, and
-neither direction waits for a second submit.
+Warnings and infos don't get a disclosure rule of their own — they surface precisely when an
+error would. A field the visitor has committed a change to shows its advisory as soon as that
+edit's live pass lands; everywhere else, a submit is what discloses one. From there, whatever's
+showing keeps refreshing live while the visitor edits: it clears the moment they fix it, returns
+if they break it again, and neither direction waits for a second submit.
 
 **Next:** [Fields and collections](fields-and-collections.md)

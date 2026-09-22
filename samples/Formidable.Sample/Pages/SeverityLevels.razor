@@ -7,10 +7,10 @@
 <TeachingPanel CodeFiles="@(new[] { "Listing.cs", "SeverityLevels.razor", "SeverityLevels.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Title</strong> — required (error severity: blocks submission).</li>
-            <li><strong>Description</strong> — an exclamation mark draws a <em>warning</em> (advisory: never blocks).</li>
-            <li><strong>Tags</strong> — more than five draws an <em>info</em> (advisory: never blocks). Advisories validate live, when you leave the field.</li>
-            <li>A live pass only records a verdict for the field(s) that triggered it, even though validating any one field runs the whole model to get there. Title starts required and empty but untouched: no live pass has ever recorded anything for it, so its error stays invisible until a submit checks every field at once.</li>
+            <li><strong>Title</strong>: required (error severity: blocks submission).</li>
+            <li><strong>Description</strong>: an exclamation mark draws a <em>warning</em> (advisory: never blocks).</li>
+            <li><strong>Tags</strong>: more than five draws an <em>info</em> (advisory: never blocks). Advisories validate live, when you leave the field.</li>
+            <li>A live pass records a verdict for every field you have engaged — every field a committed change has named — and for no others, even though validating any one of them runs the whole model to get there. Title starts required and empty, and nothing has ever engaged it: no live pass has recorded anything for it, so its error stays invisible until a submit checks every field at once.</li>
             <li>Advisory-only submissions still announce the summary — screen readers hear the warnings and infos that did not block.</li>
             <li>This page renders <strong>two</strong> summaries rather than one: <code>Show="SummaryFilter.Errors"</code> lists only what blocks, and <code>Show="SummaryFilter.Advisories"</code> lists the warnings and infos that do not. A summary with nothing to show renders nothing at all.</li>
             <li>Two summaries mean two announcements, and an issue listed by both would be read twice — which is why these two filters are chosen to be disjoint rather than one of them being left unfiltered.</li>

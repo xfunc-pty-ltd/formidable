@@ -5,13 +5,33 @@ namespace Formidable.Blazor;
 /// <summary>Engine configuration. Profiles are assigned meaning here — at the point of use.</summary>
 public sealed class FormidableOptions
 {
-    /// <summary>Profile run on field changes. Defaults to <see cref="ValidationProfile.Draft"/>.</summary>
-    public ValidationProfile LiveProfile { get; set; } = ValidationProfile.Draft;
+    /// <summary>
+    /// Profile run on field changes. Defaults to <see langword="null"/>, which tracks
+    /// <see cref="SubmitProfile"/> — including a custom one, and including one swapped at
+    /// runtime — so a field the visitor has engaged discloses whatever would block a submit,
+    /// a required-field rule among it.
+    /// </summary>
+    /// <remarks>
+    /// What keeps a form from nagging is engagement, not rule selection: the live channel writes
+    /// verdicts only for fields the visitor has committed a change to, so an untouched field says
+    /// nothing whatever its rules would report. Narrowing the live channel's rules on top of that
+    /// is a second, blunter gate — it cannot tell "not touched yet" from "touched and left empty",
+    /// and the field the visitor is working in is exactly the one it silences.
+    /// Set it where a submit rule is too expensive to run per change — a uniqueness check against
+    /// a server, say — and the narrowed profile then decides what the live channel evaluates;
+    /// <see cref="ValidationProfile.Draft"/> is the usual choice, leaving every submit-ruleset
+    /// rule to the submit itself. Save-progress flows are unaffected either way: they validate
+    /// <see cref="ValidationProfile.Draft"/> at the save call, whatever the live channel is doing.
+    /// </remarks>
+    public ValidationProfile? LiveProfile { get; set; }
 
     /// <summary>Profile run by the submit pipeline. Defaults to <see cref="ValidationProfile.Submit"/>.</summary>
     public ValidationProfile SubmitProfile { get; set; } = ValidationProfile.Submit;
 
-    /// <summary>Debounce for the post-submit refresh. Defaults to 300 ms.</summary>
+    /// <summary>
+    /// Debounce for the refresh pass, armed by a field change once a submit has happened and by
+    /// any move in the rendered field set. Defaults to 300 ms.
+    /// </summary>
     public TimeSpan RefreshDebounce { get; set; } = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
@@ -21,16 +41,19 @@ public sealed class FormidableOptions
     /// further change within the window re-arms it rather than starting a second timer, and the
     /// pass runs once the window elapses with no further edit, scoped to every field changed
     /// since the window opened. The window is shared across fields rather than tracked per
-    /// field — the same semantics <see cref="RefreshDebounce"/> already has for the post-submit
-    /// refresh.
+    /// field — the same semantics <see cref="RefreshDebounce"/> already has for the refresh.
     /// </summary>
     public TimeSpan? LiveDebounce { get; set; }
 
     /// <summary>
     /// Opt-in whole-form validity probe for disable-submit scenarios. Defaults to
-    /// <see langword="false"/> — off, never default-on: a probe is extra validation work per
-    /// change, and only a form with something reading
-    /// <see cref="IFormValidationEngine.IsFormValid"/> gets anything for it.
+    /// <see langword="false"/> — off, never default-on: only a form with something reading
+    /// <see cref="IFormValidationEngine.IsFormValid"/> gets anything for it. Two shapes make that
+    /// work permanent rather than shared: a validator that cannot execute rule by rule, and one
+    /// whose <see cref="LiveProfile"/> narrows what the live pass beside it answers. On either,
+    /// the extra evaluation is paid on every change for the whole life of the form. Those are the
+    /// standing costs, not the whole of them — the rest of this remark says exactly what the probe
+    /// shares with the passes around it and where sharing does not happen.
     /// When <see langword="true"/>, the engine keeps that property current with a standalone
     /// <see cref="SubmitProfile"/> evaluation that is not an engine pass: no disclosure, no
     /// message-store write, no pending-indicator flip — nothing about it is ever shown. The probe
@@ -49,9 +72,10 @@ public sealed class FormidableOptions
     /// completion before the call that started it returns, so whichever goes first has already
     /// filed everything the other would have planned, and they share in full. On any other
     /// validator each probe is one whole <see cref="SubmitProfile"/> validation, in addition to
-    /// the live pass it rides beside — typically the more expensive of the two, since
-    /// <see cref="SubmitProfile"/> usually selects a superset of <see cref="LiveProfile"/>'s
-    /// rules with the async/server-shaped ones among the difference.
+    /// the live pass it rides beside — which selects those same rules unless
+    /// <see cref="LiveProfile"/> narrows it, so the two evaluate the same work twice. Where it
+    /// does narrow, the probe is the more expensive of the two, with the async/server-shaped
+    /// rules among the difference.
     /// </summary>
     public bool TrackFormValidity { get; set; }
 

@@ -18,9 +18,10 @@ public class FormValidationEngineValidatingScopeTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            // GatedValidator's async gate lives on the Submit ruleset; running the live pass under
-            // it is what lets this test hold a live pass open long enough to assert mid-flight.
-            new FormidableOptions { LiveProfile = ValidationProfile.Submit, DisclosureOverride = _ => true },
+            // GatedValidator's async gate lives on the Submit ruleset, which the live channel
+            // selects on its own — that is what lets this test hold a live pass open long enough
+            // to assert mid-flight.
+            new FormidableOptions { DisclosureOverride = _ => true },
             new FakeTimeProvider());
 
         var fieldA = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -163,7 +164,9 @@ public class FormValidationEngineValidatingScopeTests
         // Two independent async draft rules, as the sibling-field live-pass test above uses. The
         // refresh pass runs only what the live pass left out, which is why holding one in flight
         // means holding a rule from the fixture's SUBMIT bucket: gating the draft bucket alone
-        // would hold live passes and let the refresh run straight through.
+        // would hold live passes and let the refresh run straight through. The live channel is
+        // narrowed to that draft bucket to leave the submit-bucket rule for the refresh — an
+        // unnarrowed one consumes it in the live pass and the refresh finds nothing to block on.
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
@@ -172,7 +175,7 @@ public class FormValidationEngineValidatingScopeTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
             time);
 
         var fieldA = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -220,7 +223,9 @@ public class FormValidationEngineValidatingScopeTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions(),
+            // Narrowed as the test above is, and for the same reason: the refresh has to be left
+            // a rule of its own to block on.
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
             time);
 
         var fieldA = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -278,7 +283,9 @@ public class FormValidationEngineValidatingScopeTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions(),
+            // Narrowed as the two tests above are, so each refresh has a submit-bucket rule of
+            // its own to block on rather than finding the live pass has already answered it.
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft },
             time);
 
         var fieldA = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -341,7 +348,9 @@ public class FormValidationEngineValidatingScopeTests
         // both false at edit time), so the post-submit refresh set is not what saves it here.
         // The submit profile deliberately excludes the draft bucket: a submit populates the
         // verdict store for whatever it runs, and the deferred pass proving it reads the model
-        // CURRENT needs its rule to be one no earlier pass has answered at this stamp.
+        // CURRENT needs its rule to be one no earlier pass has answered at this stamp. The live
+        // channel is pointed at that draft bucket explicitly, since tracking the submit profile
+        // would leave it running the very selection the submit has already answered.
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
@@ -352,6 +361,7 @@ public class FormValidationEngineValidatingScopeTests
             new FormidableOptions
             {
                 LiveDebounce = TimeSpan.FromMilliseconds(400),
+                LiveProfile = ValidationProfile.Draft,
                 SubmitProfile = ValidationProfile.Named("SubmitOnly", includeDefaultRules: false, "Submit"),
             },
             time);
@@ -404,6 +414,10 @@ public class FormValidationEngineValidatingScopeTests
             {
                 LiveDebounce = TimeSpan.FromMilliseconds(100),
                 RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                // The two channels have to stay on separate rules for the refresh to be holdable
+                // in flight at all: narrowed to the draft bucket, the live pass leaves the gated
+                // submit-bucket rule for the refresh to block on.
+                LiveProfile = ValidationProfile.Draft,
                 DisclosureOverride = _ => true,
             },
             time);

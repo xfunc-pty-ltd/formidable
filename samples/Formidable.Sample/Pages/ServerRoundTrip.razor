@@ -13,6 +13,7 @@
     <Rules>
         <ul>
             <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
+            <li><code>LiveProfile</code> is what buys that silence. The live channel normally evaluates whatever would block a submit, so a field you have engaged answers long before the POST goes out; this page points <code>LiveProfile</code> at <code>ValidationProfile.Draft</code> instead, and this validator's draft bucket is empty — so the live channel evaluates no rule at all, whatever you type. It is the same lever a form reaches for when one submit rule is too expensive to run on every change.</li>
             <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
             <li>The verdict applies at the severity it carries: the response's errors block and mark their fields <code>formidable-invalid</code>, while its advisories paint <code>formidable-warning</code> or <code>formidable-info</code> once the field has been touched or modified. One call carries both — the page writes no advisory plumbing of its own.</li>
             <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
@@ -47,7 +48,7 @@
 
 <p class="endpoint-caption"><small>POST <code>@_endpoint</code> on the API (port 5180)</small></p>
 
-<FormidableForm @ref="_form" Model="_order">
+<FormidableForm @ref="_form" Model="_order" Options="_options">
     <div class="summary-slot">
         <FormidableSummary />
     </div>

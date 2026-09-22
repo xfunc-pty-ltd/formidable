@@ -7,11 +7,11 @@ namespace Formidable.Blazor.Tests;
 
 /// <summary>
 /// Pins the disclosure channels as views over source state: the defensive gate is a predicate no
-/// refresh can delete, the reveal ledgers merge by union so a once-revealed field stays watched
-/// until reset or a successful submit, the server verdict is its own source replaced wholesale
-/// per apply and cleared by every submit and refresh, and the live channel discloses an engaged
-/// field's verdict on every surface with no registration filtering — the bridge default, stated
-/// as contract.
+/// refresh can delete and no error on screen leaves standing, the reveal ledgers merge by union
+/// so a once-revealed field stays watched until reset or a successful submit, the server verdict
+/// is its own source replaced wholesale per apply and cleared by every submit and refresh, and
+/// the live channel discloses an engaged field's verdict on every surface with no registration
+/// filtering — the bridge default, stated as contract.
 /// </summary>
 public class FormValidationEngineViewTests
 {
@@ -31,10 +31,15 @@ public class FormValidationEngineViewTests
         Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
         Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
 
-        // A post-submit edit that fixes nothing: the description is notified but stays empty, so
-        // the form is exactly as blocked after the refresh as before it. The gate is the only
-        // thing telling the user why the submit did nothing, and the refresh recomputing the
-        // submit channel must not be able to take that explanation away.
+        // A post-submit edit that leaves the form exactly as blocked as it was: the description
+        // takes a value its rules accept, so the customer nothing rendered is still the only
+        // failure and still the only thing no surface can account for. The edit engages the
+        // description, and the live channel answers for it with silence, which is what leaves
+        // the gate the sole explanation of the block. The refresh then replaces the submit
+        // channel's source wholesale — and the gate is derived from that source rather than
+        // filed beside it, so there is no entry for the replacement to drop. The assertions
+        // below read the model-level field alone, which only the gate ever speaks for.
+        order.Description = "ok";
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
         time.Advance(TimeSpan.FromMilliseconds(301));
         await Task.Yield();
@@ -52,7 +57,12 @@ public class FormValidationEngineViewTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = Build(order, editContext, new FormidableOptions(), time);
+        // The live channel is narrowed to the draft bucket so the submit channel is the only one
+        // that can speak for the description below: engagement alone would otherwise disclose the
+        // required-field error, and the reveal ledger this test exists for would stop being what
+        // the returning message proves.
+        using var engine = Build(
+            order, editContext, new FormidableOptions { LiveProfile = ValidationProfile.Draft }, time);
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         using var descReg = engine.Registry.Register(description);
 
@@ -87,7 +97,11 @@ public class FormValidationEngineViewTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = Build(order, editContext, new FormidableOptions(), time);
+        // Narrowed for the same reason its sibling above is: the ledger is a submit-channel fact,
+        // and only a live channel that says nothing about the description can leave the silence
+        // below attributable to it.
+        using var engine = Build(
+            order, editContext, new FormidableOptions { LiveProfile = ValidationProfile.Draft }, time);
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         using var descReg = engine.Registry.Register(description);
 
@@ -167,6 +181,106 @@ public class FormValidationEngineViewTests
         Assert.Contains("Server rejected this location", editContext.GetValidationMessages(location));
         Assert.DoesNotContain(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
         Assert.DoesNotContain(editContext.GetValidationMessages(modelLevel), m => m.Contains(GateText));
+    }
+
+    [Fact]
+    public async Task The_gate_dissolves_when_a_live_error_shows_on_a_rendered_field()
+    {
+        // The live channel explains a block on its own: a field the visitor has committed a
+        // change to discloses whatever would fail a submit, and the gate's sentence — that the
+        // invalid information is not currently displayed — is false while one of those errors is
+        // on screen. The description is rendered and passes, so the submit below blocks on the
+        // unregistered customer alone and arms the gate; breaking the description afterwards is
+        // the collision, and the gate is what gives way.
+        var order = new EngineOrder { Description = "ok" };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(order, editContext, new FormidableOptions(), time);
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var descReg = engine.Registry.Register(description);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(description);
+
+        // The field's own error is on all three surfaces, which is what leaves the gate nothing
+        // to stand in for.
+        Assert.Contains(engine.GetIssues(description), i => i.Severity == ValidationSeverity.Error);
+        Assert.Contains(
+            engine.GetVisibleIssues(),
+            v => v.Field.Equals(description) && v.Issue.Severity == ValidationSeverity.Error);
+        Assert.NotEmpty(editContext.GetValidationMessages(description));
+
+        Assert.DoesNotContain(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message.Contains(GateText));
+        Assert.DoesNotContain(editContext.GetValidationMessages(modelLevel), m => m.Contains(GateText));
+    }
+
+    [Fact]
+    public async Task A_visible_warning_leaves_the_gate_standing()
+    {
+        // Severity decides, not the mere presence of a message: a warning says nothing about why
+        // a submit was refused, so an advisory on screen leaves the gate with exactly as much to
+        // explain as it had without one. Same staging as the live-error pin above — a rendered
+        // description that passes at submit, an unregistered customer that arms the gate — with
+        // the description then engaged into its hyphen warning instead of into an error.
+        var order = new EngineOrder { Description = "ok" };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(order, editContext, new FormidableOptions(), time);
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var descReg = engine.Registry.Register(description);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+
+        order.Description = "a-b";
+        editContext.NotifyFieldChanged(description);
+
+        Assert.Contains(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+        Assert.DoesNotContain(engine.GetIssues(description), i => i.Severity == ValidationSeverity.Error);
+
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+        Assert.Contains(editContext.GetValidationMessages(modelLevel), m => m.Contains(GateText));
+    }
+
+    [Fact]
+    public async Task The_opt_in_keeps_the_gate_standing_for_a_live_error_it_hides()
+    {
+        // The gate reads the live channel through the same LiveDisclosure policy every other
+        // live surface reads it through, which is the whole of what keeps them agreeing. Under
+        // EngagedAndVisible an engaged field nothing renders discloses nowhere, so its error
+        // accounts for no more of the block than an unrevealed submit error does — and a gate
+        // that gave way to it would leave the submit refusing with not one message anywhere,
+        // the silent no-op the gate exists to prevent. The mutation: reading the filed verdicts
+        // directly rather than through the policy.
+        var order = new EngineOrder { Description = "ok" };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext,
+            new FormidableOptions { LiveDisclosure = LiveIssueDisclosure.EngagedAndVisible },
+            time);
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(description);
+
+        // The engaged field's error is filed and hidden: nothing renders it, so no surface
+        // carries it and the gate is still the only account of the block there is.
+        Assert.Empty(engine.GetIssues(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
+
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+        Assert.Contains(editContext.GetValidationMessages(modelLevel), m => m.Contains(GateText));
     }
 
     [Fact]

@@ -27,7 +27,10 @@ namespace Formidable.Sample.E2E;
 /// That anchor registers the field from its first render, so both assertions would stay green
 /// without it — the live channel never consulted registration to make them pass. The anchor
 /// speaks for the submit channel, which this page cannot show off, since its seeded value is
-/// valid and nothing fails there until the user edits.
+/// valid and nothing fails there until the user edits. That second test also carries the page's
+/// only real-runtime pin on the blocked submit's own auto-focus, which attach mode gets by
+/// calling FormidableValidator's submit entry point instead of the engine beneath it, and on the
+/// page's FocusFallback, without which that focus has no element to reach.
 /// </summary>
 [Collection("e2e")]
 public sealed class AttachModeJourney(SampleAppFixture app)
@@ -87,6 +90,14 @@ public sealed class AttachModeJourney(SampleAppFixture app)
         // DOM this submit has actually reached.
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(SummaryEntry(page, "Description is required")).ToBeVisibleAsync();
+
+        // The blocked submit moved the caret off the button it was clicked with and into the first
+        // error the engine reports, which the page gets by calling FormidableValidator's own
+        // submit entry point rather than the engine beneath it. Two things have to hold for this
+        // to land: the validator's auto-focus, and the page's FocusFallback — the plain InputText
+        // renders none of the id the focus service addresses a field by, so the first attempt
+        // misses and only the fallback's supplied id lets the retry find it.
+        await Expect(page.GetByLabel("Submitted by", new() { Exact = true })).ToBeFocusedAsync();
 
         // Neither surface loses the message across the submit: the anchor is what reveals the
         // field to the submit channel, and the two channels agree about it rather than one

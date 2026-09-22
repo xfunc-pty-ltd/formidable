@@ -94,14 +94,24 @@ public sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
 /// <summary>
 /// Submit validator whose async rule blocks on <see cref="Gate"/> without observing the
 /// cancellation token it is handed — unlike <see cref="GatedValidator"/>, cancelling that token
-/// does nothing here: the rule only resolves once <see cref="Gate"/> is released, and it always
-/// passes. Exists to exercise the one case a token-honoring validator (every other fixture in
-/// this file) cannot: a stale pass that outruns Dispose instead of being cut short by it.
+/// does nothing here: the rule only resolves once <see cref="Gate"/> is released. Exists to
+/// exercise the one case a token-honoring validator (every other fixture in this file) cannot: a
+/// stale pass that outruns Dispose instead of being cut short by it.
 /// </summary>
 public sealed class CancellationIgnoringValidator : DraftSubmitValidator<EngineOrder>
 {
     public TaskCompletionSource Gate { get; } = new();
     public int Started;
+
+    /// <summary>
+    /// The rule's outcome once <see cref="Gate"/> releases it. Defaults to <see langword="true"/>
+    /// — the opposite of <see cref="GatedValidator.ShouldPass"/>, because the two fixtures are
+    /// reached for different reasons: a caller here wants a stale pass that outran disposal to
+    /// carry a verdict a dead-engine guard has to suppress, and a PASSING one is what proves the
+    /// guard rather than supersession is doing the suppressing. Set it false when the verdict
+    /// itself has to be observable, e.g. as the errors a suppressed outcome must not report.
+    /// </summary>
+    public bool ShouldPass { get; set; } = true;
 
     protected override void ConfigureDraftRules()
     {
@@ -112,8 +122,8 @@ public sealed class CancellationIgnoringValidator : DraftSubmitValidator<EngineO
         {
             Started++;
             await Gate.Task;
-            return true;
-        });
+            return ShouldPass;
+        }).WithMessage("the abandoned pass says no");
 }
 
 /// <summary>Draft validator whose rule throws when <see cref="Throw"/> is true, for exercising fault-handling paths.</summary>
@@ -190,9 +200,11 @@ public sealed class SlowLiveRuleValidator : DraftSubmitValidator<EngineOrder>
 /// <remarks>
 /// The submit ruleset carries a model-level rule on the same gate, which never fails and so
 /// changes no verdict. A post-submit refresh runs only what the live pass left out, so holding a
-/// refresh in flight means holding a rule from the submit bucket; a gate on the draft bucket alone
-/// holds live passes only. It carries the same customer guard the gated draft rule does, so a
-/// model this fixture's draft rules would skip cannot block on the gate with nothing to release it.
+/// refresh in flight means holding a rule from the submit bucket AND narrowing the live channel
+/// to the draft bucket, which is what leaves that rule for the refresh to reach; a gate on the
+/// draft bucket alone holds live passes only. It carries the same customer guard the gated draft
+/// rule does, so a model this fixture's draft rules would skip cannot block on the gate with
+/// nothing to release it.
 /// </remarks>
 public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
 {
@@ -276,41 +288,28 @@ public sealed class AdvisoryAboveErrorValidator : DraftSubmitValidator<EngineOrd
 }
 
 /// <summary>
-/// Wraps a real validator and counts calls, split out by profile — <see cref="SubmitProfileCallCount"/>
-/// is the signature a <see cref="FormidableOptions.TrackFormValidity"/> probe leaves behind (it
-/// always validates <paramref name="submitProfile"/>, the caller's own configured
-/// <see cref="FormidableOptions.SubmitProfile"/> rather than the <see cref="ValidationProfile.Submit"/>
-/// static — a test that overrides the option would otherwise silently stop being pinned), distinct
-/// from an ordinary live pass validating under <see cref="FormidableOptions.LiveProfile"/> — which
-/// is what lets a test prove the probe never ran without also having to silence the live pass it
-/// rides alongside.
+/// Wraps a real validator and counts whole-profile validations. Counting them all, rather than
+/// splitting the count by profile, is what keeps the counter discriminating: the live channel
+/// selects the submit profile's own rules unless a test narrows it, so the profile a call carries
+/// does not say which caller made it. What each count means is a matter of arithmetic at the call
+/// site — a pristine engine and one field change cost one validation with tracking off and three
+/// with it on.
 /// </summary>
-public sealed class CountingValidator(
-    IModelValidator<EngineOrder> inner, ValidationProfile submitProfile) : IModelValidator<EngineOrder>
+public sealed class CountingValidator(IModelValidator<EngineOrder> inner) : IModelValidator<EngineOrder>
 {
     public int CallCount { get; private set; }
-    public int SubmitProfileCallCount { get; private set; }
 
     public Task<ValidationReport> ValidateAsync(
         EngineOrder model, ValidationProfile profile, CancellationToken cancellationToken = default)
     {
-        Count(profile);
+        CallCount++;
         return inner.ValidateAsync(model, profile, cancellationToken);
     }
 
     public ValidationReport Validate(EngineOrder model, ValidationProfile profile)
     {
-        Count(profile);
-        return inner.Validate(model, profile);
-    }
-
-    private void Count(ValidationProfile profile)
-    {
         CallCount++;
-        if (profile.Equals(submitProfile))
-        {
-            SubmitProfileCallCount++;
-        }
+        return inner.Validate(model, profile);
     }
 }
 
@@ -338,8 +337,9 @@ public sealed class NormalizableOrderValidator : DraftSubmitValidator<Normalizab
 }
 
 /// <summary>
-/// Validator whose two profiles fail different fields, so a test can tell the live channel and
-/// the submit channel apart by message alone. The draft rule fails <see cref="EngineCustomer.Name"/>
+/// Validator whose two rule buckets fail different fields, so a test that narrows the live
+/// channel to the draft bucket can tell the live channel and the submit channel apart by message
+/// alone. The draft rule fails <see cref="EngineCustomer.Name"/>
 /// — a field no submit here ever makes an error site, so a refresh filters its own copy of that
 /// verdict straight back out and only a live pass can put it on the field. The submit rule fails
 /// <see cref="EngineOrder.Description"/> for as long as the customer has no name, so a single edit
@@ -363,8 +363,9 @@ public sealed class ChannelSeparatingValidator : DraftSubmitValidator<EngineOrde
 /// <see cref="ChannelSeparatingValidator"/> with both of its rules made asynchronous and blocked
 /// on <see cref="Gate"/> — which is what lets a test hold either a live pass or a refresh pass in
 /// flight while the other's debounce window comes due. Both buckets are gated because the two
-/// passes run different ones: a live pass runs the draft bucket, and a post-submit refresh runs
-/// only what that pass left out, which is the submit bucket.
+/// passes run different ones once the live channel is narrowed to the draft bucket: the live pass
+/// runs that bucket, and a post-submit refresh runs only what it left out, which is the submit
+/// bucket.
 /// </summary>
 public sealed class GatedChannelSeparatingValidator : DraftSubmitValidator<EngineOrder>
 {

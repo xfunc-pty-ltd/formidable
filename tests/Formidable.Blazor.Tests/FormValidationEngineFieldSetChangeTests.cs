@@ -18,6 +18,8 @@ namespace Formidable.Blazor.Tests;
 /// the invalidation in particular is only visible as WHICH rules the next refresh executes — a
 /// reused report and a recomputed one agree about the verdict whenever the model has not moved,
 /// which is exactly the case that would make an assertion on state pass for the wrong reason.
+/// The unsubmitted form is the sharpest instance: neither reveal ledger names a field there, so
+/// its refresh changes nothing any surface shows and the counters are the whole of the evidence.
 /// </remarks>
 public class FormValidationEngineFieldSetChangeTests
 {
@@ -97,7 +99,9 @@ public class FormValidationEngineFieldSetChangeTests
 
         // The field is still registered, so nothing leaves and there is nothing to republish. This
         // is the case a page whose rows churn as it scrolls spends all its time in, and a render
-        // round per registration change is what it must not cost.
+        // round per registration change is what it must not cost. The refresh the change arms is
+        // a debounced matter of its own: it collapses a whole burst of these into one pass, and
+        // no time is advanced here for it to fire in.
         engine.OnRenderedFieldsChanged();
 
         Assert.Equal(0, notifications);
@@ -230,8 +234,9 @@ public class FormValidationEngineFieldSetChangeTests
         var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        // Submit once, released, so the form has disclosed a verdict for a later refresh to
-        // reconcile - HasSubmitted is what lets a field-set change arm a refresh at all.
+        // Submit once, released, so the form has disclosed a verdict for the refresh below to
+        // reconcile - the case in which that refresh has something to say, and therefore the one
+        // in which lighting the wrong fields pending would be seen.
         var submit = engine.ValidateForSubmitAsync();
         validator.Gate.SetResult();
         await submit;
@@ -262,33 +267,50 @@ public class FormValidationEngineFieldSetChangeTests
     }
 
     [Fact]
-    public void A_field_set_change_before_any_submit_schedules_no_refresh()
+    public void A_field_set_change_before_any_submit_re_answers_in_silence()
     {
+        // Both rules fail, and neither field is ever edited: what the refresh finds is exactly
+        // what nothing on the page is entitled to show.
         var customer = new EngineCustomer { Name = "far too long" };
         var order = new EngineOrder { Customer = customer };
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = Build(
-            order, editContext, validator, new FormidableOptions { DisclosureOverride = _ => true }, time);
+        using var engine = Build(order, editContext, validator, new FormidableOptions(), time);
 
-        // An edit first, so the counters below are non-zero and demonstrably able to move: a form
-        // that had never validated anything would let this assertion hold against a rule that
-        // cannot run at all.
-        customer.Name = "still far too long";
-        editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
-        Assert.True(validator.DraftRuleRuns > 0);
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var nameRegistration = engine.Registry.Register(name);
+        using var descriptionRegistration = engine.Registry.Register(description);
 
-        var draftBefore = validator.DraftRuleRuns;
-        var submitBefore = validator.SubmitRuleRuns;
+        Assert.Equal(0, validator.DraftRuleRuns);
+        Assert.Equal(0, validator.SubmitRuleRuns);
+
+        // Subscribed before the refresh fires: a pending class that lit only while the pass was
+        // in flight would be gone again by the time the advance returns.
+        var everPending = false;
+        engine.StateChanged += () =>
+            everPending |= editContext.FieldCssClass(name).Contains("formidable-pending")
+                || editContext.FieldCssClass(description).Contains("formidable-pending");
 
         engine.OnRenderedFieldsChanged();
         time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
 
-        // Nothing has been submitted, so there is no disclosed verdict to reconcile and no pass to
-        // run reconciling it.
-        Assert.Equal(draftBefore, validator.DraftRuleRuns);
-        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+        // The rules ran, which is the only way to tell a refresh that happened from one that did
+        // not: an unsubmitted form's state reads the same either way.
+        Assert.Equal(1, validator.DraftRuleRuns);
+        Assert.Equal(1, validator.SubmitRuleRuns);
+
+        // And it said nothing. Nothing is engaged and neither reveal ledger names a field, so the
+        // two failures reach no surface at all; the empty edited set the field-set change armed it
+        // with scopes the pending indicator to nothing, so no input flashes on the way past.
+        Assert.Empty(engine.GetVisibleIssues());
+        Assert.Empty(engine.GetIssues(name));
+        Assert.Empty(engine.GetIssues(description));
+        Assert.Empty(editContext.GetValidationMessages());
+        Assert.False(everPending);
+        Assert.Equal(string.Empty, editContext.FieldCssClass(name));
+        Assert.Equal(string.Empty, editContext.FieldCssClass(description));
     }
 
     [Fact]
@@ -355,8 +377,20 @@ public class FormValidationEngineFieldSetChangeTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
+
+        // The field-set change below arms a refresh of its own. Held well past the live window,
+        // so the advance that closes that window fires it and nothing else: the pass this is
+        // about is the one the window would have started.
         using var engine = Build(
-            order, editContext, validator, new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) }, time);
+            order,
+            editContext,
+            validator,
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                RefreshDebounce = TimeSpan.FromSeconds(30),
+            },
+            time);
 
         var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
         var registration = engine.Registry.Register(name);
@@ -396,7 +430,15 @@ public class FormValidationEngineFieldSetChangeTests
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            // The departure below arms a refresh as well, and a refresh in flight is one the
+            // window's own fire stands down for and re-arms behind. Held past the window, so what
+            // answers for the survivor here is the window's pass rather than a pass that would
+            // have answered for every field alike.
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                RefreshDebounce = TimeSpan.FromSeconds(30),
+            },
             time);
 
         var customerNameField = new FieldIdentifier(customer, nameof(EngineCustomer.Name));

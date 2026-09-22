@@ -67,18 +67,28 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 ### Draft vs Submit
 
 - [ ] Panel states the 60-char Title rule; 61 chars shows it live
-- [ ] Save draft: blocked by format only; Submit: completeness kicks in
+- [ ] Save draft: blocked by format only. Shorten the title and save again: it saves with
+      Summary still empty
+- [ ] Clear Title and leave the field: "Title is required to submit" lands with NO submit
+      anywhere — while Summary, failing its own required rule and never touched, stays silent
+- [ ] Submit: Summary speaks for the first time; the error summary now carries both
 - [ ] Valid submit: status line confirms
-- [ ] Type into both fields, submit (blocked or not), then click *Reset*: the errors clear and
-      the form returns to pristine — but the typed values in both boxes STAY exactly as typed;
-      `ResetAsync()` never writes model properties, and it is the SAME form, no page reload
+- [ ] Type into both fields, make Title 61 characters so the format error is showing, then click
+      *Reset*: the error clears and the form returns to pristine — but the typed values in both
+      boxes STAY exactly as typed, over-long title included; `ResetAsync()` never writes model
+      properties, and it is the SAME form, no page reload
 
 ### Custom profiles
 
 - [ ] With *Standard submit* selected: Title + Slug + Category + Read minutes + Publish date
       filled, Review note empty — submit goes through
-- [ ] Switch to *Admin review*: the form RESETS; re-enter all five fields and submit — blocked,
-      the review note is now required
+- [ ] Switch to *Admin review*: the form RESETS. BEFORE submitting anything, type into Review
+      note and Tab out, then come back, clear it and Tab out again — "A review note is required
+      for admin review" appears on a form that has never been submitted, so only the live channel
+      can have put it there, following the profile the picker installed. The same two edits under
+      *Standard submit* say nothing at all
+- [ ] Re-enter all five of the others (the reset emptied Title, Slug, Category, Read minutes and
+      Publish date) and submit — blocked, the review note is required here
 - [ ] Fill Review note and submit again: goes through under admin review
 - [ ] Category is a select (`FormidableInputSelect`, `UpdateOn="OnBlur"`): submit with it empty,
       then pick a category — the "required" message stays exactly as it was until you tab away,
@@ -203,6 +213,8 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Edit Username once after a submit and pause: exactly one "checking…" cycle runs, not
       two — the refresh that follows the live pass finds the uniqueness check already
       answered and does not run it again
+- [ ] Type a username, then clear it: "Username is required" appears with NO submit anywhere —
+      the field is engaged, and the live channel runs the rules a submit would
 - [ ] Delay slider reads **600 ms** on load; dragging it updates the millisecond label live
 - [ ] At 2000 ms: the pending state lingers long enough to type again and watch supersession
       cancel the stale check mid-flight — only the final value gets a verdict
@@ -293,10 +305,12 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       Modified stays False — exactly what the page's first *Try it* step claims
 - [ ] Same for Display name: blur alone touches it, no value commit needed
 - [ ] Neither blur typed anything, but only Display name takes the "confirmed" valid border:
-      Username stays unstyled — the probe's fresh answer already carries its required-rule
-      failure, and a field the engine knows would fail submit is never styled valid. Type
-      `ada` into Username and tab out: its border confirms once the check lands; clear it
-      again and the border leaves while the box stays message-free
+      Username stays unstyled — the probe's answer already carries its required-rule failure,
+      and a field the engine knows would fail submit is never styled valid. Nothing has been
+      edited yet, so this is the probe's work alone, with no live pass behind it. Type `ada`
+      into Username and tab out: its border confirms once the check lands; clear it again and
+      the border leaves and "Username is required" lands with it — the field is engaged now,
+      and the live channel runs the rules a submit would
 - [ ] The panel's Rules bullet explains why (the page wires `field.MarkTouched()` to `onblur`;
       the built-in inputs touch on value commit) — read it and confirm it matches what you saw
 - [ ] Type `admin`: Modified and Validating flip True, then Errors flips once the check lands
@@ -392,15 +406,17 @@ steps build on each other.
       after a valid client submit — so the server's 400 lands inline on Coupon code with the
       rest of the form already clean. Change to `WELCOME10` and resubmit: the new verdict
       REPLACES the old one (no stale coupon error) and the registration is accepted
-- [ ] Step 5: with everything else valid, clear Dietary notes — the message answers your edit
-      on the spot — then untick *Include catering*: the field leaves and takes the message with
+- [ ] Step 5: with everything else valid, clear Dietary notes — the message answers your edit as
+      soon as that edit's live pass does, a beat, since the pass waits on the 300 ms availability
+      check — then untick *Include catering*: the field leaves and takes the message with
       it, inline and summary alike. Submit: the form blocks with "information that is not
       currently displayed is invalid" — the one failing rule has never been shown by a submit
       and has nowhere to show now
 - [ ] **The gate survives editing.** While the form stays blocked, type into Description and
       pause: the edited field's pending marker comes and goes as the live pass and the
       background refresh run — and the form-level entry still stands on the far side. No
-      refresh can retire the gate; only a submit that can show the error, or one that passes,
+      refresh can retire the gate; an error reaching the screen does, and Description has no
+      rule of its own to put one there. A submit that can show the error, or one that passes,
       re-decides it
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
       takes focus. From the KEYBOARD it shows the accent outline; by MOUSE, the scroll alone
@@ -411,12 +427,16 @@ steps build on each other.
       comes clean, and the field stays watched until the form passes or resets. Re-tick and
       fill in a note before moving on
 - [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
-      only — the malformed address (plus Dietary notes if empty); Event name/Event date stay
-      silent
+      only — the malformed address (plus Dietary notes if empty). Now clear **Event name** and
+      Tab: "Event name is required" lands as soon as that edit's live pass does — a beat, since
+      the pass waits on the 300 ms availability check — because you engaged that field. Save the
+      draft again and the status line still never mentions it, since a draft save runs the Draft
+      profile and that presence rule is not in it. Type Event name back in
 - [ ] *Add attendee*: the row stays silent even though Name's rule is already failing — nothing
-      has engaged it yet. Type a name, then clear it and Tab: "Attendee name is required"
-      appears immediately, inline and in the summary, with NO submit; clicking that entry
-      focuses that row's Name
+      has engaged it yet. Type a name and Tab, then come back, clear it and Tab again:
+      "Attendee name is required" appears as soon as that edit's live pass does — a beat, since
+      the pass waits on the 300 ms availability check — inline and in the summary, with NO
+      submit; clicking that entry focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
       attendees needs approval — submission is not blocked" appears below the list
 - [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
@@ -429,7 +449,8 @@ steps build on each other.
       after registering"
 - [ ] Scroll the session panel to the bottom, set the last session's Seats to `900` and Tab:
       the row objects on the **FIRST tab-out** — "Seats must be a whole number between 0 and
-      500" appears immediately, with no second edit needed to shake it loose. Repeat on another
+      500" appears as soon as that edit's live pass does — a beat, since the pass waits on the
+      300 ms availability check — with no second edit needed to shake it loose. Repeat on another
       row to be sure it is not a one-off, then set THAT row back to `0` too — leaving it dirty
       would let its error outrank Ticket tier's in document order and steal the focus at step 13
 - [ ] Scroll back to the top and submit: blocked, the summary carries the same seats message
@@ -442,13 +463,15 @@ steps build on each other.
 - [ ] Set **Ticket tier** to the blank *Choose…* and submit: the foreign select takes the same
       red border, inline message and summary entry as any wrapped input, and clicking that
       entry moves focus INTO the select
-- [ ] Type a region into **Venue region** and tab out: the border arrives with the background
-      refresh a moment later, not on the blur itself — then the native input wears the same
-      "confirmed" border a Formidable input shows — the css class provider serves both
-- [ ] Clear **Venue region** and submit (step 15): the native `ValidationMessage` shows "Venue
-      region is required", the summary lists it, and clicking THAT entry **lands in the native
-      input** — the page renders it the field's id, which is the whole of what the focus
-      service looks for. No console error, no lost scroll position
+- [ ] Type a region into **Venue region** and tab out: the blur's own live pass is what confirms
+      it — no submit needed first — so the native input wears the same "confirmed" border a
+      Formidable input shows, a beat later, once that pass's 300 ms availability check lands.
+      The css class provider serves both kinds of input
+- [ ] Clear **Venue region** and Tab (step 15): the native `ValidationMessage` shows "Venue
+      region is required" with NO submit — the live channel's verdict reaches the EditContext's
+      own message store — the summary lists it on the same terms, and clicking THAT entry
+      **lands in the native input** — the page renders it the field's id, which is the whole of
+      what the focus service looks for. No console error, no lost scroll position
 - [ ] While that error stands, inspect the native input: `aria-invalid="true"` plus an
       `aria-describedby` naming the message below it. Fill the region and blur: `aria-invalid`
       disappears (it is conditional, and it stays current without a resubmit)

@@ -42,9 +42,9 @@ The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` on
 and everything else (including FluentValidation's own default) → `ValidationSeverity.Error`.
 That "everything else" leg includes an explicit `.WithSeverity(Severity.Error)`: writing the
 default out by hand maps exactly the way leaving it off does, for teams that prefer every rule
-to state its severity. Where the rule lives decides when it's checked, same as any other rule —
-the common/draft bucket if an advisory should nag live, `ConfigureSubmitRules()` if it should
-stay quiet until the user commits:
+to state its severity. Where the rule lives decides what a save and a submit enforce, same as any
+other rule — the common/draft bucket if a lenient draft save should answer the advisory too,
+`ConfigureSubmitRules()` if only a submit should:
 
 ```csharp
 public class Listing
@@ -78,15 +78,17 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 
 *Source: `samples/Formidable.Sample.Shared/Listing.cs`*
 
-Both advisory rules above live in `ConfigureDraftRules()`, Formidable's shared "common" bucket.
-That bucket is run by the draft/live ruleset and folded into `"Submit"` (see
-[Profiles](profiles.md)). So under the default `LiveProfile` (`Draft`) they run live, on each
-committed change (under the default `UpdateOn`, the commit lands as the field is left), exactly
-like the required-title error above them, and they are still enforced when the form
-submits. The scratch validator in `tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs`
-shows the other shape: warnings and infos placed in `ConfigureSubmitRules()` instead, so they stay
-quiet until submit. Either way, the disclosure lifecycle described in "The warning lifetime" below
-applies once the issue has first been shown.
+Both advisory rules above live in `ConfigureDraftRules()`, Formidable's shared "common" bucket,
+which is folded into `"Submit"` as well (see [Profiles](profiles.md)) — so they are enforced when
+the form submits, and a lenient draft save answers them too. Severity has no bearing on when a
+rule runs: these two answer live on each committed change (under the default `UpdateOn`, the
+commit lands as the field is left), exactly like the required-title error above them, because
+`FormidableOptions.LiveProfile` defaults to the submit profile and the field is one the visitor
+has engaged. The scratch validator in
+`tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs` shows the other bucket: warnings
+and infos placed in `ConfigureSubmitRules()`, which a draft save leaves alone. Either way, the
+disclosure lifecycle described in "The warning lifetime" below applies once the issue has first
+been shown.
 
 None of that changes what a warning or an info does to the submit itself: nothing. `IsValid`
 counts only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
@@ -230,13 +232,14 @@ commentary in different places on the form renders a summary per band instead, w
 
 ## The warning lifetime
 
-Submit is the disclosure event for a warning or an info, as it is for an error.
-`ValidateForSubmitAsync` decides which currently-rendered fields carry a visible issue of any
-severity, and each field it names joins a watched set — an error site on the error side, an
-advisory site on the advisory one, and a field watched on either count keeps its advisories
-refreshed. That set only grows while the form stays short of a passing submit: a later blocked
-submit adds to it, a server apply adds to it, and nothing takes a field back out. Every further
-edit arms the debounced refresh (`RefreshDebounce`, see [Options](options.md)), which re-validates
+On the submit channel, submit is the disclosure event for a warning or an info exactly as it is
+for an error. `ValidateForSubmitAsync` decides which currently-rendered fields carry a visible
+issue of any severity, and each field it names joins a watched set: an error site on the error
+side, an advisory site on the advisory one, and a field watched on either count keeps its
+advisories refreshed. That set only grows while the form stays short of a passing submit: a
+later blocked submit adds to it, a server apply adds to it, and nothing takes a field back
+out. Every further edit arms the debounced refresh (`RefreshDebounce`, see
+[Options](options.md)), which re-validates
 the whole model and re-answers the watched fields rather than deciding membership again. It never
 goes looking for newly warning-worthy fields outside the set.
 
@@ -245,11 +248,20 @@ editing: it clears the moment they fix it, and comes back if they break it again
 ends the message rather than the watch. A field that was an error site at submit picks up a
 newly-appearing warning too, because it is already in the watched set — whether or not it carried
 a warning at submit time. Only a field with neither an
-error nor a warning at submit stays quiet when it starts failing a warning-severity rule. It waits
-for the next submit, the same way a newly-failing error field would.
+error nor a warning at submit is left outside that refresh when it starts failing a
+warning-severity rule — the same way a newly-failing error field is.
 
-A passing submit is where the two channels part company. It clears the error watches outright, so
-an error the visitor fixed stops being watched at all, and it re-freezes the advisory watches to
+The live channel answers for it instead, on its own terms. It files a whole verdict, advisories
+and errors alike, for every field the visitor has *engaged*, and by default it evaluates the same
+rules a submit would (see
+[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)). So a newly-failing warning on
+a field the visitor has committed a change to appears on that field's own row without waiting for
+anything. What genuinely waits for the next submit is a warning on a field nobody has engaged, or
+one whose rule the form's `LiveProfile` narrows past.
+
+A passing submit is where the two watched sets part company. It clears the error watches
+outright, so an error the visitor fixed stops being watched at all, and it re-freezes the
+advisory watches to
 the sites that passing report could actually show — an advisory the form is showing as it passes
 keeps its site, and everything else starts over.
 

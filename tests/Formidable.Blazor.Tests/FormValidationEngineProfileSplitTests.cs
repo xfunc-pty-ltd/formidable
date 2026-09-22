@@ -12,7 +12,10 @@ namespace Formidable.Blazor.Tests;
 /// executes only the rules with no fresh verdict at its own edit stamp and assembles the rest
 /// from the per-rule store, so one edit costs one execution per rule whichever pass gets there
 /// first — and a validator without the rule-level capability still reaches the same verdicts by
-/// running whole profiles.
+/// running whole profiles. Most of these narrow <see cref="FormidableOptions.LiveProfile"/> to
+/// the draft bucket so the overlap is partial and each pass has rules of its own to pay for; two
+/// pin the other end of the range, where the live channel selects the submit profile itself and
+/// the refresh behind it is left with nothing to execute.
 /// </summary>
 /// <remarks>
 /// The counters are what carry these tests: two runs of a rule leave exactly what one run leaves,
@@ -34,7 +37,7 @@ public class FormValidationEngineProfileSplitTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { DisclosureOverride = _ => true },
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
             time);
 
         // The submit blocks on the empty description, which makes it an error site the refresh
@@ -85,6 +88,7 @@ public class FormValidationEngineProfileSplitTests
             {
                 LiveDebounce = TimeSpan.FromMilliseconds(400),
                 RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                LiveProfile = ValidationProfile.Draft,
                 DisclosureOverride = _ => true,
             },
             time);
@@ -128,6 +132,7 @@ public class FormValidationEngineProfileSplitTests
             {
                 LiveDebounce = TimeSpan.FromMilliseconds(100),
                 RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                LiveProfile = ValidationProfile.Draft,
                 DisclosureOverride = _ => true,
             },
             time);
@@ -238,9 +243,9 @@ public class FormValidationEngineProfileSplitTests
             new ReflectionModelIntrospector(),
             new FormidableOptions
             {
-                // Live and submit select the same rules, so the edit's own live pass answers
-                // everything the refresh will need at the same stamp.
-                LiveProfile = ValidationProfile.Submit,
+                // Nothing narrows the live channel, so it selects the submit profile's own
+                // rules and the edit's own live pass answers everything the refresh will need,
+                // at the same stamp.
                 DisclosureOverride = _ => true,
             },
             time);
@@ -273,7 +278,13 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        var options = new FormidableOptions { DisclosureOverride = _ => true };
+        // Narrowed to start with, so the swap below is a genuine change of selection rather
+        // than a restatement of what the live channel already runs.
+        var options = new FormidableOptions
+        {
+            LiveProfile = ValidationProfile.Draft,
+            DisclosureOverride = _ => true,
+        };
         using var engine = new FormValidationEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -291,9 +302,10 @@ public class FormValidationEngineProfileSplitTests
 
         // The live profile is swapped before the refresh comes due, on the same options instance
         // the engine holds — the pattern the sample teaches for changing engine behaviour without
-        // a model swap. A rule verdict is a fact about the rule at a model state, not about the
-        // profile that happened to select it, so the swap strands nothing and invents nothing.
-        options.LiveProfile = ValidationProfile.Submit;
+        // a model swap; clearing it hands the live channel back to the submit profile. A rule
+        // verdict is a fact about the rule at a model state, not about the profile that happened
+        // to select it, so the swap strands nothing and invents nothing.
+        options.LiveProfile = null;
 
         time.Advance(TimeSpan.FromMilliseconds(301));
 
@@ -318,8 +330,8 @@ public class FormValidationEngineProfileSplitTests
             new ReflectionModelIntrospector(),
             new FormidableOptions
             {
-                // Live and submit select the same rules, so every refresh below executes nothing.
-                LiveProfile = ValidationProfile.Submit,
+                // The live channel selects the submit profile's own rules by default, so every
+                // refresh below executes nothing.
                 DisclosureOverride = _ => true,
             },
             time);
@@ -418,7 +430,7 @@ public class FormValidationEngineProfileSplitTests
             order, editContext,
             modelValidator,
             new ReflectionModelIntrospector(),
-            new FormidableOptions { DisclosureOverride = _ => true },
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
             time);
 
         // Both buckets fail, so both fields are error sites the refresh keeps current.

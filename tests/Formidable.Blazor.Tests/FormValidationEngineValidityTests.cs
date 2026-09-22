@@ -90,6 +90,12 @@ public class FormValidationEngineValidityTests
         var suppressedCount = 0;
         _engine.Options.SuppressedIssueDiagnostic = _ => suppressedCount++;
 
+        // The live channel is narrowed to the draft bucket, which the empty description passes,
+        // so anything disclosed below could only have come from the probe. Without the narrowing
+        // the live pass would legitimately disclose the description's own required-field error
+        // and there would be nothing left to attribute.
+        _engine.Options.LiveProfile = ValidationProfile.Draft;
+
         _editContext.NotifyFieldChanged(DescriptionField); // model still invalid
         await FlushAsync();
 
@@ -150,7 +156,7 @@ public class FormValidationEngineValidityTests
         var editContext = new EditContext(order);
         var options = new FormidableOptions(); // TrackFormValidity defaults to false
         var counting = new CountingValidator(
-            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()), options.SubmitProfile);
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
         using var engine = new FormValidationEngine<EngineOrder>(
             order,
             editContext,
@@ -163,13 +169,11 @@ public class FormValidationEngineValidityTests
         await FlushAsync();
 
         Assert.False(engine.IsFormValid);
-        // Exactly one call total (the live pass, under Draft) — not merely zero at Submit, but
-        // the tighter claim that nothing beyond the live pass ever ran the validator at all.
+        // Exactly one call total — the field change's own live pass, and nothing else. Tracking
+        // on would make it three: a probe at construction, the live pass, and the change's own
+        // probe. Counting every call rather than the calls at one profile is what keeps this
+        // discriminating, since the live channel runs the submit profile itself by default.
         Assert.Equal(1, counting.CallCount);
-        // SubmitProfile is the probe's own signature (the live pass here runs LiveProfile,
-        // which defaults to Draft) — zero calls at that profile proves no probe ever ran, at
-        // construction or on the field change.
-        Assert.Equal(0, counting.SubmitProfileCallCount);
     }
 
     [Fact]
@@ -211,7 +215,15 @@ public class FormValidationEngineValidityTests
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            // The departure below arms a refresh as well, and a refresh IS a pass: held past the
+            // window, so what closes into the empty snapshot is the window alone and the
+            // indicator has only the probe to answer for.
+            new FormidableOptions
+            {
+                TrackFormValidity = true,
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                RefreshDebounce = TimeSpan.FromSeconds(30),
+            },
             _time);
 
         Assert.True(engine.IsFormValid); // the constructor's own probe already settled this
@@ -355,7 +367,12 @@ public class FormValidationEngineValidityTests
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { TrackFormValidity = true },
+            // GatedValidator's gate is a submit-bucket rule, and the probe builds its own plan
+            // with no dedupe against a pass already running — so an unnarrowed live channel would
+            // put TWO chains on each gate and ReleaseAndWaitAsync's margin, written for one,
+            // could return before the probe's own landing. The empty draft bucket makes the
+            // narrowing exact: the live pass runs nothing and blocks on nothing.
+            new FormidableOptions { TrackFormValidity = true, LiveProfile = ValidationProfile.Draft },
             _time);
 
         // The constructor's own initial probe is left pending on the validator's very first

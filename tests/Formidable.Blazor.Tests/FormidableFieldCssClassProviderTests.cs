@@ -33,12 +33,15 @@ public class FormidableFieldCssClassProviderTests
 
     // Valid is a promise about submit, so modified-and-error-free alone cannot earn it: the
     // Valid tier additionally requires the submit-selected rules to have answered for the model
-    // as it stands, with no error for the field among those answers.
+    // as it stands, with no error for the field among those answers. Staged on a live channel
+    // narrowed to the draft bucket, which is what leaves those rules unanswered — one selecting
+    // the submit profile's own rules, as the default does, answers them in the edit's own pass.
     [Fact]
     public void Modified_error_free_field_earns_valid_only_with_fresh_submit_coverage()
     {
         var order = new EngineOrder();
-        using var engine = CreateEngine(order, new EngineOrderValidator());
+        using var engine = CreateEngine(
+            order, new EngineOrderValidator(), new FormidableOptions { LiveProfile = ValidationProfile.Draft });
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
         order.Description = "short"; // draft rule (MaximumLength(10)) passes
@@ -151,7 +154,7 @@ public class FormidableFieldCssClassProviderTests
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
-        using var engine = CreateEngine(order, validator, new FormidableOptions { LiveProfile = ValidationProfile.Submit });
+        using var engine = CreateEngine(order, validator, new FormidableOptions());
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
         engine.EditContext.NotifyFieldChanged(field); // starts the live pass; GatedValidator's async rule blocks on Gate

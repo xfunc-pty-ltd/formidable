@@ -27,7 +27,7 @@ public class NativeInputPendingLifecycleTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
-            builder.AddComponentParameter(3, "Options", new FormidableOptions { LiveProfile = ValidationProfile.Submit });
+            builder.AddComponentParameter(3, "Options", new FormidableOptions());
             builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
             {
                 inner.OpenComponent<InputText>(0);

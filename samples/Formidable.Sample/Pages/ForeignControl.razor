@@ -7,7 +7,7 @@
 <TeachingPanel CodeFiles="@(new[] { "ForeignControl.razor", "ForeignControl.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li><strong>Colour</strong> — required, validated live.</li>
+            <li><strong>Colour</strong>: required, validated live.</li>
             <li>The select is a control Formidable does not wrap. The renderless <code>FormidableField</code> hands its template everything a wrapper would have supplied: <code>ElementId</code>, <code>CssClass</code>, aria attributes, and <code>NotifyChanged()</code>.</li>
             <li>Compare with Quickstart: wrapped inputs label-wrap and need no id; a foreign control keeps its own element, so the label targets <code>field.ElementId</code> instead.</li>
         </ul>

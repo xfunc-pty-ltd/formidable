@@ -1273,13 +1273,42 @@ including when to reach for it over `FormidableForm`, is covered in
 [Migration guide](migration-guide.md).
 
 Attach mode owns the engine, not the form, so the verbs that come with owning an `EditForm` stay
-with `FormidableForm`: `SubmitAsync`, `ResetAsync`, `FocusFirstErrorOnInvalidSubmit`, the typed
-submit callbacks and the `Model` parameter whose swap rebuilds everything all belong to the
-component that renders the `<form>`. A page in attach mode keeps its own `EditForm`'s handlers for
-that half. Two behaviours follow focus for the same reason: nothing resolves where the fields
-sit, so a summary here lists issues in the engine's own channel order rather than the page's, and
-an `ApplyServerIssues` here stays quiet where the form's moves focus. Both are the consequence of
-not rendering the `<form>` — see
+with `FormidableForm`: `SubmitAsync`, `ResetAsync`, the typed submit callbacks and the `Model`
+parameter whose swap rebuilds everything all belong to the component that renders the `<form>`. A
+page in attach mode keeps its own `EditForm`'s handlers for that half.
+
+What it does not give up is what the submit itself does. `ValidateForSubmitAsync()` runs the
+pipeline against this component's engine and hands back the same `SubmitOutcome` the form's own
+`SubmitAsync` returns, so a page's `EditForm` handler routes that outcome itself instead of
+reaching past the component to `Engine` for the engine's method:
+
+```csharp
+private async Task HandleSubmit()
+{
+    var outcome = await _validator!.ValidateForSubmitAsync();
+    if (outcome.CanProceed)
+    {
+        await SaveAsync(outcome.Report);
+    }
+}
+```
+
+A blocked submit through it lands the visitor on the first error, under the same
+`FocusFirstErrorOnInvalidSubmit` switch, and reaches a first error with no rendered element to
+focus through the same `FocusFallback` seam. Both parameters carry the names, defaults and
+delegate shape they carry on `FormidableForm`, so a page that wants one callback recovering both
+its summary's clicks and its submit's auto-focus writes that callback once and hands it to each.
+
+That submit is the only focus move this component makes on its own. A `FormidableSummary` nested
+inside it goes on moving focus when a visitor clicks an entry, exactly as it does under
+`FormidableForm`. What stays still is the server round trip: `ApplyServerIssues` here applies the
+verdict and focuses nothing, where `FormidableForm`'s moves, because a round trip is the page's
+own and so is what happens after a rejection.
+
+What does still follow from rendering no `<form>` is the reading order rather than the focus.
+Nothing resolves where the fields sit, so a summary here lists issues in the engine's own channel
+order rather than the page's, and the first error a blocked submit focuses is the first in that
+same order. Focus parity is not order parity — see
 [Migration guide](migration-guide.md#what-to-check-after-migrating).
 
 `FormidableValidator` cascades its `FormidableFormContext` only to its own `ChildContent` — pass
@@ -1295,8 +1324,8 @@ defensive gate's summary entry to land somewhere, so it renders that id itself, 
 it already has:
 
 ```razor
-<EditForm Model="_model" OnValidSubmit="HandleValid" id="@GateId" tabindex="-1">
-    <FormidableValidator TModel="Order">
+<EditForm Model="_model" OnSubmit="HandleSubmit" id="@GateId" tabindex="-1">
+    <FormidableValidator TModel="Order" @ref="_validator">
         ...
     </FormidableValidator>
 </EditForm>
@@ -1310,12 +1339,12 @@ This is the same pattern every `FormidableForm`-rooted page rendered by hand bef
 it over; attach mode is the one place it still applies.
 
 Attach mode gives up nothing on noticing the page change. `FormidableValidator` reconciles
-the rendered field set the same way `FormidableForm` does: removing a row prunes its live issues,
-and a form that has already submitted gets a reconciling refresh, through a registry signal the
-component defers past the render batch that caused it — nothing asked of the code that removed the
-row. `NotifyFieldSetChanged()` overrides that timing for a case the built-in signal doesn't reach
-in time — for example, reading `Engine` synchronously right after a mutation, ahead of the
-automatic reconcile's own continuation. Ordinary use never calls it. See
+the rendered field set the same way `FormidableForm` does: removing a row prunes its live issues
+and arms a reconciling refresh, through a registry signal the component defers past the render
+batch that caused it — nothing asked of the code that removed the row.
+`NotifyFieldSetChanged()` overrides that timing for a case the built-in signal doesn't reach in
+time — for example, reading `Engine` synchronously right after a mutation, ahead of the automatic
+reconcile's own continuation. Ordinary use never calls it. See
 [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) for the whole story live.
 
 Attach mode gives up nothing on the server round trip, either. `FormidableValidator` exposes the
@@ -1882,9 +1911,9 @@ provider applies, and how they differ from what a Formidable input's own `CssCla
 `FormidableFieldAnchor` next to the native `InputText` is what keeps it participating in the
 submit channel's disclosure. A plain `InputBase` never registers itself with Formidable's
 `FieldRegistry`, so without the anchor no submit reveals `Nickname`, and its submit errors are
-suppressed as unrevealed. Its live error lands either way: that rule sits in the draft bucket, so
-the first committed change engages the field, and an engaged field's verdict reaches the store —
-and so that `ValidationMessage` — whether or not anything registered it. Opting into
+suppressed as unrevealed. Its live error lands either way: the first committed change engages the
+field, and an engaged field's verdict reaches the store — and so that `ValidationMessage` —
+whether or not anything registered it. Opting into
 `LiveIssueDisclosure.EngagedAndVisible` is what puts the live channel behind this same
 registration, and is the other thing the anchor buys.
 

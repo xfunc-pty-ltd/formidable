@@ -237,7 +237,7 @@ public class FormidableInputNumberTests : BunitContext
             builder.OpenComponent<FormidableForm<Booking>>(0);
             builder.AddComponentParameter(1, "Model", booking);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<Booking>(validator));
-            builder.AddComponentParameter(3, "Options", new FormidableOptions { LiveProfile = ValidationProfile.Submit });
+            builder.AddComponentParameter(3, "Options", new FormidableOptions());
             builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<int>>(0);

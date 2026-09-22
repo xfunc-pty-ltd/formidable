@@ -17,6 +17,15 @@ public partial class ServerRoundTrip
 #endif
 
     private readonly RoundTripOrder _order = new() { Lines = [new OrderLine()] };
+
+    // The whole point of this page is that the SERVER is the judge, so the live channel is
+    // narrowed to the profile that holds no opinion: RoundTripOrderValidator's draft bucket is
+    // empty, which makes "no client rule runs while you type" literal rather than a matter of
+    // which rules happen to be cheap. Left unset, the live channel would follow the submit
+    // profile and answer for the description and every SKU before the POST ever went out - the
+    // right default for a form the client judges, and the wrong one for this demonstration.
+    private readonly FormidableOptions _options = new() { LiveProfile = ValidationProfile.Draft };
+
     private FormidableForm<RoundTripOrder>? _form;
     private string _status = string.Empty;
     private string _endpoint = "/api/orders/";

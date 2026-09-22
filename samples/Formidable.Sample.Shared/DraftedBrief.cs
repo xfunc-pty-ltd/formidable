@@ -18,7 +18,7 @@ public class DraftedBriefValidator : DraftSubmitValidator<DraftedBrief>
 
     protected override void ConfigureSubmitRules()
     {
-        // Completeness rules: enforced only at submit.
+        // Completeness rules: the submit bucket, so a draft save leaves them alone.
         RuleFor(b => b.Title).NotEmpty().WithMessage("Title is required to submit");
         RuleFor(b => b.Summary).NotEmpty().WithMessage("Summary is required to submit");
     }

@@ -138,7 +138,7 @@ handler. Every page in the sample app is built that way. Its
 page, is this same form after exactly that split: the model and validator in a shared project, the
 handler in a code-behind.
 
-Which rules get to answer live, and which wait for submit, is exactly what core concepts covers
-next.
+What decides when a rule gets to speak — and how a form says what a submit needs without nagging
+about fields nobody has touched — is exactly what core concepts covers next.
 
 **Next:** [Core concepts](core-concepts.md)

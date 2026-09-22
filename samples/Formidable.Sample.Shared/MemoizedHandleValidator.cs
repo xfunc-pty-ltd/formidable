@@ -25,11 +25,12 @@ public class MemoizedHandleValidator : DraftSubmitValidator<Handle>
 
     protected override void ConfigureDraftRules()
     {
-        // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
-        // the delay stands in for a server call and honours cancellation, so a superseded
-        // keystroke's check is abandoned. MustAsyncMemoized also lets a repeated value — typing
-        // "admin", clearing it, then typing "admin" again — answer from the memo instead of
-        // paying for the call twice.
+        // Async uniqueness sits in the always-on (Draft) bucket so a lenient draft save answers
+        // it too; what runs it on each committed change is the live channel, which evaluates
+        // whatever would block a submit. The delay stands in for a server call and honours
+        // cancellation, so a superseded keystroke's check is abandoned. MustAsyncMemoized also
+        // lets a repeated value — typing "admin", clearing it, then typing "admin" again —
+        // answer from the memo instead of paying for the call twice.
         RuleFor(h => h.Username)
             .MustAsyncMemoized(_usernameMemo, async (username, cancellationToken) =>
             {

@@ -20,17 +20,18 @@ reports "this is still checking" without keeping any bookkeeping of its own.
 
 ## Need to know
 
-Three things are yours: put the rule in the draft profile, honour its cancellation token, and
-render the field's pending flag. The sequencing is the engine's.
+Three things are yours: write the rule, honour its cancellation token, and render the field's
+pending flag. The sequencing is the engine's.
 
 Nothing about writing the rule changes. `MustAsync` and its siblings work in Formidable exactly
-as they do in plain FluentValidation, awaited like any other rule. What decides *when* it runs
-is the profile it sits in. A live pass — one per field change — validates whichever profile
-`FormidableOptions.LiveProfile` names (`ValidationProfile.Draft` by default; see
-[Profiles](profiles.md)). An async rule placed in `ConfigureDraftRules()` therefore
-runs on every keystroke, not just at submit: the shape a live "is this username taken?" check
-needs. It sits there for the same reason ordinary format rules do, since draft rules are the
-ones that run while the user is still typing.
+as they do in plain FluentValidation, awaited like any other rule. What decides *when* it runs is
+`FormidableOptions.LiveProfile`, which a live pass — one per field change — validates against.
+It defaults to `null`, meaning the submit profile, so a rule in either bucket runs on every
+committed change: the shape a live "is this username taken?" check needs, with nothing to
+configure. `ConfigureDraftRules()` is still where a uniqueness check belongs, for the reason
+ordinary format rules sit there (a lenient draft save should answer it too; see
+[Profiles](profiles.md)). Narrowing `LiveProfile` is the lever for the opposite case, a rule
+expensive enough that running it per change is the thing to avoid.
 
 ```csharp
 using FluentValidation;
@@ -58,9 +59,10 @@ public class HandleValidator : DraftSubmitValidator<Handle>
 
     protected override void ConfigureDraftRules()
     {
-        // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
-        // the delay stands in for a server call and honours cancellation, so a superseded
-        // keystroke's check is abandoned.
+        // Async uniqueness sits in the always-on (Draft) bucket so a lenient draft save answers
+        // it too; what runs it on each committed change is the live channel, which evaluates
+        // whatever would block a submit. The delay stands in for a server call and honours
+        // cancellation, so a superseded keystroke's check is abandoned.
         RuleFor(h => h.Username)
             .MustAsync(async (username, cancellationToken) =>
             {
@@ -136,7 +138,7 @@ That is the whole authoring surface. The rest of this page is what the engine do
 
 ## The ordering, end to end
 
-Only one validation pass — live, submit, or the post-submit refresh — is ever in flight on the
+Only one validation pass — live, submit, or the debounced refresh — is ever in flight on the
 engine at a time, and starting a new one cancels whatever pass came before it. Everything below
 follows from that one constraint. The flowchart traces it end to end: what an edit starts, how
 the refresh defers to whatever is already running, and how a submit sits above all of it.
@@ -291,18 +293,26 @@ that follows.
 ### The refresh runs only what the live pass did not
 
 Once a form has been submitted, an edit still takes both branches of the flowchart: it starts a
-live pass and it arms the refresh. `ValidationProfile.Submit` is the default rules plus the
-`Submit` ruleset; `ValidationProfile.Draft`, the default `LiveProfile`, is the default rules
-alone — so on the default pair, everything the live pass just ran is also part of what the
-refresh is about to run. Run naively, every draft rule would answer twice for one edit. It
-doesn't, because the engine keeps a verdict store: every rule's most recent answer, keyed by the
-rule itself and stamped with the engine's count of committed field changes as the producing pass
+live pass and it arms the refresh. `LiveProfile` defaults to `null`, meaning `SubmitProfile`, so
+by default the two passes select exactly the same rules: everything the live pass just ran is
+everything the refresh is about to run. Run naively, every rule on the form would answer twice
+for one edit. It doesn't, because the engine keeps a verdict store: every rule's most recent
+answer, keyed by the rule itself and stamped with the engine's count of committed field changes
+as the producing pass
 began. A pass reads that count at its own beginning, executes only the selected rules with no
 fresh verdict at that stamp, and assembles its report from every selected rule in declaration
 order, served from the store or just executed. What it publishes is always a whole-profile
 answer, however little it actually ran. An async rule written in `ConfigureDraftRules()` (the
 uniqueness check at the top of this page) answers once per post-submit edit: the live pass runs
 it, and the refresh serves the stored verdict.
+
+On the default profiles that is the usual shape of a whole refresh rather than of one rule in it.
+The live pass selects everything the refresh selects, so once it has landed the refresh executes
+nothing at all and assembles its verdict from the store — still a full, current answer for the
+whole model, since what the store saves is the work and not the coverage. A `LiveProfile` narrowed
+past some of those rules is what leaves the refresh something of its own to execute; so, for one
+edit, does a live window wide enough to let the refresh go first, which is the ordering case
+below.
 
 The sample's [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes the
 saving visible. Submit, then type: one "checking…" cycle runs, not two.
@@ -355,8 +365,8 @@ After a submit the same edit arms the refresh at plain `RefreshDebounce`, so a l
 window wider than it (400 ms against the 300 ms default, as `/async` does) puts the refresh
 first: it comes due, finds no pass in flight — an open window is nothing
 [the refresh defers to](#the-refresh-defers-to-whatever-is-running) — and executes the stale
-rules under `SubmitProfile`; the window's own live pass then finds every draft rule answered and
-executes nothing. The async draft rule answers once for that edit in either order. What varies
+rules under `SubmitProfile`; the window's own live pass then finds every rule it selects answered
+and executes nothing. The async draft rule answers once for that edit in either order. What varies
 with the order is transient: with the refresh in front, what submit disclosed updates a beat
 before the field's own live message does, and the settled state is identical either way.
 [Options](options.md#livedebounce) covers this same relationship from the option's side: every
@@ -389,10 +399,12 @@ answers for the whole model under `SubmitProfile` on every field change — or o
 `LiveDebounce` is set, at the same cadence as the live pass it rides alongside. Its probe plans
 against the store exactly as a pass does: it executes the submit-selected rules that have no fresh
 verdict when it starts, and files what it ran for whatever plans after it. A probe starting once
-the live pass has landed finds the draft bucket answered and executes only the submit-only rules
-the live profile never selects. One starting after a refresh has already landed in the same
-window — what a live debounce wider than `RefreshDebounce` produces — finds the whole submit
-profile answered, executes nothing at all, and leaves `IsFormValid` a read of the store. What
+the live pass has landed finds the whole submit profile answered on the default profiles, executes
+nothing at all, and leaves `IsFormValid` a read of the store. Where `LiveProfile` narrows, what it
+executes is the difference: the rules the live pass never selected, which is where the expensive
+ones tend to have been put on purpose. The same read-only outcome falls out of a probe starting
+after a refresh has already landed in the same window, which is what a live debounce wider than
+`RefreshDebounce` produces. What
 none of that collapses is genuine overlap: an evaluation beginning while another awaits an
 async rule has no verdict to serve yet, so it runs that rule itself. Reuse is decided by what has
 landed, not by what is in flight. What a probe never does is disclose — no message, no pending
@@ -409,7 +421,7 @@ moves the edit stamp, and the verdict store answers for model states rather than
 the rule runs again however familiar the value looks. And a
 submit fired shortly after a live pass re-asks whatever that live pass just answered, in full,
 every time, since [`SubmitAsync` never reads the verdict
-store](#the-refresh-runs-only-what-the-live-pass-did-not) the way the post-submit refresh does.
+store](#the-refresh-runs-only-what-the-live-pass-did-not) the way the refresh does.
 A memo closes both gaps by answering from what it already knows instead of paying for the call
 again.
 

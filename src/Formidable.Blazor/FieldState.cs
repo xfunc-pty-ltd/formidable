@@ -19,8 +19,11 @@ namespace Formidable.Blazor;
 /// because submit-selected rules that have not run for the value as it stands may yet reject it.
 /// Freshness is judged form-level, deliberately: which fields a PASSING rule speaks for is
 /// unknowable, so per-field freshness attribution does not exist and the form-wide answer is the
-/// honest one. Defaults to <see langword="true"/> so a state built without an engine — a test
-/// double, a hand-rolled provider — keeps the Valid tier reachable.
+/// honest one. A rendered field set that moves discards those answers without moving the edit
+/// stamp, and the answer computed at that stamp is held until the pass the move arms replaces it:
+/// this vouches for the model, not for the page's registration churn. Defaults to
+/// <see langword="true"/> so a state built without an engine — a test double, a hand-rolled
+/// provider — keeps the Valid tier reachable.
 /// </param>
 public readonly record struct FieldState(
     bool IsTouched,

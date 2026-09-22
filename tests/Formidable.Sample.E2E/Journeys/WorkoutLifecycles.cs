@@ -68,11 +68,11 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         var row = page.Locator(".member-list li");
         await SubmitAsync(page);
 
-        // The rule is a member of BOTH the "Submit" and "Engaged" rulesets, declared once - a
-        // plain submit enforces it, with no extra profile involved. This row was never engaged
-        // (typed into, then blurred) before this submit, so it is the submit channel that
-        // answers here; An_engaged_attendee_name_discloses_without_a_submit below pins the live
-        // channel's half of the story, with no submit anywhere.
+        // An ordinary submit-bucket presence rule, and this row was never engaged (typed into,
+        // then blurred) before the submit — so the submit channel is what answers here, the way
+        // it answers for any field no committed change has ever named.
+        // An_engaged_attendee_name_discloses_without_a_submit below pins the live channel's half
+        // of the same rule, with no submit anywhere.
         await Expect(MessagesFor(row, "name"))
             .ToHaveTextAsync([AttendeeNameRequired], new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, AttendeeNameRequired)).ToBeVisibleAsync();
@@ -107,10 +107,9 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
         // The row's rule is already failing (a blank Name), but nothing has engaged it yet: a
         // live verdict lands only on the engaged set — the fields a committed change has named —
-        // and a field no notification has ever named is not in it, whatever ruleset its rule
-        // sits in. Same property FormValidationEngineEngagedProfileTests.
-        // A_never_notified_field_gets_no_live_verdict_under_the_engaged_profile pins at the
-        // engine level.
+        // and a field no notification has ever named is not in it, whatever bucket its rule sits
+        // in. Same property FormValidationEngineLiveDefaultTests.
+        // A_never_notified_row_field_gets_no_live_verdict pins at the engine level.
         await Expect(MessagesFor(row, "name")).ToHaveCountAsync(0);
         await Expect(SummaryEntry(page, AttendeeNameRequired)).ToHaveCountAsync(0);
 
@@ -124,9 +123,12 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Field(row, "name").PressAsync("Tab");
 
         // Engaged and now failing: the message answers live, inline and in the summary, with no
-        // submit anywhere since the row was added. Reverting LiveProfile to plain Draft would
-        // leave this silent until the next submit — the same mutation
-        // Engaging_then_clearing_discloses_with_no_submit exercises against the bare engine.
+        // submit anywhere since the row was added — the live channel evaluates whatever would
+        // block a submit, and this row is in the engaged set. Restoring ValidationProfile.Draft
+        // as the live channel's default would leave it silent until the next submit — the same
+        // mutation FormValidationEngineLiveDefaultTests.
+        // An_engaged_then_emptied_required_field_discloses_with_no_submit exercises against the
+        // bare engine.
         await Expect(MessagesFor(row, "name"))
             .ToHaveTextAsync([AttendeeNameRequired], new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, AttendeeNameRequired)).ToBeVisibleAsync();
@@ -201,36 +203,43 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
         // On this fresh, never-submitted form the tab-through validates nothing, touches
         // nothing, paints nothing: no message for the field, no state class on it, no pending
-        // indicator anywhere. That is the outcome a visitor sees, and it is what these three
-        // assertions cover. What they do NOT do is discriminate the notify-on-every-blur
-        // mutation, and the reason is worth stating rather than rediscovering: EventDate's
-        // always-on rules are gated on a non-empty value and its NotEmpty sits in the submit
-        // bucket, so a wrongly-notified empty date fails nothing; the valid class waits for
-        // submit coverage no pass here has produced, so an engaged, error-free field stays bare
-        // either way; and with ContactEmail empty this page's only async rule is gated off, so
-        // no pass would paint pending. The mutation is discriminated at the component level, by
+        // indicator anywhere. Two of the three discriminate the notify-on-every-blur mutation
+        // outright, because the live channel evaluates whatever would block a submit: a
+        // wrongly-notified empty date would join the engaged set, fail the EventDate NotEmpty
+        // sitting in the submit bucket, and answer at once with a message and an error class.
+        // The pending count is the one that cannot discriminate it — with ContactEmail empty
+        // this page's only async rule is gated off, so no pass would light pending either way.
+        // The component-level counterpart is
         // FormidableInputBaseTests.A_blur_with_no_committed_change_notifies_nothing.
+        //
+        // All three are absence reads that pass on their first poll, so what gives the two real
+        // ones room to trip is the margin between the blur and the read rather than anything
+        // structural: the tab loop and the focus assert above put several interop round trips in
+        // between, and this page sets no LiveDebounce for a wrongly-notified pass to wait behind.
         await Expect(MessagesFor(page, "eventdate")).ToHaveCountAsync(0);
         await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
         await Expect(page.Locator(".formidable-pending")).ToHaveCountAsync(0);
 
-        // The bare class list only discriminates if this page paints state classes at all. A
-        // clean committed change is not the proof: this page tracks no form validity and its
-        // Engaged live profile leaves the Submit bucket's presence rules unanswered until a
-        // submit, so the fresh submit-selected coverage the valid class asks for does not
-        // exist yet and a modified, error-free Event name stays bare — the honest absence
-        // under the would-pass-submit rule, pinned as such. What proves painting is an error,
-        // which gates on nothing: a malformed engaged email paints formidable-invalid while
-        // both clean fields hold their bare class lists through the same renders.
+        // The bare class list above only means something if this page paints state classes at
+        // all, and a clean committed change is the proof: an engaged, error-free Event name has
+        // a fresh submit-selected answer holding nothing against it — produced by the live pass
+        // the commit started, on a page that tracks no form validity — so it wears the confirmed
+        // border. That is the same pass the date field sat out entirely, having been left rather
+        // than changed.
         await Field(page, "eventname").FillAsync("Dev Summit");
         await Field(page, "eventname").PressAsync("Tab");
-        await Expect(Field(page, "eventname")).Not.ToHaveClassAsync(AnyStateClass);
+        await Expect(Field(page, "eventname")).ToHaveClassAsync(
+            new Regex(@"\bformidable-valid\b"), new() { Timeout = AsyncTimeoutMs });
 
+        // An error paints too, and unlike the confirmed border it is gated on nothing: a
+        // malformed engaged email carries formidable-invalid. Through both of those renders the
+        // tabbed-through date keeps its bare class list — every pass since has answered the whole
+        // model, and the date has never been in the engaged set to hear any of it.
         await Field(page, "contactemail").FillAsync("not-an-email");
         await Field(page, "contactemail").PressAsync("Tab");
         await Expect(Field(page, "contactemail")).ToHaveClassAsync(
             new Regex(@"\bformidable-invalid\b"), new() { Timeout = AsyncTimeoutMs });
-        await Expect(Field(page, "eventname")).Not.ToHaveClassAsync(AnyStateClass);
+        await Expect(MessagesFor(page, "eventdate")).ToHaveCountAsync(0);
         await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
     }
 
@@ -296,11 +305,12 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // the only error there is to take the visitor to.
         await Expect(Field(page, "form")).ToBeFocusedAsync();
 
-        // Editing while blocked cannot retire the explanation. The commit runs a live pass and
-        // arms the background refresh; the pending marker on the edited field spans both, so
-        // its draining is the sign the passes have run — and the gate entry must stand on the
-        // far side, because the gate is a predicate over the submit's own answer, not a stored
-        // entry a refresh rebuild can drop. Same property
+        // An edit that puts no message on screen cannot retire the explanation, and Description
+        // carries no rule of its own to put one there. The commit runs a live pass and arms the
+        // background refresh; the pending marker on the edited field spans both, so its draining
+        // is the sign the passes have run — and the gate entry must stand on the far side, because
+        // the gate is a predicate over the submit's own answer, not a stored entry a refresh
+        // rebuild can drop. Same property
         // FormValidationEngineViewTests.The_gate_survives_a_post_submit_refresh_while_the_form_stays_blocked
         // pins at the engine level.
         await Field(page, "description").FillAsync("Regional developer summit");

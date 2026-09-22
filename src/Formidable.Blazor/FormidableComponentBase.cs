@@ -152,9 +152,9 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
 
     /// <summary>
     /// Called when the engine raises <see cref="IFormValidationEngine.StateChanged"/> — a
-    /// validation pass landing, a post-submit refresh, a server-applied issue — and re-renders the
-    /// component on the renderer's synchronization context. An override that still wants the
-    /// re-render must call base.
+    /// validation pass landing, a refresh, a server-applied issue — and re-renders the
+    /// component on the renderer's synchronization context. An override that still wants
+    /// the re-render must call base.
     /// </summary>
     protected virtual void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
 

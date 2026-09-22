@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
@@ -643,82 +642,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Best-effort: a consumer who never registered <see cref="IFormidableFocusService"/> (or whose
-    /// form has, unusually, no visible issue to focus right after a blocked submit) gets silence
-    /// rather than an exception here — the same tolerance <see cref="FormidableSummary"/>'s own
-    /// click-to-focus applies.
+    /// This form's half of the move: hand <see cref="FirstErrorFocus"/> the pieces only a root can
+    /// supply — its own injected provider, its engine and its <see cref="FocusFallback"/> — and
+    /// let the shared helper make every decision from there. Which field the visitor lands on, and
+    /// what happens when that field has no element, are the same decisions in attach mode, so they
+    /// are made in one place rather than kept privately here.
     /// </summary>
-    /// <remarks>
-    /// The first ERROR in document order, not merely the first issue: a field high on the page can
-    /// carry an advisory while the thing actually blocking the submit sits below it, and taking the
-    /// visitor to the advisory would both bury the reason and disagree with
-    /// <see cref="FormidableSummary"/>, which regroups by severity and so leads with the error
-    /// regardless. The fallback to the first visible issue covers the one way a blocked submit
-    /// reaches this call with no error to find: superseded by a second submit before its own
-    /// verdict landed, it reports blocked without writing one, leaving whatever preceded it on
-    /// screen. Everything else that blocks is error-severity — the all-suppressed gate's
-    /// form-level issue and the incomplete-validation fault issue included. A miss on the element
-    /// itself (the field has no rendered element yet, e.g. a virtualized row outside the render
-    /// window) is handled the same way <see cref="FormidableSummary.FocusFallback"/> handles a
-    /// click miss: try, fall back once when <see cref="FocusFallback"/> is wired, retry once. With
-    /// no fallback wired, the miss reports a diagnostic instead — see
-    /// <see cref="ReportFocusFallbackMiss"/> — since a blocked submit's visitor otherwise gets no
-    /// signal at all that the field they need is off-screen.
-    /// </remarks>
-    private async Task FocusFirstErrorAsync()
-    {
-        var focusService = Services.GetService<IFormidableFocusService>();
-        if (focusService is null)
-        {
-            return;
-        }
-
-        var issues = RequireEngine().GetVisibleIssues();
-        var firstIssue = issues.FirstOrDefault(v => v.Issue.Severity == ValidationSeverity.Error)
-            ?? issues.FirstOrDefault();
-        if (firstIssue is null)
-        {
-            return;
-        }
-
-        if (await focusService.FocusAsync(firstIssue.Field))
-        {
-            return;
-        }
-
-        if (FocusFallback is null)
-        {
-            ReportFocusFallbackMiss(firstIssue.Issue);
-            return;
-        }
-
-        if (!await FocusFallback(firstIssue.Field))
-        {
-            return;
-        }
-
-        await focusService.FocusAsync(firstIssue.Field);
-    }
-
-    /// <summary>
-    /// The one report a focus miss with no <see cref="FocusFallback"/> to retry through gets: a
-    /// Trace line for a debugger, and a logged warning when the host resolved an
-    /// <see cref="ILoggerFactory"/> — mirrors <c>FormValidationEngine.ReportSuppressed</c>'s dual
-    /// channel, minus the options-callback channel that has no analogue here. Names
-    /// <see cref="FocusFallback"/> so a consumer's console points straight at the seam that would
-    /// close the gap.
-    /// </summary>
-    /// <param name="issue">The unfocusable first error.</param>
-    private void ReportFocusFallbackMiss(ValidationIssue issue)
-    {
-        System.Diagnostics.Trace.WriteLine(
-            $"Formidable: the blocked submit's first error at '{issue.Path}' has no rendered element to " +
-            $"focus, and no {nameof(FocusFallback)} is wired to make it renderable.");
-        ((ILoggerFactory?)Services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable").LogWarning(
-            "Formidable: the blocked submit's first error at '{Path}' has no rendered element to focus, " +
-            "and no {Parameter} is wired to make it renderable.",
-            issue.Path, nameof(FocusFallback));
-    }
+    private async Task FocusFirstErrorAsync() =>
+        await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback);
 
     /// <summary>
     /// Best-effort focus after a server-applied verdict, gated on

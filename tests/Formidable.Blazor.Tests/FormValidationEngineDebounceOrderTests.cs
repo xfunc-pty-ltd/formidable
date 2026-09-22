@@ -23,7 +23,10 @@ namespace Formidable.Blazor.Tests;
 /// have come from a live pass (a refresh keeps its verdict to the fields the submit made error
 /// sites, and the customer's name is never one of them), and the submit rule's message can only
 /// have been cleared by a refresh. Where either message sorts among the visible issues is a
-/// separate question with its own tests.
+/// separate question with its own tests. That attribution is what every test here narrows
+/// <see cref="FormidableOptions.LiveProfile"/> to the draft bucket for: the live channel selects
+/// the submit profile's own rules otherwise, and a message either pass could have produced names
+/// neither.
 /// </remarks>
 public class FormValidationEngineDebounceOrderTests
 {
@@ -43,7 +46,7 @@ public class FormValidationEngineDebounceOrderTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { DisclosureOverride = _ => true },
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
             time);
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
@@ -84,7 +87,12 @@ public class FormValidationEngineDebounceOrderTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400), DisclosureOverride = _ => true },
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                LiveProfile = ValidationProfile.Draft,
+                DisclosureOverride = _ => true,
+            },
             time);
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
@@ -129,7 +137,7 @@ public class FormValidationEngineDebounceOrderTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { DisclosureOverride = _ => true },
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
             time);
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
@@ -190,7 +198,12 @@ public class FormValidationEngineDebounceOrderTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400), DisclosureOverride = _ => true },
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                LiveProfile = ValidationProfile.Draft,
+                DisclosureOverride = _ => true,
+            },
             time);
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));

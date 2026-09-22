@@ -50,11 +50,12 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await Expect(page.Locator("[id$='-form']")).ToBeFocusedAsync();
 
         // Revealing the section is registration, not disclosure: the field renders with no
-        // message, and the gate still stands — only a submit re-decides what shows. The field's
-        // own visibility is awaited first, because a message list counts zero for a field that
-        // has not rendered at all: without that anchor the count below would pass against the
-        // DOM as it stood before the click, and a regression that disclosed on registration
-        // would leave it green.
+        // message, and the gate still stands. Rendering engages nothing, so the live channel has
+        // no verdict of its own to put on the field, and the submit channel waits for the next
+        // submit. The field's own visibility is awaited first, because a message list counts zero
+        // for a field that has not rendered at all: without that anchor the count below would
+        // pass against the DOM as it stood before the click, and a regression that disclosed on
+        // registration would leave it green.
         await page.GetByRole(AriaRole.Button, new() { Name = "Show traveler details", Exact = true }).ClickAsync();
         await Expect(Field(page, "travelername")).ToBeVisibleAsync();
         await Expect(MessagesFor(page, "travelername")).ToHaveCountAsync(0);

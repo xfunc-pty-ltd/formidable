@@ -23,7 +23,7 @@ how results reach the UI.
 | `<ValidationMessage For="...">` | `<FormidableFieldMessage For="...">` — severity-aware (renders warnings and infos, not just errors) and resolves paths `ValidationMessage` can't, including indexed collection items and nested-nullable properties. See [Collections and row identity](collections-and-row-identity.md) |
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle — swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you; `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure — whether a submit shows a field's error is a side effect of something having registered it while mounted, not code you write per form; the live pass between submits answers to engagement instead. See [Disclosure](disclosure.md) |
-| A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. The engine notices the rendered field set changing on its own — `FormidableForm` on every render, `FormidableValidator` through a registry signal it reconciles just after the render that caused it — and prunes the departed row's live issues, then schedules a reconciling refresh if the form has already submitted. `NotifyFieldSetChanged()` exists as an override for a call site that can't wait for that automatic pass; ordinary use needs nothing beyond removing the row. See [Fields and collections](fields-and-collections.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
+| A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. The engine notices the rendered field set changing on its own — `FormidableForm` on every render, `FormidableValidator` through a registry signal it reconciles just after the render that caused it — and prunes the departed row's live issues, then schedules a reconciling refresh. `NotifyFieldSetChanged()` exists as an override for a call site that can't wait for that automatic pass; ordinary use needs nothing beyond removing the row. See [Fields and collections](fields-and-collections.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine — there's no second store to keep synchronized. See [Component kit](component-kit.md)'s `FormidableForm` section |
 | Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a pass is currently running | `<FormidableValidator>` exposes the engine as `Engine` and forwards both `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same pipeline `FormidableForm` does, in the same one line. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
 
@@ -47,14 +47,17 @@ relying on the old one implicitly:
 - **Rules that assumed a single validation pass.** If a rule (or a handler reacting to
   validation results) assumed there was exactly one pass over the whole form — e.g. counting on
   a submit-time pass to also be the pass that populates some other UI state — check it against
-  Formidable's three-pass lifecycle (live, submit, debounced post-submit refresh; see
+  Formidable's three-pass lifecycle (live, submit, debounced refresh; see
   [Profiles](profiles.md#the-client-lifecycle)). A rule that runs correctly on every
   pass is unaffected; a rule or handler that only makes sense once per form lifetime may need to
   be scoped to a specific pass.
 - **Submit-only rules move to the Submit profile.** Completeness rules that only make sense at
   submit — "this is required to submit, but a blank draft is fine" — belong in the `"Submit"`
-  ruleset (or a `ConfigureSubmitRules()` override on `DraftSubmitValidator<T>`), not in the
-  default/common rules, or they'll fire during live typing. See [Profiles](profiles.md).
+  ruleset (or a `ConfigureSubmitRules()` override on `DraftSubmitValidator<T>`) rather than in
+  the default/common rules, so a lenient draft save can leave them alone. The bucket is not what
+  decides when the rule speaks on screen: a live pass evaluates both buckets unless
+  `FormidableOptions.LiveProfile` narrows it, and a message waits for the visitor to engage the
+  field rather than for the rule to be held back. See [Profiles](profiles.md).
 - **Disclosure changes what "always visible" used to mean.** If your prior integration always
   ran a rule and always attempted to show its message once the field failed, regardless of
   whether the field's containing UI was rendered, some of those submit errors are suppressed by
@@ -71,11 +74,18 @@ relying on the old one implicitly:
   no `<form>` of its own and resolves nothing, so a summary inside your own `EditForm` lists the
   fault issue first, then submit errors, then advisories, then live issues — close to the order
   the validator declares its rules in. Nothing misbehaves; the reading order is simply the
-  validator's. The same boundary covers the automatic focus moves: a blocked submit and a
-  rejected server round trip both land the visitor on the first error under `FormidableForm`, and
-  neither does in attach mode, where the page owns its own submit handler. Clicking a summary
-  entry still moves focus either way. Move the page to `<FormidableForm>` if the reading order
-  matters to it (see [Component kit](component-kit.md#the-order-entries-appear-in)).
+  validator's. Move the page to `<FormidableForm>` if the reading order matters to it (see
+  [Component kit](component-kit.md#the-order-entries-appear-in)).
+- **A blocked submit still moves focus, as long as you submit through the component.** Capture
+  the `<FormidableValidator>` with `@ref` and call `ValidateForSubmitAsync()` on it, rather than
+  reaching past it to `Engine` for the engine's own method, and a blocked submit lands the visitor
+  on the first error exactly as it does under `<FormidableForm>`: the same
+  `FocusFirstErrorOnInvalidSubmit` switch, and the same `FocusFallback` seam for an error whose
+  element is not currently rendered. "First" here means first in the reading order above, not
+  first down the page. Focus parity is not order parity, and the two are separate boundaries with
+  separate causes. The one move that stays quiet is the server round trip: `ApplyServerIssues`
+  applies the verdict and focuses nothing, since the page owns both the `<form>` and whatever it
+  does after a rejection. Clicking a summary entry moves focus in either root.
 
 ## Sample
 

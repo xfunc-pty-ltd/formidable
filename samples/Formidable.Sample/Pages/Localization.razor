@@ -7,8 +7,8 @@
 <TeachingPanel CodeFiles="@(new[] { "LocalizedProfile.cs", "Localization.razor", "Localization.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Full Name</strong> — required, with <em>no</em> <code>WithMessage</code>. FluentValidation carries translations of its own default messages inside its assembly and picks one by <code>CultureInfo.CurrentUICulture</code>, so a rule that keeps the default message localizes for free.</li>
-            <li><strong>Age</strong> — a whole number between 18 and 130. This message is the app's own, so it comes from <code>ValidationMessages.resx</code> (English) and <code>ValidationMessages.de.resx</code> (German). It is passed as a message <em>factory</em>, so the resx lookup happens each time the rule runs and always matches the active culture.</li>
+            <li><strong>Full Name</strong>: required, with <em>no</em> <code>WithMessage</code>. FluentValidation carries translations of its own default messages inside its assembly and picks one by <code>CultureInfo.CurrentUICulture</code>, so a rule that keeps the default message localizes for free.</li>
+            <li><strong>Age</strong>: a whole number between 18 and 130. This message is the app's own, so it comes from <code>ValidationMessages.resx</code> (English) and <code>ValidationMessages.de.resx</code> (German). It is passed as a message <em>factory</em>, so the resx lookup happens each time the rule runs and always matches the active culture.</li>
             <li>WebAssembly fixes the culture at startup, so switching reloads the app: the stored choice is applied before the host runs, which is also the moment the German satellite assembly is downloaded.</li>
             <li>FluentValidation's translated defaults still embed the property's display name in English (<code>'Full Name' darf nicht leer sein.</code>) — display-name localization is a separate concern (e.g. <code>WithName</code>) this page deliberately leaves out.</li>
         </ul>

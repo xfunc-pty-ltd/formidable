@@ -32,7 +32,7 @@ public class DraftedBriefValidator : DraftSubmitValidator<DraftedBrief>
 
     protected override void ConfigureSubmitRules()
     {
-        // Completeness rules: enforced only at submit.
+        // Completeness rules: the submit bucket, so a draft save leaves them alone.
         RuleFor(b => b.Title).NotEmpty().WithMessage("Title is required to submit");
         RuleFor(b => b.Summary).NotEmpty().WithMessage("Summary is required to submit");
     }
@@ -106,9 +106,9 @@ public class MyValidator : ProfiledValidator<MyModel>
 
 A rule that needs membership in two rulesets without existing twice skips `Profile(...)` for that
 one rule and calls FluentValidation's own `RuleSet` directly instead, since it accepts a
-comma-separated name and tags every rule inside with all of them — see [disclose on
-engagement](recipes.md#i-want-a-rule-to-disclose-on-engagement-instead-of-waiting-for-submit) for
-a worked example.
+comma-separated name and tags every rule inside with all of them — see [narrow what the live
+channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates) for a worked
+example.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a
 third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
@@ -118,16 +118,30 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
 `FormidableForm<TModel>`'s engine reads two profiles off `FormidableOptions` (see
 [Options](options.md)):
 
-- **Live passes** — one per field change — run `LiveProfile` (`FormidableOptions.LiveProfile`,
-  defaults to `ValidationProfile.Draft`).
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
   `ValidationProfile.Submit`). The debounced refresh that follows it answers for the same
   profile too, executing only the rules no pass has answered for the current edit and serving
   stored verdicts for the rest
   (see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
+- **Live passes** — one per field change — run `LiveProfile` (`FormidableOptions.LiveProfile`),
+  which is nullable and defaults to `null`: the live channel then evaluates the submit profile
+  itself, whichever instance that property currently holds. Point it somewhere narrower and the
+  live channel evaluates that profile instead.
 
-Saving a draft doesn't go through the engine's submit pipeline at all — it's a separate, lenient
-validation call straight against the injected `IModelValidator<T>` with the `Draft` profile:
+Following the submit profile is what lets a live message say what a submit would actually
+complain about, presence rules included. What keeps that from nagging is not the rule selection
+but the engaged set: a live pass files a verdict only for the fields a committed change has
+notified the engine about, so a field nobody has touched stays silent however loudly its rule is
+failing underneath (see
+[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)). Narrowing `LiveProfile`
+is the second, blunter lever, and it is worth reaching for when a submit rule is genuinely too
+expensive to run on every change — a uniqueness check against a server, say. It cannot tell an
+untouched field from an engaged one, so it silences the field the visitor is working in along
+with the rest.
+
+Saving a draft doesn't go through the engine's submit pipeline at all, whatever the live channel
+is doing — it's a separate, lenient validation call straight against the injected
+`IModelValidator<T>` with the `Draft` profile:
 
 ```csharp
     private async Task SaveDraft()

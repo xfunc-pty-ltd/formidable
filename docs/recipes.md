@@ -11,11 +11,11 @@ doc that explains it in full and the sample page that demonstrates it.
 ### I want to validate while typing, on blur, or only at submit
 
 **Set:** `UpdateOn` on the input — `InputUpdateMode.OnChange` (the default),
-`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur` — and choose the bucket the rule lives in.
-`UpdateOn` decides when the value commits and when the engine hears about it; the bucket decides
-which pass judges it once it does. A live pass runs `LiveProfile` (`ValidationProfile.Draft` by
-default) once per field change; submit runs `SubmitProfile`, and a debounced refresh afterwards
-keeps what that submit revealed current.
+`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`. It decides when the value commits and
+when the engine hears about it. A live pass runs `LiveProfile` once per field change, and that
+option defaults to `null`, meaning the submit profile itself — so every rule answers live by
+default, whichever bucket it was declared in. Submit runs `SubmitProfile`, and a debounced
+refresh afterwards keeps what that submit revealed current.
 
 ```razor
 <FormidableInputText @bind-Value="Model.Nickname"
@@ -28,8 +28,8 @@ protected override void ConfigureDraftRules() =>
 ```
 
 `OnInput` plus a draft-bucket rule validates on every keystroke; the default `OnChange` waits for
-blur. Either way, submit and the post-submit refresh are unaffected by `UpdateOn` — they run on
-their own triggers, not the input's commit event.
+blur. Either way, submit and the refresh are unaffected by `UpdateOn` — they run on their own
+triggers, not the input's commit event.
 
 A third mode answers a different question: not *when* but *how many times before it matters*.
 `OnBlur` commits the value on `change`, same event as the default, but each commit only arms a
@@ -46,24 +46,32 @@ finished yet. With it, however many commits pile up, one blur delivers one notif
                      UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
-| | Draft-bucket rule (`ConfigureDraftRules`) | Submit-ruleset rule (`ConfigureSubmitRules`) |
+| | A rule the live channel selects (by default, every one) | A rule it doesn't (`LiveProfile` narrowed past it) |
 |---|---|---|
 | `UpdateOn="InputUpdateMode.OnChange"` (default) | When the field loses focus after a change: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
 | `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke: each one starts its own live pass, and the pass that wins writes the verdict. | Not before submit. At submit — and after that, typing re-answers the submit profile after 300 ms of quiet. |
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change: the blur delivers one notification for however many `change` commits preceded it, so a multi-segment control never starts a live pass mid-edit — and a blur with no commit before it starts nothing. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
 
-Both columns assume the default profiles; pointing `FormidableOptions.LiveProfile` at another
-profile moves the line. A live pass validates the whole model, and its verdict answers every
-*engaged* field — every field a committed change has ever notified the engine about — so an
-engaged field's message clears, or appears, the moment an edit anywhere on the form settles the
-question, while a field nobody has engaged stays silent however loudly its rule fails. The
-refresh answers the submit channel for the fields a submit revealed there, re-answering them
-rather than widening the set: a field whose submit-only rule starts failing *after* a submit waits
-for the next one, while a field an earlier submit already showed re-discloses on the refresh alone.
-The engaged set is also the whole mechanism behind [disclosing a rule on
-engagement](#i-want-a-rule-to-disclose-on-engagement-instead-of-waiting-for-submit) without a
-submit anywhere; see [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule) for how it
-differs from the submit channel's own registration-gated rule.
+Which column a rule falls in is a configuration choice rather than a property of the bucket it
+was declared in: `FormidableOptions.LiveProfile` draws the line, and left at its default it
+selects everything the submit profile selects, so the right-hand column is empty until a form
+asks for it (see
+[narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates)).
+
+What keeps the left column from nagging is the engaged set, not the rule selection. A live pass
+validates the whole model, and its verdict answers every *engaged* field — every field a
+committed change has ever notified the engine about — so an engaged field's message clears, or
+appears, the moment an edit anywhere on the form settles the question, while a field nobody has
+engaged stays silent however loudly its rule fails. See
+[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule) for how that differs from the
+submit channel's own registration-gated rule.
+
+The refresh answers the submit channel alone, and for the fields a submit revealed there,
+re-answering them rather than widening the set: a field whose submit-only rule starts failing
+*after* a submit earns no entry from the refresh, while a field an earlier submit already showed
+re-discloses on the refresh alone. On the default profiles the live channel is answering that
+same field alongside, so an engaged one speaks anyway, on its own row and in the summary. Narrow
+`LiveProfile` past the rule and the next submit is what surfaces it.
 
 **Read:** [Profiles](profiles.md), [Options](options.md).
 **Samples:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor),
@@ -75,8 +83,11 @@ pattern, both date fields).
 
 ### I want presence rules to wait for submit while formats answer live
 
-**Set:** derive from `DraftSubmitValidator<T>`; put malformed-value rules (format, length, range)
-in `ConfigureDraftRules()` and presence rules (`NotEmpty`, `NotNull`) in `ConfigureSubmitRules()`.
+**Set:** two things, because two separate decisions are involved. Derive from
+`DraftSubmitValidator<T>` and put malformed-value rules (format, length, range) in
+`ConfigureDraftRules()` and presence rules (`NotEmpty`, `NotNull`) in `ConfigureSubmitRules()`.
+Then point `FormidableOptions.LiveProfile` at `ValidationProfile.Draft`, which is what holds the
+submit bucket back from the live channel.
 
 ```csharp
 public class BriefValidator : DraftSubmitValidator<Brief>
@@ -89,24 +100,61 @@ public class BriefValidator : DraftSubmitValidator<Brief>
 }
 ```
 
-Draft rules ask "is this value malformed?" and treat an empty value as fine; submit rules ask "is
-this value present?" and treat default values as missing — two axes, so one mistake never
-produces two messages.
+```csharp
+Options.LiveProfile = ValidationProfile.Draft;
+```
 
-`DraftSubmitValidator<T>` checks that convention once, at construction: a property carrying the
-same kind of rule in both buckets invokes `OnOverlappingRuleAxes` (a `Debug` warning by default,
-overridable). A "save draft" button asks the validator for `ValidationProfile.Draft` directly
-rather than going through the form's submit pipeline, which is what makes it lenient.
+The bucket and the profile answer different questions. Buckets are the authoring axis: draft
+rules ask "is this value malformed?" and treat an empty value as fine, submit rules ask "is this
+value present?" and treat default values as missing — two axes, so one mistake never produces two
+messages. They also decide what a lenient draft save enforces, since a "save draft" button asks
+the validator for `ValidationProfile.Draft` directly rather than going through the form's submit
+pipeline. `LiveProfile` is the runtime axis, and it alone decides which of those rules the live
+channel evaluates: unset, it evaluates all of them, and an engaged field's `Title is required to
+submit` appears the moment the visitor clears a title they had typed. `ValidationProfile.Draft`
+is what makes that message wait for the submit button instead.
 
-**Read:** [Profiles](profiles.md).
-**Samples:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+`DraftSubmitValidator<T>` checks the bucket convention once, at construction: a property carrying
+the same kind of rule in both buckets invokes `OnOverlappingRuleAxes` (a `Debug` warning by
+default, overridable).
 
-### I want a rule to disclose on engagement instead of waiting for submit
+Worth being deliberate about, since it is a trade rather than a tidier default. Holding the
+message back also holds back the one the visitor most wants: the field they just emptied says
+nothing until they press a button and are told they cannot. Reach for it where the rule is
+expensive rather than merely strict — the next recipe is that case in full.
 
-**Set:** give the presence rule membership in both rulesets at its own declaration, and point
-`LiveProfile` at the second ruleset alone. `SubmitProfile` needs no change: the rule already
-belongs to `"Submit"`.
+**Read:** [Profiles](profiles.md), [Options](options.md#liveprofile).
+**Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) does the
+narrowing; [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) and
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) are the contrast, left on the
+defaults so their presence rules answer live.
+
+### I want to narrow what the live channel validates
+
+**Set:** `FormidableOptions.LiveProfile`. It is nullable and defaults to `null`, meaning the live
+channel evaluates whatever `SubmitProfile` selects. Give it a profile and the live channel
+evaluates that one instead.
+
+```csharp
+Options.LiveProfile = ValidationProfile.Draft;
+// SubmitProfile is left at its default, ValidationProfile.Submit - only the live channel narrows.
+```
+
+`ValidationProfile.Draft` is the usual choice: the default (unnamed) rules alone, so every
+`"Submit"`-ruleset rule waits for the submit button and the refresh behind it. Any profile works,
+though — a wizard step's own ruleset, an approval stage, a selection composed for the purpose.
+
+The reason to reach for this is cost, not tidiness. A live pass runs on every committed change,
+so a rule that calls a server, hashes something large, or walks a long collection is a rule worth
+keeping off that path. Strictness on its own is not a reason: what stops a form nagging is that a
+live verdict is filed only for *engaged* fields, so an untouched field says nothing whatever its
+rules would report, and narrowing silences the field the visitor is actually working in along
+with everything else.
+
+**Keeping one rule live while the rest wait.** Narrowing is per profile, so a rule that has to
+answer live needs membership in the narrow profile as well as in `"Submit"` — without existing
+twice. FluentValidation's own `RuleSet` accepts a comma-separated name and tags every rule inside
+with all of them, which is what one declaration answering to two moments looks like:
 
 ```csharp
 public class SignupValidator : DraftSubmitValidator<Signup>
@@ -118,13 +166,13 @@ public class SignupValidator : DraftSubmitValidator<Signup>
 
     protected override void ConfigureSubmitRules()
     {
-        // every other presence rule stays here, untouched
+        // the expensive presence and business rules the narrowing keeps off the live path
     }
 
     protected override void ConfigureAdditionalProfiles()
     {
-        Profile("Engaged", () => { });
-        RuleSet("Submit,Engaged", () =>
+        Profile("Live", () => { });
+        RuleSet("Submit,Live", () =>
             RuleForEach(s => s.Guests).ChildRules(guest =>
                 guest.RuleFor(g => g.Name).NotEmpty().WithMessage("Guest name is required")));
     }
@@ -132,50 +180,30 @@ public class SignupValidator : DraftSubmitValidator<Signup>
 ```
 
 ```csharp
-Options.LiveProfile = ValidationProfile.Named("Engaged", includeDefaultRules: true, "Engaged");
+Options.LiveProfile = ValidationProfile.Named("Live", includeDefaultRules: true, "Live");
 // SubmitProfile is left at its default, ValidationProfile.Submit - the rule is already a member.
 ```
 
-The raw `RuleSet` call is what makes one declaration answer to both moments: FluentValidation's
-`RuleSet` accepts a comma-separated name and tags every rule inside with all of them, so the same
-rule answers a live pass under `"Engaged"` and a submit under `"Submit"` without existing twice.
-`Profile(name, ...)`, the usual way to register a ruleset, can't express that: it registers
-ruleset-name verification under the exact string it's given, so `Profile("Submit,Engaged", ...)`
-would register as its own, wrong name rather than as `"Submit"` and `"Engaged"` separately. The
-empty `Profile("Engaged", () => { })` alongside the raw call exists only to register the name
-`"Engaged"` for that same verification, so a typo'd `LiveProfile` ruleset name still throws loudly
-instead of silently selecting nothing.
+`Profile(name, ...)`, the usual way to register a ruleset, cannot express that membership: it
+registers ruleset-name verification under the exact string it is given, so
+`Profile("Submit,Live", ...)` would register as its own, wrong name rather than as `"Submit"` and
+`"Live"` separately. The empty `Profile("Live", () => { })` alongside the raw call exists only to
+register the name `"Live"` for that same verification, so a typo'd `LiveProfile` ruleset name
+throws loudly instead of silently selecting nothing.
 
-Four things follow from that shape, with nothing else to configure. A row nobody has touched stays
-silent even though its rule is already failing against it: a live pass validates the whole model,
-but its verdict answers only the engaged fields — the fields a committed change has notified the
-engine about — and a fresh row's fields have never been engaged, so no live pass answers for them.
-Engage the field: type something, then clear it again, and the message appears the moment that edit
-commits, with no submit anywhere — `LiveProfile` selects `"Engaged"`, and the rule is a member of
-it. From then on the field stays answered: a later edit anywhere on the form re-judges it, so its
-message clears, or appears, without the field itself being edited again. Every other presence
-rule, still declared in `ConfigureSubmitRules()` alone, keeps waiting for submit exactly as
-before: this is a per-rule choice, not a form-wide switch to live disclosure.
-And a draft save stays clean, because it validates against `ValidationProfile.Draft` directly,
-which selects neither the `"Submit"` ruleset nor `"Engaged"`.
+What the shape buys, and what it doesn't. The guest-name rule answers live on the field the
+visitor engages, exactly as it would on the defaults; every other rule in `ConfigureSubmitRules()`
+waits for submit; and a draft save stays clean either way, because it validates against
+`ValidationProfile.Draft` directly, which selects neither `"Submit"` nor `"Live"`.
 
-Where the engagement line sits is deliberate: focusing a field and tabbing back out again is not
-engagement. The visitor may only have been passing through, and a message that appears anyway
-teaches people to stop reading a form's messages at all. Engagement is a committed value change:
-type something, or clear something that was there. That holds under every `UpdateOn` mode,
-because a committed change is the only thing that ever notifies the engine — nothing in the kit
-notifies on focus or blur alone. `OnBlur` is no exception: it moves the *delivery* of a commit's
-notification to blur and never invents one there, so a field wired this way still discloses
-nothing on a plain tab-through.
-
-Nothing on the server needs to change for this. A plain `Submit` validation already carries the
-shared rule along, since it's a member of `"Submit"` too — MVC's `[Validate(Profile = "Submit")]`
-and a minimal-API route with no profile argument both resolve to it. Naming `"Engaged"` alone
-server-side would be a trap rather than a redundancy: that resolves to the default rules plus only
-the `"Engaged"` ruleset, so every Submit-only presence rule on the model would silently stop being
-enforced. Composite profiles exist for forms where a genuinely separate live/submit split is worth
-naming on purpose (`ValidationProfile.Named(name, true, "Submit", "SomeOtherRuleset")`, selecting
-several rulesets in one profile), but only the minimal-API route can take one: it accepts a
+**Nothing on the server needs to change.** A plain `Submit` validation carries the shared rule
+along, since it is a member of `"Submit"` too — MVC's `[Validate(Profile = "Submit")]` and a
+minimal-API route with no profile argument both resolve to it. Naming the narrow profile
+server-side would be a trap rather than a redundancy: `"Live"` alone resolves to the default rules
+plus only the `"Live"` ruleset, so every Submit-only rule on the model would silently stop being
+enforced. Composite profiles exist for a genuinely separate live/submit split worth naming on
+purpose (`ValidationProfile.Named(name, true, "Submit", "SomeOtherRuleset")`, selecting several
+rulesets in one profile), but only the minimal-API route can take one: it accepts a
 `ValidationProfile` instance directly, while `[Validate(Profile = "...")]` resolves a name through
 `ValidationProfile.FromName`, which can only build default rules plus one same-named ruleset.
 
@@ -184,30 +212,41 @@ app.MapGroup("/api/signups").Validate<Signup>(
     ValidationProfile.Named("SubmitPlusExtra", true, ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
 ```
 
-**The cost, honestly:** none worth naming. The pair looks disjoint by *name* —
-`ValidationProfile.Submit`'s own ruleset list is just `["Submit"]`, with `"Engaged"` nowhere in
-it — but the engine reuses verdicts by *rule*, and a `RuleSet("Submit,Engaged", ...)` rule is
-one declared rule however many names reach it. A post-submit edit runs the shared rule once
-across its live pass and the refresh that follows: the live pass under `"Engaged"` executes it,
-and the refresh under `Submit` serves the stored verdict.
-`FormValidationEngineEngagedProfileTests.The_submit_and_engaged_profile_pair_reuses_the_shared_rule_per_rule`
-pins exactly this. The draft bucket rides the same store: on `/workout` itself, whose
-`LiveProfile` names `"Engaged"` alongside the default rules, the 300&nbsp;ms `ContactEmail`
-availability check in `ConfigureDraftRules()` answers once per post-submit edit — the live pass
-executes it, and the refresh serves its verdict too.
+**The cost, honestly.** On a validator with a rule-level seam (the FluentValidation adapter,
+unless `ClassLevelCascadeMode.Stop` opts it out), sharing a rule between the two profiles does not
+execute it twice. The pair looks disjoint by *name* — `ValidationProfile.Submit`'s own
+ruleset list is just `["Submit"]`, with `"Live"` nowhere in it — but the engine reuses verdicts by
+*rule*, and a `RuleSet("Submit,Live", ...)` rule is one declared rule however many names reach it.
+A post-submit edit runs each shared rule once across its live pass and the refresh that follows:
+whichever lands first executes it, and the other serves the stored verdict.
+`FormValidationEngineRuleReuseTests.One_post_submit_edit_runs_each_selected_rule_at_most_once_across_both_passes`
+pins exactly this, on this exact shape. Where the seam is absent, every pass validates its whole
+profile instead, so the shared rule does run in both — correct, and priced exactly as it reads.
 
-**Read:** [Profiles](profiles.md) (custom profiles),
+What narrowing does change is who pays for the rules it dropped. Two things behind the live
+channel go on wanting a submit-profile answer, and neither of them gets one from a narrowed live
+pass. `FormidableOptions.TrackFormValidity`'s probe evaluates `SubmitProfile` whatever
+`LiveProfile` says, so under a narrowing the probe becomes the more expensive of the two, with the
+async and server-shaped rules among the difference ([Options](options.md#trackformvalidity)). And
+the `Valid` state class asks whether a submit would pass, which is a form-wide answer that goes
+current only once every submit-selected rule has one. A narrowed live pass never supplies that, so
+no field wears a confirmation border on the strength of one: a submit, a refresh, or that probe is
+what puts green on the form ([CSS and accessibility](css-and-accessibility.md#need-to-know)).
+
+**Read:** [Profiles](profiles.md) (custom profiles), [Options](options.md#liveprofile),
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule),
 [The refresh runs only what the live pass did not](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)
 (the verdict store the reuse rides on).
-**Sample:** [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — the attendee `Name`
-rule.
+**Sample:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) — `LiveProfile`
+pointed at `Draft` over an empty draft bucket, so the server stays the only judge.
 
 ### I want an async check with a pending indicator
 
-**Set:** put the `MustAsync` rule in the draft bucket so it runs live, honour the
-`CancellationToken` it hands you, and render the indicator from `field.State.IsValidating` inside
-a `FormidableField` (kit inputs also append the `Pending` class on their own).
+**Set:** put the `MustAsync` rule in the draft bucket, honour the `CancellationToken` it hands
+you, and render the indicator from `field.State.IsValidating` inside a `FormidableField` (kit
+inputs also append the `Pending` class on their own). The bucket is about meaning here rather
+than timing — a live pass evaluates both buckets by default, and the draft bucket is where a
+uniqueness check belongs if a draft save should answer it too.
 
 ```csharp
 protected override void ConfigureDraftRules() =>
@@ -521,7 +560,11 @@ Options.SubmitProfile = ValidationProfile.Named("AdminReview", includeDefaultRul
 ```
 
 Compose a selection with `ValidationProfile.Named(name, includeDefaultRules, ruleSets)` and point
-`FormidableOptions.LiveProfile` or `SubmitProfile` at it. `FormidableForm` picks up the `Options`
+`FormidableOptions.LiveProfile` or `SubmitProfile` at it. Setting `SubmitProfile` alone moves both
+channels: `LiveProfile` unset means the live channel follows whichever instance `SubmitProfile`
+holds, so an engaged field answers the custom profile between submits with no second setting to
+keep in step. That is what the `/custom-profiles` sample's runtime toggle
+demonstrates. `FormidableForm` picks up the `Options`
 parameter once, when it binds a `Model` instance, but the engine holds that instance for its
 whole lifetime and re-reads its properties fresh on every pass — mutating
 `LiveProfile`/`SubmitProfile` on the same `FormidableOptions` object takes effect starting with
@@ -642,13 +685,13 @@ which render the kit exactly this way.
 |---|---|---|
 | A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. Both diagnostics describe binding syntax; neither mentions the namespace that is actually missing. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
-| A field says nothing until Submit is pressed. | Presence rules live in the `"Submit"` ruleset by convention, and live passes run the Draft profile. | Working as designed. Move the rule into the draft bucket if it should always answer live, or give it comma-membership in an `"Engaged"` ruleset if it should answer live only once the visitor has engaged that one field, without loosening the draft bucket at all. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [disclose on engagement](#i-want-a-rule-to-disclose-on-engagement-instead-of-waiting-for-submit). |
+| A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field a committed change has notified the engine about, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give the rule error severity if it must block. [Advise without blocking](#i-want-to-advise-without-blocking). |
-| Submit is blocked but no field shows a message. | Every failing field is unwatched and unrendered, so the defensive gate blocks with one model-level explanation instead of a silent no-op — and that explanation stands through every background refresh while the form stays blocked. | Render a `FormidableSummary` (the gate's message shows there), check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
+| Submit is blocked but no field shows a message. | Every failing field is unwatched and unrendered, so the defensive gate blocks with one model-level explanation instead of a silent no-op — and no background refresh takes that explanation away while nothing on screen explains the block. | Render a `FormidableSummary` (the gate's message shows there), check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | The summary names a field that is not on screen. | A field a submit has shown stays watched until the form passes or is reset, so hiding it afterwards takes the message off its own row without taking the entry out of the summary. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Fix the value: the entry goes when the rule stops producing the issue, on the refresh behind the next edit. Keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | A message lingers after the value was fixed. | After a submit, submit-profile messages are updated by the debounced refresh — 300 ms of quiet after the value commits, which under the default `UpdateOn` means after blur — and that refresh waits for any live pass still in flight. | Wait out the debounce, commit on input instead, or tune `FormidableOptions.RefreshDebounce`. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator). |

@@ -11,8 +11,10 @@ namespace Formidable.Blazor.Tests;
 /// The per-rule verdict store: after one edit, each rule the live and submit profiles select
 /// executes AT MOST ONCE across the live pass and the post-submit refresh, in any pass order —
 /// by construction (verdicts stamped by edit stamp, keyed by rule identity), not by scheduling.
-/// The headline pin runs the shipped <c>/workout</c> Engaged shape, where profile-name
-/// arithmetic could not see that a <c>RuleSet("Submit,Engaged", ...)</c> rule is one rule.
+/// The headline pin runs the hardest shape for that claim: a live profile whose ruleset name
+/// the submit profile's own list never carries, over a rule declared into both by comma
+/// membership — where profile-name arithmetic could not see that
+/// <c>RuleSet("Submit,Shared", ...)</c> declares ONE rule.
 /// </summary>
 /// <remarks>
 /// The counters are what carry these tests: two runs of a rule leave exactly the issues one run
@@ -23,9 +25,12 @@ namespace Formidable.Blazor.Tests;
 /// </remarks>
 public class FormValidationEngineRuleReuseTests
 {
-    // The same LiveProfile /workout's options object builds, by the same name.
-    private static readonly ValidationProfile EngagedLiveProfile =
-        ValidationProfile.Named("Engaged", includeDefaultRules: true, "Engaged");
+    // A narrowed live profile selecting one ruleset of its own, plus the default rules — the
+    // shape FormidableOptions.LiveProfile takes when a form opts out of following its submit
+    // profile. Its name appears nowhere in ValidationProfile.Submit's ruleset list, which is
+    // what makes the pair disjoint by name while sharing a rule by declaration.
+    private static readonly ValidationProfile SharedLiveProfile =
+        ValidationProfile.Named("Shared", includeDefaultRules: true, "Shared");
 
     private sealed class ReuseAttendee
     {
@@ -40,11 +45,11 @@ public class FormValidationEngineRuleReuseTests
     }
 
     /// <summary>
-    /// The Engaged shape with an execution counter on every bucket: a draft-bucket rule (runs
-    /// under any profile including default rules), a Submit-only rule, and a dual-membership
-    /// rule declared once into BOTH "Submit" and "Engaged" via the raw comma-named RuleSet call
-    /// — the same <c>RuleForEach.ChildRules</c> row shape <c>/workout</c>'s attendee rule uses.
-    /// The empty <c>Profile("Engaged", ...)</c> registers the name for ruleset verification;
+    /// An execution counter on every bucket: a draft-bucket rule (runs under any profile
+    /// including default rules), a Submit-only rule, and a dual-membership rule declared once
+    /// into BOTH "Submit" and "Shared" via the raw comma-named RuleSet call, on a
+    /// <c>RuleForEach.ChildRules</c> row so the collection path is exercised too.
+    /// The empty <c>Profile("Shared", ...)</c> registers the name for ruleset verification;
     /// the "Extra" profile carries a rule no other profile selects, for the profile-swap pin.
     /// </summary>
     private sealed class ReuseCountingValidator : DraftSubmitValidator<ReuseModel>
@@ -79,8 +84,8 @@ public class FormValidationEngineRuleReuseTests
 
         protected override void ConfigureAdditionalProfiles()
         {
-            Profile("Engaged", () => { });
-            RuleSet("Submit,Engaged", () =>
+            Profile("Shared", () => { });
+            RuleSet("Submit,Shared", () =>
                 RuleForEach(x => x.Attendees).ChildRules(attendee =>
                     attendee.RuleFor(a => a.Name)
                         .Must(name =>
@@ -100,7 +105,7 @@ public class FormValidationEngineRuleReuseTests
         }
     }
 
-    private static FormValidationEngine<ReuseModel> CreateEngagedEngine(
+    private static FormValidationEngine<ReuseModel> CreateSharedRuleEngine(
         ReuseModel model,
         ReuseCountingValidator validator,
         EditContext editContext,
@@ -120,7 +125,7 @@ public class FormValidationEngineRuleReuseTests
             new ReflectionModelIntrospector(),
             new FormidableOptions
             {
-                LiveProfile = EngagedLiveProfile,
+                LiveProfile = SharedLiveProfile,
                 SubmitProfile = ValidationProfile.Submit,
                 LiveDebounce = liveDebounce,
                 RefreshDebounce = TimeSpan.FromMilliseconds(300),
@@ -130,12 +135,12 @@ public class FormValidationEngineRuleReuseTests
     }
 
     /// <summary>
-    /// R1 at the shipped shape. One submit runs every counted rule once. One post-submit edit
-    /// then triggers a debounced live pass under "Engaged" (the draft and dual rules) and the
+    /// Reuse at the hardest shape. One submit runs every counted rule once. One post-submit edit
+    /// then triggers a debounced live pass under "Shared" (the draft and dual rules) and the
     /// refresh that follows under "Submit" (all three) — and each rule the two profiles share
     /// must execute exactly once across the pair, because a verdict stamped with the edit the
     /// pass began under answers any later pass at the same stamp, whichever profile that pass
-    /// runs. Name arithmetic over the profile pair cannot see this: "Engaged" is a name the
+    /// runs. Name arithmetic over the profile pair cannot see this: "Shared" is a name the
     /// submit profile's own list never carries, while the dual rule is one declared rule.
     /// </summary>
     [Fact]
@@ -145,7 +150,7 @@ public class FormValidationEngineRuleReuseTests
         var validator = new ReuseCountingValidator();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = CreateEngagedEngine(
+        using var engine = CreateSharedRuleEngine(
             model, validator, editContext, time, liveDebounce: TimeSpan.FromMilliseconds(100));
 
         // The submit blocks (the event name and the attendee name are both empty) and runs the
@@ -159,7 +164,7 @@ public class FormValidationEngineRuleReuseTests
         model.Nickname = "edited";
         editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(ReuseModel.Nickname)));
 
-        time.Advance(TimeSpan.FromMilliseconds(100)); // the live window closes: the Engaged pass answers
+        time.Advance(TimeSpan.FromMilliseconds(100)); // the live window closes: the narrowed pass answers
         time.Advance(TimeSpan.FromMilliseconds(200)); // the refresh window closes: the refresh follows
 
         // One edit, at most one execution per rule across both passes: the live pass ran the
@@ -186,7 +191,7 @@ public class FormValidationEngineRuleReuseTests
         var validator = new ReuseCountingValidator();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = CreateEngagedEngine(
+        using var engine = CreateSharedRuleEngine(
             model, validator, editContext, time, liveDebounce: TimeSpan.FromMilliseconds(400));
 
         var nicknameField = new FieldIdentifier(model, nameof(ReuseModel.Nickname));
@@ -209,7 +214,7 @@ public class FormValidationEngineRuleReuseTests
 
         time.Advance(TimeSpan.FromMilliseconds(100)); // the live window closes behind it
 
-        // Zero executions — every rule the Engaged profile selects is fresh at this stamp — yet
+        // Zero executions — every rule the narrowed live profile selects is fresh at this stamp — yet
         // the pass published: the engaged field carries the draft verdict the refresh computed.
         Assert.Equal(
             (Draft: 2, SubmitOnly: 2, Dual: 2),
@@ -284,8 +289,9 @@ public class FormValidationEngineRuleReuseTests
         var time = new FakeTimeProvider();
         var options = new FormidableOptions
         {
-            // The default live profile (Draft) to start with; swapped below on the same options
-            // instance the engine holds — the sanctioned mutate-in-place pattern.
+            // The default live profile — the submit profile's own rules — to start with;
+            // swapped below on the same options instance the engine holds, the sanctioned
+            // mutate-in-place pattern.
             LiveDebounce = TimeSpan.FromMilliseconds(400),
             RefreshDebounce = TimeSpan.FromMilliseconds(300),
             DisclosureOverride = _ => true,
@@ -337,7 +343,7 @@ public class FormValidationEngineRuleReuseTests
         var validator = new ReuseCountingValidator();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = CreateEngagedEngine(model, validator, editContext, time);
+        using var engine = CreateSharedRuleEngine(model, validator, editContext, time);
 
         var nicknameField = new FieldIdentifier(model, nameof(ReuseModel.Nickname));
 
@@ -377,8 +383,8 @@ public class FormValidationEngineRuleReuseTests
     [Fact]
     public async Task A_capability_less_validator_stays_correct_and_unoptimised()
     {
-        var (capabilityIssues, capabilityCounters) = await RunEngagedPostSubmitEditAsync(hideCapability: false);
-        var (fallbackIssues, fallbackCounters) = await RunEngagedPostSubmitEditAsync(hideCapability: true);
+        var (capabilityIssues, capabilityCounters) = await RunSharedRulePostSubmitEditAsync(hideCapability: false);
+        var (fallbackIssues, fallbackCounters) = await RunSharedRulePostSubmitEditAsync(hideCapability: true);
 
         // The fallback pays the whole submit profile on the refresh — the draft and dual rules
         // run once in the live pass and again in the refresh — where the capability path runs
@@ -501,8 +507,8 @@ public class FormValidationEngineRuleReuseTests
 
         protected override void ConfigureAdditionalProfiles()
         {
-            Profile("Engaged", () => { });
-            RuleSet("Submit,Engaged", () =>
+            Profile("Shared", () => { });
+            RuleSet("Submit,Shared", () =>
             {
                 RuleFor(x => x.Details).SetValidator(new ScopedDetailsValidator(() => ChildRuns++));
                 RuleForEach(x => x.Attendees).ChildRules(attendee =>
@@ -518,9 +524,9 @@ public class FormValidationEngineRuleReuseTests
     }
 
     /// <summary>
-    /// A profile-scoped verdict is honest about its limits: the live pass under "Engaged" runs
+    /// A profile-scoped verdict is honest about its limits: the live pass under "Shared" runs
     /// the SetValidator rule but the profile filters its child out, so that verdict answers only
-    /// for "Engaged" — the refresh under "Submit" must re-run it (its child now admitted) rather
+    /// for "Shared" — the refresh under "Submit" must re-run it (its child now admitted) rather
     /// than reuse a verdict that would silently drop the child's failure. The sibling rule's
     /// profile-independent verdict is reused across the same pair, and both channels stay
     /// whole-profile-correct throughout.
@@ -538,7 +544,7 @@ public class FormValidationEngineRuleReuseTests
             new ReflectionModelIntrospector(),
             new FormidableOptions
             {
-                LiveProfile = EngagedLiveProfile,
+                LiveProfile = SharedLiveProfile,
                 SubmitProfile = ValidationProfile.Submit,
                 DisclosureOverride = _ => true,
             },
@@ -551,7 +557,7 @@ public class FormValidationEngineRuleReuseTests
         Assert.Equal(1, validator.ChildRuns);
         Assert.Equal(1, validator.SiblingRuns);
 
-        // The edit's immediate live pass runs under "Engaged": the SetValidator rule executes,
+        // The edit's immediate live pass runs under "Shared": the SetValidator rule executes,
         // but the profile filters its "Submit"-tagged child out — the counter stands still, and
         // the live channel honestly shows nothing for a child the profile does not select.
         model.Attendees[0].Name = "Ada";
@@ -562,7 +568,7 @@ public class FormValidationEngineRuleReuseTests
         time.Advance(TimeSpan.FromMilliseconds(301));
 
         // The refresh runs under "Submit" at the same stamp: the sibling's verdict is reused,
-        // while the SetValidator rule re-runs — its stored verdict is scoped to "Engaged", and
+        // while the SetValidator rule re-runs — its stored verdict is scoped to "Shared", and
         // serving it here would erase the child's still-failing issue from the submit channel.
         Assert.Equal(2, validator.ChildRuns);
         Assert.Equal(2, validator.SiblingRuns);
@@ -579,13 +585,13 @@ public class FormValidationEngineRuleReuseTests
     /// the hidden-capability fallback run the identical sequence.
     /// </summary>
     private static async Task<(List<(string Path, string Message)> Issues, (int Draft, int SubmitOnly, int Dual) Counters)>
-        RunEngagedPostSubmitEditAsync(bool hideCapability)
+        RunSharedRulePostSubmitEditAsync(bool hideCapability)
     {
         var model = new ReuseModel { Nickname = "far too long for the rule" };
         var validator = new ReuseCountingValidator();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = CreateEngagedEngine(
+        using var engine = CreateSharedRuleEngine(
             model, validator, editContext, time,
             liveDebounce: TimeSpan.FromMilliseconds(100), hideCapability: hideCapability);
 

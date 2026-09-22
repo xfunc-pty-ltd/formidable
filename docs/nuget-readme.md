@@ -19,9 +19,10 @@ tests, running a real project's forms today.
 - One validator, client and server — the same FluentValidation rules run in the browser and
   again on the server, and the server's ValidationProblemDetails response applies straight into
   the engine, so a rejected save lights up the exact fields inline.
-- Progressive disclosure — errors follow what is actually on screen. A field the visitor cannot
-  see never nags, and a defensive gate catches the case where every failure would otherwise go
-  unseen.
+- Progressive disclosure — a message waits until the visitor has earned it. A field nobody has
+  touched stays silent whatever its rules say; once they have engaged it, it tells them what
+  would actually block the save. At submit, errors follow what is on screen, and a defensive
+  gate catches the case where every failure would otherwise go unseen.
 - Collections that keep their errors — a message belongs to the row object, not to the row
   number, so adding, removing, and reordering rows can never move an error onto the wrong line.
 

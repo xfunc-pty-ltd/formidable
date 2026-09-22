@@ -47,6 +47,48 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
+    /// <summary>
+    /// On a submit blocked through <see cref="ValidateForSubmitAsync"/>, best-effort auto-focuses
+    /// the field carrying the first error among the engine's visible issues via
+    /// <see cref="IFormidableFocusService"/> — the first error rather than merely the first issue,
+    /// since a field reported ahead of the failing one can carry nothing worse than an advisory,
+    /// and landing there would bury the reason the submit blocked. The fallback to the first
+    /// visible issue of any severity applies only when a blocked submit shows no error at all.
+    /// Default <see langword="true"/>, matching <c>FormidableForm</c>'s parameter of the same name
+    /// and shape. The service is resolved lazily and may be unregistered; a null service is
+    /// silent. A focus miss (e.g. no element carries the field's id yet) retries once through
+    /// <see cref="FocusFallback"/> when one is wired, and otherwise reports a diagnostic. Set
+    /// <see langword="false"/> to choose focus yourself from the returned
+    /// <see cref="SubmitOutcome"/>.
+    /// </summary>
+    /// <remarks>
+    /// What "first" means here is not what it means under <c>FormidableForm</c>. A component that
+    /// renders no <c>&lt;form&gt;</c> resolves no <see cref="IFormidableFieldOrderService"/>, so
+    /// the engine reports its visible issues in channel order — the fault issue, then submit
+    /// errors, then advisories, then the live channel — rather than in the document order of the
+    /// page, and the field this lands on is the first error in that order.
+    /// <see cref="FormidableSummary"/> beside it reads the same order and regroups by severity, so
+    /// its first entry names the same field; what neither of them follows is where the fields
+    /// actually sit on the page.
+    /// </remarks>
+    [Parameter]
+    public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
+
+    /// <summary>
+    /// Invoked once when a blocked submit's auto-focused first error has no rendered element to
+    /// focus (e.g. a virtualized row outside the render window, or a control that renders none of
+    /// the deterministic <see cref="FormidableFieldId"/> the focus service addresses a field by).
+    /// Return <c>true</c> after making the element renderable (scrolling its container, expanding
+    /// a section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> and
+    /// <c>FormidableForm</c>'s parameter of the same name — a page wiring more than one typically
+    /// passes the same callback to each. When unset, a miss reports a diagnostic naming this
+    /// parameter, since a blocked submit's visitor otherwise gets no signal at all that the field
+    /// they need is out of reach.
+    /// </summary>
+    [Parameter]
+    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
@@ -100,6 +142,57 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 Options,
                 "swap the EditForm's model alongside Options, so a new EditContext rebuilds the engine");
         }
+    }
+
+    /// <summary>
+    /// Runs the submit pipeline against this component's engine and hands back its
+    /// <see cref="SubmitOutcome"/> untouched — the entry point a page's own
+    /// <c>EditForm</c> submit handler calls in place of reaching through <see cref="Engine"/>.
+    /// A blocked submit additionally moves focus to the first error, gated on
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> and recoverable through
+    /// <see cref="FocusFallback"/>, by the same decision <c>FormidableForm</c>'s own submit makes.
+    /// What it does NOT do is anything that belongs to owning the form element: the page keeps its
+    /// own <c>EditForm</c>, its own handler, and its own routing of the outcome to whatever it
+    /// shows next. Call from the renderer's synchronization context (a Blazor event handler or
+    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders. If the cascaded
+    /// <see cref="EditContext"/> is replaced while this call is still awaiting the pipeline, the
+    /// engine that started is gone by the time the verdict lands: focus is not moved, and the
+    /// blocked <see cref="SubmitOutcome"/> below is returned instead of whatever that pass
+    /// actually decided. Cancelling the abandoned pass's token is what usually stops it short,
+    /// but a validator that does not honour the token can still run to completion, and a dead
+    /// engine's verdict — from a submit the swap already abandoned — must not surface as if it
+    /// were current.
+    /// </summary>
+    /// <remarks>
+    /// Focus parity is not order parity. This component renders no <c>&lt;form&gt;</c> and so
+    /// resolves no <see cref="IFormidableFieldOrderService"/>: a summary inside a consumer's own
+    /// <c>EditForm</c> lists issues in the engine's channel order rather than the document order
+    /// of the page, and the first error this lands on is the first in that same order. Reading
+    /// order is a separate boundary, and moving the page to <c>FormidableForm</c> is what closes
+    /// it.
+    /// </remarks>
+    /// <returns>The engine's verdict for this submit, unchanged.</returns>
+    public async Task<SubmitOutcome> ValidateForSubmitAsync()
+    {
+        var engine = RequireEngine();
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        if (!ReferenceEquals(_engine, engine))
+        {
+            // The engine this pass ran against has been replaced or disposed — a cascaded
+            // EditContext swap, or this component leaving the page. Its verdict, even a passing
+            // one if its validator outran cancellation, belongs to a submit that is no longer the
+            // current one, and moving focus from it would take the visitor to a field on a model
+            // nothing is editing any more. Mirrors FormidableForm.SubmitAsync's identical guard.
+            return new SubmitOutcome(false, ValidationReport.Empty, []);
+        }
+
+        if (!outcome.CanProceed && FocusFirstErrorOnInvalidSubmit)
+        {
+            await FirstErrorFocus.MoveAsync(Services, engine, FocusFallback);
+        }
+
+        return outcome;
     }
 
     /// <summary>

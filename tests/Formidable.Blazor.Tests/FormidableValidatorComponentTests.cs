@@ -18,7 +18,11 @@ public class FormidableValidatorComponentTests : BunitContext
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
     }
 
-    private IRenderedComponent<ContainerFragment> RenderForm(EngineOrder order, FormidableOptions? options = null) =>
+    private IRenderedComponent<ContainerFragment> RenderForm(
+        EngineOrder order,
+        FormidableOptions? options = null,
+        bool? focusFirstErrorOnInvalidSubmit = null,
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null) =>
         Render(builder =>
         {
             builder.OpenComponent<EditForm>(0);
@@ -30,12 +34,61 @@ public class FormidableValidatorComponentTests : BunitContext
                 {
                     inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Options), options);
                 }
+                if (focusFirstErrorOnInvalidSubmit is { } focusParameter)
+                {
+                    inner.AddComponentParameter(
+                        2,
+                        nameof(FormidableValidator<EngineOrder>.FocusFirstErrorOnInvalidSubmit),
+                        focusParameter);
+                }
+                if (focusFallback is not null)
+                {
+                    inner.AddComponentParameter(
+                        3, nameof(FormidableValidator<EngineOrder>.FocusFallback), focusFallback);
+                }
                 inner.CloseComponent();
-                inner.OpenComponent<ValidationSummary>(2);
+                inner.OpenComponent<ValidationSummary>(4);
                 inner.CloseComponent();
             }));
             builder.CloseComponent();
         });
+
+    /// <summary>
+    /// The focus seam the way both roots reach it: the shipped <c>FormidableFocusService</c> over
+    /// bUnit's own recording JS module, so a test asserts on the interop call the browser would
+    /// have made. <paramref name="focusLands"/> is what <c>focusField</c> answers — false is the
+    /// miss a fallback exists to recover.
+    /// </summary>
+    private BunitJSModuleInterop SetUpFocusModule(bool focusLands = true)
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(focusLands);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+        return module;
+    }
+
+    /// <summary>
+    /// The owned root, staged as bare as the attached one above — disclosure forced rather than
+    /// earned by rendered inputs, nothing in the content but a submit button — so that a test
+    /// putting the two side by side varies only which component owns the submit.
+    /// </summary>
+    private IRenderedComponent<FormidableForm<EngineOrder>> RenderOwnedForm(EngineOrder order) =>
+        Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), order);
+            builder.AddComponentParameter(
+                2,
+                nameof(FormidableForm<EngineOrder>.Options),
+                new FormidableOptions { DisclosureOverride = _ => true });
+            builder.AddComponentParameter(
+                3,
+                nameof(FormidableForm<EngineOrder>.ChildContent),
+                (RenderFragment)(inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+            builder.CloseComponent();
+        }).FindComponent<FormidableForm<EngineOrder>>();
 
     private IRenderedComponent<AttachCollectionHost> RenderAttachCollection(
         EngineOrder order, bool keepRowsRegistered = false, FormidableOptions? options = null) =>
@@ -121,6 +174,180 @@ public class FormidableValidatorComponentTests : BunitContext
         Assert.Equal(byIssues.Message, byProblem.Message);
     }
 
+    // Attach mode's own submit entry point exists so a page driving its own <form> gets the whole
+    // FormidableForm submit story minus the element: the blocked submit lands the visitor on the
+    // first error, rather than leaving them to hunt for it because the page called the engine
+    // directly.
+    [Fact]
+    public async Task A_blocked_submit_through_the_validator_focuses_the_first_error()
+    {
+        Services.AddFormidableBlazor();
+        var module = SetUpFocusModule();
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var cut = RenderForm(order, new FormidableOptions { DisclosureOverride = _ => true });
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+
+        SubmitOutcome? outcome = null;
+        await cut.InvokeAsync(async () => outcome = await validator.Instance.ValidateForSubmitAsync());
+
+        Assert.False(outcome!.CanProceed);
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Customer))),
+            module.Invocations["focusField"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    // The same opt-out FormidableForm offers, for a page that would rather choose the landing spot
+    // itself from the outcome it is handed back.
+    [Fact]
+    public async Task FocusFirstErrorOnInvalidSubmit_false_leaves_the_validators_focus_alone()
+    {
+        Services.AddFormidableBlazor();
+        var module = SetUpFocusModule();
+        var cut = RenderForm(
+            new EngineOrder(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            focusFirstErrorOnInvalidSubmit: false);
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+
+        await cut.InvokeAsync(() => validator.Instance.ValidateForSubmitAsync());
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    // Mirrors FormidableFormComponentTests' A_blocked_submit_focus_miss_invokes_the_fallback_and_
+    // retries_once: the same miss signal (focusField answering false), the same
+    // try -> fallback -> retry shape, reached through attach mode's own parameter.
+    [Fact]
+    public async Task A_validator_focus_miss_invokes_the_fallback_and_retries_once()
+    {
+        Services.AddFormidableBlazor();
+        var module = SetUpFocusModule(focusLands: false);
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var fallbackCalls = 0;
+        FieldIdentifier? fallbackField = null;
+        var cut = RenderForm(
+            order,
+            new FormidableOptions { DisclosureOverride = _ => true },
+            focusFallback: field =>
+            {
+                fallbackCalls++;
+                fallbackField = field;
+                return ValueTask.FromResult(true);
+            });
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+
+        await cut.InvokeAsync(() => validator.Instance.ValidateForSubmitAsync());
+
+        Assert.Equal(1, fallbackCalls);
+        Assert.Equal(new FieldIdentifier(order, nameof(EngineOrder.Customer)), fallbackField);
+        Assert.Equal(2, module.Invocations["focusField"].Count);
+
+        await Services.DisposeAsync();
+    }
+
+    // Which field a blocked submit takes the visitor to is ONE decision, not two that happen to
+    // agree today. The staging is the one shape the two candidate rules answer differently: an
+    // advisory reported ahead of the error that is actually blocking, so "the first error" lands
+    // on Customer.Name and "the first issue" would land on Description. Both roots are asserted
+    // against that same shape over the same model, so a change to the rule inside FirstErrorFocus
+    // moves both targets together, and a copy of the rule living privately in FormidableValidator
+    // would let one root move while the other stayed where it was.
+    //
+    // The two roots reach the same reported order by the only route each has: the owned form
+    // resolves it through IFormidableFieldOrderService, and attach mode — which resolves no order
+    // service, and is not given one here either — is handed the equivalent map directly. What is
+    // being pinned is what the rule does with the order, not where the order came from.
+    [Fact]
+    public async Task Both_roots_focus_the_first_error_reported_behind_an_advisory()
+    {
+        Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, AdvisoryAboveErrorValidator>();
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer!, nameof(EngineCustomer.Name));
+        Services.AddSingleton<IFormidableFieldOrderService>(
+            new RecordingFieldOrderService { Result = [description, customerName] });
+        Services.AddFormidableBlazor();
+        var module = SetUpFocusModule();
+
+        var attached = RenderForm(order, new FormidableOptions { DisclosureOverride = _ => true });
+        var validator = attached.FindComponent<FormidableValidator<EngineOrder>>();
+        ((FormValidationEngine<EngineOrder>)validator.Instance.Engine!).SetFieldOrder(
+            new Dictionary<FieldIdentifier, int> { [description] = 0, [customerName] = 1 });
+
+        await attached.InvokeAsync(() => validator.Instance.ValidateForSubmitAsync());
+        var attachedTarget = Assert.Single(module.Invocations["focusField"]).Arguments[0];
+
+        var owned = RenderOwnedForm(order);
+        await owned.InvokeAsync(() => owned.Instance.SubmitAsync());
+        Assert.Equal(2, module.Invocations["focusField"].Count);
+        var ownedTarget = module.Invocations["focusField"][1].Arguments[0];
+
+        // The staging, asserted rather than assumed: on both roots the advisory really is what
+        // reports first, so the two candidate rules genuinely disagree about where to land.
+        Assert.Equal(
+            "Description could be clearer",
+            validator.Instance.Engine!.GetVisibleIssues()[0].Issue.Message);
+        Assert.Equal(
+            "Description could be clearer",
+            owned.Instance.Engine!.GetVisibleIssues()[0].Issue.Message);
+
+        // One assertion over both roots rather than two, so a rule that moved reports BOTH targets
+        // moving rather than stopping at whichever root happened to be asserted first.
+        var firstError = FormidableFieldId.For(customerName);
+        Assert.Equal(new object?[] { firstError, firstError }, new[] { attachedTarget, ownedTarget });
+
+        await Services.DisposeAsync();
+    }
+
+    // A submit awaiting the engine's pipeline can still be in flight when the cascaded EditContext
+    // is replaced out from under it, which is what OnParametersSet disposes and rebuilds the
+    // engine for. The counterpart of FormidableFormComponentTests'
+    // SubmitAsync_suppresses_callbacks_when_ResetAsync_disposes_its_engine_mid_flight, for the
+    // root whose engine a page reaches through this component rather than owning. Two things make
+    // it discriminating at once: the validator does not observe its token, so the abandoned pass
+    // runs to completion instead of being cut short by the disposal, and it FAILS, so the verdict
+    // the guard has to suppress is one that carries both a summary and a field for focus to move
+    // to. Without the guard the outcome reports that stale summary and the focus service is asked
+    // for a field on a model nothing is editing any more.
+    [Fact]
+    public async Task A_submit_whose_engine_is_replaced_mid_flight_reports_blocked_and_moves_nothing()
+    {
+        Services.AddFormidableBlazor();
+        var module = SetUpFocusModule();
+        var validator = new CancellationIgnoringValidator { ShouldPass = false };
+        var order = new EngineOrder();
+
+        var host = Render<SwappableContextHost>(parameters => parameters
+            .Add(p => p.Model, order)
+            .Add(p => p.Validator, new FluentValidationModelValidator<EngineOrder>(validator)));
+        var attached = host.FindComponent<FormidableValidator<EngineOrder>>();
+
+        SubmitOutcome? outcome = null;
+        var submitTask = host.InvokeAsync(
+            async () => outcome = await attached.Instance.ValidateForSubmitAsync());
+        host.WaitForAssertion(() => Assert.True(validator.Started >= 1));
+
+        // A fresh EditContext over a fresh model reaches OnParametersSet, which disposes the
+        // engine the submit above is still awaiting and builds a replacement.
+        host.Render(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .Add(p => p.Validator, new FluentValidationModelValidator<EngineOrder>(validator)));
+
+        validator.Gate.SetResult(); // resolves - and fails - despite the pass's own token being cancelled
+        await submitTask;
+
+        Assert.NotNull(outcome);
+        Assert.False(outcome!.CanProceed);
+        Assert.Empty(outcome.VisibleErrorSummary); // the abandoned pass's own errors would fill this
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
     [Fact]
     public void Missing_cascading_edit_context_throws_clearly()
     {
@@ -139,12 +366,11 @@ public class FormidableValidatorComponentTests : BunitContext
     // Removing_a_row_after_a_submit_clears_its_summary_entry is the owned-mode analogue this
     // mirrors, down to the same validator, message and shortened RefreshDebounce. This is what
     // the FieldRegistry.Changed subscription exists to cover instead: draining it is what gets
-    // OnRenderedFieldsChanged to run at all (it prunes the live channel and — since HasSubmitted
-    // — arms the refresh), but a departed row's SUBMIT-time error is untouched by that prune; it
-    // clears only once the refresh actually re-validates against the model and finds the row's
-    // rule no longer firing (see OnRenderedFieldsChanged's own remarks). The refresh is a real
-    // timer independent of the renderer's dispatch queue, so only real time — not another
-    // drain — can wait for it.
+    // OnRenderedFieldsChanged to run at all (it prunes the live channel and arms the refresh),
+    // but a departed row's SUBMIT-time error is untouched by that prune; it clears only once the
+    // refresh actually re-validates against the model and finds the row's rule no longer firing
+    // (see OnRenderedFieldsChanged's own remarks). The refresh is a real timer independent of the
+    // renderer's dispatch queue, so only real time — not another drain — can wait for it.
     [Fact]
     public async Task Removing_a_row_in_attach_mode_clears_its_issues()
     {
@@ -401,6 +627,58 @@ public class FormidableValidatorComponentTests : BunitContext
         }
 
         Assert.Equal(baseline + 1, validator.ReconcileCount);
+    }
+
+    /// <summary>
+    /// Cascades an <see cref="EditContext"/> the host owns, rebuilt whenever <see cref="Model"/>
+    /// is swapped, with a <see cref="FormidableValidator{TModel}"/> beneath it. Cascading by hand
+    /// rather than through an <c>EditForm</c> is what keeps the same validator instance in place
+    /// across the swap: an <c>EditForm</c> renders its subtree inside a region keyed on its
+    /// EditContext, so a swap there tears the component down instead of letting it observe the
+    /// replacement through <c>OnParametersSet</c> - which is the branch under test.
+    /// </summary>
+    private sealed class SwappableContextHost : ComponentBase
+    {
+        // One instance for the life of the host: FormidableValidator reads Options once, when it
+        // builds the engine, and rejects a DIFFERENT instance arriving on a render that does not
+        // also rebuild the engine.
+        private readonly FormidableOptions _options = new() { DisclosureOverride = _ => true };
+        private EditContext? _editContext;
+        private EngineOrder? _boundModel;
+
+        [Parameter]
+        public EngineOrder Model { get; set; } = default!;
+
+        [Parameter]
+        public IModelValidator<EngineOrder>? Validator { get; set; }
+
+        protected override void OnParametersSet()
+        {
+            if (!ReferenceEquals(_boundModel, Model))
+            {
+                _boundModel = Model;
+                _editContext = new EditContext(Model);
+            }
+        }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<CascadingValue<EditContext>>(0);
+            builder.AddComponentParameter(1, "Value", _editContext);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                inner.AddComponentParameter(
+                    1, nameof(FormidableValidator<EngineOrder>.Options), _options);
+                if (Validator is not null)
+                {
+                    inner.AddComponentParameter(
+                        2, nameof(FormidableValidator<EngineOrder>.Validator), Validator);
+                }
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
     }
 
     private sealed class ContextProbe : ComponentBase

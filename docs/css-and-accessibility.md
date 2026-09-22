@@ -98,9 +98,24 @@ about submit rather than a note that the visitor stopped by, so it waits until e
 submit profile selects has an answer for the value as it stands and none of those answers faults
 the field. A failing answer the form has not disclosed yet counts, which is what stops an emptied
 required box wearing a confirmation border. Whichever pass answered those rules last is the one
-being read: a live pass, on a form whose `LiveProfile` already selects them;
-[`TrackFormValidity`](options.md#trackformvalidity)'s probe, on one whose profile doesn't; the
-submit itself; and the debounced refresh behind every post-submit edit. Until one of them has
+being read, and on the default profiles that is an ordinary live pass: `LiveProfile` defaults to
+the submit profile, so the pass behind any committed change lands the answer green is asking
+about, anywhere on the form.
+
+The submit itself answers the same way, and so does the debounced refresh: the one behind every
+post-submit edit, and the one behind any move in the rendered field set. That second one is partly
+green's own. A row arriving or a virtualized panel scrolling
+throws away the answers green was resting on, because the markup may have moved together with the
+model and nothing announced the second half. Rather than blink, the engine holds the answer it
+last gave and serves it until the pass that same move arms produces a new one. What bounds the
+hold is the value, not the clock: a committed change to any field retires the held answer on the
+spot, since it describes a model that change has left behind. So markup moving is not on its own
+something green reacts to. A value moving is, and so is a model that was changed alongside the
+markup without saying so, once the refresh lands and says which fields it fails.
+
+[`TrackFormValidity`](options.md#trackformvalidity)'s probe covers what is left: a form on which
+nothing has happened at all, one that narrows `LiveProfile` past those rules, and a validator with
+no rule-level seam, where a live pass is never taken as a coverage source. Until one of them has
 answered, a clean-looking field wears no tier class rather than a green one.
 
 The five class names themselves are configurable, each with a default:

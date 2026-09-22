@@ -31,7 +31,7 @@ public class FormValidationEngineLiveTests
     public void Field_change_applies_live_profile_issues_for_that_field_only()
     {
         _order.Description = new string('x', 11); // draft rule fails
-        _order.Customer = null;                   // submit rule fails — but live profile is Draft
+        _order.Customer = null;                   // submit rule fails — but Customer is never engaged
 
         _editContext.NotifyFieldChanged(DescriptionField);
 
@@ -70,7 +70,7 @@ public class FormValidationEngineLiveTests
     public void Warning_issues_do_not_write_edit_context_messages_but_surface_in_field_state()
     {
         _order.Description = "a-b"; // warning-severity submit rule; also passes draft rules
-        var options = new FormidableOptions { LiveProfile = ValidationProfile.Submit, DisclosureOverride = _ => true };
+        var options = new FormidableOptions { DisclosureOverride = _ => true };
         using var engine = new FormValidationEngine<EngineOrder>(
             _order, new EditContext(_order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),

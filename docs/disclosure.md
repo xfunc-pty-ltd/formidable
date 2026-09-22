@@ -32,8 +32,9 @@ explanation instead of quietly doing nothing —
 
 ```csharp
     /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
-    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing, so this one model-level
-    /// explanation stands in for the errors the user cannot see.</summary>
+    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing and nothing on screen
+    /// explains the block, so this one model-level explanation stands in for the errors the user
+    /// cannot see.</summary>
     private static readonly ValidationIssue GateIssue = new(
         string.Empty,
         "The form cannot be submitted because information that is not currently displayed is invalid.");
@@ -82,8 +83,9 @@ a submit re-validates the whole model and re-answers the watched fields, rather 
 membership again: a field whose error the user fixed loses its message because the rule stopped
 producing one, and if the value breaks again the message returns on the next refresh, with no
 second submit needed. The entry follows the answer; the watch follows the submit. A field nothing
-has ever watched stays quiet even while it's failing, and rendering it doesn't change that — it
-surfaces at the *next* submit.
+has ever watched contributes nothing to this channel even while it's failing, and rendering it
+doesn't change that — it surfaces here at the *next* submit. Whether anything is already speaking
+for it meanwhile is the live channel's business, on its own rule, below.
 
 End to end, that's submit as the disclosure event, an unregistered field's issue getting
 suppressed, the watch a shown field keeps, and the defensive gate catching the case where nothing
@@ -145,12 +147,20 @@ verdict answers every engaged field: the report's issues where it has them, an e
 where it says nothing. An engaged field's message therefore clears — or appears — because of an
 edit to a *different* field, which is what keeps a cross-field rule current between submits. A
 field never engaged keeps no live verdict at all, however loudly its rule is failing underneath.
-That's the entire mechanism behind [disclosing a rule on
-engagement](recipes.md#i-want-a-rule-to-disclose-on-engagement-instead-of-waiting-for-submit)
-without moving it out of the submit bucket, and it's also why a fresh, untouched row in a
-collection stays silent even when its rule is already failing against it: nothing has engaged its
-fields yet. Engagement ends the way a live issue does — a field pruned from the rendered set
-leaves the engaged set with it, one committed change away from re-engaging.
+That is the gate that does the work of keeping a form from nagging, and it is why a
+submit-ruleset rule can be evaluated live (`FormidableOptions.LiveProfile` follows the submit
+profile by default) without a fresh page complaining about fields nobody has reached. It is also
+why a fresh, untouched row in a collection stays silent even when its rule is already failing
+against it: nothing has engaged its fields yet. Rule selection is the second and blunter lever,
+and [narrowing it](recipes.md#i-want-to-narrow-what-the-live-channel-validates) is for rules too
+expensive to run per change rather than for rules merely strict.
+
+Where that line sits is deliberate. Focusing a field and tabbing back out again is not
+engagement: the visitor may only have been passing through, and a message that appears anyway is
+how people learn to stop reading a form's messages at all. Engagement is a committed value
+change, which is to say typing something or clearing something that was there. It ends the way a
+live issue does: a field pruned from the rendered set leaves the engaged set with it, one
+committed change away from re-engaging.
 [The live/refresh asymmetry](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)
 covers how this interacts with the debounced refresh that follows a submit.
 

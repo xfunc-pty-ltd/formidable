@@ -23,9 +23,10 @@ public class HandleValidator : DraftSubmitValidator<Handle>
 
     protected override void ConfigureDraftRules()
     {
-        // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
-        // the delay stands in for a server call and honours cancellation, so a superseded
-        // keystroke's check is abandoned.
+        // Async uniqueness sits in the always-on (Draft) bucket so a lenient draft save answers
+        // it too; what runs it on each committed change is the live channel, which evaluates
+        // whatever would block a submit. The delay stands in for a server call and honours
+        // cancellation, so a superseded keystroke's check is abandoned.
         RuleFor(h => h.Username)
             .MustAsync(async (username, cancellationToken) =>
             {
