@@ -48,7 +48,7 @@ jobs:
           test -s /tmp/subjects.txt || { echo "no commits read for origin/$BASE_REF..HEAD"; exit 1; }
           bad=0
           while IFS= read -r s; do
-            if ! printf '%s' "$s" | grep -qE '^(feat|fix|docs|test|refactor|perf|style|build|chore|ci)(\((core|blazor|aspnetcore|sample|e2e|docs|build)\))?!?: .{1,72}$'; then
+            if ! printf '%s' "$s" | grep -qE '^(feat|fix|docs|test|refactor|perf|style|build|chore|ci)(\((core|blazor|aspnetcore|sample|e2e|docs|build|deps)\))?!?: .{1,72}$'; then
               echo "not conventional: $s"; bad=1
             fi
           done < /tmp/subjects.txt

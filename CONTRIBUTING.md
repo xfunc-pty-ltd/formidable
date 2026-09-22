@@ -122,9 +122,10 @@ Where the change lands in one of the surfaces below, name it as an optional scop
 `core` (src/Formidable), `blazor` (src/Formidable.Blazor), `aspnetcore`
 (src/Formidable.AspNetCore), `sample` (everything under samples/), `e2e`
 (tests/Formidable.Sample.E2E), `docs` (docs/ + README + markdown corpus), `build`
-(solution/csproj/workflows/packaging). Rules: one scope per commit; omit when genuinely
-cross-cutting or when the type already names the surface (plain `docs:` for docs-corpus work);
-unit tests take the scope of the code under test (`test(blazor):`).
+(solution/csproj/workflows/packaging), `deps` (dependency bumps, Dependabot's own commits
+included). Rules: one scope per commit; omit when genuinely cross-cutting or when the type
+already names the surface (plain `docs:` for docs-corpus work); unit tests take the scope of
+the code under test (`test(blazor):`).
 
 ### XML documentation
 
