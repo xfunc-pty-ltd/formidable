@@ -18,10 +18,21 @@
         <FieldMessage For="() => _handle.Username" />
     </FormidableField>
 
+    <FormidableField For="() => _handle.DisplayName" Context="field">
+        <p>
+            <label>Display name <FormidableInputText For="() => _handle.DisplayName" @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
+            @if (field.State.IsValidating)
+            {
+                <em role="status">checking…</em>
+            }
+        </p>
+        <FieldMessage For="() => _handle.DisplayName" />
+    </FormidableField>
+
     <button type="submit">Submit</button>
 </FormidableForm>
 
-<p><small>Note: the pending flag is engine-wide in this release — with a single async field the effect is identical to a per-field flag.</small></p>
+<p><small>The pending flag is scoped to the field being edited during a live pass — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>
 
 @code {
     private readonly Handle _handle = new();

@@ -38,12 +38,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
     private HashSet<FieldIdentifier> _submitVisible = [];
     private HashSet<FieldIdentifier> _advisoryVisible = [];
+    private List<(FieldIdentifier Field, ValidationIssue Issue)> _appliedServerIssues = [];
     private ValidationIssue? _faultIssue;
 
     private ITimer? _refreshTimer;
     private CancellationTokenSource? _passCts;
     private bool _submitInFlight;
     private bool _disposed;
+    private FieldIdentifier? _validatingScope;
 
     private int _version;
 
@@ -105,7 +107,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         return new FieldState(
             IsTouched: _touched.Contains(field),
             IsModified: EditContext.IsModified(field),
-            IsValidating: IsValidating,
+            IsValidating: IsValidating && (_validatingScope is null || _validatingScope.Value.Equals(field)),
             HasErrors: issues.Any(i => i.Severity == ValidationSeverity.Error),
             HasWarnings: issues.Any(i => i.Severity == ValidationSeverity.Warning));
     }
@@ -208,14 +210,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     /// Flips <see cref="IsValidating"/> and notifies, marshaled through <see cref="_renderDispatch"/> so
     /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
     /// The write is skipped when <paramref name="version"/> no longer matches the current pass —
-    /// a superseded pass must not stomp a newer pass's state.
+    /// a superseded pass must not stomp a newer pass's state. <paramref name="scope"/> narrows which
+    /// field <see cref="GetFieldState"/> reports as validating: a live pass passes the field that
+    /// triggered it; submit and refresh passes pass <see langword="null"/> (form-wide, every field).
+    /// Only meaningful when <paramref name="value"/> is <see langword="true"/> — clearing always
+    /// clears the scope too.
     /// </summary>
-    private Task SetValidating(bool value, int version) =>
+    private Task SetValidating(bool value, int version, FieldIdentifier? scope = null) =>
         _renderDispatch(() =>
         {
             if (version == _version)
             {
                 IsValidating = value;
+                _validatingScope = value ? scope : null;
                 NotifyStateChanged();
             }
             return Task.CompletedTask;
@@ -230,7 +237,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
         var version = _version + 1;
         var token = BeginPass(CancellationToken.None);
-        await SetValidating(true, version).ConfigureAwait(false);
+        await SetValidating(true, version, changedField).ConfigureAwait(false);
         try
         {
             ValidationReport report;
@@ -402,6 +409,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     _submitAdvisories = [];
                     _submitVisible = [];
                     _advisoryVisible = [];
+                    _appliedServerIssues = [];
                 }
                 else
                 {
@@ -431,6 +439,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                         .GroupBy(x => x.Field, x => x.Issue)
                         .ToDictionary(g => g.Key, g => g.ToList());
                     _submitVisible = visibleErrors.Select(x => x.Field).ToHashSet();
+                    _appliedServerIssues = [];
 
                     _submitAdvisories = report.Issues
                         .Where(i => i.Severity != ValidationSeverity.Error)
@@ -467,6 +476,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 if (version == _version)
                 {
                     IsValidating = false;
+                    _validatingScope = null;
                     _submitInFlight = false;
                     NotifyStateChanged();
                 }
@@ -482,6 +492,26 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
         HasSubmitted = true;
         _faultIssue = null;
+
+        // The payload is the server's CURRENT verdict, not an addition to its last one: undo
+        // exactly what the previous call added before applying this call's issues. ValidationIssue
+        // is a record (value equality), so List<T>.Remove takes out one value-equal entry — the
+        // instance the previous apply added. If a client-sourced issue happens to be value-identical
+        // to a previously-applied server issue, removing either of the two equal entries is
+        // indistinguishable and acceptable.
+        foreach (var (field, issue) in _appliedServerIssues)
+        {
+            if (_submitIssues.TryGetValue(field, out var tracked))
+            {
+                tracked.Remove(issue);
+                if (tracked.Count == 0)
+                {
+                    _submitIssues.Remove(field);
+                }
+            }
+        }
+
+        _appliedServerIssues = [];
 
         foreach (var group in issues
             .Where(i => i.Severity == ValidationSeverity.Error)
@@ -499,7 +529,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 _submitIssues[field] = [.. group];
             }
 
-            _submitVisible.Add(field);
+            _submitVisible.Add(field); // sticky: reveal state never un-reveals a field
+
+            foreach (var issue in group)
+            {
+                _appliedServerIssues.Add((field, issue));
+            }
         }
 
         RebuildStore();
@@ -578,6 +613,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     .Where(x => _submitVisible.Contains(x.Field))
                     .GroupBy(x => x.Field, x => x.Issue)
                     .ToDictionary(g => g.Key, g => g.ToList());
+                _appliedServerIssues = [];
 
                 // Advisories follow the same "only what the user already saw" rule, but over the
                 // union of the two submit-time sets: a field that was an error site keeps any

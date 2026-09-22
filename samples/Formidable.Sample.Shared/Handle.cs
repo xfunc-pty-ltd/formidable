@@ -5,11 +5,13 @@ namespace Formidable.Sample.Shared;
 public class Handle
 {
     public string Username { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
 }
 
 public class HandleValidator : DraftSubmitValidator<Handle>
 {
     private static readonly string[] Taken = ["admin", "root", "formidable"];
+    private static readonly string[] TakenDisplayNames = ["Administrator", "Root User", "Formidable"];
 
     protected override void ConfigureDraftRules()
     {
@@ -24,6 +26,17 @@ public class HandleValidator : DraftSubmitValidator<Handle>
             })
             .WithMessage("That username is taken")
             .When(h => !string.IsNullOrEmpty(h.Username));
+
+        // A second, independent async field — demonstrates that the pending indicator during a
+        // live pass is scoped to the field being edited, not the whole form.
+        RuleFor(h => h.DisplayName)
+            .MustAsync(async (displayName, cancellationToken) =>
+            {
+                await Task.Delay(600, cancellationToken);
+                return !TakenDisplayNames.Contains(displayName, StringComparer.OrdinalIgnoreCase);
+            })
+            .WithMessage("That display name is taken")
+            .When(h => !string.IsNullOrEmpty(h.DisplayName));
     }
 
     protected override void ConfigureSubmitRules()

@@ -55,9 +55,9 @@
 
         // The engine applies error-severity issues to fields; non-error issues are the
         // page's to present (a 400's warnings ride alongside its errors by contract).
-        // Repeated calls accumulate — the engine appends per field with no dedup — so
-        // pressing Send twice with the same invalid payload duplicates the inline errors;
-        // the dedup policy is a deliberate open decision for the next phase.
+        // Each call replaces the previous server verdict — pressing Send again with new
+        // input swaps the old server errors for the new ones, rather than accumulating
+        // them, so a corrected resubmission cannot leave stale errors behind.
         _form!.Engine!.ApplyServerIssues(issues);
         _serverWarnings.AddRange(issues
             .Where(i => i.Severity != ValidationSeverity.Error)

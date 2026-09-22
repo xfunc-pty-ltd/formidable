@@ -63,16 +63,6 @@ public class FormValidationEngineServerIssueTests
     }
 
     [Fact]
-    public void Server_issues_merge_with_existing_submit_issues()
-    {
-        _engine.ApplyServerIssues([new ValidationIssue("Description", "first")]);
-        _engine.ApplyServerIssues([new ValidationIssue("Customer", "second")]);
-
-        Assert.NotEmpty(_editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
-        Assert.NotEmpty(_editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Customer))));
-    }
-
-    [Fact]
     public void Disclosure_override_false_suppresses_server_issue()
     {
         using var engine = new FormValidationEngine<EngineOrder>(
@@ -101,13 +91,64 @@ public class FormValidationEngineServerIssueTests
     }
 
     [Fact]
-    public void Same_field_issues_append_across_calls()
+    public void Same_field_issues_replace_across_calls()
     {
         _engine.ApplyServerIssues([new ValidationIssue("Description", "first")]);
         _engine.ApplyServerIssues([new ValidationIssue("Description", "second")]);
 
         var messages = _engine.EditContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))).ToList();
-        Assert.Contains("first", messages);
+        Assert.DoesNotContain("first", messages);
         Assert.Contains("second", messages);
+    }
+
+    [Fact]
+    public void Applying_the_same_server_payload_twice_does_not_duplicate()
+    {
+        var payload = new[] { new ValidationIssue("Description", "Server rejected this description") };
+        var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+
+        _engine.ApplyServerIssues(payload);
+        _engine.ApplyServerIssues(payload);
+
+        Assert.Equal(1, _engine.GetIssues(description).Count(i => i.Message == "Server rejected this description"));
+        Assert.Single(_editContext.GetValidationMessages(description));
+    }
+
+    [Fact]
+    public void A_new_server_payload_replaces_the_previous_verdict()
+    {
+        var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        var customer = new FieldIdentifier(_order, nameof(EngineOrder.Customer));
+
+        _engine.ApplyServerIssues([new ValidationIssue("Description", "Description rejected")]);
+        _engine.ApplyServerIssues([new ValidationIssue("Customer", "Customer rejected")]);
+
+        Assert.Empty(_engine.GetIssues(description));
+        Assert.Contains(_engine.GetIssues(customer), i => i.Message == "Customer rejected");
+    }
+
+    [Fact]
+    public async Task Client_submit_issues_survive_a_server_replace()
+    {
+        var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, _time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await engine.ValidateForSubmitAsync();
+        var clientMessage = Assert.Single(editContext.GetValidationMessages(description));
+
+        engine.ApplyServerIssues([new ValidationIssue("Description", "Server rejected this description")]);
+        Assert.Contains("Server rejected this description", editContext.GetValidationMessages(description));
+
+        engine.ApplyServerIssues([]);
+
+        var messages = editContext.GetValidationMessages(description).ToList();
+        Assert.Contains(clientMessage, messages);
+        Assert.DoesNotContain("Server rejected this description", messages);
     }
 }

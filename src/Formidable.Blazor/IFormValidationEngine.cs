@@ -14,7 +14,12 @@ public interface IFormValidationEngine
     /// <summary>The options this engine was constructed with (css class names, profiles, debounce).</summary>
     FormidableOptions Options { get; }
 
-    /// <summary>True while a validation pass is in flight.</summary>
+    /// <summary>
+    /// True while a validation pass is in flight — form-wide: true for any pass regardless of
+    /// which field triggered it. Field-scoped consumers (per-field "checking..." indicators)
+    /// should read <see cref="FieldState.IsValidating"/> via <see cref="GetFieldState"/> instead,
+    /// which narrows to the triggering field during a live pass.
+    /// </summary>
     bool IsValidating { get; }
 
     /// <summary>True once the submit pipeline has run (and validation failed or succeeded).</summary>
@@ -58,11 +63,21 @@ public interface IFormValidationEngine
 
     /// <summary>
     /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
-    /// submit results. These persist until the next debounced refresh replaces the
-    /// submit-visible state from the client validator's report; a server-only issue with no
-    /// matching client rule clears on that refresh. Call from the renderer's synchronization
-    /// context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and
-    /// triggers renders.
+    /// submit results. The payload is treated as the server's CURRENT verdict: each call replaces
+    /// the issues added by the previous call, rather than accumulating with them, so re-submitting
+    /// the same or a corrected payload does not duplicate inline errors. Client-sourced submit
+    /// issues on the same fields are unaffected by a replace. Only error-severity issues in
+    /// <paramref name="issues"/> are applied; other severities are ignored. Applied issues also
+    /// persist until the next debounced refresh replaces the submit-visible state from the client
+    /// validator's report; a server-only issue with no matching client rule clears on that refresh.
+    /// Call from the renderer's synchronization context (a Blazor event handler or
+    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
     /// </summary>
+    /// <remarks>
+    /// Replace is value-equality-based: if a client-sourced issue on a field is value-identical
+    /// to a server issue previously applied to that field, a subsequent replace may remove either
+    /// of the two equal entries — the two are indistinguishable, so which one is removed is
+    /// unspecified.
+    /// </remarks>
     void ApplyServerIssues(IReadOnlyList<ValidationIssue> issues);
 }
