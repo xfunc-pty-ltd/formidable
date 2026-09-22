@@ -13,9 +13,10 @@ public partial class FieldStateVisualizer : IDisposable
 
     private void HandleValid() => _status = "Submitted — state flags above tell the story.";
 
-    // TrackFormValidity's probe writes IsFormValid off the render sync context (it awaits the
-    // async username/display-name checks), so without this the readout and the disabled
-    // attribute below would only catch up on the next unrelated re-render.
+    // TrackFormValidity's probe lands its verdicts and the IsFormValid flip off the render
+    // sync context (it awaits the async username/display-name checks), so without this the
+    // readout, the disabled attribute, and the valid borders fed by the store's answer would
+    // only catch up on the next unrelated re-render.
     protected override void OnAfterRender(bool firstRender)
     {
         if (_subscribedEngine is null && _form?.Engine is { } engine)

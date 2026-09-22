@@ -175,9 +175,9 @@ public class FormValidationEngineFieldSetChangeTests
 
         // The verdict arrives for a field the prune already disengaged: the pass intersects its
         // pass-begin engaged snapshot with the set as it stands at apply time, so no entry lands.
-        // Writing one would restore precisely what the prune removed, and nothing filters the
-        // live channel on the way out, so it would stand in the summary until the next field-set
-        // change.
+        // The live view reads through the engaged set, so a written entry could not surface
+        // anyway - the intersect is what keeps the source from accumulating verdicts nothing
+        // can read.
         Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
     }
 

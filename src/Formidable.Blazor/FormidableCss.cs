@@ -1,8 +1,9 @@
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Shared field CSS class rule: errors win, ungated; touched/modified without errors is warning,
-/// info, or valid by the field's remaining advisory issues; pending appends while validating.
+/// Shared field CSS class rule: errors win, ungated; touched/modified without errors is warning
+/// or info by the field's remaining advisory issues, and valid only when it is also known the
+/// field would pass submit; pending appends while validating.
 /// </summary>
 public static class FormidableCss
 {
@@ -13,6 +14,7 @@ public static class FormidableCss
             state.IsTouched || state.IsModified,
             state.HasWarnings,
             state.HasInfos,
+            state.WouldPassSubmit,
             state.IsValidating,
             classes);
 
@@ -20,14 +22,20 @@ public static class FormidableCss
     /// Joins the already-decided booleans into a space-joined class string: invalid wins outright
     /// and ungated; touched-or-modified gates every other tier, within which warning beats info
     /// beats plain valid — a field the user must still fix never reads as merely advisory, and an
-    /// untouched, unmodified field earns no class at all regardless of what it carries. Pending
-    /// appends to whichever tier (or neither) applies. Private to <see cref="Compute"/>, its one
-    /// caller — a Formidable input and <see cref="FormidableFieldCssClassProvider"/>'s
+    /// untouched, unmodified field earns no class at all regardless of what it carries. Valid
+    /// alone carries one further requirement, <see cref="FieldState.WouldPassSubmit"/>: green is
+    /// a promise about submit, so a clean-looking field whose submit-selected rules have no
+    /// current answer — or whose current answer fails it undisclosed — wears no class rather
+    /// than a confirmation it has not earned. The advisory tiers ignore that bit deliberately: a
+    /// disclosed warning or info is a fact about the field regardless of what submit would say.
+    /// Pending appends to whichever tier (or neither) applies. Private to <see cref="Compute"/>,
+    /// its one caller — a Formidable input and <see cref="FormidableFieldCssClassProvider"/>'s
     /// native-input path both build a <see cref="FieldState"/> from their own sources and hand it
     /// to <see cref="Compute"/>, so this join happens in exactly one place for both.
     /// </summary>
     private static string Assemble(
-        bool invalid, bool touchedOrModified, bool hasWarnings, bool hasInfos, bool pending, FormidableCssClasses classes)
+        bool invalid, bool touchedOrModified, bool hasWarnings, bool hasInfos, bool wouldPassSubmit,
+        bool pending, FormidableCssClasses classes)
     {
         var baseClass = invalid
             ? classes.Invalid
@@ -37,7 +45,9 @@ public static class FormidableCss
                     ? classes.Warning
                     : hasInfos
                         ? classes.Info
-                        : classes.Valid;
+                        : wouldPassSubmit
+                            ? classes.Valid
+                            : string.Empty;
 
         if (!pending)
         {

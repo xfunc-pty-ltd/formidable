@@ -41,8 +41,11 @@ line up on their own — see
 
 `FormidableFieldMessage` and `FormidableCollectionMessage` split one job.
 `FormidableFieldMessage` renders a field's own issues but registers nothing itself — it needs a
-nearby input (or a `FormidableField`, or a `FormidableFieldAnchor`) to register that path, or its
-messages stay permanently unrevealed. `FormidableCollectionMessage` does its own registering,
+nearby input (or a `FormidableField`, or a `FormidableFieldAnchor`) to register that path, or
+nothing a submit finds for that field ever reaches the list. (A live verdict still reaches it,
+since the live channel goes by engagement rather than registration — see
+[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule).)
+`FormidableCollectionMessage` does its own registering,
 because a `List<T>` property like `Lines` has no input of its own for a collection-level rule
 (`Add at least one line`) to attach to — without it, that rule's failure would have nowhere in
 the markup to become visible at all.

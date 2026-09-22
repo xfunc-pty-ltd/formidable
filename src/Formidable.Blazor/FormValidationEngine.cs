@@ -14,11 +14,20 @@ namespace Formidable.Blazor;
 /// instances — reordering or removing collection rows cannot misattribute errors.
 /// </summary>
 /// <remarks>
-/// Validation-result state (issue maps, the store, IsValidating, HasSubmitted) mutates on the
-/// renderer's dispatcher and only from the still-current pass, for every validation pass — and
-/// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
-/// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
-/// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _currentPass,
+/// Disclosure state follows a sources-plus-views shape. The sources — the live channel's
+/// per-field verdicts, the submit channel's last submit-profile answer, the two reveal ledgers,
+/// the server-applied issue store, the gate arming, the fault issue, HasSubmitted, and the store
+/// and IsValidating beside them — mutate on the renderer's dispatcher and only from the
+/// still-current pass, for every validation pass — and synchronously on the calling thread
+/// within <see cref="ApplyServerIssues"/>, which is why that method (like
+/// <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the renderer's
+/// synchronization context. What an issue read returns is COMPUTED from those sources at read
+/// time — the live view is the live verdicts over the engaged set, the submit view is the last
+/// submit-profile answer over the reveal ledgers merged with the server store and the
+/// synthesized gate — and the <see cref="ValidationMessageStore"/> is a materialized projection
+/// of the same views, rebuilt whenever a source moves. No channel is ever written except through
+/// its sources, so a derived answer cannot be deleted piecemeal or left disagreeing with the
+/// state it derives from. Pass bookkeeping (_version, _passCts, _currentPass,
 /// _touched, _engagedFields, _pendingRefreshFields, _pendingDebouncedLiveFields) mutates
 /// synchronously on the caller's context — except on the dispatcher for: _pendingRefreshFields,
 /// when a refresh pass snapshots and clears it as it begins; _engagedFields, when a
@@ -32,13 +41,15 @@ namespace Formidable.Blazor;
 /// A third, independent mechanism covers IsFormValid: _formValidityStamp mutates synchronously
 /// on the caller's context when a probe starts, and IsFormValid itself mutates on the
 /// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
-/// _version gates issue maps with, but the probe is not a pass, so it never touches
+/// _version gates the channel sources with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
 /// A fourth mechanism covers the per-rule verdict store: _editStamp mutates synchronously on the
 /// caller's context as each field change arrives, while the store itself is read on the
-/// dispatcher as a pass decides what is left to execute and written only in a pass's verdict
-/// apply — version- and generation-gated, on the dispatcher, in the same dispatch as the issue
-/// maps beside it — and its generation mutates with the rendered-field-set change, also on the
+/// dispatcher as a pass or a validity probe decides what is left to execute and written only in
+/// a verdict landing — a pass's apply, version- and generation-gated, in the same dispatch as
+/// the channel sources beside it, or the probe's own dispatch, generation-gated and skipped
+/// when an edit has arrived since the probe began — and its generation mutates with the
+/// rendered-field-set change, also on the
 /// dispatcher. A pass in flight across such a change can therefore neither read a store that is
 /// mutating under it nor write verdicts computed against a page that has since moved.
 /// </remarks>
@@ -55,24 +66,64 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private readonly ValidationMessageStore _store;
     private readonly EventHandler<FieldChangedEventArgs> _fieldChangedHandler;
 
-    private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveIssues = [];
+    // The live channel's verdict source: each engaged field's answer from the live pass that
+    // most recently filed one — an empty list is a real answer (the field's rules passed), a
+    // missing entry means no pass has answered the field yet. The live VIEW is this dictionary
+    // read through the engaged set; nothing else ever filters it (see LiveIssuesFor).
+    private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveVerdicts = [];
+
     private readonly HashSet<FieldIdentifier> _touched = [];
 
     // The fields the user has committed a change to and that are still on the page — fed by
     // HandleFieldChanged, pruned by OnRenderedFieldsChanged, never cleared by any pass. A live
     // pass's verdict answers exactly this set (snapshotted as the pass begins), which is what
     // lets a cross-field verdict clear, or appear, on a field the triggering edit never named.
-    // Distinct from _touched: touched gates CSS state classes, engagement gates live verdict
-    // application.
+    // Distinct from _touched: touched gates CSS state classes, engagement gates the live
+    // channel — verdict application at a pass's apply, and disclosure at every read, since the
+    // live view answers only for engaged fields.
     private readonly HashSet<FieldIdentifier> _engagedFields = [];
 
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
-    private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitIssues = [];
-    private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
-    private HashSet<FieldIdentifier> _submitVisible = [];
-    private HashSet<FieldIdentifier> _advisoryVisible = [];
-    private List<(FieldIdentifier Field, ValidationIssue Issue)> _appliedServerIssues = [];
+
+    // The submit channel's client verdict source: the last submit or refresh pass's whole-model
+    // answer, resolved to fields — every error and every advisory, undisclosed ones included.
+    // What the channel SHOWS is this source read through the reveal ledgers below; keeping the
+    // full answer is what lets a ledger that grows mid-standing (a server apply reveals fields)
+    // disclose an already-computed error without another pass. On a rule-capable validator the
+    // published report is assembled from the per-rule verdict store, so this is the
+    // submit-profile-selected verdicts resolved once per publish; a whole-profile fallback
+    // validator publishes its last report here the same way, and every view reads identically.
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitVerdictErrors = [];
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitVerdictAdvisories = [];
+
+    // The reveal ledgers: which fields a blocked submit (or a server apply) has disclosed as
+    // error sites, and which as advisory sites. Reveal is FIELD-granular — one issue's yes
+    // reveals its field, and a revealed field's answer discloses whole, per-issue answers
+    // notwithstanding — and merges by UNION: once revealed, a field stays watched, so an error
+    // that returns after being fixed rediscloses on the next refresh. Only a successful submit
+    // resets them (errors un-reveal wholesale; advisories re-freeze to the fresh sites). Two
+    // sets because the two channels reveal independently: a field can be an advisory site
+    // without ever having been an error site.
+    private readonly HashSet<FieldIdentifier> _revealedErrorFields = [];
+    private readonly HashSet<FieldIdentifier> _revealedAdvisoryFields = [];
+
+    // The server verdict source: what the most recent ApplyServerIssues call put on screen, per
+    // field, per severity channel. An apply replaces it wholesale — the payload is the server's
+    // CURRENT verdict, not an addition to its last one — and every submit and refresh clears it:
+    // the server's answer is a snapshot of one round trip, and a newer whole-model answer
+    // supersedes it (a matching client issue continues through the client view by construction).
+    // Never mixed into the client sources above; the views merge the two at read time, client
+    // copy first, which is what makes the client's copy the one that shows on identical text.
+    private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _serverErrors = [];
+    private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _serverAdvisories = [];
+
+    // Armed by a blocked submit that disclosed no error at all — the all-suppressed case the
+    // defensive gate exists for — and disarmed by any submit that disclosed something or passed.
+    // Whether the gate actually SHOWS is the GateActive predicate over this and the sources
+    // above; no refresh touches this flag, which is half of what makes the gate un-erasable.
+    private bool _gateArmed;
+
     private ValidationIssue? _faultIssue;
     private IReadOnlyDictionary<FieldIdentifier, int>? _fieldOrder;
 
@@ -117,6 +168,32 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     // stands — a pass in flight across a field-set change would otherwise put back, verbatim,
     // exactly what the clear just removed.
     private int _storeGeneration;
+
+    // Moves whenever a source the submit-coverage read derives from moves — a pass or probe
+    // landing, the rendered-field-set clear — so the answer below can be cached per state
+    // rather than recomputed per field per render. The edit stamp is the cache key's other
+    // half; nothing else feeds the read.
+    private int _coverageVersion;
+
+    // The cached submit-coverage answer: whether every submit-selected rule has a current
+    // verdict, and which fields those verdicts fail (resolved once per recompute — resolution
+    // walks the model, and a per-read walk would put reflection behind every rendered field).
+    // Stamps of -1 mean never computed; the profile is remembered by reference because the
+    // options holding it are settable.
+    private int _coverageCacheEditStamp = -1;
+    private int _coverageCacheVersion = -1;
+    private ValidationProfile? _coverageCacheProfile;
+    private bool _coverageFresh;
+    private HashSet<FieldIdentifier>? _coverageErrorFields;
+
+    // The capability-less coverage source: the edit stamp at which the last COMPLETED
+    // whole-model SubmitProfile evaluation — a submit, a refresh, or a fallback probe — began,
+    // and the fields its report failed. A validator with no rule-level seam has no verdicts to
+    // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is
+    // the current stamp"; -1 until one completes, which is what keeps a never-evaluated form
+    // from wearing green it has not earned.
+    private int _lastSubmitAnswerStamp = -1;
+    private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
     // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
     // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
@@ -203,14 +280,102 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             IsValidating: IsFieldValidating(field),
             HasErrors: hasErrors,
             HasWarnings: hasWarnings,
-            HasInfos: hasInfos);
+            HasInfos: hasInfos,
+            WouldPassSubmit: WouldPassSubmit(field));
     }
 
     /// <summary>
-    /// Walks every channel that can hold an issue for <paramref name="field"/> — live, submit
-    /// errors, submit advisories — stopping the moment an error, a warning, and an info have all
-    /// been seen. <see cref="GetFieldState"/> and <see cref="IValidatingFieldReader.FieldAdvisories"/>
-    /// both answer from this one walk rather than each re-reading the channels their own way.
+    /// Whether the engine can vouch that a submit would not fail <paramref name="field"/> — the
+    /// Valid class's <see cref="FieldState.WouldPassSubmit"/> conjunct: the submit-selected
+    /// coverage is fresh at the current edit stamp AND carries no error-severity issue for the
+    /// field, disclosed or not. Freshness is form-level, deliberately — which fields a PASSING
+    /// rule speaks for is unknowable without per-rule field attribution the adapters cannot
+    /// honestly provide, so one form-wide answer covers every field — while dirtiness is
+    /// per-field, because a failing answer names its fields itself. What "coverage" means is
+    /// the capability split: a rule-capable validator's coverage is the verdict store (every
+    /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
+    /// validator's coverage is the last completed whole-model SubmitProfile evaluation —
+    /// submit, refresh, or probe — current exactly while its begin stamp is still the current
+    /// edit stamp.
+    /// </summary>
+    private bool WouldPassSubmit(FieldIdentifier field)
+    {
+        EnsureSubmitCoverageCurrent();
+        return _coverageFresh
+            && (_coverageErrorFields is null || !_coverageErrorFields.Contains(field));
+    }
+
+    /// <summary>
+    /// Recomputes the cached submit-coverage answer when the edit stamp, a coverage source, or
+    /// the submit profile has moved since it was last computed — once per state change rather
+    /// than once per field per render, since the walk selects rules and resolves the failing
+    /// verdicts' issues to fields. A selection that throws (a typo'd ruleset name, say) reads
+    /// as stale coverage rather than taking the render down: the next pass surfaces the same
+    /// exception through its own fault policy, which is where a configuration error belongs.
+    /// </summary>
+    private void EnsureSubmitCoverageCurrent()
+    {
+        var profile = _options.SubmitProfile;
+        if (_coverageCacheEditStamp == _editStamp
+            && _coverageCacheVersion == _coverageVersion
+            && ReferenceEquals(_coverageCacheProfile, profile))
+        {
+            return;
+        }
+
+        _coverageCacheEditStamp = _editStamp;
+        _coverageCacheVersion = _coverageVersion;
+        _coverageCacheProfile = profile;
+        _coverageFresh = false;
+        _coverageErrorFields = null;
+
+        if (_validator is not IRuleLevelValidator<TModel> ruleLevel || !ruleLevel.CanValidateByRule)
+        {
+            if (_lastSubmitAnswerStamp == _editStamp)
+            {
+                _coverageFresh = true;
+                _coverageErrorFields = _lastSubmitAnswerErrorFields.Count > 0
+                    ? _lastSubmitAnswerErrorFields
+                    : null;
+            }
+
+            return;
+        }
+
+        HashSet<FieldIdentifier>? errorFields = null;
+        try
+        {
+            foreach (var rule in ruleLevel.SelectRules(profile))
+            {
+                if (!_ruleVerdicts.TryGetValue(rule, out var verdict)
+                    || !verdict.IsFreshFor(_editStamp, profile))
+                {
+                    return; // a rule with no current answer: coverage is stale, fields moot
+                }
+
+                foreach (var issue in verdict.Issues)
+                {
+                    if (issue.Severity == ValidationSeverity.Error)
+                    {
+                        (errorFields ??= []).Add(Resolve(issue));
+                    }
+                }
+            }
+        }
+        catch (Exception)
+        {
+            return; // selection failed: nothing can vouch for anything — stale
+        }
+
+        _coverageFresh = true;
+        _coverageErrorFields = errorFields;
+    }
+
+    /// <summary>
+    /// Walks every channel view that can hold an issue for <paramref name="field"/> — live,
+    /// submit errors, submit advisories — stopping the moment an error, a warning, and an info
+    /// have all been seen. <see cref="GetFieldState"/> and <see cref="IValidatingFieldReader.FieldAdvisories"/>
+    /// both answer from this one walk rather than each re-reading the views their own way.
     /// </summary>
     private (bool HasErrors, bool HasWarnings, bool HasInfos) ScanFieldSeverities(FieldIdentifier field)
     {
@@ -218,17 +383,17 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         var hasWarnings = false;
         var hasInfos = false;
 
-        if (_liveIssues.TryGetValue(field, out var live))
+        if (LiveIssuesFor(field) is { } live)
         {
             ScanSeverities(live, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
-        if (!(hasErrors && hasWarnings && hasInfos) && _submitIssues.TryGetValue(field, out var submit))
+        if (!(hasErrors && hasWarnings && hasInfos) && SubmitErrorsFor(field) is { } submit)
         {
             ScanSeverities(submit, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
 
-        if (!(hasErrors && hasWarnings && hasInfos) && _submitAdvisories.TryGetValue(field, out var advisories))
+        if (!(hasErrors && hasWarnings && hasInfos) && SubmitAdvisoriesFor(field) is { } advisories)
         {
             ScanSeverities(advisories, ref hasErrors, ref hasWarnings, ref hasInfos);
         }
@@ -262,6 +427,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         return (hasWarnings, hasInfos);
     }
 
+    /// <inheritdoc cref="IValidatingFieldReader.WouldPassSubmit"/>
+    bool IValidatingFieldReader.WouldPassSubmit(FieldIdentifier field) => WouldPassSubmit(field);
+
     /// <inheritdoc cref="IValidatingFieldReader.InlineMessageRole"/>
     string? IValidatingFieldReader.InlineMessageRole => _options.InlineMessageRole;
 
@@ -276,12 +444,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </remarks>
     public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field)
     {
-        var hasSubmit = _submitIssues.TryGetValue(field, out var submit);
-        var hasAdvisories = _submitAdvisories.TryGetValue(field, out var advisories);
-        var hasLive = _liveIssues.TryGetValue(field, out var live);
+        var submit = SubmitErrorsFor(field);
+        var advisories = SubmitAdvisoriesFor(field);
+        var live = LiveIssuesFor(field);
         var fault = _faultIssue is not null && field.Equals(ModelLevelField) ? _faultIssue : null;
 
-        if (!hasSubmit && !hasAdvisories && !hasLive && fault is null)
+        if (submit is null && advisories is null && live is null && fault is null)
         {
             return NoIssues;
         }
@@ -289,19 +457,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         var result = new List<ValidationIssue>();
         var showing = new HashSet<string>(StringComparer.Ordinal);
 
-        if (hasSubmit)
+        if (submit is not null)
         {
-            AddShowing(result, showing, submit!);
+            AddShowing(result, showing, submit);
         }
 
-        if (hasAdvisories)
+        if (advisories is not null)
         {
-            result.AddRange(ExceptShadowed(advisories!, showing));
+            result.AddRange(ExceptShadowed(advisories, showing));
         }
 
-        if (hasLive)
+        if (live is not null)
         {
-            result.AddRange(ExceptShadowed(live!, showing));
+            result.AddRange(ExceptShadowed(live, showing));
         }
 
         if (fault is not null)
@@ -327,8 +495,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         var result = new List<VisibleIssue>();
 
         // Only the filtered phases consult the shadow map, so it exists only when there is one to
-        // consult it — a summary showing submit errors alone builds nothing.
-        var showing = _liveIssues.Count > 0 || _submitAdvisories.Count > 0
+        // consult it — a summary showing submit errors alone builds nothing. Counted from the
+        // sources rather than their filtered views, which errs only toward building a map that
+        // then goes unconsulted.
+        var showing = _liveVerdicts.Count > 0 || _submitVerdictAdvisories.Count > 0 || _serverAdvisories.Count > 0
             ? new Dictionary<FieldIdentifier, HashSet<string>>()
             : null;
 
@@ -338,7 +508,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             RecordShowing(showing, ModelLevelField, _faultIssue);
         }
 
-        foreach (var (field, issues) in _submitIssues)
+        foreach (var (field, issues) in SubmitErrorEntries())
         {
             foreach (var issue in issues)
             {
@@ -347,7 +517,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             }
         }
 
-        foreach (var (field, issues) in _submitAdvisories)
+        foreach (var (field, issues) in SubmitAdvisoryEntries())
         {
             foreach (var issue in ExceptShadowed(issues, ShowingFor(showing!, field)))
             {
@@ -357,7 +527,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         if (showing is not null)
         {
-            foreach (var (field, issues) in _liveIssues)
+            foreach (var (field, issues) in LiveEntries())
             {
                 foreach (var issue in ExceptShadowed(issues, ShowingFor(showing, field)))
                 {
@@ -374,6 +544,237 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // OrderBy is a stable sort, so several issues on one field keep the order the
         // validator produced them in.
         return result.OrderBy(v => _fieldOrder.TryGetValue(v.Field, out var ordinal) ? ordinal : int.MaxValue).ToList();
+    }
+
+    /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
+    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing, so this one model-level
+    /// explanation stands in for the errors the user cannot see.</summary>
+    private static readonly ValidationIssue GateIssue = new(
+        string.Empty,
+        "The form cannot be submitted because information that is not currently displayed is invalid.");
+
+    /// <summary>
+    /// Whether the defensive gate is showing. The gate is a predicate over source state rather
+    /// than a stored entry, which is what makes it impossible for a refresh to delete: it stands,
+    /// recomputed on every read, for as long as the submit that armed it stays the last word (a
+    /// blocked submit that disclosed no error at all) and the submit-profile answer still carries
+    /// errors none of which any surface shows. It dissolves the moment a revealed error exists —
+    /// the ledger can reveal one mid-standing, since a server apply reveals fields — or a
+    /// server-declared error is on screen, or the answer comes back clean; a later submit
+    /// re-decides the arming outright. The arming half matters: an error that starts failing
+    /// on a never-revealed field AFTER a submit that disclosed everything it had raises no gate,
+    /// because no blocked submit was ever short an explanation — the field stays quiet until the
+    /// next submit, exactly as an undisclosed verdict always does.
+    /// </summary>
+    private bool GateActive
+    {
+        get
+        {
+            if (!_gateArmed || _serverErrors.Count > 0 || _submitVerdictErrors.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var errorField in _submitVerdictErrors.Keys)
+            {
+                if (_revealedErrorFields.Contains(errorField))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The live channel's view for one field: the verdict the last live pass filed for it,
+    /// disclosed only while the field is engaged. Under the default
+    /// <see cref="LiveIssueDisclosure.Engaged"/> policy registration filters nothing here — an
+    /// engaged field's live verdict discloses on every surface whether or not anything currently
+    /// renders the field, which is the channel's contract (a field that LEAVES the page leaves
+    /// the engaged set with it, which <see cref="HasDeparted"/> decides). The opt-in policy
+    /// narrows that through <see cref="LiveViewOf"/>, the one gate every live surface shares.
+    /// </summary>
+    private List<ValidationIssue>? LiveIssuesFor(FieldIdentifier field) =>
+        _engagedFields.Contains(field) && _liveVerdicts.TryGetValue(field, out var live)
+            ? LiveViewOf(field, live)
+            : null;
+
+    /// <summary>
+    /// The live channel's view across fields: every engaged field's filed verdict, each read
+    /// through the same <see cref="LiveViewOf"/> gate the single-field view applies.
+    /// </summary>
+    private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> LiveEntries()
+    {
+        foreach (var (field, issues) in _liveVerdicts)
+        {
+            if (_engagedFields.Contains(field))
+            {
+                yield return (field, LiveViewOf(field, issues));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies <see cref="FormidableOptions.LiveDisclosure"/> to one engaged field's filed
+    /// verdict — the single place the policy exists, so every surface that shows the live
+    /// channel (the issue reads, the severity scan, the visible-issue collection, and the
+    /// message-store projection through them) answers identically by construction. The default
+    /// returns the verdict untouched. The opt-in filters per issue on the same override-aware
+    /// <see cref="IsVisible"/> the submit channel's reveal consults — per issue because the
+    /// override is per issue: one forced visible still shows from a field nothing renders.
+    /// Read from the options at every evaluation, since options mutate in place.
+    /// </summary>
+    private List<ValidationIssue> LiveViewOf(FieldIdentifier field, List<ValidationIssue> filed)
+    {
+        if (_options.LiveDisclosure == LiveIssueDisclosure.Engaged || filed.Count == 0)
+        {
+            return filed;
+        }
+
+        List<ValidationIssue>? visible = null;
+        for (var i = 0; i < filed.Count; i++)
+        {
+            if (IsVisible(filed[i], field))
+            {
+                visible?.Add(filed[i]);
+            }
+            else if (visible is null)
+            {
+                visible = new List<ValidationIssue>(filed.Count - 1);
+                for (var kept = 0; kept < i; kept++)
+                {
+                    visible.Add(filed[kept]);
+                }
+            }
+        }
+
+        return visible ?? filed;
+    }
+
+    /// <summary>
+    /// The submit channel's error view for one field: the client's last submit-profile answer
+    /// where the reveal ledger discloses it, then the server's errors the client is not already
+    /// showing — the same message at the same severity collapses to the client's copy, since the
+    /// client merges first — then the synthesized gate issue on the model-level field. Returns
+    /// <see langword="null"/> when the channel has nothing for the field, so the absent case and
+    /// an answered-clean case read apart.
+    /// </summary>
+    private List<ValidationIssue>? SubmitErrorsFor(FieldIdentifier field)
+    {
+        var client = _revealedErrorFields.Contains(field)
+            && _submitVerdictErrors.TryGetValue(field, out var revealed)
+                ? revealed
+                : null;
+
+        List<ValidationIssue>? merged = null;
+        if (_serverErrors.TryGetValue(field, out var server))
+        {
+            foreach (var issue in server)
+            {
+                if (client is null || !client.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
+                {
+                    merged ??= client is null ? [] : [.. client];
+                    merged.Add(issue);
+                }
+            }
+        }
+
+        if (field.Equals(ModelLevelField) && GateActive)
+        {
+            merged ??= client is null ? [] : [.. client];
+            merged.Add(GateIssue);
+        }
+
+        return merged ?? client;
+    }
+
+    /// <summary>
+    /// The submit channel's advisory view for one field: the client's last submit-profile
+    /// advisories where either reveal ledger discloses the field — an error site keeps a warning
+    /// it also picked up, and an advisory site keeps its own — then the server's advisories the
+    /// client is not already showing, collapsed on message AND severity, since the channel holds
+    /// every non-error severity in one list and the same sentence can exist at two of them.
+    /// </summary>
+    private List<ValidationIssue>? SubmitAdvisoriesFor(FieldIdentifier field)
+    {
+        var client = (_revealedErrorFields.Contains(field) || _revealedAdvisoryFields.Contains(field))
+            && _submitVerdictAdvisories.TryGetValue(field, out var revealed)
+                ? revealed
+                : null;
+
+        List<ValidationIssue>? merged = null;
+        if (_serverAdvisories.TryGetValue(field, out var server))
+        {
+            foreach (var issue in server)
+            {
+                if (client is null || !client.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
+                {
+                    merged ??= client is null ? [] : [.. client];
+                    merged.Add(issue);
+                }
+            }
+        }
+
+        return merged ?? client;
+    }
+
+    /// <summary>
+    /// Every field the submit channel's error view has entries for, paired with its merged view:
+    /// ledger-revealed fields in the order the report produced them, then fields only the server
+    /// speaks for in the order the apply produced them, then the model-level gate when the
+    /// predicate holds. <see cref="GetVisibleIssues"/> and <see cref="RebuildStore"/> both walk
+    /// this one enumeration, so the two surfaces cannot disagree about what the channel holds.
+    /// </summary>
+    private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitErrorEntries()
+    {
+        foreach (var field in _submitVerdictErrors.Keys)
+        {
+            if (_revealedErrorFields.Contains(field))
+            {
+                yield return (field, SubmitErrorsFor(field)!);
+            }
+        }
+
+        foreach (var field in _serverErrors.Keys)
+        {
+            // A field the first loop already yielded had its server entries merged there.
+            if (!(_revealedErrorFields.Contains(field) && _submitVerdictErrors.ContainsKey(field)))
+            {
+                yield return (field, SubmitErrorsFor(field)!);
+            }
+        }
+
+        if (GateActive)
+        {
+            yield return (ModelLevelField, new List<ValidationIssue> { GateIssue });
+        }
+    }
+
+    /// <summary>
+    /// The advisory sibling of <see cref="SubmitErrorEntries"/>: every field the submit channel's
+    /// advisory view has entries for, paired with its merged view.
+    /// </summary>
+    private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitAdvisoryEntries()
+    {
+        foreach (var field in _submitVerdictAdvisories.Keys)
+        {
+            if (_revealedErrorFields.Contains(field) || _revealedAdvisoryFields.Contains(field))
+            {
+                yield return (field, SubmitAdvisoriesFor(field)!);
+            }
+        }
+
+        foreach (var field in _serverAdvisories.Keys)
+        {
+            var clientShows = (_revealedErrorFields.Contains(field) || _revealedAdvisoryFields.Contains(field))
+                && _submitVerdictAdvisories.ContainsKey(field);
+            if (!clientShows)
+            {
+                yield return (field, SubmitAdvisoriesFor(field)!);
+            }
+        }
     }
 
     /// <summary>
@@ -558,24 +959,27 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// disclosed verdicts describe is not the page on screen.
     /// </summary>
     /// <remarks>
-    /// Five things follow, in that order. A live issue whose field is no longer rendered has no
-    /// site left to display it, so it goes — from the issue map and from the message store
-    /// alike, since the store is what a native <c>ValidationMessage</c> renders and what
-    /// <c>EditContext.GetValidationMessages</c> answers from, and a message for an element that
-    /// is gone is the very thing being removed. A field held by keep-registered has not left,
-    /// which is what lets a virtualized row scroll out of view without losing its messages. A
-    /// departed field also stops being one a live pass in flight will answer for, which is the
-    /// same removal made one step earlier: without it the verdict that pass is about to write
-    /// would put the pruned entry straight back. A field waiting only on an open
-    /// <see cref="FormidableOptions.LiveDebounce"/> window — no pass in flight yet — leaves the same
-    /// accumulator emptied of it, so the window's own eventual fire finds nothing left to answer for
-    /// once every field it opened for has gone; a fire that finds nothing at all starts no pass. The
-    /// stored rule verdicts go too: the stamp they are checked against counts edits, a
-    /// rendered-field-set move is not one, so a verdict taken before the move would read as
-    /// fresh while answering for a page — and, when a collection row was what left, a model —
-    /// that no longer exists. Then a submitted form schedules a
-    /// refresh, the one pass that recomputes the submit channel against the model as it stands.
-    /// That channel still speaks only for the sticky submit-time visible set, never for what is
+    /// Five things follow, in that order. A field that has LEFT the page leaves the engaged
+    /// set: the live channel disclosed its verdict only while it was engaged, so disengaging it
+    /// takes the issue off every surface at once — the engine's own reads and the message store
+    /// alike, since the store is a projection of the same view, rebuilt here when a filed
+    /// verdict left with its field. Having left is <see cref="HasDeparted"/>'s question and not
+    /// simply being unregistered: a field that never registered at all has not left, and under
+    /// <see cref="LiveIssueDisclosure.Engaged"/> keeping its verdict is the bridge contract
+    /// itself. A field held by keep-registered has not left either, which is what
+    /// lets a virtualized row scroll out of view without losing its messages. A departed field
+    /// also stops being one a live pass in flight will answer for: the pass intersects its
+    /// begin-time engaged snapshot with the set as it stands at apply, so the verdict it is
+    /// about to write cannot re-file the entry the prune just dropped. A field waiting only on
+    /// an open <see cref="FormidableOptions.LiveDebounce"/> window — no pass in flight yet —
+    /// leaves the same accumulator emptied of it, so the window's own eventual fire finds
+    /// nothing left to answer for once every field it opened for has gone; a fire that finds
+    /// nothing at all starts no pass. The stored rule verdicts go too: the stamp they are
+    /// checked against counts edits, a rendered-field-set move is not one, so a verdict taken
+    /// before the move would read as fresh while answering for a page — and, when a collection
+    /// row was what left, a model — that no longer exists. Then a submitted form schedules a
+    /// refresh, the one pass that recomputes the submit channel's answer against the model as it
+    /// stands. That channel still speaks only for the revealed-field ledgers, never for what is
     /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
     /// entry goes because its rule no longer fires, not because the row left the page — and an
     /// entry for a field a collapsed section took away survives, because the rule still fails.
@@ -588,65 +992,74 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </remarks>
     internal void OnRenderedFieldsChanged()
     {
-        // Rendered-ness alone: DisclosureOverride is not consulted, so an issue an override
-        // forces visible still goes once its field unregisters. The override decides whether an
-        // unrendered field's issue may be SHOWN; nothing filters the live channel at all, and
-        // re-deciding that here — per issue, over a map keyed by field — would suppress live
-        // issues the engine otherwise reports. A field that never rendered can hold a live issue
-        // too, since a consumer may notify a change for one, and it leaves the same way: what
-        // is not on the page has nowhere to show it.
+        // Departure alone: DisclosureOverride is not consulted, so an issue an override forces
+        // visible still goes once its field departs. The override decides whether an unrendered
+        // field's issue may be SHOWN on the submit channel; engagement is the live channel's only
+        // predicate, and re-deciding disclosure here — per issue, over a set keyed by field —
+        // would suppress live issues the engine otherwise reports. A field that never rendered
+        // can be engaged too, since a consumer may notify a change for one, and it is precisely
+        // the field this must not drop: it never arrived, so it cannot have left, and every
+        // surface the default discloses it on — the store a native ValidationMessage reads above
+        // all — is one it reaches without a registration of its own.
         //
-        // Collected first: removing from the dictionary while enumerating its keys throws, and in
-        // the common case (a page whose churn is rows arriving, or a virtualized one whose rows
-        // stay registered) nothing leaves and there is no list to allocate.
+        // Collected first: removing from the set while enumerating it throws, and in the common
+        // case (a page whose churn is rows arriving, or a virtualized one whose rows stay
+        // registered) nothing leaves and there is no list to allocate. The filed live verdict
+        // goes with the engagement — the view would hide it anyway, and an unreadable entry is
+        // only a leak — and a republish is owed exactly when one was dropped: the store carried
+        // that verdict's errors, and dropping one without the other leaves an engine read and an
+        // EditContext read disagreeing, the store still offering a message whose field has no
+        // element left to focus. A departure that had no verdict filed changed nothing any
+        // surface shows, so it publishes nothing — the shape MarkTouched already notifies with,
+        // and what keeps a churning page from paying a render round per registration change.
         List<FieldIdentifier>? departed = null;
-        foreach (var field in _liveIssues.Keys)
+        foreach (var field in _engagedFields)
         {
-            if (!IsRendered(field))
+            if (HasDeparted(field))
             {
                 (departed ??= []).Add(field);
             }
         }
 
+        var republished = false;
         if (departed is not null)
         {
+            var republish = false;
             foreach (var field in departed)
             {
-                _liveIssues.Remove(field);
+                _engagedFields.Remove(field);
+                republish |= _liveVerdicts.Remove(field);
             }
 
-            // The issue map is not the only place these live: the message store holds the same
-            // errors for the platform's own components to render, and dropping one without the
-            // other leaves an engine read and an EditContext read disagreeing — the store still
-            // offering a message whose field has no element left to focus. Rebuilding repairs
-            // that and publishes it, which is why this is a rebuild rather than a bare
-            // notification. Gated on something having actually left, the shape MarkTouched
-            // already notifies with: a virtualized row scrolling out is keep-registered, so
-            // nothing departs and a churning page pays nothing for this.
+            if (republish)
+            {
+                RebuildStore();
+                republished = true;
+            }
+        }
+
+        // Under the opt-in live-disclosure policy the registered field set is one of the live
+        // view's own inputs — a field REGISTERING can disclose a live verdict the store was not
+        // projecting, exactly as a departure can retract one — so a field-set change with filed
+        // verdicts standing owes a republish in that mode. The default policy never consults
+        // registration, which is what keeps the default's churn cost at the departure-only
+        // republish above.
+        if (!republished
+            && _liveVerdicts.Count > 0
+            && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)
+        {
             RebuildStore();
         }
 
-        // The same argument, applied one step earlier: a field that has left the page has no
-        // verdict to receive, so it leaves the engaged set too. A live pass writes an entry for
-        // every engaged field when its verdict lands — intersecting its pass-begin snapshot with
-        // this set as it stands then — so leaving a departed field engaged would put back exactly
-        // what was just pruned, and for a field whose rule still fails (a collapsed section,
-        // whose object is still on the model) the entry put back is the issue itself. Nothing
-        // filters the live channel at read time, so it would then stand until the next field-set
-        // change. A field that comes back re-engages with its next committed change, which is
-        // one edit away.
-        //
-        // Its own pass rather than the loop above, because the two sets do not have the same
-        // members: a field engaged for the first time is awaiting a verdict while holding no
-        // issue yet, and that is the case where the pass in flight is about to create the entry
-        // rather than restore one.
-        _engagedFields.RemoveWhere(field => !IsRendered(field));
-
-        // One step earlier again: a field an open live-debounce window has only accumulated is
-        // not yet pending any pass's verdict, only the window's own fire. Left in, that fire would
-        // hand it to RunLivePassAsync and let it re-create the same entry the two prunes above
-        // just removed, for a field the window opened for that no longer has anywhere to answer.
-        _pendingDebouncedLiveFields.RemoveWhere(field => !IsRendered(field));
+        // One step earlier: a field an open live-debounce window has only accumulated is not yet
+        // pending any pass's verdict, only the window's own fire. Left in, that fire would hand
+        // it to RunLivePassAsync for a field the window opened for that no longer has anywhere
+        // to answer — the pass's own engaged intersect would drop the verdict, but the pass
+        // would still have run for nothing. The same departure test as the engagement prune
+        // above, and necessarily so: the accumulator holds a live answer owed to an engaged
+        // field, so dropping an entry the engaged set keeps would leave that field waiting on a
+        // window whose fire no longer speaks for it.
+        _pendingDebouncedLiveFields.RemoveWhere(HasDeparted);
 
         // The verdict store empties whole, and the generation moves with it. The edit counter
         // cannot see this particular change — it counts field changes, and a change to which
@@ -658,6 +1071,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // to write, so the clear cannot be undone by work that predates it.
         _ruleVerdicts.Clear();
         _storeGeneration++;
+        _coverageVersion++; // the emptied store answers for nothing: the coverage read re-derives
 
         if (HasSubmitted)
         {
@@ -877,7 +1291,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan = null!;
                     await _renderDispatch(() =>
                     {
-                        plan = BuildRulePlan(ruleLevel, profile, kind, editStamp);
+                        plan = BuildRulePlan(ruleLevel, profile, kind == PassKind.Submit, editStamp);
                         return Task.CompletedTask;
                     }).ConfigureAwait(false);
 
@@ -929,6 +1343,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
                 applyVerdict(report);
 
+                // Coverage bookkeeping, after the apply so the submit channel's source is the
+                // one this pass just rebuilt. A submit or refresh IS a completed whole-model
+                // SubmitProfile evaluation, so its begin stamp and its resolved error fields
+                // become the capability-less coverage source — the apply resolved every error,
+                // undisclosed ones included, which is exactly what "would fail submit" needs.
+                // The coverage version moves for every landing, live passes included: any
+                // landing can have written verdicts the coverage read derives from.
+                if (kind != PassKind.Live)
+                {
+                    _lastSubmitAnswerStamp = editStamp;
+                    _lastSubmitAnswerErrorFields = [.. _submitVerdictErrors.Keys];
+                }
+
+                _coverageVersion++;
+
                 // The pass ends here, not only in the finally below: retiring it before
                 // RebuildStore's notification means the verdict and the cleared pending indicator
                 // reach every subscriber in one round instead of two back-to-back ones — and the
@@ -957,17 +1386,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// Decides, rule by rule, what a capability pass has left to execute: the profile's whole
-    /// selection in declaration order, each rule paired with its fresh stored verdict where one
-    /// exists — or with nothing, meaning the pass must run it. A submit pairs every rule with
-    /// nothing by fiat: it is the disclosure event, and its full run is also what repopulates
-    /// the store so the passes behind it start from answered rules. Runs on the dispatcher (the
-    /// caller marshals), because the store is read here and mutates only there.
+    /// Decides, rule by rule, what a capability evaluation has left to execute: the profile's
+    /// whole selection in declaration order, each rule paired with its fresh stored verdict
+    /// where one exists — or with nothing, meaning the caller must run it. A submit sets
+    /// <paramref name="executeAll"/> and pairs every rule with nothing by fiat: it is the
+    /// disclosure event, and its full run is also what repopulates the store so everything
+    /// behind it starts from answered rules; the live and refresh passes, and the validity
+    /// probe, all consult freshness. Runs on the dispatcher (the caller marshals), because the
+    /// store is read here and mutates only there.
     /// </summary>
     private List<(RuleIdentity Rule, RuleVerdict? Fresh)> BuildRulePlan(
         IRuleLevelValidator<TModel> ruleLevel,
         ValidationProfile profile,
-        PassKind kind,
+        bool executeAll,
         int editStamp)
     {
         var selection = ruleLevel.SelectRules(profile);
@@ -975,7 +1406,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         foreach (var rule in selection)
         {
-            var fresh = kind != PassKind.Submit
+            var fresh = !executeAll
                 && _ruleVerdicts.TryGetValue(rule, out var verdict)
                 && verdict.IsFreshFor(editStamp, profile)
                     ? verdict
@@ -1103,7 +1534,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 {
                     if (_engagedFields.Contains(field))
                     {
-                        _liveIssues[field] = byField.TryGetValue(field, out var forField) ? forField : [];
+                        _liveVerdicts[field] = byField.TryGetValue(field, out var forField) ? forField : [];
                     }
                 }
             }).ConfigureAwait(false);
@@ -1111,21 +1542,34 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>
     /// The whole-form validity probe behind <see cref="FormidableOptions.TrackFormValidity"/>: a
-    /// standalone <see cref="FormidableOptions.SubmitProfile"/> validation, not an engine pass —
-    /// it never calls <see cref="BeginPass"/>, writes nothing to the message store or the field
-    /// registry, and never touches the pending indicator. Its only effect is
-    /// <see cref="IsFormValid"/>, written only when the computed value differs from the current
-    /// one (a flip, not every probe) and only while <c>stamp</c> is still the most recently taken
-    /// one — a probe a newer probe has already superseded discards its own answer rather than
-    /// overwrite a fresher one, the same last-write-wins discipline every pass verdict already
-    /// follows via <c>_version</c>. A submit orders itself ahead of every probe the same way: its
-    /// own verdict apply calls <see cref="AdoptFormValidity"/>, which bumps this same stamp, so a
-    /// probe that started before the submit began cannot land after it and overwrite its answer
-    /// — see <see cref="AdoptFormValidity"/> for why submit (and refresh) can adopt directly
-    /// instead of merely invalidating. A probe never starts while a submit is already in flight,
-    /// for the same reason a live pass never does (see <see cref="RunLivePassAsync"/>): submit is
-    /// about to compute this exact quantity itself moments from now, so racing it buys nothing.
-    /// A probe that faults reports the only way a fire-and-forget pass can: through
+    /// standalone <see cref="FormidableOptions.SubmitProfile"/> evaluation, not an engine pass —
+    /// it never calls <see cref="BeginPass"/>, discloses nothing, and never touches the pending
+    /// indicator. On a rule-capable validator the probe reads and feeds the verdict store: only
+    /// the submit-selected rules with no fresh verdict at the probe's begin stamp execute — per
+    /// rule, under <c>_probeCts</c> — and what ran lands back into the store on the dispatcher,
+    /// generation-gated exactly as a pass's store write is, and skipped outright when an edit
+    /// has arrived since the probe began: verdicts stamped for a model state that is no longer
+    /// current would never be served, and writing them could only displace fresher entries a
+    /// pass landed meanwhile. A probe whose every selected rule is already answered executes
+    /// nothing and is a pure read. Any other validator gets the whole profile in one call —
+    /// correct, unoptimised — and its completed report is recorded as the capability-less
+    /// coverage source under the same begin stamp. Either way, a landing that moved a coverage
+    /// source publishes one notification round, engine and EditContext both: the coverage is
+    /// what the Valid state class reads, so the landing can change a rendered class with no
+    /// pass anywhere to publish for it.
+    /// <see cref="IsFormValid"/> itself is written only when the computed value differs from the
+    /// current one (a flip, not every probe) and only while <c>stamp</c> is still the most
+    /// recently taken one — a probe a newer probe has already superseded discards its own answer
+    /// rather than overwrite a fresher one, the same last-write-wins discipline every pass
+    /// verdict already follows via <c>_version</c>. A submit orders itself ahead of every probe
+    /// the same way: its own verdict apply calls <see cref="AdoptFormValidity"/>, which bumps
+    /// this same stamp, so a probe that started before the submit began cannot land after it and
+    /// overwrite its answer — see <see cref="AdoptFormValidity"/> for why submit (and refresh)
+    /// can adopt directly instead of merely invalidating. A probe never starts while a submit is
+    /// already in flight, for the same reason a live pass never does (see
+    /// <see cref="RunLivePassAsync"/>): submit is about to compute this exact quantity itself
+    /// moments from now, so racing it buys nothing.
+    /// A probe that faults reports the only way a fire-and-forget evaluation can: through
     /// <see cref="ValidationFaulted"/>, exactly as a live or refresh pass's own fault does — never
     /// a form-level fault issue, which would disclose something an invisible probe promises never
     /// to. Without this, a validator that throws on the submit profile (the profile a live pass
@@ -1142,11 +1586,41 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         var stamp = ++_formValidityStamp;
 
+        // Captured synchronously, mirroring a pass's own begin: the edit stamp names the model
+        // state this probe's answer — and any verdicts it lands — speaks for, the generation
+        // names the rendered field set they were computed against, and the profile is
+        // remembered because the options holding it are settable.
+        var editStamp = _editStamp;
+        var generation = _storeGeneration;
+        var profile = _options.SubmitProfile;
+
+        var ruleLevel = _validator as IRuleLevelValidator<TModel>;
+        var ruleCapable = ruleLevel is not null && ruleLevel.CanValidateByRule;
+
         ValidationReport report;
+        Dictionary<RuleIdentity, RuleVerdict>? executed = null;
         try
         {
-            report = await _validator.ValidateAsync(_model, _options.SubmitProfile, _probeCts.Token)
-                .ConfigureAwait(false);
+            if (ruleCapable)
+            {
+                // The same dispatch discipline the pass skeleton uses: the store is read on the
+                // dispatcher, where it mutates. A selection error surfaces through the fault
+                // policy below, exactly as a whole-profile validation would surface it.
+                List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan = null!;
+                await _renderDispatch(() =>
+                {
+                    plan = BuildRulePlan(ruleLevel!, profile, executeAll: false, editStamp);
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+
+                (report, executed) = await ExecuteRulePlanAsync(ruleLevel!, profile, plan, editStamp, _probeCts.Token)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                report = await _validator.ValidateAsync(_model, profile, _probeCts.Token)
+                    .ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1160,14 +1634,58 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         await _renderDispatch(() =>
         {
-            if (!_disposed && stamp == _formValidityStamp)
+            if (_disposed)
             {
+                return Task.CompletedTask;
+            }
+
+            var movedCoverage = false;
+
+            if (executed is { Count: > 0 } && generation == _storeGeneration && editStamp == _editStamp)
+            {
+                foreach (var (rule, verdict) in executed)
+                {
+                    _ruleVerdicts[rule] = verdict;
+                }
+
+                movedCoverage = true;
+            }
+
+            if (stamp == _formValidityStamp)
+            {
+                if (!ruleCapable)
+                {
+                    // The completed whole-profile answer is the capability-less coverage
+                    // source; its errors resolve to fields here, once per probe, so the
+                    // per-field coverage read never resolves per render. Deliberately no
+                    // editStamp guard on this record, unlike the store write above: a record
+                    // whose stamp trails the edit counter can never compare fresh, and any
+                    // fresher writer bumped _formValidityStamp first — the gate this branch
+                    // already sits behind.
+                    var errorFields = new HashSet<FieldIdentifier>();
+                    foreach (var issue in report.Errors)
+                    {
+                        errorFields.Add(Resolve(issue));
+                    }
+
+                    _lastSubmitAnswerStamp = editStamp;
+                    _lastSubmitAnswerErrorFields = errorFields;
+                    movedCoverage = true;
+                }
+
                 var isFormValid = report.IsValid;
                 if (isFormValid != IsFormValid)
                 {
                     IsFormValid = isFormValid;
                     NotifyStateChanged();
                 }
+            }
+
+            if (movedCoverage)
+            {
+                _coverageVersion++;
+                NotifyStateChanged();
+                EditContext.NotifyValidationStateChanged();
             }
 
             return Task.CompletedTask;
@@ -1178,7 +1696,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// Adopts a whole-model <see cref="FormidableOptions.SubmitProfile"/> report's validity
     /// directly into <see cref="IsFormValid"/> — called from the submit and refresh verdict
     /// applies, both of which already compute exactly this quantity as part of their own pass, so
-    /// there is nothing left for a separate probe to add. Bumps <c>_formValidityStamp</c>
+    /// there is nothing left for a separate probe to add. On a rule-capable validator the
+    /// adopted report is assembled from the verdict store the pass just repopulated, so this IS
+    /// the store read landing: every submit-selected rule is fresh at the pass's stamp the
+    /// moment this runs, and the value written is what those verdicts say. Bumps
+    /// <c>_formValidityStamp</c>
     /// regardless of whether the value actually changes: a pass's own verdict is authoritative
     /// over any probe that merely happened to start earlier, so any such probe still in flight
     /// (or one that already finished and is only now reaching its write-back) must discard its
@@ -1251,6 +1773,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         field.Equals(ModelLevelField) || Registry.IsRevealed(field);
 
     /// <summary>
+    /// Whether the field has LEFT the page: something registered it once, and nothing does now.
+    /// The engagement lifetime's own test, and deliberately not <see cref="IsRendered"/>'s
+    /// negation — a field nothing has ever registered has not departed, it has never arrived,
+    /// and under <see cref="LiveIssueDisclosure.Engaged"/> its live verdict is exactly what the
+    /// bridge contract keeps: an anchor-free native input registers nothing at any point, so a
+    /// prune that read the two states as one would retract its error the first time anything
+    /// ELSE on the page registered or unregistered. Disclosure asks a different question and goes
+    /// on asking <see cref="IsVisible"/>: not whether the field ever arrived, but whether the page
+    /// is showing somewhere its issue could be read right now.
+    /// </summary>
+    private bool HasDeparted(FieldIdentifier field) =>
+        Registry.HasEverRegistered(field) && !IsRendered(field);
+
+    /// <summary>
     /// The submit report's non-error issues, resolved and filtered to visible fields, grouped by
     /// field. Used identically by both branches of <see cref="ValidateForSubmitAsync"/> — whether
     /// or not the same report also contains errors has no bearing on which of its advisories are
@@ -1269,7 +1805,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// object walk per issue, rather than one per issue for every field waiting on the verdict.
     /// </summary>
     private Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
-        IReadOnlyList<ValidationIssue> issues)
+        IEnumerable<ValidationIssue> issues)
     {
         var grouped = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
 
@@ -1287,6 +1823,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         return grouped;
     }
 
+    /// <summary>
+    /// Rebuilds the <see cref="ValidationMessageStore"/> as a materialized projection of the
+    /// channel views and publishes the result. The EditContext API takes writes, so this runs at
+    /// every publish point — a pass's verdict apply, a server apply, a departure that dropped a
+    /// filed live verdict — and the store between rebuilds is exactly what the views said the
+    /// last time a source moved.
+    /// </summary>
     private void RebuildStore()
     {
         _store.Clear();
@@ -1296,7 +1839,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             _store.Add(ModelLevelField, _faultIssue.Message);
         }
 
-        foreach (var (field, issues) in _submitIssues)
+        foreach (var (field, issues) in SubmitErrorEntries())
         {
             foreach (var issue in issues.Where(i => i.Severity == ValidationSeverity.Error))
             {
@@ -1304,7 +1847,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             }
         }
 
-        foreach (var (field, issues) in _liveIssues)
+        foreach (var (field, issues) in LiveEntries())
         {
             // Deliberately not the shadow rule the issue reads share: the against-list here is this
             // field's submit issues alone and never grows, so two live errors carrying the same
@@ -1312,12 +1855,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             // store is the interop surface a native ValidationMessage/ValidationSummary renders
             // straight out, so narrowing the merge here would change what those components show
             // rather than what an engine read returns.
-            var existing = _submitIssues.TryGetValue(field, out var submit)
-                ? submit
-                : (IReadOnlyList<ValidationIssue>)[];
+            var existing = SubmitErrorsFor(field);
             foreach (var issue in issues.Where(i => i.Severity == ValidationSeverity.Error))
             {
-                if (!existing.Any(s => s.Message == issue.Message))
+                if (existing is null || !existing.Any(s => s.Message == issue.Message))
                 {
                     _store.Add(field, issue.Message);
                 }
@@ -1357,7 +1898,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // this report's. The engaged set itself stands — engagement records which fields
                 // the user has committed changes to, and submitting does not un-commit them — so
                 // the first post-submit live pass re-answers every engaged field.
-                _liveIssues.Clear();
+                _liveVerdicts.Clear();
+
+                // The server verdict is a snapshot of one round trip, and this pass is a newer
+                // whole-model answer: whatever the server said is superseded, both branches
+                // alike. A client rule that fails the same way keeps its message showing through
+                // the client's own answer.
+                _serverErrors.Clear();
+                _serverAdvisories.Clear();
 
                 // Submit already IS the whole-model SubmitProfile validation IsFormValid tracks —
                 // adopting it here means a disable-submit button reflects the submit's own answer
@@ -1371,56 +1919,73 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     // rule). Warning lifetime is symmetric with errors: submit is the disclosure
                     // event regardless of which severity it reveals, so advisories are captured here
                     // exactly as the invalid branch below captures them, even though there is no
-                    // error to pair them with.
+                    // error to pair them with. A successful submit is also the one event that
+                    // resets the reveal ledgers: errors un-reveal wholesale, advisories re-freeze
+                    // to the fresh sites.
                     canProceed = true;
-                    _submitIssues = [];
-                    _submitVisible = [];
-                    _appliedServerIssues = [];
+                    _submitVerdictErrors = [];
+                    _revealedErrorFields.Clear();
+                    _gateArmed = false;
 
-                    _submitAdvisories = ResolveVisibleAdvisories(report);
-                    _advisoryVisible = _submitAdvisories.Keys.ToHashSet();
+                    _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
+                    _revealedAdvisoryFields.Clear();
+                    _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
                 }
                 else
                 {
                     var resolvedErrors = report.Errors
                         .Select(issue => (Issue: issue, Field: Resolve(issue)))
                         .ToList();
-                    var visibleErrors = resolvedErrors.Where(x => IsVisible(x.Issue, x.Field)).ToList();
 
-                    foreach (var suppressed in resolvedErrors.Where(x => !IsVisible(x.Issue, x.Field)))
+                    // Reveal is field-granular, and the ledger unions first so everything below
+                    // answers from the state the views will actually read. An issue whose own
+                    // visibility answer is yes — registration, or an override saying so —
+                    // reveals its FIELD; a field an earlier blocked submit or a server apply
+                    // revealed is watched already. A revealed field's errors then disclose
+                    // whole: the view carries no per-issue filter, so an issue an override
+                    // answered no for still shows beside the sibling that revealed their shared
+                    // field. The override's authority is over revealing, not over filtering a
+                    // revealed field's answer.
+                    _revealedErrorFields.UnionWith(
+                        resolvedErrors.Where(x => IsVisible(x.Issue, x.Field)).Select(x => x.Field));
+
+                    var disclosed = resolvedErrors
+                        .Where(x => _revealedErrorFields.Contains(x.Field))
+                        .ToList();
+
+                    // Suppressed means the views will not show it — the same post-union ledger
+                    // read they answer from, so the diagnostic can never name an issue that is
+                    // in fact on screen. Once per suppressed issue per submit, as ever.
+                    foreach (var suppressed in resolvedErrors
+                        .Where(x => !_revealedErrorFields.Contains(x.Field)))
                     {
                         ReportSuppressed(suppressed.Issue);
                     }
 
-                    if (visibleErrors.Count == 0)
-                    {
-                        // Defensive gate: every failing field is hidden. Block anyway, with a
-                        // form-level explanation instead of a silent no-op submit.
-                        var gate = new ValidationIssue(
-                            string.Empty,
-                            "The form cannot be submitted because information that is not currently displayed is invalid.");
-                        visibleErrors = [(gate, ModelLevelField)];
-                    }
-
-                    _submitIssues = visibleErrors
+                    // The full resolved answer is the channel's source; the ledger is what the
+                    // view reads it through. Arming follows the disclosure count: a blocked
+                    // submit that disclosed nothing is the case the defensive gate explains, and
+                    // the views synthesize its form-level issue for as long as GateActive holds —
+                    // there is no entry to write, so there is no entry a refresh can delete.
+                    _submitVerdictErrors = resolvedErrors
                         .GroupBy(x => x.Field, x => x.Issue)
                         .ToDictionary(g => g.Key, g => g.ToList());
-                    _submitVisible = visibleErrors.Select(x => x.Field).ToHashSet();
-                    _appliedServerIssues = [];
-
-                    _submitAdvisories = ResolveVisibleAdvisories(report);
+                    _gateArmed = disclosed.Count == 0;
 
                     // Advisory sites are not necessarily error sites: a visible field can carry a
-                    // warning while passing every error rule. Recording them separately is what lets
-                    // the refresh pass keep those warnings current instead of dropping them (they are
-                    // absent from _submitVisible, which holds error fields only).
-                    _advisoryVisible = _submitAdvisories.Keys.ToHashSet();
+                    // warning while passing every error rule. The advisory ledger unions the same
+                    // way the error ledger does, so a field once shown a warning keeps that
+                    // warning refreshed across later submits that found it momentarily clean.
+                    _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
+                    _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
 
-                    summary = visibleErrors
-                        .Select(x => x.Issue.DisplayName ?? x.Issue.Path)
-                        .Select(name => name.Length == 0 ? "This form" : name)
-                        .Distinct()
-                        .ToList();
+                    summary = disclosed.Count > 0
+                        ? disclosed
+                            .Select(x => x.Issue.DisplayName ?? x.Issue.Path)
+                            .Select(name => name.Length == 0 ? "This form" : name)
+                            .Distinct()
+                            .ToList()
+                        : ["This form"]; // the gate's own model-level entry is what the summary points at
                 }
             }).ConfigureAwait(false);
 
@@ -1440,28 +2005,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         HasSubmitted = true;
         _faultIssue = null;
 
-        // The payload is the server's CURRENT verdict, not an addition to its last one: undo
-        // exactly what the previous call added before applying this call's issues. Each entry is
-        // undone from the channel its own severity names — the same one the apply below put it in.
-        // ValidationIssue is a record (value equality), so List<T>.Remove takes out one value-equal
-        // entry — the instance the previous apply added, or (see RunRefreshPassAsync) the
-        // message-matched refreshed issue standing in for it if a refresh landed since. If a
-        // client-sourced issue happens to be value-identical to a previously-applied server issue,
-        // removing either of the two equal entries is indistinguishable and acceptable.
-        foreach (var (field, issue) in _appliedServerIssues)
-        {
-            var channel = ChannelFor(issue);
-            if (channel.TryGetValue(field, out var tracked))
-            {
-                tracked.Remove(issue);
-                if (tracked.Count == 0)
-                {
-                    channel.Remove(field);
-                }
-            }
-        }
-
-        _appliedServerIssues = [];
+        // The payload is the server's CURRENT verdict, not an addition to its last one: replacing
+        // it is swapping the server source wholesale. The client's own answer lives in its own
+        // source and is untouched — an identical client message keeps showing through the client
+        // view, because the views merge client-first and drop the server's same-text copy.
+        _serverErrors.Clear();
+        _serverAdvisories.Clear();
 
         foreach (var issue in issues)
         {
@@ -1482,62 +2031,40 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             {
                 // An advisory blocks nothing, so it follows the same disclosure rule the client's
                 // own advisories follow rather than the bypass above. Nowhere to render it means it
-                // is not shown, and the diagnostic names the registration that would have shown it.
-                // No defensive gate stands in for it either — that gate exists because a hidden
-                // error would otherwise fail a submit silently, and an advisory fails nothing.
+                // is not shown, the diagnostic names the registration that would have shown it —
+                // once per suppressed issue per apply, since a suppressed advisory is never
+                // stored — and no defensive gate stands in for it either: that gate exists
+                // because a hidden error would otherwise fail a submit silently, and an advisory
+                // fails nothing.
                 ReportSuppressed(issue);
                 continue;
             }
 
-            var channel = ChannelFor(issue);
-            ValidationIssue tracked;
-            if (channel.TryGetValue(field, out var existing))
+            // A payload can carry the same sentence twice at the same severity; a reader has no
+            // use for it twice, so the second copy folds into the first exactly as the views fold
+            // a server copy into a client one.
+            var channel = issue.Severity == ValidationSeverity.Error ? _serverErrors : _serverAdvisories;
+            if (!channel.TryGetValue(field, out var forField))
             {
-                // A client-sourced issue can already sit on this field carrying the exact same
-                // message and severity — the field-fixed-then-re-broken case: the fix's refresh
-                // found nothing to re-key the previous apply's bookkeeping against and dropped it
-                // (see RunRefreshPassAsync), then the re-break's own client-side pass reproduced
-                // an identical, untracked issue because _submitVisible is sticky. This apply has
-                // nothing of its own to undo, so without this check it would append a second copy
-                // of a message already shown. Adopt the existing instance instead of appending;
-                // an issue that differs in message or severity is unrelated and still gets added.
-                var matching = existing.FirstOrDefault(
-                    i => i.Message == issue.Message && i.Severity == issue.Severity);
-                if (matching is not null)
-                {
-                    tracked = matching;
-                }
-                else
-                {
-                    existing.Add(issue);
-                    tracked = issue;
-                }
-            }
-            else
-            {
-                channel[field] = [issue];
-                tracked = issue;
+                channel[field] = forField = [];
             }
 
-            // Sticky: reveal state never un-reveals a field. The two sets are separate because the
-            // post-submit refresh watches them separately — a field can be an advisory site without
-            // ever having been an error site, and keeps its advisory refreshed either way.
-            var revealed = issue.Severity == ValidationSeverity.Error ? _submitVisible : _advisoryVisible;
-            revealed.Add(field);
+            if (!forField.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
+            {
+                forField.Add(issue);
+            }
 
-            _appliedServerIssues.Add((field, tracked));
+            // A server apply is a disclosure event: reveal state never un-reveals a field, so the
+            // ledger unions the field in and the views watch it from here on — the client's own
+            // last answer for it included. The two sets are separate because the two channels
+            // reveal independently: a field can be an advisory site without ever having been an
+            // error site, and keeps its advisory refreshed either way.
+            (issue.Severity == ValidationSeverity.Error ? _revealedErrorFields : _revealedAdvisoryFields)
+                .Add(field);
         }
 
         RebuildStore();
     }
-
-    /// <summary>
-    /// The submit-time channel an issue belongs to. Errors and advisories are kept apart because a
-    /// field can carry both at once and only the errors reach the message store, so a server issue
-    /// is applied to, undone from, and matched within the channel its own severity names.
-    /// </summary>
-    private Dictionary<FieldIdentifier, List<ValidationIssue>> ChannelFor(ValidationIssue issue) =>
-        issue.Severity == ValidationSeverity.Error ? _submitIssues : _submitAdvisories;
 
     /// <summary>
     /// Arms (or re-arms) the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>,
@@ -1728,52 +2255,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // submit is.
                 AdoptFormValidity(report);
 
-                // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
-                // own issues (below) replace both submit channels wholesale.
-                var previouslyApplied = _appliedServerIssues;
-
-                // Resurface only what the user already saw at submit AND is still failing —
-                // fixed fields clear; fields revealed after submit stay quiet until the next submit.
-                _submitIssues = report.Errors
-                    .Select(issue => (Issue: issue, Field: Resolve(issue)))
-                    .Where(x => _submitVisible.Contains(x.Field))
-                    .GroupBy(x => x.Field, x => x.Issue)
-                    .ToDictionary(g => g.Key, g => g.ToList());
-
-                // Advisories follow the same "only what the user already saw" rule, but over the
-                // union of the two submit-time sets: a field that was an error site keeps any
-                // warning it also picked up, and a field that was only ever an advisory site keeps
-                // its warning refreshed instead of disappearing on the first unrelated edit.
-                _submitAdvisories = report.Issues
-                    .Where(i => i.Severity != ValidationSeverity.Error)
-                    .Select(issue => (Issue: issue, Field: Resolve(issue)))
-                    .Where(x => _submitVisible.Contains(x.Field) || _advisoryVisible.Contains(x.Field))
-                    .GroupBy(x => x.Field, x => x.Issue)
-                    .ToDictionary(g => g.Key, g => g.ToList());
-
-                // Re-key by MESSAGE within the entry's own severity channel, not by field: a field
-                // can carry both a server-applied issue and an unrelated, independently-failing
-                // client-sourced one at once (see ApplyServerIssues' own remarks), and adopting
-                // everything the refresh wrote for a previously-applied field would sweep up that
-                // unrelated client issue too, so the next apply would delete it — a worse bug than
-                // the duplicate this guards against. Instead, for each issue the previous apply is
-                // responsible for, adopt the refreshed issue on that field whose message and
-                // severity match it (the duplicate this fixes is by definition an identical
-                // message at an identical severity, so this still finds and replaces it) and drop
-                // the bookkeeping entry when no refreshed issue matches — the server's contribution
-                // is no longer part of what's shown, so there is nothing left to protect. Both
-                // channels are rebuilt above before any of this runs, so an entry is matched
-                // against the refreshed list it would actually have to stand in for.
-                _appliedServerIssues = previouslyApplied
-                    .Select(entry => (
-                        entry.Field,
-                        Issue: ChannelFor(entry.Issue).TryGetValue(entry.Field, out var current)
-                            ? current.FirstOrDefault(i =>
-                                i.Message == entry.Issue.Message && i.Severity == entry.Issue.Severity)
-                            : null))
-                    .Where(x => x.Issue is not null)
-                    .Select(x => (x.Field, Issue: x.Issue!))
-                    .ToList();
+                // Landing the verdict is the whole apply: the fresh whole-model answer replaces
+                // the submit channel's source, and the server source clears — the server's answer
+                // was a snapshot of one round trip, and this pass supersedes it (a client rule
+                // failing the same way keeps the message showing through the client view). What
+                // the channel SHOWS is the views' business: the reveal ledgers decide which of
+                // these entries surface — fixed fields clear because the rules stopped producing
+                // them, fields revealed after submit stay quiet until the next submit because no
+                // ledger watches them — and the gate needs nothing here to survive, because it
+                // was never an entry a rebuild could drop.
+                _serverErrors.Clear();
+                _serverAdvisories.Clear();
+                _submitVerdictErrors = GroupByResolvedField(report.Errors);
+                _submitVerdictAdvisories = GroupByResolvedField(
+                    report.Issues.Where(i => i.Severity != ValidationSeverity.Error));
             }).ConfigureAwait(false);
     }
 

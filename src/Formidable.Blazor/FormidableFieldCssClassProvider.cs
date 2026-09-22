@@ -6,7 +6,8 @@ namespace Formidable.Blazor;
 /// Internal fast-path reads two engine-adjacent components need without growing the public
 /// <see cref="IFormValidationEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
-/// <see cref="IsFieldTouched"/>, and <see cref="FieldAdvisories"/> to build the same
+/// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
+/// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
 /// directly; <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide
@@ -28,6 +29,13 @@ internal interface IValidatingFieldReader
     /// than two separate ones.
     /// </summary>
     (bool HasWarnings, bool HasInfos) FieldAdvisories(FieldIdentifier field);
+
+    /// <summary>
+    /// Whether the engine can vouch that a submit would not fail <paramref name="field"/> — the
+    /// <see cref="FieldState.WouldPassSubmit"/> conjunct the Valid class requires, answered
+    /// without building the rest of a <see cref="FieldState"/>.
+    /// </summary>
+    bool WouldPassSubmit(FieldIdentifier field);
 
     /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
     string? InlineMessageRole { get; }
@@ -67,12 +75,13 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        bool touched, pending, hasWarnings, hasInfos;
+        bool touched, pending, hasWarnings, hasInfos, wouldPassSubmit;
         if (_reader is not null)
         {
             touched = _reader.IsFieldTouched(fieldIdentifier);
             pending = _reader.IsFieldValidating(fieldIdentifier);
             (hasWarnings, hasInfos) = _reader.FieldAdvisories(fieldIdentifier);
+            wouldPassSubmit = _reader.WouldPassSubmit(fieldIdentifier);
         }
         else
         {
@@ -81,6 +90,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             pending = fallback.IsValidating;
             hasWarnings = fallback.HasWarnings;
             hasInfos = fallback.HasInfos;
+            wouldPassSubmit = fallback.WouldPassSubmit;
         }
 
         var state = new FieldState(
@@ -89,7 +99,8 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             IsValidating: pending,
             HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
             HasWarnings: hasWarnings,
-            HasInfos: hasInfos);
+            HasInfos: hasInfos,
+            WouldPassSubmit: wouldPassSubmit);
 
         return FormidableCss.Compute(state, _classes);
     }

@@ -9,18 +9,21 @@ behind "ship to a different address," gate step two behind step one passing, and
 underneath never blinks — it still runs, still fails, against a field that isn't on screen. Show
 that failure anyway and the user hits a dead end with no field to fix. Suppress it by hand, per
 form, and you're one missed `@if` away from a submit button that quietly does nothing. Formidable
-exists because that failure needs an audience-aware home, not a per-form workaround: an issue only
-ever surfaces when the markup that would show it is actually mounted.
+exists because that failure needs an audience-aware home, not a per-form workaround: at submit, an
+issue surfaces because the markup that would show it is actually mounted, and a submit that can
+show nothing says so out loud.
 
 ## Need to know
 
-At submit, a field's issue only ever reaches the screen if something is currently rendering that
+At submit, a field's issue reaches the screen if something is currently rendering that
 field — `FormidableInputText` and other `FormidableInputBase<TValue>` descendants, the renderless
 `FormidableField`, or the registration-only `FormidableFieldAnchor`. Each of those registers the
-field for as long as it stays mounted. (The live pass that runs between submits answers to a
-different rule entirely — engagement, not registration —
+field for as long as it stays mounted. Showing a field's error also starts watching that field,
+and the watch outlives the registration: until the form passes or is reset, that field's answer
+keeps surfacing whether or not anything still renders it. (The live pass that runs between submits
+answers to a different rule entirely — engagement, not registration —
 [below](#the-live-channel-plays-by-its-own-rule).) The one guardrail: if
-literally everything that's failing is unregistered, submit still blocks with a form-level
+everything that's failing is unregistered and unwatched, submit still blocks with a form-level
 explanation instead of quietly doing nothing —
 
 > [!NOTE]
@@ -28,15 +31,12 @@ explanation instead of quietly doing nothing —
 > blocks that case with a form-level explanation instead.
 
 ```csharp
-                    if (visibleErrors.Count == 0)
-                    {
-                        // Defensive gate: every failing field is hidden. Block anyway, with a
-                        // form-level explanation instead of a silent no-op submit.
-                        var gate = new ValidationIssue(
-                            string.Empty,
-                            "The form cannot be submitted because information that is not currently displayed is invalid.");
-                        visibleErrors = [(gate, ModelLevelField)];
-                    }
+    /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
+    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing, so this one model-level
+    /// explanation stands in for the errors the user cannot see.</summary>
+    private static readonly ValidationIssue GateIssue = new(
+        string.Empty,
+        "The form cannot be submitted because information that is not currently displayed is invalid.");
 ```
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
@@ -51,58 +51,89 @@ summary entry works without a page rendering anything for it (see
 `FormidableValidator` renders no `<form>` of its own, so a page using it still renders that id by
 hand — see [Component kit](component-kit.md)'s `FormidableValidator` section for the pattern.
 
-That gate only fires when every failing field is hidden; the ordinary case is narrower. At
-submit, the engine resolves each FluentValidation failure's property path to a `FieldIdentifier`
-through the model introspector, then asks the registry (`FieldRegistry`) whether that identifier
-is currently revealed. [Collections and row identity](collections-and-row-identity.md) covers how
-that resolution walks indexed paths. A field has no matching registration when the markup that
-would render it sits behind an `@if` that isn't satisfied. The rule still ran and the issue still
-exists in the validator's report, but it never reaches the `EditContext`'s message store,
-`FormidableFieldMessage`, or `FormidableSummary`. It's suppressed instead, and `SuppressedIssueDiagnostic` (see
-[Options](options.md)) is invoked once per suppressed issue so you can still observe it outside
-the UI.
+That explanation is derived, not filed. There is no gate entry anywhere to keep or lose, only the
+conditions that make one true: a submit that blocked with nothing to show, an answer that still
+carries errors, and nothing disclosed since. So the debounced refresh that follows every
+post-submit edit cannot take it off the screen while the form stays blocked. It gives way the
+moment there's a real message to give way to — an error the user can see, a server-declared error
+arriving, or an answer that finally comes back clean. Every submit decides it again from scratch,
+so it can stand at one submit, give way at the next, and come back at the one after that. What it
+cannot come back for is a failure the form has already shown: that field stays watched until a
+successful submit or a `ResetAsync` clears the watch, so its own failure explains itself from then
+on. What raises the gate afresh is a field nothing has ever shown — one whose section is still
+collapsed at the submit where everything visible finally passes.
 
-This registry check happens once, at the moment `ValidateForSubmitAsync` runs — not
-continuously. The debounced refresh that follows a submit re-validates but does not re-derive
-visibility from the registry; it only narrows to fields that were already part of the visible set
-at that submit. A field revealed after the fact stays quiet even though it's now failing; it
-surfaces at the *next* submit, not the moment it renders.
+That gate only fires when nothing about the failure can be shown; the ordinary case is narrower.
+At submit, the engine resolves each FluentValidation failure's property path to a
+`FieldIdentifier` through the model introspector, then asks the registry (`FieldRegistry`)
+whether that identifier is currently revealed. [Collections and row
+identity](collections-and-row-identity.md) covers how that resolution walks indexed paths. A field
+has no matching registration when the markup that would render it sits behind an `@if` that isn't
+satisfied. The rule still ran and the issue still exists in the validator's report, but it never
+reaches the `EditContext`'s message store, `FormidableFieldMessage`, or `FormidableSummary`. It's
+suppressed instead, and `SuppressedIssueDiagnostic` (see [Options](options.md)) is invoked once
+per suppressed issue so you can still observe it outside the UI.
+
+That registry answer decides one thing: whether the field joins the watched set. It is asked at
+the moment `ValidateForSubmitAsync` runs, not continuously, and the set it feeds only grows. Later
+blocked submits add to it, applying a server's verdict adds to it, and nothing removes a field
+until a successful submit or a `ResetAsync` empties the set. So the debounced refresh that follows
+a submit re-validates the whole model and re-answers the watched fields, rather than deciding
+membership again: a field whose error the user fixed loses its message because the rule stopped
+producing one, and if the value breaks again the message returns on the next refresh, with no
+second submit needed. The entry follows the answer; the watch follows the submit. A field nothing
+has ever watched stays quiet even while it's failing, and rendering it doesn't change that — it
+surfaces at the *next* submit.
 
 End to end, that's submit as the disclosure event, an unregistered field's issue getting
-suppressed, and the defensive gate catching the all-suppressed case:
+suppressed, the watch a shown field keeps, and the defensive gate catching the case where nothing
+could be shown at all:
 
 ```mermaid
 flowchart TD
-    A["Submit runs"] --> B["For each failing field: is a rendering component currently registered for it?"]
-    B -- "yes" --> C["Issue is revealed to FormidableFieldMessage / FormidableSummary"]
+    A["Submit runs"] --> B["For each failing field: is it already watched, or is a rendering component registered for it?"]
+    B -- "yes" --> C["Field is watched from here on; its issues show in FormidableSummary, and inline wherever the field renders"]
     B -- "no" --> D["Issue is suppressed for this submit"]
     D --> E["SuppressedIssueDiagnostic fires once per suppressed issue"]
 
-    C --> F{"Any revealed error left?"}
+    C --> F{"Any error shown?"}
     E --> F
     F -- "yes" --> G["Submit blocks; FormidableSummary shows whichever issues are visible now"]
-    F -- "no, every failing field was hidden" --> H["Defensive gate adds one model-level explanation instead"]
+    F -- "no, every failing field was hidden" --> H["Defensive gate explains the block at form level instead"]
     H --> G
 
-    I["A field revealed at an earlier submit is hidden before the next one runs"] --> J["It unregisters, so the next submit's check at B finds it unregistered"]
-    J --> D
+    I["A field shown at an earlier submit is hidden before the next one runs"] --> J["It unregisters, but the watch stays: the check at B answers yes anyway"]
+    J --> C
 ```
 
-That's the submit channel's mechanism in full: render it and a submit-revealed issue can show;
-don't, and it can't, until the next submit says otherwise. The live channel that runs between
+That's the submit channel's mechanism in full: render a failing field and its issue shows, and
+goes on showing until the answer comes clean; leave it unrendered and unwatched and it says
+nothing until the next submit. The live channel that runs between
 submits works differently — covered next. What's left after that is the shape of the rules that
 keep a UI condition and a `.When(...)` condition honest with each other, and the escape hatches
 for controls Formidable doesn't wrap.
 
 ## The live channel plays by its own rule
 
-Everything above is the submit channel's story: an issue reaches the screen only if a rendering
-component is registered for its field *at the moment submit runs*. The live pass that runs after
-every field change has no such gate. Registration filters it nowhere, at write time or at read
-time: the engine writes a live verdict with no registration check at all, and reads it back the
-same way, whether or not anything currently renders that field. There's one bound on how long
-that can last: a live issue for a field that has since left the page stands only until the next
-rendered-field-set change prunes it, along with everything else the departure invalidates.
+Everything above is the submit channel's story: an issue reaches the screen because a rendering
+component was registered for its field *at the moment submit ran*, or because an earlier submit
+already put that field under watch. The live pass that runs after every field change has no such
+gate. By default registration filters it nowhere: the engine files a live verdict for every
+engaged field without consulting the registry, and every surface reads that verdict back the same
+way, whether or not anything currently renders the field — the engine's own issue reads,
+`FormidableFieldMessage`, `FormidableSummary`, and the `EditContext`'s message store a native
+`ValidationMessage` renders from. That default is deliberate, and it is what keeps the store
+usable as a bridge for native components: a form built out of plain `InputBase` inputs registers
+nothing at all, and its live errors have to reach the store regardless (see
+[Server integration](server-integration.md#client-round-trip)).
+[`FormidableOptions.LiveDisclosure`](options.md#livedisclosure) is the one way to narrow that, and
+it narrows every surface at once rather than one of them. There's one bound on how long a live
+verdict stands either way: a live issue for a field that has since left the page goes with the
+next rendered-field-set change, along with everything else the departure invalidates. *Left* is
+the operative word there. A field something rendered once and nothing renders now has left; a
+field nothing has ever registered never arrived, and no amount of churn elsewhere on the page
+takes its live verdict away. That distinction is the whole of what registration decides on this
+channel.
 
 What gates the live channel is a different question: not *is this field rendered*, but *has this
 field been engaged*. The engine keeps a first-class engaged-field set, and a field enters it the
@@ -125,10 +156,12 @@ covers how this interacts with the debounced refresh that follows a submit.
 
 One more distinction is worth being precise about, since it looks related and isn't: whether a
 field has been touched or modified gates its CSS class only, never a message. `formidable-invalid`
-paints the moment there's an error, ungated; the warning/info/valid tiers wait for the field to be
-touched or modified, so an untouched field earns no state class at all before the visitor has done
-anything to it (see [CSS and accessibility](css-and-accessibility.md) for the full rule). A
-message list, a summary entry, and the message store all read whatever the engine currently holds
+paints the moment there's an error, ungated; the warning, info and valid tiers wait for the field
+to be touched or modified, and valid waits for one thing more — the engine being able to say a
+submit would not fail the field. So an error-free field the visitor hasn't touched earns no state
+class at all, whatever it carries (see [CSS and accessibility](css-and-accessibility.md) for the
+full rule). A message list, a summary entry, and the message store all read whatever the engine
+currently holds
 for the field regardless — live issues included — so a field can carry a visible message before it
 ever earns a class describing it.
 
@@ -270,11 +303,14 @@ nickname field is the remaining genuine example:
 
 The `id`, `aria-describedby` and `aria-invalid` alongside it answer a different question —
 click-to-focus and the input's assistive-technology story, both covered in
-[CSS and accessibility](css-and-accessibility.md). Disclosure is the anchor's job alone.
+[CSS and accessibility](css-and-accessibility.md). Registration is the anchor's job alone.
 
-Without the anchor, `Nickname`'s failure would be unrevealed forever — the native `InputText`
-never mounts a Formidable component, so nothing registers the field for disclosure even though
-Blazor's own binding already keeps the engine's live pass running. The disclosure page's
+Without the anchor, no submit would ever reveal `Nickname`: the native `InputText` mounts no
+Formidable component, so nothing registers the field, and its submit errors are suppressed as
+unrevealed while its issues sort last in a resolved issue order. What the anchor is not needed for
+is the live channel — Blazor's own binding notifies the engine on every change, which engages the
+field, and an engaged field's live verdict discloses on every surface regardless. The anchor is
+how the *submit* channel learns the field is on the page. The disclosure page's
 accommodation radio group and type `<select>` used to be anchored the same way, but a hand-wired
 `@onchange` on a raw element doesn't call `EditContext.NotifyFieldChanged` the way `InputBase`
 does. So both now render inside `FormidableField` instead, whose context exposes the
@@ -288,10 +324,11 @@ pass itself.
 Every registering component — `FormidableInputBase<TValue>` descendants, `FormidableFieldAnchor`,
 `FormidableField`, and `FormidableCollectionMessage` — exposes a `KeepRegistered` parameter. A container
 such as `Virtualize` disposes rows that scroll out of view, even though they remain part of the
-form. Without `KeepRegistered`, a scrolled-away row's field would unregister and its errors would
-go quiet while the row still sits in the model. Setting `KeepRegistered` on the row's fields
-keeps them revealed after disposal, so scrolling never suppresses an error that was already
-showing. See the Virtualize section of [Component kit](component-kit.md) for the full pattern.
+form. Without `KeepRegistered`, a scrolled-away row's field unregisters, and its live messages go
+quiet with it while the row still sits in the model, still failing. Setting `KeepRegistered` on
+the row's fields keeps them revealed after disposal, so scrolling takes no message away, and a
+submit can still disclose a row the visitor scrolled past. See the Virtualize section of
+[Component kit](component-kit.md) for the full pattern.
 
 ## DisclosureOverride: the escape hatch
 
@@ -299,8 +336,19 @@ showing. See the Virtualize section of [Component kit](component-kit.md) for the
 `true` to force an issue visible regardless of registration, `false` to force it suppressed
 regardless of registration, or `null` to defer to the registry as described above. It's the way
 out for issues that don't fit the render-registration model — forcing a rule visible without
-wrapping its field, or silencing a known-noisy rule outright. Server-applied *errors*
-(`Engine.ApplyServerIssues`, see [Server integration](server-integration.md)) bypass
+wrapping its field, or silencing a known-noisy rule outright.
+
+What each answer decides at submit is whether that issue puts its field under watch, and the
+watch is per field rather than per issue. So a `false` on one of two issues failing on the same
+field keeps that issue from being the reason the field is watched, and no more: once the other
+issue starts the watch, the field's answer shows whole, and the suppressed-issue diagnostic
+reports neither of them, since neither is in fact hidden. The live channel is a separate question
+again — under its default policy nothing filters it, this override included, and its
+[`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies the override there, issue by
+issue.
+
+Server-applied *errors* (`Engine.ApplyServerIssues`, see
+[Server integration](server-integration.md)) bypass
 the registry check entirely rather than defer to it. They're visible unless `DisclosureOverride`
 explicitly returns `false`: the server already validated the submitted data, and an error that
 blocks the save has to reach the user whether or not the client happened to render its field.

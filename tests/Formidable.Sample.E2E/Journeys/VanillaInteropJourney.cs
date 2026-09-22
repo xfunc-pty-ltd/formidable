@@ -40,6 +40,10 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
         await Expect(nickname).Not.ToHaveAttributeAsync("aria-invalid", "true");
 
         // The aligned provider's modified-gated leg: a native input earns formidable-valid too.
+        // Green asks for fresh submit coverage on top of touched/modified — on this page every
+        // rule lives in the always-on bucket, so the live pass that cleared the message also
+        // re-answered the whole submit selection, and Colour's still-failing verdict names
+        // Colour alone: this field reads fresh and clean.
         await Expect(nickname).ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
     }
 

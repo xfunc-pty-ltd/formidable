@@ -23,8 +23,12 @@ public sealed class FormidableCssClasses
     public string Info { get; set; } = "formidable-info";
 
     /// <summary>
-    /// Applied when the field is touched or modified and has no error-, warning-, or
-    /// info-severity issues. Defaults to <c>"formidable-valid"</c>.
+    /// Applied when the field is touched or modified, has no error-, warning-, or info-severity
+    /// issues, and the engine can vouch that a submit would not fail it
+    /// (<see cref="FieldState.WouldPassSubmit"/>): green is a promise about submit, so a field
+    /// whose submit-selected rules have no answer for the value as it stands — or an answer that
+    /// fails it without showing why — wears no class rather than a confirmation it has not
+    /// earned. Defaults to <c>"formidable-valid"</c>.
     /// </summary>
     public string Valid { get; set; } = "formidable-valid";
 

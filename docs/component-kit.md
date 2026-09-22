@@ -1095,9 +1095,12 @@ public sealed class FormidableFieldMessage<TValue> : FormidableMessageBase<TValu
 
 Practically: `FormidableFieldMessage` always needs to be paired with something else that registers
 the same field — a `FormidableInputBase` descendant, `FormidableField`, or `FormidableFieldAnchor`
-— or its messages stay permanently unrevealed. Its collection-level sibling,
-`FormidableCollectionMessage`, overrides that same hook to skip the pairing requirement entirely;
-it's introduced below, once collections are in scope.
+— or nothing a submit finds for that field ever reaches the list. The live channel is the
+exception, and a deliberate one: it discloses an engaged field's verdict without consulting
+registration (see [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)), so an
+unpaired list can carry live messages while staying silent about everything submit revealed. Its
+collection-level sibling, `FormidableCollectionMessage`, overrides that same hook to skip the
+pairing requirement entirely; it's introduced below, once collections are in scope.
 
 ## `FormidableSummary`
 
@@ -1515,8 +1518,8 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
 The whole component is its registration: the shared base does the binding, and an anchor is the one
 component that opts out of the engine subscription, since it has no markup of its own to re-render.
 
-Without something registering a field, its issues are permanently unrevealed, and placing a
-`FormidableFieldAnchor` next to the raw control is the whole fix. See the Vanilla interop section
+Without something registering a field, a submit's verdict about it is never disclosed, and placing
+a `FormidableFieldAnchor` next to the raw control is the whole fix. See the Vanilla interop section
 below and [Disclosure](disclosure.md) for the fuller "FormidableFieldAnchor for raw and foreign
 controls" treatment.
 
@@ -1876,10 +1879,14 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
 (See [CSS and accessibility](css-and-accessibility.md) for exactly which classes that
 provider applies, and how they differ from what a Formidable input's own `CssClass` computes.)
 
-`FormidableFieldAnchor` next to the native `InputText` is what keeps it participating in
-progressive disclosure at all. A plain `InputBase` never registers itself with Formidable's
-`FieldRegistry`, so without the anchor its `ValidationMessage` would never receive an inline
-error no matter what the validator reports.
+`FormidableFieldAnchor` next to the native `InputText` is what keeps it participating in the
+submit channel's disclosure. A plain `InputBase` never registers itself with Formidable's
+`FieldRegistry`, so without the anchor no submit reveals `Nickname`, and its submit errors are
+suppressed as unrevealed. Its live error lands either way: that rule sits in the draft bucket, so
+the first committed change engages the field, and an engaged field's verdict reaches the store —
+and so that `ValidationMessage` — whether or not anything registered it. Opting into
+`LiveIssueDisclosure.EngagedAndVisible` is what puts the live channel behind this same
+registration, and is the other thing the anchor buys.
 
 The three attributes on that same line finish the crossing. A Formidable input renders
 `FormidableFieldId.For(field)` as its element id, points `aria-describedby` at the matching
@@ -1889,8 +1896,9 @@ renders none of them, so the page derives them from the same sources the kit use
 `aria-invalid` (a `null` value renders no attribute at all). The id is the entirety of what
 `FormidableSummary`'s click-to-focus looks up, so with it the native field takes the summary's
 click exactly like a wrapped one (see [CSS and accessibility](css-and-accessibility.md)). One
-addition per concern: `FormidableFieldAnchor` for disclosure, the id for focus, `aria-describedby`
-and `aria-invalid` for the assistive-technology story. Attributes derived from engine state need
+addition per concern: `FormidableFieldAnchor` for submit-time disclosure, the id for focus,
+`aria-describedby` and `aria-invalid` for the assistive-technology story. Attributes derived from
+engine state need
 the page to re-render when that state changes, so the sample subscribes to `Engine.StateChanged` —
 the same subscription every kit component makes for itself.
 

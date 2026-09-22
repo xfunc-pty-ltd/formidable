@@ -153,9 +153,10 @@ public class FormValidationEngineServerIssueTests
     public async Task Reapplied_server_issue_is_not_duplicated_by_an_intervening_refresh()
     {
         // Walkthrough repro: apply a server issue, edit the field (arms the debounced
-        // refresh, whose client pass re-produces an equal issue and drops the applied-
-        // server bookkeeping), let the refresh run, apply the same server verdict again.
-        // Replace-per-apply must leave exactly ONE issue on the field.
+        // refresh, which clears the server source while the client pass re-produces an
+        // equal issue of its own), let the refresh run, apply the same server verdict
+        // again. Replace-per-apply must leave exactly ONE issue on the field - the
+        // re-applied copy folds into the client's identical one instead of joining it.
         _order.Items = [new EngineItem(), new EngineItem()];
         var item0Sku = new FieldIdentifier(_order.Items[0], nameof(EngineItem.Sku));
         var item1Sku = new FieldIdentifier(_order.Items[1], nameof(EngineItem.Sku));
@@ -186,10 +187,9 @@ public class FormValidationEngineServerIssueTests
     public async Task Fixed_then_rebroken_field_does_not_duplicate_the_server_issue()
     {
         // The sibling the repro above never walks: a field fixed long enough for a refresh to
-        // drop the applied-server bookkeeping entirely (rather than re-key it to a survivor),
-        // then re-broken so the ordinary client-side pass reproduces an identical, untracked
-        // issue on a still-disclosed field. The next server apply has nothing of its own to
-        // undo and must not append a second copy of a message already sitting in the channel.
+        // clear the server source while the field itself is clean, then re-broken so the
+        // ordinary client-side pass reproduces an identical issue on a still-revealed field.
+        // The next server apply must not put a second copy of that message beside it.
         _order.Items = [new EngineItem()];
         var sku = new FieldIdentifier(_order.Items[0], nameof(EngineItem.Sku));
 
@@ -197,18 +197,19 @@ public class FormValidationEngineServerIssueTests
         _engine.ApplyServerIssues([new ValidationIssue("Items[0].Sku", "SKU is required")]);
         Assert.Equal(1, _engine.GetIssues(sku).Count(i => i.Message == "SKU is required"));
 
-        // 2. Fix it and let the debounced refresh run. The refresh's re-key finds nothing on
-        //    the field to match the applied entry against and drops the bookkeeping - the field
-        //    itself must be clean, which is what proves the drop actually happened here.
+        // 2. Fix it and let the debounced refresh run. The refresh clears the server source and
+        //    the client's own answer for the field is clean - the field reading empty is what
+        //    proves the server's copy is genuinely gone here, not merely shadowed.
         _order.Items[0].Sku = "ABC";
         _editContext.NotifyFieldChanged(sku);
         _time.Advance(TimeSpan.FromMilliseconds(301));
         await Task.Yield();
         Assert.Empty(_engine.GetIssues(sku));
 
-        // 3. Break it again. _submitVisible is sticky, so the field is still a disclosed error
-        //    site: the refresh's own client-side pass re-produces "SKU is required" on its own,
-        //    with no applied-server bookkeeping behind it. Exactly one copy - the client's.
+        // 3. Break it again. The reveal ledger never un-reveals a field, so it is still a
+        //    disclosed error site: the refresh's own client-side pass re-produces "SKU is
+        //    required" as the client's own answer, with no server copy behind it. Exactly one
+        //    copy - the client's.
         _order.Items[0].Sku = string.Empty;
         _editContext.NotifyFieldChanged(sku);
         _time.Advance(TimeSpan.FromMilliseconds(301));
@@ -218,8 +219,8 @@ public class FormValidationEngineServerIssueTests
         // 4. The server re-sends the same verdict it always held for this field.
         _engine.ApplyServerIssues([new ValidationIssue("Items[0].Sku", "SKU is required")]);
 
-        // 5. Still exactly one copy - the apply adopted the client-sourced twin instead of
-        //    appending a second instance of the identical message.
+        // 5. Still exactly one copy - the client merges first, so the server's identical twin
+        //    folds into the client's copy instead of showing beside it.
         Assert.Equal(1, _engine.GetIssues(sku).Count(i => i.Message == "SKU is required"));
         Assert.Single(_engine.GetVisibleIssues(), v => v.Field.Equals(sku) && v.Issue.Message == "SKU is required");
     }
@@ -254,10 +255,10 @@ public class FormValidationEngineServerIssueTests
     {
         // Same shape as Client_submit_issues_survive_a_server_replace, but with a debounced
         // refresh landing between the two ApplyServerIssues calls (an unrelated field's edit
-        // arms it). The refresh re-derives Description's own still-failing client issue and
-        // wipes the server-applied bookkeeping. A field-ownership-based re-keying of that
-        // bookkeeping would wrongly adopt the client issue as "the server's" and let the second
-        // (empty) apply delete it - exactly the regression this pin guards against.
+        // arms it). The refresh re-derives Description's own still-failing client issue while
+        // clearing the server source. The client's answer and the server's live in separate
+        // sources, so nothing can mistake the client issue for "the server's" and let the
+        // second (empty) apply delete it - exactly the regression this pin guards against.
         var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
         using var engine = new FormValidationEngine<EngineOrder>(
@@ -354,8 +355,8 @@ public class FormValidationEngineServerIssueTests
     public async Task A_reapplied_server_advisory_is_not_duplicated_by_an_intervening_refresh()
     {
         // The advisory channel's half of the replace-per-apply contract, in the shape the error
-        // channel's own pin above uses: apply, edit (arming the debounced refresh, whose client
-        // pass re-produces an equal advisory and re-keys the applied-server bookkeeping to it),
+        // channel's own pin above uses: apply, edit (arming the debounced refresh, which clears
+        // the server source while the client pass re-produces an equal advisory of its own),
         // let the refresh run, apply the same verdict again. Exactly one of each message survives.
         using var engine = DisclosedEngine(out _, out var order);
         order.Description = "a-b";
@@ -387,8 +388,8 @@ public class FormValidationEngineServerIssueTests
     {
         // The other direction, and the one the error channel learned the hard way: a field can
         // carry a server-applied advisory and an independently-failing client advisory at once.
-        // Re-keying the bookkeeping by field would adopt the client's own advisory as the server's
-        // and let the next (empty) apply delete it.
+        // The two live in separate sources, so clearing the server's contribution can never take
+        // the client's own advisory with it.
         using var engine = DisclosedEngine(out _, out var order);
         order.Description = "a-b";
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -417,8 +418,8 @@ public class FormValidationEngineServerIssueTests
     {
         // A message alone does not identify an advisory: the channel holds every non-error severity
         // in one list, so a server Info and a client Warning can carry the same sentence. The
-        // refresh's bookkeeping has to match on both, or the next apply deletes the client's copy
-        // as though the server had put it there.
+        // views' client-wins collapse has to match on both, or the client's Warning would swallow
+        // the server's Info as a duplicate - or a clearing apply take the Warning as the server's.
         using var engine = DisclosedEngine(out _, out var order);
         order.Description = "a-b"; // fails the client's Warning-severity no-hyphen rule
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
@@ -441,8 +442,8 @@ public class FormValidationEngineServerIssueTests
         Assert.Equal(ValidationSeverity.Warning, shown.Severity);
         Assert.True(engine.GetFieldState(description).HasWarnings);
 
-        // The server's Info is genuinely behind it, still tracked as the server's own: clearing the
-        // server verdict takes that copy and leaves the client's Warning standing.
+        // The server's Info is genuinely behind it, still the server source's own entry: clearing
+        // the server verdict takes that copy and leaves the client's Warning standing.
         engine.ApplyServerIssues([]);
         Assert.Equal(
             ValidationSeverity.Warning,

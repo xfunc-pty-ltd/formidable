@@ -15,10 +15,19 @@ namespace Formidable.Sample.E2E;
 /// FormidableValidator (or its WASM-side deferral) and the removed row's error lingers here
 /// exactly as it would in that bUnit pin, since nothing else on the page ever re-validates the
 /// model once submit's own pass has run — no live edit touches the departed field, and no page
-/// code calls the engine again. The second test below is the real-runtime counterpart of the
-/// disclosure fix for the page's plain "Submitted by" input: FormidableFieldAnchor is what
-/// registers it, and reverting that anchor is what would suppress its error again before it
-/// ever reaches the client bucket.
+/// code calls the engine again. The second test below is the real-runtime counterpart of the live
+/// channel's own disclosure: the page's "Submitted by" is a plain InputText whose rule sits in the
+/// common bucket, so committing a change engages the field and the live pass answers for it with
+/// no submit anywhere in the path. Both surfaces it reaches are ones the engine writes rather than
+/// renders — Blazor's own ValidationMessage reads the EditContext store, which is a projection of
+/// the live view, and FormidableSummary reads that same view through GetVisibleIssues — so what
+/// reddens it is breaking that projection: stop a plain input's committed change from engaging the
+/// field, or rebuild the store from what a submit disclosed alone, and the message waits for the
+/// Submit button. What it does NOT discriminate is the FormidableFieldAnchor beside the input.
+/// That anchor registers the field from its first render, so both assertions would stay green
+/// without it — the live channel never consulted registration to make them pass. The anchor
+/// speaks for the submit channel, which this page cannot show off, since its seeded value is
+/// valid and nothing fails there until the user edits.
 /// </summary>
 [Collection("e2e")]
 public sealed class AttachModeJourney(SampleAppFixture app)
@@ -58,24 +67,30 @@ public sealed class AttachModeJourney(SampleAppFixture app)
         var page = session.Page;
 
         // The seeded value is non-empty, so this alone is what puts the field in a failing
-        // state — no line needs touching for this test's own claim. A real blur before the click
-        // lets the edit's own live pass settle first, rather than racing the submit that follows
-        // against the interop round trip Fill's own change event still has in flight.
+        // state — no line needs touching for this test's own claim. The blur commits the change,
+        // which is what engages the field.
         await page.GetByLabel("Submitted by", new() { Exact = true }).FillAsync(string.Empty);
         await TabAsync(page);
-        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
 
-        // The seeded blank line's own error comes only from this submit's report and lands in the
-        // exact same render as "Submitted by"'s — both fields are resolved and bucketed inside one
-        // ValidateForSubmitAsync dispatch before either reaches the DOM. Waiting for it here is
-        // what rules out reading "Submitted by"'s message while the pass an earlier edit started is
-        // still the last thing to have rendered, rather than this submit's settled verdict.
+        // Before any submit, and this is the load-bearing pair: no submit has run, so the submit
+        // channel has disclosed nothing and the live channel is the only thing that can be
+        // speaking here. The compatibility bridge is the native ValidationMessage — an EditContext
+        // reader the engine reaches only by projecting the live view into the message store — and
+        // the summary reads that same view.
+        await Expect(page.Locator(".validation-message")).ToHaveTextAsync("Submitter name is required");
+        await Expect(SummaryEntry(page, "Submitter name is required")).ToBeVisibleAsync();
+
+        // The submit lays its own answer over the top. The seeded blank line's error comes only
+        // from this submit's report and lands in the exact same render as "Submitted by"'s — both
+        // fields are resolved and bucketed inside one ValidateForSubmitAsync dispatch before
+        // either reaches the DOM — so waiting for it is what makes the two re-checks below read a
+        // DOM this submit has actually reached.
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(SummaryEntry(page, "Description is required")).ToBeVisibleAsync();
 
-        // FormidableFieldAnchor registers the plain InputText, so its error survives the
-        // suppression an unregistered field hits before ValidateForSubmitAsync ever buckets it:
-        // the compatibility bridge speaks it on the native ValidationMessage, and the summary,
-        // reading the same now-registered field, lists it too.
+        // Neither surface loses the message across the submit: the anchor is what reveals the
+        // field to the submit channel, and the two channels agree about it rather than one
+        // replacing the other.
         await Expect(page.Locator(".validation-message")).ToHaveTextAsync("Submitter name is required");
         await Expect(SummaryEntry(page, "Submitter name is required")).ToBeVisibleAsync();
     }

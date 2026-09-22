@@ -5,8 +5,13 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Tracks which fields are currently rendered. Rendered field components and anchors register
 /// on initialization and unregister on dispose, making the markup's conditional rendering the
-/// source of truth for progressive disclosure: an issue whose field has no registration is
-/// unrevealed and suppressed from inline display.
+/// source of truth for the submit channel's progressive disclosure: a submit does not reveal a
+/// field with no registration, so its submit errors are suppressed as unrevealed. The live
+/// channel answers to engagement rather than registration and consults this registry only under
+/// <see cref="FormidableOptions.LiveDisclosure"/>'s opt-in policy — with one exception either
+/// way, that a field which leaves the page leaves the engaged set with it. Issue order reads it
+/// too: the fields still in the render tree are where a host starts when it asks its order
+/// service what to place.
 /// </summary>
 public sealed class FieldRegistry
 {

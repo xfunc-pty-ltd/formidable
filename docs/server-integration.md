@@ -662,14 +662,17 @@ wire-deserialized one.
     /// submit results: the server's verdict applies at the severity it carries. Errors land on
     /// their fields and reach the EditContext's message store; warnings and infos land as
     /// advisories, which the reads above surface and the store — an error-only surface — does not.
-    /// The payload is treated as the server's CURRENT verdict: each call replaces the issues added
-    /// by the previous call, rather than accumulating with them, so re-submitting the same or a
-    /// corrected payload does not duplicate inline messages. Client-sourced submit issues on the
-    /// same fields are unaffected by a replace, and an advisory whose message a client rule already
-    /// disclosed for the same field shows once, as the client's copy. Applied issues also persist
-    /// until the next debounced refresh replaces the submit-visible state from the client
-    /// validator's report; a server-only issue with no matching client rule clears on that refresh.
-    /// Because the payload is treated as a submit result, applying one also sets
+    /// The payload is treated as the server's CURRENT verdict: it replaces the server's previous
+    /// one outright rather than accumulating with it, so re-submitting the same or a corrected
+    /// payload does not duplicate inline messages. The server's issues are held apart from the
+    /// client's own, so a replace cannot disturb a client-sourced issue on the same field, and an
+    /// advisory whose message a client rule already disclosed for that field shows once, as the
+    /// client's copy. Applying is itself a disclosure event for the fields it names: a client
+    /// error the last submit computed but had nowhere to show surfaces alongside the server's.
+    /// The server's verdict stands until a newer whole-model answer supersedes it — the next
+    /// debounced refresh, or the next submit — at which point a server-only issue with no matching
+    /// client rule goes, while one a client rule agrees with keeps showing through the client's own
+    /// answer. Because the payload is treated as a submit result, applying one also sets
     /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
     /// submitted state through this call alone. Call from the renderer's synchronization context (a
     /// Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and triggers
@@ -680,34 +683,50 @@ wire-deserialized one.
     /// shows whether or not the client rendered its field, and only a disclosure override returning
     /// <see langword="false"/> hides one. Advisories defer to the registry exactly as the client's
     /// own do — one with no rendered field is not shown, and the suppressed-issue diagnostic reports
-    /// it — because an advisory blocks nothing, so hiding one strands no verdict. Replace is
-    /// value-equality-based: if a client-sourced issue on a field is value-identical to a server
-    /// issue previously applied to that field, a subsequent replace may remove either of the two
-    /// equal entries — the two are indistinguishable, so which one is removed is unspecified.
+    /// it — because an advisory blocks nothing, so hiding one strands no verdict. A payload
+    /// carrying the same message twice for one field at one severity lands it once: a reader has
+    /// no use for it twice.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
 *Source: `src/Formidable.Blazor/IFormValidationEngine.cs`*
 
-**Replace, not accumulate.** Each call is the server's current verdict, full stop. It undoes
-exactly what its own previous call applied, then applies the new payload. Calling it twice in a
-row with the same or a corrected body never leaves a stale duplicate behind.
+**Replace, not accumulate.** Each call is the server's current verdict, full stop. The server's
+issues live apart from the client's own answer, so applying one swaps that set outright and
+touches nothing the client said: call it twice in a row with the same or a corrected body and no
+stale duplicate is left behind, and a client rule failing on the same field keeps its own message
+throughout. An apply is also a disclosure event for the fields it names, so a client error the
+last submit computed but had nowhere to show surfaces alongside the server's (see
+[Disclosure](disclosure.md)). The server's verdict then stands until a newer whole-model answer
+supersedes it — the debounced refresh behind the next edit, or the next submit — at which point a
+server-only issue with no matching client rule goes, and one the client agrees with carries on
+through the client's own answer.
 
 **The severity is the server's to set.** An error lands on its field, blocks the submit and reaches
 the EditContext's message store. A warning or an info lands on the same field as an advisory:
 visible in Formidable's own message components and in the summary, blocking nothing, and never
 written to the store, which carries errors only. The page writes no advisory plumbing of its own.
 
-**The store is the compatibility bridge.** It exists so a page that already renders a native
-`ValidationSummary` or `ValidationMessage`, or calls `GetValidationMessages` directly, keeps
-working without swapping in Formidable's own summary and message components. The engine rebuilds
-it from whatever it currently holds as an error, gated on severity alone — it never re-checks
-whether a field is still rendered. A field that was visible when its error landed, whether from a
-client submit or a server apply, keeps its store entry after it leaves the page, until the
-engine's next pass answers for that field again. What the store does not carry is the curated
-reading experience: severities, disclosure, document order and focus are what Formidable's own
-summary and message components provide, by reading the engine directly rather than the store.
+**The store is the compatibility bridge, by contract.** It exists so a page that already renders a
+native `ValidationSummary` or `ValidationMessage`, or calls `GetValidationMessages` directly,
+keeps working without swapping in Formidable's own summary and message components. That is a
+promise rather than a side effect: the store is a projection of the same channel views the
+engine's own reads answer from, rebuilt whenever one of them moves, so a native component reads
+the same answer `FormidableFieldMessage` does, as far as the store is able to carry it — errors
+only, at no severity it can express, and with repeats collapsed on its own terms rather than the
+issue reads'. The errors those
+views disclose reach it, and the projection asks nothing further about registration: a field the
+submit channel is watching keeps its store entry after it leaves the page, until a later pass
+answers for it again, and the live channel's default policy discloses an engaged field's error
+whether or not anything renders it. That last one matters most to a form with no Formidable
+components at all. Nothing registers its fields, so a live channel deferring to registration would
+leave a native page's own errors out of the only surface it reads. A page that wants the narrower
+behaviour opts into it with
+[`FormidableOptions.LiveDisclosure`](options.md#livedisclosure), which moves every surface
+together rather than splitting them. What the store does not carry is the curated reading
+experience: severities, disclosure, document order and focus are what Formidable's own summary and
+message components provide, by reading the engine directly rather than the store.
 
 **A rejection moves focus, the way a blocked submit does.** `FormidableForm.ApplyServerIssues`
 is a submit's verdict arriving late, so a payload carrying an error lands the visitor on the first
@@ -758,10 +777,11 @@ there, and one whose field isn't is dropped with a suppressed-issue diagnostic n
 advisory blocks nothing, so hiding one strands no verdict.
 
 Both sides usually run the same validator, so the same advisory often arrives twice — once from the
-client's own submit and once from the response. It shows once, as the client's copy. That
-de-duplication matches on the message text, so a client and a server phrasing the same advisory
-differently show both: keeping the two sides' message resources in step is the consumer's job, the
-same way keeping their rules in step is.
+client's own submit and once from the response. It shows once, as the client's copy, because the
+views merge the client's answer first and drop the server's repeat of it. That match is on the
+message text at the same severity, so a client and a server phrasing the same advisory differently
+show both: keeping the two sides' message resources in step is the consumer's job, the same way
+keeping their rules in step is.
 
 **Advisories never ride a success response.** The wire contract above only defines the *rejection*
 shape — the `advisories` extension exists on a 400 `ValidationProblemDetails` body. Both adapters

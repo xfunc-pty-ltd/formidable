@@ -13,14 +13,14 @@
             <li><strong>Blur</strong> marks touched on this page: it wires <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. A built-in input marks touched only when a committed value change notifies the engine, in every <code>UpdateOn</code> mode, so without this wiring, tabbing through never touches.</li>
             <li><strong>Errors</strong> — the field currently carries error-severity messages.</li>
             <li><strong>Warnings</strong> — the field currently carries warning-severity messages.</li>
-            <li><strong>Form valid</strong> — the readout above Submit, kept live by <code>FormidableOptions.TrackFormValidity</code>: an invisible Submit-profile probe that reruns on every change and disables Submit until it says the whole form would pass.</li>
+            <li><strong>Form valid</strong> — the readout above Submit, kept live by <code>FormidableOptions.TrackFormValidity</code>: an invisible Submit-profile probe that runs on every change, executes only the rules still owed an answer in the engine's verdict store, and feeds what it ran back into that store for the passes beside it to reuse. Submit stays disabled until the whole form would pass — and that same fresh store answer is what lets a field wear the "confirmed" valid border before any submit: green means the engine can vouch a submit would not fail the field, not merely that you visited it.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>Tab into Username and out — Touched flips to True, Modified stays False. Submit stays disabled and Form valid reads No — the pristine model already fails the Submit profile's required-Username rule.</li>
+            <li>Tab into Username and out — Touched flips to True, Modified stays False. Submit stays disabled, Form valid reads No, and the box takes no confirmed border either: the probe's fresh answer already carries the required-Username failure, and a field the engine knows would fail submit is never styled valid, disclosed message or none. Tab through Display name the same way and it DOES confirm — the same answer holds nothing against it.</li>
             <li>Type <code>admin</code> — Modified and Validating flip to True, then Errors flips once the taken-check lands. Submit stays disabled: a taken username still fails the probe.</li>
-            <li>Clear Username and type <code>ada</code> instead — once the async check clears, Form valid flips to Yes and Submit enables itself, no click needed.</li>
+            <li>Clear Username and type <code>ada</code> instead — once the async check clears, Form valid flips to Yes, Submit enables itself with no click needed, and Username's border confirms: the store now holds a fresh, clean submit answer for the field.</li>
             <li>Submit — both rows' Validating flip together: submit is a form-wide pass, not a per-field one.</li>
         </ol>
     </TryIt>

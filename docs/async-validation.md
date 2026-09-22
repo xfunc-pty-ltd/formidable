@@ -384,12 +384,21 @@ executes nothing at all and still publishes its assembled verdict like any other
 is that a submit fired shortly after a live pass re-asks a question the live pass just answered,
 which is exactly the gap [memoizing the rule](#memoizing-an-async-rule) below closes.
 
-One more run is opt-in and independent of all of this. `FormidableOptions.TrackFormValidity`
-probes the whole model under `SubmitProfile` on every field change — or once per window when
-`LiveDebounce` is set, at the same cadence as the live pass it rides alongside — and the probe
-shares nothing with the verdict store, so a form with it switched on runs that same draft
-rule twice per post-submit edit rather than once: the live pass answers it, and the probe answers
-it again on its own terms.
+One more answer is opt-in, and it rides the same store. `FormidableOptions.TrackFormValidity`
+answers for the whole model under `SubmitProfile` on every field change — or once per window when
+`LiveDebounce` is set, at the same cadence as the live pass it rides alongside. Its probe plans
+against the store exactly as a pass does: it executes the submit-selected rules that have no fresh
+verdict when it starts, and files what it ran for whatever plans after it. A probe starting once
+the live pass has landed finds the draft bucket answered and executes only the submit-only rules
+the live profile never selects. One starting after a refresh has already landed in the same
+window — what a live debounce wider than `RefreshDebounce` produces — finds the whole submit
+profile answered, executes nothing at all, and leaves `IsFormValid` a read of the store. What
+none of that collapses is genuine overlap: an evaluation beginning while another awaits an
+async rule has no verdict to serve yet, so it runs that rule itself. Reuse is decided by what has
+landed, not by what is in flight. What a probe never does is disclose — no message, no pending
+indicator, nothing written where a native component would read it.
+[Options](options.md#trackformvalidity) covers the cost on a validator with no rule-level seam,
+where every probe is a whole-profile validation of its own.
 
 ### Memoizing an async rule
 

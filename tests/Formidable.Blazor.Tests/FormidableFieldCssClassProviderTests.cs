@@ -31,8 +31,11 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal(string.Empty, engine.EditContext.FieldCssClass(field));
     }
 
+    // Valid is a promise about submit, so modified-and-error-free alone cannot earn it: the
+    // Valid tier additionally requires the submit-selected rules to have answered for the model
+    // as it stands, with no error for the field among those answers.
     [Fact]
-    public void Modified_error_free_field_gets_the_valid_class()
+    public void Modified_error_free_field_earns_valid_only_with_fresh_submit_coverage()
     {
         var order = new EngineOrder();
         using var engine = CreateEngine(order, new EngineOrderValidator());
@@ -43,6 +46,16 @@ public class FormidableFieldCssClassProviderTests
 
         Assert.True(engine.EditContext.IsModified(field));
         Assert.Empty(engine.EditContext.GetValidationMessages(field));
+        // The live pass answered only the draft selection; the submit-selected rules have no
+        // verdict at this stamp, so nothing can vouch the field would pass.
+        Assert.Equal(string.Empty, engine.EditContext.FieldCssClass(field));
+
+        // Tracking makes the edit's probe answer the submit selection; the model is
+        // submit-valid, so the coverage lands fresh and clean and green follows.
+        order.Customer = new EngineCustomer();
+        engine.Options.TrackFormValidity = true;
+        engine.EditContext.NotifyFieldChanged(field);
+
         Assert.Equal("formidable-valid", engine.EditContext.FieldCssClass(field));
     }
 
@@ -60,11 +73,13 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-invalid", engine.EditContext.FieldCssClass(field));
     }
 
-    // Deliberate behavior change: the provider's Valid predicate reads touched-or-modified through
-    // the same rule FormidableCss.Compute applies to a Formidable input, so engine-level touch
-    // alone earns the Valid class on the native path too -- one decision, one owner, both seams.
+    // The provider reads engine-level touch through the same rule FormidableCss.Compute applies
+    // to a Formidable input -- one decision, one owner, both seams. On a model no rule has ever
+    // answered for, that shared decision is NO class: touched is necessary for Valid but cannot
+    // be sufficient, because the submit-selected rules that would decide the field's fate are
+    // unanswered (and this empty model would in fact fail them).
     [Fact]
-    public void Engine_level_touched_alone_earns_the_valid_class_matching_the_kit_seam()
+    public void Engine_level_touched_alone_matches_the_kit_seam_and_earns_nothing_while_coverage_is_stale()
     {
         var order = new EngineOrder();
         using var engine = CreateEngine(order, new EngineOrderValidator());
@@ -78,7 +93,7 @@ public class FormidableFieldCssClassProviderTests
         var providerClass = engine.EditContext.FieldCssClass(field);
         var kitClass = FormidableCss.Compute(engine.GetFieldState(field), engine.Options.CssClasses);
 
-        Assert.Equal("formidable-valid", providerClass);
+        Assert.Equal(string.Empty, providerClass);
         Assert.Equal(kitClass, providerClass);
     }
 
@@ -141,8 +156,11 @@ public class FormidableFieldCssClassProviderTests
 
         engine.EditContext.NotifyFieldChanged(field); // starts the live pass; GatedValidator's async rule blocks on Gate
 
+        // Mid-pass the freshly-edited model has no current submit answer — the pass computing
+        // one is exactly what is in flight — so Pending rides alone rather than on top of a
+        // Valid the field has not earned yet.
         Assert.True(engine.GetFieldState(field).IsValidating);
-        Assert.Equal("formidable-valid formidable-pending", engine.EditContext.FieldCssClass(field));
+        Assert.Equal("formidable-pending", engine.EditContext.FieldCssClass(field));
 
         var quiescent = new TaskCompletionSource();
         engine.StateChanged += () =>
@@ -181,6 +199,24 @@ public class FormidableFieldCssClassProviderTests
         Assert.False(editContext.IsModified(field));
 
         Assert.Equal("formidable-valid formidable-pending", provider.GetFieldCssClass(editContext, field));
+    }
+
+    // The fallback branch carries the WouldPassSubmit bit exactly as it carries the advisory
+    // bits: an engine whose GetFieldState answers false for it denies the Valid class through
+    // the provider too, with every other input identical to the test above.
+    [Fact]
+    public void The_fallback_engine_denies_valid_when_it_cannot_vouch_for_submit()
+    {
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var state = new FieldState(
+            IsTouched: true, IsModified: false, IsValidating: true,
+            HasErrors: false, HasWarnings: false, HasInfos: false, WouldPassSubmit: false);
+        var engine = new FieldStateStubEngine(editContext, state);
+        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+
+        Assert.Equal("formidable-pending", provider.GetFieldCssClass(editContext, field));
     }
 
     private static FormValidationEngine<EngineOrder> CreateEngine(

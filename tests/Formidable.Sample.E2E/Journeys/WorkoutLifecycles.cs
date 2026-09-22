@@ -9,7 +9,8 @@ namespace Formidable.Sample.E2E;
 /// The workout page's lifecycles: what happens to an issue between the submit that revealed it and
 /// the interaction that answers it. Rows that come and go, an advisory that must never block, a
 /// rule whose field leaves the screen while the rule stays, the server's verdict replacing its own
-/// previous one, and — the one these exist to protect — a live verdict surviving the refresh its
+/// previous one, the model-level gate standing across the refreshes that run while the form stays
+/// blocked, and — the one these exist to protect — a live verdict surviving the refresh its
 /// own edit armed. The live channel also answers here with no submit at all: a cross-field error
 /// cleared from the other field of its pair, and a tab-through of a blur-mode field that
 /// discloses nothing because nothing was committed.
@@ -39,6 +40,11 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     // marker — so an assertion can forbid all of them at once: a field that carries any one of
     // these has been painted, and "painted nothing" is the property the tab-through pins.
     private static readonly Regex AnyStateClass = new(@"\bformidable-(invalid|warning|info|valid|pending)\b");
+
+    // The appended marker on its own, for riding a pass through appear-and-drain: an assertion
+    // that must read a pass's landing rather than the DOM as it stood before the pass waits
+    // this class out on a field the pass covers.
+    private static readonly Regex Pending = new(@"\bformidable-pending\b");
 
     // ItemSize is pinned to match the real row height, but scrollHeight can still shift by a
     // pixel or two as placeholder spacers are replaced by rendered rows before layout settles.
@@ -195,24 +201,36 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
         // On this fresh, never-submitted form the tab-through validates nothing, touches
         // nothing, paints nothing: no message for the field, no state class on it, no pending
-        // indicator anywhere. Mutation that must break this: notifying the engine on every
-        // blur-mode blur rather than only while a value commit is pending — the blur above then
-        // marks the field touched, and a touched field with nothing to complain about paints
-        // formidable-valid, which the class assertion forbids. Same property
-        // FormidableInputBaseTests.A_blur_with_no_committed_change_notifies_nothing pins at the
-        // component level.
+        // indicator anywhere. That is the outcome a visitor sees, and it is what these three
+        // assertions cover. What they do NOT do is discriminate the notify-on-every-blur
+        // mutation, and the reason is worth stating rather than rediscovering: EventDate's
+        // always-on rules are gated on a non-empty value and its NotEmpty sits in the submit
+        // bucket, so a wrongly-notified empty date fails nothing; the valid class waits for
+        // submit coverage no pass here has produced, so an engaged, error-free field stays bare
+        // either way; and with ContactEmail empty this page's only async rule is gated off, so
+        // no pass would paint pending. The mutation is discriminated at the component level, by
+        // FormidableInputBaseTests.A_blur_with_no_committed_change_notifies_nothing.
         await Expect(MessagesFor(page, "eventdate")).ToHaveCountAsync(0);
         await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
         await Expect(page.Locator(".formidable-pending")).ToHaveCountAsync(0);
 
-        // The bare class list only discriminates if this page paints state classes at all, so
-        // commit a real change elsewhere: fill Event name and tab out (a text input fires its
-        // change event when focus leaves, and the default update mode commits on that event) —
-        // modified and error-free, it earns formidable-valid, and the tabbed-through date field
-        // stays bare even after the render that painted its neighbour.
+        // The bare class list only discriminates if this page paints state classes at all. A
+        // clean committed change is not the proof: this page tracks no form validity and its
+        // Engaged live profile leaves the Submit bucket's presence rules unanswered until a
+        // submit, so the fresh submit-selected coverage the valid class asks for does not
+        // exist yet and a modified, error-free Event name stays bare — the honest absence
+        // under the would-pass-submit rule, pinned as such. What proves painting is an error,
+        // which gates on nothing: a malformed engaged email paints formidable-invalid while
+        // both clean fields hold their bare class lists through the same renders.
         await Field(page, "eventname").FillAsync("Dev Summit");
         await Field(page, "eventname").PressAsync("Tab");
-        await Expect(Field(page, "eventname")).ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
+        await Expect(Field(page, "eventname")).Not.ToHaveClassAsync(AnyStateClass);
+
+        await Field(page, "contactemail").FillAsync("not-an-email");
+        await Field(page, "contactemail").PressAsync("Tab");
+        await Expect(Field(page, "contactemail")).ToHaveClassAsync(
+            new Regex(@"\bformidable-invalid\b"), new() { Timeout = AsyncTimeoutMs });
+        await Expect(Field(page, "eventname")).Not.ToHaveClassAsync(AnyStateClass);
         await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
     }
 
@@ -259,25 +277,16 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         var page = session.Page;
 
         // Everything the Submit profile asks for except the dietary note, whose rule is
-        // unconditional while the checkbox above it decides whether the field is on screen at all.
+        // unconditional while the checkbox above it decides whether the field is on screen at
+        // all. Unticking BEFORE any submit is what stages the gate: the note's rule fails from
+        // the start, but no submit ever gets the chance to show it — and an error no submit
+        // has shown is exactly what the gate stands in for.
         await FillValidRegistrationAsync(page, dietaryNotes: "");
-        await SubmitAsync(page);
-
-        await Expect(MessagesFor(page, "dietarynotes"))
-            .ToHaveTextAsync([DietaryNotesRequired], new() { Timeout = AsyncTimeoutMs });
-        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
-
         await Field(page, "includecatering").UncheckAsync();
-
-        // Unticking removes the field, so its inline message goes with it in the same render. The
-        // summary is not re-decided by an edit: the entry stands until a submit rules on it again.
-        await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);
-        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
-
         await SubmitAsync(page);
 
-        // That submit is the re-decision: the only failing rule now has nowhere to show, so the
-        // form blocks with the model-level gate instead of with an entry pointing at nothing.
+        // The only failing rule has nowhere to show, so the form blocks with the model-level
+        // gate instead of with an entry pointing at nothing.
         await Expect(SummaryEntry(page, HiddenIssueGate))
             .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToHaveCountAsync(0);
@@ -287,13 +296,72 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // the only error there is to take the visitor to.
         await Expect(Field(page, "form")).ToBeFocusedAsync();
 
-        // The summary entry takes the same route. Dispatched rather than clicked, because that
-        // focus scrolls the whole form into view and waiting the scroll out would hand the window
-        // to the refresh the catering edit armed — and a refresh retires a gate no refresh
-        // synthesizes, leaving the entry to be clicked gone from under the click.
+        // Editing while blocked cannot retire the explanation. The commit runs a live pass and
+        // arms the background refresh; the pending marker on the edited field spans both, so
+        // its draining is the sign the passes have run — and the gate entry must stand on the
+        // far side, because the gate is a predicate over the submit's own answer, not a stored
+        // entry a refresh rebuild can drop. Same property
+        // FormValidationEngineViewTests.The_gate_survives_a_post_submit_refresh_while_the_form_stays_blocked
+        // pins at the engine level.
+        await Field(page, "description").FillAsync("Regional developer summit");
+        await Field(page, "description").PressAsync("Tab");
+        await Expect(Field(page, "description")).ToHaveClassAsync(
+            Pending, new() { Timeout = AsyncTimeoutMs });
+        await Expect(Field(page, "description")).Not.ToHaveClassAsync(
+            Pending, new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, HiddenIssueGate)).ToBeVisibleAsync();
+
+        // The summary entry takes the same route as the auto-focus, clicked for real: no
+        // refresh can retire the gate while the form stays blocked, so there is no window in
+        // which the entry could leave from under the click.
         await page.EvaluateAsync("() => document.activeElement?.blur()");
-        await SummaryEntry(page, HiddenIssueGate).DispatchEventAsync("click");
+        await SummaryEntry(page, HiddenIssueGate).ClickAsync();
         await Expect(Field(page, "form")).ToBeFocusedAsync();
+
+        // Re-ticking the checkbox puts the field back on screen, and nothing more: on the
+        // submit channel disclosure is a submit's act, so the note stays quiet until the next
+        // submit rules — which shows the error where it lives and dissolves the gate. The
+        // field's own visibility is awaited first, since a message list counts zero for a field
+        // that has not rendered at all: without that anchor the count below would pass against
+        // the DOM as it stood before the tick, and a regression that disclosed on registration
+        // would leave it green.
+        await Field(page, "includecatering").CheckAsync();
+        await Expect(Field(page, "dietarynotes")).ToBeVisibleAsync();
+        await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);
+        await SubmitAsync(page);
+        await Expect(MessagesFor(page, "dietarynotes"))
+            .ToHaveTextAsync([DietaryNotesRequired], new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
+        await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
+
+        // Once shown, watched: unticking takes the field and its inline message off screen,
+        // but the summary keeps the entry, and another submit keeps it listed rather than
+        // trading it back for the gate — a field a submit has disclosed stays watched until
+        // the form passes or resets. Same property
+        // FormValidationEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
+        // pins at the engine level.
+        await Field(page, "includecatering").UncheckAsync();
+        await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
+
+        // A fresh committed edit right before the submit (a changed value, or the commit is
+        // elided) strands every stored verdict at an older stamp, so the submit must run the
+        // 300 ms availability check itself and the pending window below is structurally wide.
+        await Field(page, "description").FillAsync("Regional developer summit, day two");
+        await Field(page, "description").PressAsync("Tab");
+        await SubmitAsync(page);
+
+        // Both closing asserts describe a summary the submit leaves unchanged, so on their own
+        // they would hold against the pre-submit DOM just as well and prove nothing about what
+        // the submit decided. Pending on the edited field cannot drain before every in-flight
+        // pass over it has landed — the form-wide submit included — so riding it through
+        // appear and drain first means the asserts read the pass's own answer.
+        await Expect(Field(page, "description")).ToHaveClassAsync(
+            Pending, new() { Timeout = AsyncTimeoutMs });
+        await Expect(Field(page, "description")).Not.ToHaveClassAsync(
+            Pending, new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
+        await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
     }
 
     [E2EFact]

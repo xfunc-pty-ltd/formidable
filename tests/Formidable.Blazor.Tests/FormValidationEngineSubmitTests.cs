@@ -74,15 +74,18 @@ public class FormValidationEngineSubmitTests
         Assert.False(outcome.CanProceed);
 
         // Description answers for this submit and then leaves the page, but nothing tells the
-        // engine so - no OnRenderedFieldsChanged, no further pass. RebuildStore's copy loops
-        // re-play whatever the buckets already hold without re-checking current registration, so
-        // a departed field's error persists in the store exactly as it arrived.
+        // engine so - no OnRenderedFieldsChanged, no further pass. The reveal ledger still
+        // watches the field and the submit channel's source still holds its answer, and the view
+        // re-plays what was disclosed without re-checking current registration - so a departed
+        // field's error persists in the store exactly as it arrived. This is the bridge's stated
+        // default: disclosure decided at the disclosure event, every surface answering alike.
         descReg.Dispose();
 
-        // Customer is required but was never registered at all, so its client submit error never
-        // entered the bucket in the first place (suppressed by the registration gate at write
-        // time). A server-declared error bypasses that gate outright - the one path through which
-        // an unrendered field's blocking verdict still reaches the native store.
+        // Customer is required but was never registered at all, so its client submit error was
+        // suppressed at write time - the registration gate filters client errors before the
+        // ledger ever reveals the field. A server-declared error bypasses that gate outright:
+        // it reaches the native store whether or not the field ever rendered, and applying it
+        // reveals the field, so the client's own error for it discloses from here on too.
         _engine.ApplyServerIssues([new ValidationIssue(nameof(EngineOrder.Customer), "Customer is required")]);
 
         Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));

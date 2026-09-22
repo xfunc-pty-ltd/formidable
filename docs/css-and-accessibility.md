@@ -23,8 +23,9 @@ computes one:
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Shared field CSS class rule: errors win, ungated; touched/modified without errors is warning,
-/// info, or valid by the field's remaining advisory issues; pending appends while validating.
+/// Shared field CSS class rule: errors win, ungated; touched/modified without errors is warning
+/// or info by the field's remaining advisory issues, and valid only when it is also known the
+/// field would pass submit; pending appends while validating.
 /// </summary>
 public static class FormidableCss
 {
@@ -35,6 +36,7 @@ public static class FormidableCss
             state.IsTouched || state.IsModified,
             state.HasWarnings,
             state.HasInfos,
+            state.WouldPassSubmit,
             state.IsValidating,
             classes);
 
@@ -42,14 +44,20 @@ public static class FormidableCss
     /// Joins the already-decided booleans into a space-joined class string: invalid wins outright
     /// and ungated; touched-or-modified gates every other tier, within which warning beats info
     /// beats plain valid — a field the user must still fix never reads as merely advisory, and an
-    /// untouched, unmodified field earns no class at all regardless of what it carries. Pending
-    /// appends to whichever tier (or neither) applies. Private to <see cref="Compute"/>, its one
-    /// caller — a Formidable input and <see cref="FormidableFieldCssClassProvider"/>'s
+    /// untouched, unmodified field earns no class at all regardless of what it carries. Valid
+    /// alone carries one further requirement, <see cref="FieldState.WouldPassSubmit"/>: green is
+    /// a promise about submit, so a clean-looking field whose submit-selected rules have no
+    /// current answer — or whose current answer fails it undisclosed — wears no class rather
+    /// than a confirmation it has not earned. The advisory tiers ignore that bit deliberately: a
+    /// disclosed warning or info is a fact about the field regardless of what submit would say.
+    /// Pending appends to whichever tier (or neither) applies. Private to <see cref="Compute"/>,
+    /// its one caller — a Formidable input and <see cref="FormidableFieldCssClassProvider"/>'s
     /// native-input path both build a <see cref="FieldState"/> from their own sources and hand it
     /// to <see cref="Compute"/>, so this join happens in exactly one place for both.
     /// </summary>
     private static string Assemble(
-        bool invalid, bool touchedOrModified, bool hasWarnings, bool hasInfos, bool pending, FormidableCssClasses classes)
+        bool invalid, bool touchedOrModified, bool hasWarnings, bool hasInfos, bool wouldPassSubmit,
+        bool pending, FormidableCssClasses classes)
     {
         var baseClass = invalid
             ? classes.Invalid
@@ -59,7 +67,9 @@ public static class FormidableCss
                     ? classes.Warning
                     : hasInfos
                         ? classes.Info
-                        : classes.Valid;
+                        : wouldPassSubmit
+                            ? classes.Valid
+                            : string.Empty;
 
         if (!pending)
         {
@@ -76,12 +86,22 @@ In order: **errors win** — a field with error-severity issues is always `Inval
 touched/modified state. Failing that, touched-or-modified gates everything else: an untouched,
 unmodified field earns no class at all, whatever it carries. A touched or modified, error-free
 field is `Warning` when it has a warning-severity issue, `Info` when its only issues are
-info-severity, and `Valid` only once it has no issues left to show. That last step is deliberate:
-a field still carrying an advisory does not read as `Valid`, because it still has something the
-user might act on. Finally, **pending appends** — whichever of those tiers applied (or none did)
+info-severity, and `Valid` once it has no issues left to show *and* the engine can say a submit
+would not fail it. Finally, **pending appends** — whichever of those tiers applied (or none did)
 gets `Pending` added onto it, space-joined, while a validation pass involving the field is in
 flight. `Pending` never replaces the tier's own class, and it can appear on its own if the field
 is validating before it's ever been touched.
+
+Both halves of that `Valid` condition are deliberate. A field still carrying an advisory does not
+read as `Valid`, because it still has something the user might act on. And green is a promise
+about submit rather than a note that the visitor stopped by, so it waits until every rule the
+submit profile selects has an answer for the value as it stands and none of those answers faults
+the field. A failing answer the form has not disclosed yet counts, which is what stops an emptied
+required box wearing a confirmation border. Whichever pass answered those rules last is the one
+being read: a live pass, on a form whose `LiveProfile` already selects them;
+[`TrackFormValidity`](options.md#trackformvalidity)'s probe, on one whose profile doesn't; the
+submit itself; and the debounced refresh behind every post-submit edit. Until one of them has
+answered, a clean-looking field wears no tier class rather than a green one.
 
 The five class names themselves are configurable, each with a default:
 
@@ -111,8 +131,12 @@ public sealed class FormidableCssClasses
     public string Info { get; set; } = "formidable-info";
 
     /// <summary>
-    /// Applied when the field is touched or modified and has no error-, warning-, or
-    /// info-severity issues. Defaults to <c>"formidable-valid"</c>.
+    /// Applied when the field is touched or modified, has no error-, warning-, or info-severity
+    /// issues, and the engine can vouch that a submit would not fail it
+    /// (<see cref="FieldState.WouldPassSubmit"/>): green is a promise about submit, so a field
+    /// whose submit-selected rules have no answer for the value as it stands — or an answer that
+    /// fails it without showing why — wears no class rather than a confirmation it has not
+    /// earned. Defaults to <c>"formidable-valid"</c>.
     /// </summary>
     public string Valid { get; set; } = "formidable-valid";
 
@@ -167,7 +191,8 @@ namespace Formidable.Blazor;
 /// Internal fast-path reads two engine-adjacent components need without growing the public
 /// <see cref="IFormValidationEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
-/// <see cref="IsFieldTouched"/>, and <see cref="FieldAdvisories"/> to build the same
+/// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
+/// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
 /// directly; <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide
@@ -189,6 +214,13 @@ internal interface IValidatingFieldReader
     /// than two separate ones.
     /// </summary>
     (bool HasWarnings, bool HasInfos) FieldAdvisories(FieldIdentifier field);
+
+    /// <summary>
+    /// Whether the engine can vouch that a submit would not fail <paramref name="field"/> — the
+    /// <see cref="FieldState.WouldPassSubmit"/> conjunct the Valid class requires, answered
+    /// without building the rest of a <see cref="FieldState"/>.
+    /// </summary>
+    bool WouldPassSubmit(FieldIdentifier field);
 
     /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
     string? InlineMessageRole { get; }
@@ -228,12 +260,13 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// <inheritdoc />
     public override string GetFieldCssClass(EditContext editContext, in FieldIdentifier fieldIdentifier)
     {
-        bool touched, pending, hasWarnings, hasInfos;
+        bool touched, pending, hasWarnings, hasInfos, wouldPassSubmit;
         if (_reader is not null)
         {
             touched = _reader.IsFieldTouched(fieldIdentifier);
             pending = _reader.IsFieldValidating(fieldIdentifier);
             (hasWarnings, hasInfos) = _reader.FieldAdvisories(fieldIdentifier);
+            wouldPassSubmit = _reader.WouldPassSubmit(fieldIdentifier);
         }
         else
         {
@@ -242,6 +275,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             pending = fallback.IsValidating;
             hasWarnings = fallback.HasWarnings;
             hasInfos = fallback.HasInfos;
+            wouldPassSubmit = fallback.WouldPassSubmit;
         }
 
         var state = new FieldState(
@@ -250,7 +284,8 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             IsValidating: pending,
             HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
             HasWarnings: hasWarnings,
-            HasInfos: hasInfos);
+            HasInfos: hasInfos,
+            WouldPassSubmit: wouldPassSubmit);
 
         return FormidableCss.Compute(state, _classes);
     }
@@ -267,18 +302,21 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 
 This is the same class names as `FormidableCss.Compute`, and genuinely the same rule: the provider
 builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the `EditContext`,
-`IsTouched`, `IsValidating`, `HasWarnings`, and `HasInfos` read from the engine — and hands it to
-`FormidableCss.Compute`, the one place the invalid/warning/info/valid/pending decision is made.
-Concretely, a field the engine considers touched (`FieldState.IsTouched`, set by `MarkTouched()`)
-earns `Valid` through this path exactly as it does on a Formidable input, even before the
-`EditContext` has ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s
+`IsTouched`, `IsValidating`, `HasWarnings`, `HasInfos`, and `WouldPassSubmit` read from the
+engine — and hands it to `FormidableCss.Compute`, the one place the
+invalid/warning/info/valid/pending decision is made. Concretely, a field the engine considers
+touched (`FieldState.IsTouched`, set by `MarkTouched()`) reaches the `Valid` tier through this
+path on exactly the terms a Formidable input reaches it on, `WouldPassSubmit` included, even
+before the `EditContext` has ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s
 `IsTouched || IsModified` branch (see above) is the one decision both paths share, not two
 decisions that happen to agree. The provider probes the engine for `IValidatingFieldReader`, an
-internal fast path `FormValidationEngine<TModel>` implements for all four engine-sourced reads,
-and falls back to `GetFieldState(fieldIdentifier)` for all four at once when an
+internal fast path `FormValidationEngine<TModel>` implements for every one of those engine-sourced
+reads, and falls back to `GetFieldState(fieldIdentifier)` for all of them at once when an
 `IFormValidationEngine` doesn't implement it (a test double, say) — the probe is a single `as`
 check, not a per-member one, so there's no in-between case where some reads have the fast path and
-others don't. A native input inside a Formidable form shows the
+others don't. A `FieldState` built without an engine defaults `WouldPassSubmit` to `true`, so a
+hand-rolled provider or a test double keeps the `Valid` tier reachable rather than losing it to a
+bit it never set. A native input inside a Formidable form shows the
 same "checking…" cue a Formidable input does, automatically; see the Vanilla interop section of
 [Component kit](component-kit.md) for the provider wired into a native `InputText` beside a
 Formidable one.

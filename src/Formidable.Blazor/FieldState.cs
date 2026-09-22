@@ -11,10 +11,22 @@ namespace Formidable.Blazor;
 /// <param name="HasErrors">The field currently has error-severity messages.</param>
 /// <param name="HasWarnings">The field currently has warning-severity issues.</param>
 /// <param name="HasInfos">The field currently has info-severity issues.</param>
+/// <param name="WouldPassSubmit">
+/// The engine can vouch that a submit would not fail this field: every rule the submit profile
+/// selects has an answer current at the model's edit stamp, and none of those answers carries an
+/// error-severity issue for this field. This is the conjunct that gates the Valid class (see
+/// <see cref="FormidableCss.Compute"/>) — "no disclosed issues" alone cannot mean "would pass",
+/// because submit-selected rules that have not run for the value as it stands may yet reject it.
+/// Freshness is judged form-level, deliberately: which fields a PASSING rule speaks for is
+/// unknowable, so per-field freshness attribution does not exist and the form-wide answer is the
+/// honest one. Defaults to <see langword="true"/> so a state built without an engine — a test
+/// double, a hand-rolled provider — keeps the Valid tier reachable.
+/// </param>
 public readonly record struct FieldState(
     bool IsTouched,
     bool IsModified,
     bool IsValidating,
     bool HasErrors,
     bool HasWarnings,
-    bool HasInfos);
+    bool HasInfos,
+    bool WouldPassSubmit = true);

@@ -81,6 +81,9 @@ public class FormValidationEngineValidityTests
         Assert.True(_engine.IsFormValid);
     }
 
+    // The probe feeds the per-rule VERDICT store — that is what makes it cheap — but the
+    // verdict store is not a disclosure channel: nothing the probe executes may surface as an
+    // issue, a message-store entry, a suppression diagnostic, or a pending indicator.
     [Fact]
     public async Task Probe_writes_no_visible_issues_and_no_disclosure()
     {
@@ -112,7 +115,9 @@ public class FormValidationEngineValidityTests
 
         // Second edit: same field, already touched (no touch-raise this time), model still
         // invalid — the probe still reports false, no flip. The delta from here on is the
-        // pass-lifecycle's own constant contribution, with nothing added by the probe.
+        // constant contribution of the pass lifecycle plus the probe's own landing publication
+        // (each edit strands the coverage, so each probe re-executes the stale submit selection
+        // and publishes the landing); a FLIP is the one thing that adds a raise beyond it.
         _editContext.NotifyFieldChanged(DescriptionField);
         await FlushAsync();
         var afterSecond = raised;

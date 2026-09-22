@@ -230,19 +230,28 @@ commentary in different places on the form renders a summary per band instead, w
 
 ## The warning lifetime
 
-Submit is the disclosure event for a warning or an info exactly as it is for an error.
-`ValidateForSubmitAsync` decides, once, which currently-rendered fields carry a visible issue of
-any severity. The union of that submit's error-visible and advisory-visible fields is the watched
-set from then on. Every further edit arms the debounced refresh (`RefreshDebounce`, see
-[Options](options.md)), which re-validates the whole model but only ever narrows that set. It
-never goes looking for newly warning-worthy fields outside it.
+Submit is the disclosure event for a warning or an info, as it is for an error.
+`ValidateForSubmitAsync` decides which currently-rendered fields carry a visible issue of any
+severity, and each field it names joins a watched set — an error site on the error side, an
+advisory site on the advisory one, and a field watched on either count keeps its advisories
+refreshed. That set only grows while the form stays short of a passing submit: a later blocked
+submit adds to it, a server apply adds to it, and nothing takes a field back out. Every further
+edit arms the debounced refresh (`RefreshDebounce`, see [Options](options.md)), which re-validates
+the whole model and re-answers the watched fields rather than deciding membership again. It never
+goes looking for newly warning-worthy fields outside the set.
 
 A warning that was showing when the user last submitted keeps refreshing live as they keep
-editing: it clears the moment they fix it, and comes back if they break it again. A field that was
-an error site at submit picks up a newly-appearing warning too, because it is already in the
-watched set — whether or not it carried a warning at submit time. Only a field with neither an
+editing: it clears the moment they fix it, and comes back if they break it again, since fixing it
+ends the message rather than the watch. A field that was an error site at submit picks up a
+newly-appearing warning too, because it is already in the watched set — whether or not it carried
+a warning at submit time. Only a field with neither an
 error nor a warning at submit stays quiet when it starts failing a warning-severity rule. It waits
 for the next submit, the same way a newly-failing error field would.
+
+A passing submit is where the two channels part company. It clears the error watches outright, so
+an error the visitor fixed stops being watched at all, and it re-freezes the advisory watches to
+the sites that passing report could actually show — an advisory the form is showing as it passes
+keeps its site, and everything else starts over.
 
 ## Server-side
 

@@ -28,18 +28,30 @@ public sealed class FormidableOptions
 
     /// <summary>
     /// Opt-in whole-form validity probe for disable-submit scenarios. Defaults to
-    /// <see langword="false"/> — off forever, never default-on: turning it on AT LEAST doubles
-    /// the per-change validation work, and "doubles" is a floor, not a cap — <see cref="SubmitProfile"/>
-    /// is a strict superset of <see cref="LiveProfile"/> (the default rules again, plus the whole
-    /// Submit ruleset, where the more expensive async/server-shaped rules typically live), so this
-    /// probe is usually the more expensive of the two revalidations, not an equal second half.
-    /// When <see langword="true"/>, the engine keeps
-    /// <see cref="IFormValidationEngine.IsFormValid"/> current with a standalone
-    /// <see cref="SubmitProfile"/> validation that is not an engine pass: no disclosure, no
+    /// <see langword="false"/> — off, never default-on: a probe is extra validation work per
+    /// change, and only a form with something reading
+    /// <see cref="IFormValidationEngine.IsFormValid"/> gets anything for it.
+    /// When <see langword="true"/>, the engine keeps that property current with a standalone
+    /// <see cref="SubmitProfile"/> evaluation that is not an engine pass: no disclosure, no
     /// message-store write, no pending-indicator flip — nothing about it is ever shown. The probe
     /// runs once at construction (so a pristine, untouched form still reports truthfully) and
     /// again on every field change afterwards, at the same cadence the live pass itself runs at —
     /// immediately per change, or once per window when <see cref="LiveDebounce"/> is also set.
+    /// On a validator that can execute rule by rule, the probe reads and feeds the engine's
+    /// verdict store: it executes only the submit-selected rules with no current answer and
+    /// lands what it ran for later passes to reuse, so the probe and the passes beside it share
+    /// one execution per rule per model state rather than each running their own — where every
+    /// selected rule is already answered, the probe executes nothing at all. Sharing is settled
+    /// by what has landed rather than by what is running, and a pass files its whole plan in one
+    /// act at the end: a pass still awaiting an async rule has filed nothing at all yet, so a
+    /// probe starting meanwhile plans those same rules and both executions are paid. Where nothing
+    /// yields, which of the two starts first does not matter: an all-synchronous plan runs to
+    /// completion before the call that started it returns, so whichever goes first has already
+    /// filed everything the other would have planned, and they share in full. On any other
+    /// validator each probe is one whole <see cref="SubmitProfile"/> validation, in addition to
+    /// the live pass it rides beside — typically the more expensive of the two, since
+    /// <see cref="SubmitProfile"/> usually selects a superset of <see cref="LiveProfile"/>'s
+    /// rules with the async/server-shaped ones among the difference.
     /// </summary>
     public bool TrackFormValidity { get; set; }
 
@@ -62,6 +74,27 @@ public sealed class FormidableOptions
     /// always visible unless this returns false.
     /// </summary>
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
+
+    /// <summary>
+    /// How the live channel discloses an engaged field's issues. Defaults to
+    /// <see cref="LiveIssueDisclosure.Engaged"/>: engagement alone discloses, on every surface —
+    /// the engine's issue reads and the <c>ValidationMessageStore</c> alike — and registration
+    /// filters the live channel nowhere, beyond ending the engagement of a field that LEAVES the
+    /// page (one something registered and nothing renders any more; a field nothing ever
+    /// registered has not left, so it keeps its verdict). That default is the native-interop
+    /// bridge contract: an anchor-free native form registers no fields, and its live errors must
+    /// reach the store regardless. <see cref="LiveIssueDisclosure.EngagedAndVisible"/> opts in to
+    /// gating each live issue on override-aware visibility
+    /// (<see cref="DisclosureOverride"/> first, rendered registration otherwise), uniformly
+    /// across every surface, store included — which means a page that notifies changes for
+    /// fields it does not currently render hides those fields' live errors everywhere until
+    /// they render; that is what opting in asks for. For a summary that lists less without
+    /// changing disclosure, use <c>FormidableSummary</c>'s <c>Show</c> filter instead. Read at
+    /// every view evaluation, so the engine's own reads answer to a change the moment it is made;
+    /// the <c>ValidationMessageStore</c> is a materialized projection of those same views rather
+    /// than a read of them, so it carries the change from its next rebuild.
+    /// </summary>
+    public LiveIssueDisclosure LiveDisclosure { get; set; } = LiveIssueDisclosure.Engaged;
 
     /// <summary>
     /// Invoked once per issue suppressed because no rendered field registration matched and no

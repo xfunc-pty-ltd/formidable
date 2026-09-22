@@ -6,8 +6,12 @@ namespace Formidable.Blazor;
 
 /// <summary>
 /// Registration-only marker for a field rendered by something Formidable does not wrap.
-/// Registering keeps automatic disclosure truthful: without it, the field's issues are
-/// treated as unrevealed and suppressed. Renders nothing. <see cref="For"/> is (re-)read
+/// Registering keeps automatic disclosure truthful: without it, a submit never reveals the
+/// field, so its submit errors are suppressed as unrevealed and its issues sort last in a
+/// resolved issue order. The live channel goes by engagement instead and consults registration
+/// only under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, so under the default policy an
+/// engaged field's live verdict discloses with or without this marker, and under the opt-in this
+/// marker is what lets it. Renders nothing. <see cref="For"/> is (re-)read
 /// whenever the cascaded <see cref="FormidableFormContext"/> is a new instance — including
 /// the first render and again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c>
 /// swaps its model and rebuilds its engine and registry — so the registration always targets

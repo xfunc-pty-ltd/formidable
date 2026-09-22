@@ -73,6 +73,35 @@ public class FormidableCssComputeTests
         Assert.Equal(classes.Valid, FormidableCss.Compute(state, classes));
     }
 
+    // Valid alone consults WouldPassSubmit: a touched, issue-free field the engine cannot vouch
+    // for wears no class rather than a confirmation it has not earned. The bit defaults to true,
+    // which is what keeps every state built without an engine (the tests above included) on the
+    // plain-valid branch.
+    [Fact]
+    public void Valid_requires_would_pass_submit()
+    {
+        var classes = new FormidableCssClasses();
+        var state = new FieldState(
+            IsTouched: true, IsModified: false, IsValidating: false,
+            HasErrors: false, HasWarnings: false, HasInfos: false, WouldPassSubmit: false);
+
+        Assert.Equal(string.Empty, FormidableCss.Compute(state, classes));
+    }
+
+    // The advisory tiers ignore the bit deliberately: a disclosed warning is a fact about the
+    // field regardless of what submit would say, so denying it alongside Valid would hide
+    // information rather than withhold a promise.
+    [Fact]
+    public void Warnings_ignore_would_pass_submit()
+    {
+        var classes = new FormidableCssClasses();
+        var state = new FieldState(
+            IsTouched: true, IsModified: false, IsValidating: false,
+            HasErrors: false, HasWarnings: true, HasInfos: false, WouldPassSubmit: false);
+
+        Assert.Equal(classes.Warning, FormidableCss.Compute(state, classes));
+    }
+
     [Fact]
     public void Untouched_unmodified_no_issues_is_empty()
     {

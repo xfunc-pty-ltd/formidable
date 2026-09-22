@@ -194,7 +194,7 @@ The deep dives, grouped the way the concepts stack.
 |---|---|---|
 | Concepts | [Profiles](docs/profiles.md) | Draft, Submit, and profiles you define yourself: how a pass picks its rules. |
 | Concepts | [Severity](docs/severity.md) | Errors block a submit; warnings and infos say their piece and let it through. |
-| Concepts | [Disclosure](docs/disclosure.md) | Render-registration in full: why an issue surfaces only where its field is mounted. |
+| Concepts | [Disclosure](docs/disclosure.md) | Render-registration in full: why a submit's issue surfaces only where its field is mounted. |
 | Fields & collections | [Collections and row identity](docs/collections-and-row-identity.md) | How a message stays attached to its row through add, remove, and reorder. |
 | Fields & collections | [Component kit](docs/component-kit.md) | Every component and parameter, plus the seams for foreign and native controls. |
 | Async & server | [Async validation](docs/async-validation.md) | Pending state and the debounce that drives it, then how overlapping passes settle their order. |

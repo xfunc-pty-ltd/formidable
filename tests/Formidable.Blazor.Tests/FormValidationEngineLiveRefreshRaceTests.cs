@@ -30,8 +30,8 @@ public class FormValidationEngineLiveRefreshRaceTests
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
 
-        // A clean submit: no field is an error site, so a refresh would discard its own verdict
-        // for any of them - which makes the live pass the only channel that can answer.
+        // A clean submit: no field is a revealed error site, so nothing a refresh computes would
+        // be disclosed - which makes the live pass the only channel that can answer.
         var submit = engine.ValidateForSubmitAsync();
         validator.Gate.SetResult();
         Assert.True((await submit).CanProceed);

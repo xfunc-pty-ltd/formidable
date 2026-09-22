@@ -84,10 +84,11 @@ the edit itself and the refresh follows it 300 ms later. Set this above `Refresh
 against the 300 ms default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor)
 does) and the refresh comes due first instead. The order is free to vary because the cost is not:
 verdict reuse is keyed by rule and edit stamp rather than by which pass ran first, so whichever
-pass lands first executes the stale rules and the other serves the stored verdicts. The live pass
-owns the live channel, the refresh owns what the submit disclosed, and neither writes the other's —
-with the refresh in front, what submit disclosed updates a beat before the field's own live message
-does, a transient reordering that leaves the settled state identical.
+pass lands first executes the stale rules and the other serves the stored verdicts. What each pass
+files differs — a live pass files the engaged fields' verdicts, a refresh files the whole model's
+submit-profile answer — and what a field shows is read from both. With the refresh in front, what
+submit disclosed updates a beat before the field's own live message does, a transient reordering
+that leaves the settled state identical.
 
 Same verdicts, same per-rule cost, in either order. The reuse a post-submit edit gets without
 `LiveDebounce` set applies here unchanged — see
@@ -103,11 +104,27 @@ difference.
 `bool`, defaults to `false`. Turns on the whole-form validity probe behind
 `IFormValidationEngine.IsFormValid` — the answer a disabled Submit button needs.
 
-Opt-in, and off by default for a reason: the probe is a full extra `SubmitProfile` validation on
-every field change, on top of the live pass. That at least doubles the per-change work, and
-"doubles" is a floor rather than a cap: by default `SubmitProfile` is a superset of `LiveProfile`,
-the default rules again plus the whole Submit ruleset, where the expensive async rules usually
-live.
+Opt-in, and off by default for a reason: a form with nothing reading `IsFormValid` gets nothing
+for the work. What the work costs depends on the validator. One the engine can take rule by rule
+(an `AbstractValidator<TModel>` whose `ClassLevelCascadeMode` is `Continue`, FluentValidation's
+own default; see
+[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not))
+shares the engine's verdict store with the probe: the probe executes only the submit-selected
+rules with no fresh verdict when it starts, files what it ran, and the passes that plan after it
+serve those verdicts instead of running the same rules again. The probe and the passes beside it
+end up paying for one execution per rule per model state rather than one each, and where every
+selected rule is already answered — a refresh that landed earlier in the same debounce window, say
+— the probe executes nothing at all and `IsFormValid` is a read of the store. What decides the
+sharing is what has landed, not what is running, and a pass files its whole plan in one act at the
+end: a pass still awaiting an async rule has filed nothing yet, so a probe starting in the
+meantime plans those same rules and both executions are paid. Where nothing yields, which of the
+two starts first does not matter: an all-synchronous plan runs to completion before the call that
+started it returns, so whichever goes first has already filed everything the other would have
+planned, and they share in full. On any other
+validator there is no store to share, and each probe is one whole `SubmitProfile` validation on
+top of the live pass — usually the more expensive of the two,
+since `SubmitProfile` is by default a superset of `LiveProfile`: the default rules again plus the
+whole Submit ruleset, where the expensive async rules tend to live.
 
 What the probe is not is an engine pass: no disclosure, no message-store write, no pending
 indicator, nothing about it ever reaches the screen. It runs once when the engine is built, so a
@@ -117,11 +134,19 @@ afterwards at whatever cadence the live pass runs at — per change, or once per
 reads `false` until that first probe completes. The answer is client-side only: issues a server
 applied through `ApplyServerIssues` are not part of it.
 
-A probe in flight doesn't cancel one already running from an earlier change — they overlap rather
-than the newer one replacing the older, with only their finishing order deciding which answer
-sticks. That's mostly a cost concern, not a correctness one, unless `SubmitProfile` itself carries
-a slow async rule: without `LiveDebounce`, ten keystrokes can then mean ten concurrent validations
-in flight together.
+The verdicts a probe files are read by more than `IsFormValid`. They are also what lets a field
+wear the `Valid` class before any submit, since green asks whether the submit-selected rules would
+pass (see [CSS and accessibility](css-and-accessibility.md#need-to-know)). On a page whose
+`LiveProfile` doesn't already cover the submit profile, turning tracking on is what gets a clean
+field confirmed while the visitor types, rather than at the first submit.
+
+A probe in flight doesn't cancel one already running from an earlier change — they overlap. Which
+answer sticks is decided by the stamp each probe took as it started, not by the order they finish
+in: a probe a newer one has superseded discards its own answer instead of overwriting the fresher
+one, and the verdicts it executed are filed only if no edit arrived while it ran. That leaves cost
+as the concern rather than correctness, and it bites when `SubmitProfile` carries a slow async
+rule: without `LiveDebounce`, ten keystrokes can mean ten probes in flight together, each
+answering for the model state it started at.
 
 ```razor
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
@@ -163,6 +188,43 @@ clean the model.
 return `true` to force it visible, `false` to force it suppressed, or `null` to defer to the
 field registry (whether a rendered field claimed that path). Model-level issues — an empty
 `Path` — are always visible unless the override returns `false`.
+
+At submit the answer decides whether that issue puts its field under watch, and watching is per
+field: an issue forced suppressed still shows once another issue on the same field is disclosed.
+See [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for that boundary and for what
+the override does to a server-applied issue.
+
+### `LiveDisclosure`
+
+`LiveIssueDisclosure`, defaults to `LiveIssueDisclosure.Engaged`. Which of an engaged field's
+live issues the live channel discloses — the one lever over a channel registration otherwise
+never touches.
+
+Under the default, engagement alone discloses. A field the user has committed a change to shows
+its live verdict on every surface — the engine's issue reads, `FormidableFieldMessage`,
+`FormidableSummary`, and the `EditContext`'s message store — whether or not anything currently
+renders that field. That is the contract native components depend on: a page of plain `InputBase`
+inputs with no Formidable wrappers or anchors registers nothing at all, so a live error that
+deferred to registration would have nowhere to go (see [Server
+integration](server-integration.md#client-round-trip)). Departure is the one thing a registration
+check decides here: a field something rendered once and nothing renders now has left the page, and
+it leaves the engaged set with it. A field nothing has ever registered has not left. It never
+arrived, so its live verdict survives any amount of registering and unregistering elsewhere.
+
+`LiveIssueDisclosure.EngagedAndVisible` gates each live issue on the same override-aware
+visibility the submit channel consults: `DisclosureOverride` first, the field's rendered
+registration otherwise. It applies uniformly, message store included, so the kit and a native
+`ValidationMessage` can never disagree about what a field is saying. Opting in means what it says
+on a page that notifies changes for fields it does not currently render: those fields' live errors
+are hidden everywhere until they render. An override returning `true` still forces one visible.
+
+Reach for it when a page deliberately notifies unrendered fields and would rather they stayed
+quiet until they appear. To list less in one place without changing what is disclosed anywhere,
+use [`FormidableSummary`'s `Show`](component-kit.md#showing-one-severity-band) filter instead.
+
+Read at every evaluation rather than once per pass, so a page that flips it mid-session gets the
+new answer from the next read on — as long as something re-renders, since changing an option
+notifies nothing by itself.
 
 ### `SuppressedIssueDiagnostic`
 
@@ -300,13 +362,16 @@ blocking ones first" toggle for instance, is not picked up until one of those tw
 | `Invalid` | the field has error-severity issues | `formidable-invalid` |
 | `Warning` | touched or modified, no errors, and has a warning-severity issue | `formidable-warning` |
 | `Info` | touched or modified, no errors or warnings, and has an info-severity issue | `formidable-info` |
-| `Valid` | the field is touched or modified and has no issues at all | `formidable-valid` |
+| `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
 | `Pending` | a validation pass involving the field is in flight | `formidable-pending` |
 
 A field carrying only advisories earns `Warning`/`Info`, not `Valid` — deliberately, so it never
-reads as cleared while it still has something to say. `Pending` appends alongside whichever of
-the other four applies rather than replacing it — see
-[CSS and accessibility](css-and-accessibility.md) for how the five compose.
+reads as cleared while it still has something to say. `Valid` asks for that third condition
+because green is a promise about submit: a field whose submit-selected rules have no answer for
+the value as it stands, or an answer that fails it without showing why, wears nothing rather than
+a confirmation it has not earned. `Pending` appends alongside whichever of the other four applies
+rather than replacing it — see [CSS and accessibility](css-and-accessibility.md) for how the five
+compose, and `TrackFormValidity` above for what keeps that answer current before a submit.
 
 ## `UpdateOn` (per input, not a `FormidableOptions` property)
 

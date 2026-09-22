@@ -34,9 +34,9 @@ public class FormValidationEngineHardeningTests
 
     // Pins the post-submit lifetime of advisories (warnings/info). At submit the engine captures
     // non-error issues for every VISIBLE field, which includes fields carrying no error at all.
-    // The debounced refresh must keep refreshing those fields' advisories - filtering them by the
-    // submit-visible ERROR set alone silently dropped a warning shown on an error-free field the
-    // moment any other field changed.
+    // The debounced refresh must keep those fields' advisories current - an advisory view read
+    // through the error-reveal ledger alone would silently drop a warning shown on an error-free
+    // field the moment any other field changed.
     [Fact]
     public async Task Submit_warning_on_an_error_free_field_survives_the_debounced_refresh()
     {
@@ -64,11 +64,11 @@ public class FormValidationEngineHardeningTests
 
     // Same lifetime pin as above, but with NO co-occurring error anywhere in the model: the
     // submit report is otherwise valid (report.IsValid == true), so this exercises the
-    // valid-branch's re-freeze (_advisoryVisible) rather than the invalid branch's. Deleting the
-    // valid branch's `_advisoryVisible = _submitAdvisories.Keys.ToHashSet();` line leaves the
-    // warning captured at submit but drops it the moment any field changes and the debounced
-    // refresh runs, because the refresh's advisory filter is `_submitVisible.Contains ||
-    // _advisoryVisible.Contains` and _submitVisible is empty on an errors-free submit.
+    // valid branch's advisory-ledger re-freeze rather than the invalid branch's union. A valid
+    // branch that reset the advisory ledger without re-freezing it to the fresh sites would
+    // leave the warning captured at submit but drop it the moment any field changes and the
+    // debounced refresh runs, because the advisory view discloses only fields one of the two
+    // reveal ledgers watches and the error ledger is empty on an errors-free submit.
     [Fact]
     public async Task Submit_warning_with_no_errors_anywhere_survives_the_debounced_refresh()
     {

@@ -214,19 +214,17 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         var page = session.Page;
 
         // Everything the Submit profile asks for except Dietary notes, whose rule is
-        // unconditional — leaving it empty is the one failure this scenario needs.
+        // unconditional — and the catering section is unticked BEFORE any submit, so the one
+        // failure this scenario needs sits on a field no submit has ever been able to show:
+        // once a submit discloses an error, the form keeps listing it even off screen until
+        // the form passes or resets, so until one of those only a never-shown failure blocks
+        // with the gate.
         await Field(page, "contactemail").FillAsync("workout-e2e-gate@example.com");
         await Field(page, "eventname").FillAsync("Dev Summit");
         await Field(page, "eventdate").FillAsync("2027-05-01");
         await Field(page, "venueregion").FillAsync("South Australia");
-
-        await SubmitRegistrationAsync(page);
-        await Expect(SummaryEntry(page, "Dietary notes are required for catering"))
-            .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
-
-        // Unticking removes the only failing field from the DOM without answering its rule, so
-        // the next submit has nothing visible left to blame it on.
         await Field(page, "includecatering").UncheckAsync();
+
         await SubmitRegistrationAsync(page);
 
         const string gate =
@@ -237,9 +235,7 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         // back to the focus target: the whole <form>, which spans far more than the viewport —
         // the "tall" branch the size-aware alignment exists for. The blocked submit's own
         // auto-focus (FocusFirstErrorOnInvalidSubmit) is what triggers it; no summary click is
-        // needed, which also sidesteps the debounced refresh the catering edit armed (see
-        // WorkoutLifecycles.Workout_suppression_and_the_gate for why a summary click there is
-        // dispatched rather than clicked).
+        // needed.
         await Expect(Field(page, "form")).ToBeFocusedAsync();
         await WaitForScrollToSettleAsync(page);
 

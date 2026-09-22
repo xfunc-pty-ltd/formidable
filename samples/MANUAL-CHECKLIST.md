@@ -98,11 +98,17 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Hidden-section submit: the diagnostic updates IMMEDIATELY; an all-clear submit empties it
 - [ ] Post-submit: choosing an accommodation type (or answering Yes/No) clears its error on the spot
 - [ ] Summary click on the accommodation-type error focuses the select
-- [ ] **Gate entry lands:** hide the traveler details with a required field emptied and submit —
-      the summary's form-level "not currently displayed" entry has somewhere to go: clicking it
-      scrolls the FORM into view and focuses it. Reached from the KEYBOARD (tab to the entry,
-      Enter) the form takes a visible accent outline; reached by MOUSE it takes the scroll with
-      no outline; a stray click on the page background paints nothing
+- [ ] **Gate entry lands:** with traveler details hidden and its name still empty, fill
+      Destination and complete the accommodation questions so nothing visible fails, then
+      submit — the traveler error has never been shown by a submit, so the summary's form-level
+      "not currently displayed" entry appears, and it has somewhere to go: clicking it scrolls the
+      FORM into view and focuses it. Reached from the KEYBOARD (tab to the entry, Enter) the
+      form takes a visible accent outline; reached by MOUSE it takes the scroll with no
+      outline; a stray click on the page background paints nothing
+- [ ] Show traveler details again — the field renders with no message and the form-level entry
+      stays — then submit: the traveler error lands inline and in the summary and the
+      form-level entry gives way to it. Hide the section once more and submit: the entry stays
+      listed with the field gone — disclosed once, watched until the form passes or resets
 - [ ] Special requirements sits with a proper gap below the Type select
 - [ ] The Yes/No message sits tight under the radios; the Type message keeps a visibly wider
       gap under its select, because that field's label is a block (unlike the inline radio
@@ -175,10 +181,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       entry goes
 - [ ] Add a line and submit it blank: the new row takes the identical red border and message
       treatment as the seeded one, indistinguishable from an original row
-- [ ] Clear "Submitted by" and submit: its message appears through the native `ValidationMessage`
+- [ ] Clear "Submitted by" and tab out: its message appears through the native `ValidationMessage`
       beside the input, styled identically to a Formidable message — and the summary above gains
-      an entry for it too, since the `FormidableFieldAnchor` beside the input registers it the
-      same way a Formidable-wrapped field registers itself
+      an entry for it too, with no Submit press of its own, since its rule sits in the common
+      bucket and committing the change is what discloses it
 - [ ] Both inputs — the native "Submitted by" box and a Formidable "Description" box — take the
       same invalid-state border in both light and dark mode
 
@@ -286,6 +292,11 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Tab INTO Username and straight out again without typing: Touched flips to True while
       Modified stays False — exactly what the page's first *Try it* step claims
 - [ ] Same for Display name: blur alone touches it, no value commit needed
+- [ ] Neither blur typed anything, but only Display name takes the "confirmed" valid border:
+      Username stays unstyled — the probe's fresh answer already carries its required-rule
+      failure, and a field the engine knows would fail submit is never styled valid. Type
+      `ada` into Username and tab out: its border confirms once the check lands; clear it
+      again and the border leaves while the box stays message-free
 - [ ] The panel's Rules bullet explains why (the page wires `field.MarkTouched()` to `onblur`;
       the built-in inputs touch on value commit) — read it and confirm it matches what you saw
 - [ ] Type `admin`: Modified and Validating flip True, then Errors flips once the check lands
@@ -381,11 +392,24 @@ steps build on each other.
       after a valid client submit — so the server's 400 lands inline on Coupon code with the
       rest of the form already clean. Change to `WELCOME10` and resubmit: the new verdict
       REPLACES the old one (no stale coupon error) and the registration is accepted
-- [ ] Step 5: with everything else valid, clear Dietary notes and submit — blocked inline and
-      in the summary. Untick *Include catering* and submit again: the form blocks with
-      "information that is not currently displayed is invalid" instead
+- [ ] Step 5: with everything else valid, clear Dietary notes — the message answers your edit
+      on the spot — then untick *Include catering*: the field leaves and takes the message with
+      it, inline and summary alike. Submit: the form blocks with "information that is not
+      currently displayed is invalid" — the one failing rule has never been shown by a submit
+      and has nowhere to show now
+- [ ] **The gate survives editing.** While the form stays blocked, type into Description and
+      pause: the edited field's pending marker comes and goes as the live pass and the
+      background refresh run — and the form-level entry still stands on the far side. No
+      refresh can retire the gate; only a submit that can show the error, or one that passes,
+      re-decides it
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
       takes focus. From the KEYBOARD it shows the accent outline; by MOUSE, the scroll alone
+- [ ] **Disclosure, then union.** Re-tick *Include catering* — the note renders empty and stays
+      quiet — and submit: its message appears inline and in the summary and the form-level line
+      gives way to it. Untick once more and submit again: the message stays listed with its
+      field gone — once a submit has shown a field's error, its entry stands until the answer
+      comes clean, and the field stays watched until the form passes or resets. Re-tick and
+      fill in a note before moving on
 - [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
       only — the malformed address (plus Dietary notes if empty); Event name/Event date stay
       silent
@@ -418,7 +442,8 @@ steps build on each other.
 - [ ] Set **Ticket tier** to the blank *Choose…* and submit: the foreign select takes the same
       red border, inline message and summary entry as any wrapped input, and clicking that
       entry moves focus INTO the select
-- [ ] Type a region into **Venue region** and tab out: the native input takes the same
+- [ ] Type a region into **Venue region** and tab out: the border arrives with the background
+      refresh a moment later, not on the blur itself — then the native input wears the same
       "confirmed" border a Formidable input shows — the css class provider serves both
 - [ ] Clear **Venue region** and submit (step 15): the native `ValidationMessage` shows "Venue
       region is required", the summary lists it, and clicking THAT entry **lands in the native
