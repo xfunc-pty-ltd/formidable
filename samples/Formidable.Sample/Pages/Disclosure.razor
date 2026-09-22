@@ -7,9 +7,9 @@
 <TeachingPanel CodeFiles="@(new[] { "TravelRequest.cs", "Disclosure.razor", "Disclosure.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Destination</strong>: required, validated live.</li>
-            <li><strong>Traveler name</strong>: required, validated live.</li>
-            <li>The <strong>accommodation question</strong>: required, validated live.</li>
+            <li><strong>Destination</strong>: required. A committed change to the field discloses it, no submit needed.</li>
+            <li><strong>Traveler name</strong>: required. A committed change to the field discloses it, no submit needed.</li>
+            <li><strong>The accommodation question</strong>: required. Answering it is the only way to engage it, and the answer is also what satisfies it, so this one speaks at a submit and nowhere else.</li>
             <li><strong>Accommodation type</strong>: required only when you answered Yes.</li>
             <li><strong>Special requirements</strong>: required only for Accessible. Both this rule and the one above mirror what the UI reveals in their <code>When()</code> conditions.</li>
         </ul>
@@ -20,6 +20,8 @@
             <li>Hide traveler details and submit — that error is suppressed into the diagnostic list below instead of appearing inline. A collapsed section cannot show a message.</li>
             <li>Show the details and submit again — the error is now inline and in the summary.</li>
             <li>Answer Yes, pick Accessible — watch the conditional cascade reveal rules only as their fields appear.</li>
+            <li>Look at Special requirements before you type anything into it — it is required, it is empty, and it carries no message at all. Nothing has engaged it: the live channel answers for the fields you have committed a change to, and revealing a field is not changing it.</li>
+            <li>Submit — the submit channel makes no such distinction, so "Describe the special requirements" lands under the box and the summary gains an entry for it.</li>
             <li>Complete everything and submit — the status line confirms.</li>
         </ol>
         <p><small>Use the Submit button rather than pressing Enter — the browser's implicit submission bypasses this page's per-submit list clearing.</small></p>

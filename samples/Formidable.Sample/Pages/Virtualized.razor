@@ -7,7 +7,7 @@
 <TeachingPanel CodeFiles="@(new[] { "Virtualized.razor", "Virtualized.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li>Every row's <strong>Serial</strong> is required (live). Every 7th row starts empty — 28 errors across 200 rows.</li>
+            <li>Every row's <strong>Serial</strong> is required. A committed change to the field discloses it, no submit needed. Every 7th row starts empty — 28 errors across 200 rows.</li>
             <li>Disclosure is render-registration: a row can show issues once it has rendered. <code>KeepRegistered</code> keeps scrolled-past rows disclosed after they leave the window.</li>
             <li>This page also sets a <code>DisclosureOverride</code> for the collection, so the summary lists every row's errors from the first submit — even rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
             <li>Clicking a never-rendered row's entry uses the summary's <code>FocusFallback</code>: scroll the panel, let the row render, retry the focus. A blocked submit's own auto-focus uses the form's matching <code>FocusFallback</code> the same way, whenever the first error it lands on is itself off-screen.</li>
@@ -18,7 +18,8 @@
             <li>Submit immediately — the summary lists all 28 missing serials, no scrolling required.</li>
             <li>Click an entry near the top — it focuses directly.</li>
             <li>Click one of the LAST entries — the panel scrolls, the row renders, and focus lands. That is the fallback at work.</li>
-            <li>Fix a serial, scroll far away, submit again — its entry disappears; the others remain.</li>
+            <li>Fix one of the missing serials and tab out of the box — its entry leaves the summary there and then, with no submit: committing the change engages that row, and the live channel answers for it. The other 27 stay listed.</li>
+            <li>Scroll far away from that row and submit again — its entry stays gone even with nothing on screen rendering it, and all 27 of the others are still listed.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

@@ -16,9 +16,9 @@ namespace Formidable.Sample.E2E;
 /// exactly as it would in that bUnit pin, since nothing else on the page ever re-validates the
 /// model once submit's own pass has run — no live edit touches the departed field, and no page
 /// code calls the engine again. The second test below is the real-runtime counterpart of the live
-/// channel's own disclosure: the page's "Submitted by" is a plain InputText whose rule sits in the
-/// common bucket, so committing a change engages the field and the live pass answers for it with
-/// no submit anywhere in the path. Both surfaces it reaches are ones the engine writes rather than
+/// channel's own disclosure: the page's "Submitted by" is a plain InputText, and committing a
+/// change to it engages the field, which is what the live pass answers for, with no submit
+/// anywhere in the path. Both surfaces it reaches are ones the engine writes rather than
 /// renders — Blazor's own ValidationMessage reads the EditContext store, which is a projection of
 /// the live view, and FormidableSummary reads that same view through GetVisibleIssues — so what
 /// reddens it is breaking that projection: stop a plain input's committed change from engaging the

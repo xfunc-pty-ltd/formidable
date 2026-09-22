@@ -7,15 +7,15 @@
 <TeachingPanel CodeFiles="@(new[] { "ForeignControl.razor", "ForeignControl.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li><strong>Colour</strong>: required, validated live.</li>
+            <li><strong>Colour</strong>: required. A committed change to the field discloses it, no submit needed.</li>
             <li>The select is a control Formidable does not wrap. The renderless <code>FormidableField</code> hands its template everything a wrapper would have supplied: <code>ElementId</code>, <code>CssClass</code>, aria attributes, and <code>NotifyChanged()</code>.</li>
             <li>Compare with Quickstart: wrapped inputs label-wrap and need no id; a foreign control keeps its own element, so the label targets <code>field.ElementId</code> instead.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>Submit empty — the select gets the same red border and message treatment as any wrapped input.</li>
-            <li>Pick a colour — the state clears live.</li>
+            <li>Submit empty — the select takes the inline message and summary entry a wrapped input gets elsewhere in this sample, even though the page renders the control itself. The submit's own focus lands in the select, so tab out and the red border joins them: a focused box wears the accent border whatever its verdict.</li>
+            <li>Click into the select and the red border gives way to the accent one on that click alone — the same rule as the step above. Now pick a colour: the message clears on the commit, with no submit.</li>
             <li>Open <em>Show the code</em> and compare this page's select wiring with Quickstart's one-line wrapped input.</li>
         </ol>
     </TryIt>

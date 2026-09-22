@@ -25,7 +25,7 @@
             <li>Clear Username — "Username is required" appears as soon as that edit's live pass does, with no submit: you engaged the field, and the live channel runs the rules a submit would. Give it a beat if Display name still holds what you typed in the last step, since the same pass waits on its check too. Submit anyway and the same rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the slider only changes how long the check itself takes, not when it starts or how often; watch the pending state hold for the full two seconds before the verdict lands.</li>
             <li>Submit, then type again — one "checking…" cycle, not two, even though editing after a submit also arms the background refresh (see above).</li>
-            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Pausing lands only one check here too: the refresh window is the narrower one, so the refresh pays the single round trip, and the debounced live pass that follows finds the check already answered and skips its own — the same saving an ordinary post-submit edit gets without debounce ticked at all.</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke, and pausing lands one check rather than two. Editing after a submit arms the background refresh as well, and the pair share the answer rather than each paying for it, exactly as the <code>LiveDebounce</code> rule above describes.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

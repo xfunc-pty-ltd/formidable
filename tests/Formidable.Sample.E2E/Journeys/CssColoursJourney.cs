@@ -22,8 +22,8 @@ public sealed class CssColoursJourney(SampleAppFixture app)
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(MessagesFor(page, "title")).ToHaveTextAsync(["Title is required"]);
 
-        // The Error picker is the first of the four colour inputs (Error, Accent, Warning, Info);
-        // colour inputs accept fill().
+        // The Error picker is the first of the five colour inputs (Error, Accent, Warning,
+        // Info, Valid); colour inputs accept fill().
         await page.Locator("input[type=color]").First.FillAsync("#ff0000");
 
         // The wrapper is the div that directly holds the form; WrapperStyle writes the picked

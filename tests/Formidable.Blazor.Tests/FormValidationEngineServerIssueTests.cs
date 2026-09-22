@@ -206,10 +206,10 @@ public class FormValidationEngineServerIssueTests
         await Task.Yield();
         Assert.Empty(_engine.GetIssues(sku));
 
-        // 3. Break it again. The reveal ledger never un-reveals a field, so it is still a
-        //    disclosed error site: the refresh's own client-side pass re-produces "SKU is
-        //    required" as the client's own answer, with no server copy behind it. Exactly one
-        //    copy - the client's.
+        // 3. Break it again. Nothing here has un-revealed the field - only a passing submit
+        //    does that, and none has run - so it is still a disclosed error site: the refresh's
+        //    own client-side pass re-produces "SKU is required" as the client's own answer, with
+        //    no server copy behind it. Exactly one copy - the client's.
         _order.Items[0].Sku = string.Empty;
         _editContext.NotifyFieldChanged(sku);
         _time.Advance(TimeSpan.FromMilliseconds(301));

@@ -11,6 +11,7 @@
             <li>Recolouring is overriding those tokens on any ancestor element — zero library involvement; the kit never sees a colour.</li>
             <li>That is a different seam from renaming: the <a href="/bootstrap">Bootstrap page</a> uses <code>FormidableCssClasses</code> to remap the state class NAMES onto another library's classes. Token override recolours; class-name remap re-targets whose stylesheet applies.</li>
             <li>A touched or modified field with no errors earns <code>formidable-warning</code> or <code>formidable-info</code> from its issues' severity — the same recolour seam as <code>formidable-invalid</code>, just reading <code>--warn</code>/<code>--info</code> instead of <code>--error</code>.</li>
+            <li><strong>Valid</strong>: the confirmation border reads <code>--valid</code>, a token of its own beside <code>--error</code>, <code>--warn</code> and <code>--info</code> — the state that says nothing is wrong recolours on exactly the terms of the three that say something is.</li>
             <li><strong>Title</strong>: required (error).</li>
             <li><strong>Description</strong>: an exclamation mark draws a warning.</li>
             <li><strong>Tags</strong>: more than five draws an info. Same validator as Severity levels.</li>
@@ -18,10 +19,11 @@
     </Rules>
     <TryIt>
         <ol>
-            <li>Submit empty — then pick a new error colour and watch borders, messages, and the summary accent all follow.</li>
-            <li>Focus a field and change the accent — ring and spinner colours follow.</li>
-            <li>Type <code>!</code> in Description, blur, then recolour warning — the input's border and its message both follow.</li>
-            <li>Type six comma-separated tags in Tags (for example <code>a,b,c,d,e,f</code>), blur, then recolour info — the same border-and-message pairing, this time on <code>formidable-info</code>.</li>
+            <li>Submit with every box empty — "Title is required" lands under the field and in the summary. Pick a new error colour: the border, the message, and the summary's rule and entry text all follow it.</li>
+            <li>Type a title and tab out of the box — the error gives way to the confirmation border. Pick a new valid colour and that border follows too.</li>
+            <li>Pick a new accent, then click into Description — the focus ring follows it, and so does the border the box wears while it holds focus.</li>
+            <li>Type an exclamation mark into Description — the amber warning arrives as you type, because every input here commits on each keystroke rather than at blur. Pick a new warning colour: message and border both follow.</li>
+            <li>Type <code>a,b,c,d,e,f</code> into Tags — the info arrives the moment the comma after <code>e</code> opens a sixth tag. Pick a new info colour and the same pair follows.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
@@ -30,6 +32,7 @@
 <div class="field"><label>Accent <input type="color" @bind="Accent" @bind:event="oninput" /></label></div>
 <div class="field"><label>Warning <input type="color" @bind="Warn" @bind:event="oninput" /></label></div>
 <div class="field"><label>Info <input type="color" @bind="Info" @bind:event="oninput" /></label></div>
+<div class="field"><label>Valid <input type="color" @bind="Valid" @bind:event="oninput" /></label></div>
 
 @* "26" is 15% alpha appended to the accent hex for the ring token; it assumes a 6-digit
    hex, which is what <input type="color"> always produces. *@

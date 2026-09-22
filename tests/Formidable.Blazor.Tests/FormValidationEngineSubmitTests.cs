@@ -85,7 +85,8 @@ public class FormValidationEngineSubmitTests
         // suppressed at write time - the registration gate filters client errors before the
         // ledger ever reveals the field. A server-declared error bypasses that gate outright:
         // it reaches the native store whether or not the field ever rendered, and applying it
-        // reveals the field, so the client's own error for it discloses from here on too.
+        // reveals the field, so the client's own error for it discloses alongside - and keeps
+        // doing so until a passing submit or a reset clears the watch.
         _engine.ApplyServerIssues([new ValidationIssue(nameof(EngineOrder.Customer), "Customer is required")]);
 
         Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));

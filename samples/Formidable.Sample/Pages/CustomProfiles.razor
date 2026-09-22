@@ -21,8 +21,9 @@
     <TryIt>
         <ol>
             <li>With <em>Standard submit</em> selected, submit with everything empty — Category shows "Category is required" among the rest. Pick a category — the message waits until you leave the control, so it still reads "required" right after you pick; tab away and it clears.</li>
-            <li>Fill Title, Slug, Read minutes and Publish date, leave Review note empty, and submit — it goes through.</li>
-            <li>Switch to <em>Admin review</em> — the form resets. Before submitting anything, type something into Review note and leave the field, then come back, clear it and leave again: "A review note is required for admin review" appears on a form that has never been submitted, so the live channel is the only thing that can have put it there — and it is following the profile the picker installed. Under <em>Standard submit</em> the same two edits say nothing at all, because that profile selects no rule for the field.</li>
+            <li>Fill Title, Slug, Read minutes and Publish date — Category is still holding the one you picked in the last step — leave Review note empty, and submit: it goes through.</li>
+            <li>Switch to <em>Admin review</em> — the form resets. Before submitting anything, type something into Review note and leave the field, then come back, clear it and leave again: "A review note is required for admin review" appears on a form that has never been submitted, so the live channel is the only thing that can have put it there — and it is following the profile the picker installed.</li>
+            <li>Switch back to <em>Standard submit</em>, which resets the form again, and repeat those same two edits on Review note — nothing appears at all, because that profile selects no rule for the field. Switch to <em>Admin review</em> once more before going on.</li>
             <li>Fill Title, Slug, Category, Read minutes and Publish date — the reset emptied all five — leave Review note empty, and submit: blocked, the review note is required under this profile.</li>
             <li>Fill in Review note and submit again — it goes through under admin review.</li>
         </ol>

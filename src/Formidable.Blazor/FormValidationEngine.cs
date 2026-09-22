@@ -1233,12 +1233,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <summary>
     /// Whether the pass currently in flight is a refresh — read only by
     /// <see cref="RunDebouncedLivePassAsync"/>, which stands down for it. An IMMEDIATE live pass
-    /// never reads this and never has: it is caused by a fresh edit, and that edit re-arms the
-    /// refresh <see cref="ScheduleRefresh"/> already schedules, so cancelling an in-flight refresh
-    /// costs nothing there. A DEBOUNCED live pass is different — the edit that will eventually
-    /// supersede the refresh already happened when the debounce window opened, so nothing else
-    /// re-arms it if this cancels it outright; deferring here is what keeps the refresh's own
-    /// verdict from going permanently stale.
+    /// never reads this, and what it supersedes decides why. Once a submit has run, the edit that
+    /// causes the live pass also re-arms the refresh <see cref="ScheduleRefresh"/> schedules, so
+    /// cancelling an in-flight refresh costs nothing there. Before a submit the refresh in flight
+    /// belongs to a field-set change and no edit re-arms it, so what refills the submit-selected
+    /// coverage the Valid class rests on is whatever answers that profile next: the live pass
+    /// itself wherever <see cref="FormidableOptions.LiveProfile"/> resolves to the submit profile,
+    /// selecting exactly those rules, or the probe beside it under
+    /// <see cref="FormidableOptions.TrackFormValidity"/>. Narrow the one and leave the other off
+    /// and nothing here refills it: that coverage waits for a submit or the next field-set change,
+    /// and the Valid class waits with it. A DEBOUNCED live pass is different — the edit that will
+    /// eventually supersede the refresh already happened when the debounce window opened, so
+    /// nothing else re-arms it if this cancels it outright; deferring here is what keeps the
+    /// refresh's own verdict from going permanently stale.
     /// </summary>
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
 
@@ -2153,11 +2160,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 forField.Add(issue);
             }
 
-            // A server apply is a disclosure event: reveal state never un-reveals a field, so the
-            // ledger unions the field in and the views watch it from here on — the client's own
-            // last answer for it included. The two sets are separate because the two channels
-            // reveal independently: a field can be an advisory site without ever having been an
-            // error site, and keeps its advisory refreshed either way.
+            // A server apply is a disclosure event: it only ever unions, so the ledger takes the
+            // field in and the views watch it from here until the form passes or resets — the
+            // client's own last answer for it included. The two sets are separate because the two
+            // channels reveal independently: a field can be an advisory site without ever having
+            // been an error site, and keeps its advisory refreshed either way.
             (issue.Severity == ValidationSeverity.Error ? _revealedErrorFields : _revealedAdvisoryFields)
                 .Add(field);
         }

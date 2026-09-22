@@ -15,7 +15,7 @@ public class TravelRequestValidator : DraftSubmitValidator<TravelRequest>
 {
     protected override void ConfigureDraftRules()
     {
-        // Common bucket: live while editing and enforced at submit.
+        // Common bucket: enforced by a draft save and by a submit alike.
         RuleFor(t => t.Destination).NotEmpty().WithMessage("Destination is required");
         RuleFor(t => t.TravelerName).NotEmpty().WithMessage("Traveler name is required");
         RuleFor(t => t.NeedsAccommodation).NotNull().WithMessage("Answer the accommodation question");

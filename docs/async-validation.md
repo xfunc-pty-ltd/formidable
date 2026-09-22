@@ -243,8 +243,9 @@ That is what the refresh is for: keeping already-visible submit errors and warni
 without re-validating the whole profile on every keystroke of a form the user is still
 correcting. Once `HasSubmitted` is true, or while a submit is in flight, every further field
 change adds that field to the pending-refresh set and reschedules a debounced re-run of
-`SubmitProfile`. Before the first submit there is nothing to arm: an edit starts a live pass and
-nothing else.
+`SubmitProfile`. Before the first submit an edit arms nothing: it starts a live pass and nothing
+else. The edit is not the refresh's only arm site, though — a move in the rendered field set arms
+one at any point in a form's life.
 
 ### The debounce quiets
 

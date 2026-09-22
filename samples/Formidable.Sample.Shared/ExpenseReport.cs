@@ -17,7 +17,7 @@ public class ExpenseReportValidator : DraftSubmitValidator<ExpenseReport>
 {
     protected override void ConfigureDraftRules()
     {
-        // Common bucket: live while editing and enforced at submit, same as every other
+        // Common bucket: enforced by a draft save and by a submit alike, same as every other
         // page's collection rules — SubmitterName's own rule sits beside it, unremarkable in
         // FluentValidation terms even though the field it targets is a plain native input.
         RuleFor(r => r.SubmitterName).NotEmpty().WithMessage("Submitter name is required");

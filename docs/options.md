@@ -412,7 +412,7 @@ single input instead: it's a parameter on `FormidableInputBase<TValue>` (see [Co
 kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member of
 `FormidableOptions`, so it isn't set through `Options` and doesn't appear in the properties list
 above — it earns a place on this page anyway because it answers the other half of "when does a
-rule get to answer": `RefreshDebounce` governs the post-submit refresh's timing, and `UpdateOn`
+rule get to answer": `RefreshDebounce` governs the debounced refresh's timing, and `UpdateOn`
 governs a live pass's.
 
 `InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the

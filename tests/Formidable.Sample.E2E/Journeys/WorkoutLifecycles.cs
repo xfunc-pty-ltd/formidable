@@ -287,9 +287,11 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
 
         // Everything the Submit profile asks for except the dietary note, whose rule is
         // unconditional while the checkbox above it decides whether the field is on screen at
-        // all. Unticking BEFORE any submit is what stages the gate: the note's rule fails from
-        // the start, but no submit ever gets the chance to show it — and an error no submit
-        // has shown is exactly what the gate stands in for.
+        // all. Unticking BEFORE any submit is one way to stage the gate: the note's rule fails
+        // from the start and no submit gets the chance to show it, so the blocked submit has
+        // nothing on screen to explain itself. It is not the only route — a submit that goes
+        // through clears what earlier submits revealed, so a note an earlier submit HAS shown
+        // stages the same gate once the form has passed in between.
         await FillValidRegistrationAsync(page, dietaryNotes: "");
         await Field(page, "includecatering").UncheckAsync();
         await SubmitAsync(page);

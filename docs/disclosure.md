@@ -55,14 +55,17 @@ hand — see [Component kit](component-kit.md)'s `FormidableValidator` section f
 That explanation is derived, not filed. There is no gate entry anywhere to keep or lose, only the
 conditions that make one true: a submit that blocked with nothing to show, an answer that still
 carries errors, and nothing disclosed since. So the debounced refresh that follows every
-post-submit edit cannot take it off the screen while the form stays blocked. It gives way the
-moment there's a real message to give way to — an error the user can see, a server-declared error
-arriving, or an answer that finally comes back clean. Every submit decides it again from scratch,
-so it can stand at one submit, give way at the next, and come back at the one after that. What it
-cannot come back for is a failure the form has already shown: that field stays watched until a
-successful submit or a `ResetAsync` clears the watch, so its own failure explains itself from then
-on. What raises the gate afresh is a field nothing has ever shown — one whose section is still
-collapsed at the submit where everything visible finally passes.
+post-submit edit cannot take that explanation away while nothing on screen explains the block. It
+gives way the moment there's a real message to give way to — an error the user can see, a
+server-declared error arriving, or an answer that finally comes back clean. Every submit decides it
+again from scratch, so it can stand at one submit, give way at the next, and come back at the one
+after that. What it cannot come back for is a failure the form is still watching: showing a field's
+error starts that watch, and it holds until a successful submit or a `ResetAsync` clears it, so for
+as long as it lasts the field's own failure explains itself. What raises the gate is a failure
+nothing currently discloses. One route is a field nothing has ever shown, its section still
+collapsed at the submit where everything visible finally passes. The other is a successful submit,
+which empties the watched set: a field an earlier submit showed can raise the gate at a later one
+that finds it off screen again.
 
 That gate only fires when nothing about the failure can be shown; the ordinary case is narrower.
 At submit, the engine resolves each FluentValidation failure's property path to a
@@ -94,7 +97,7 @@ could be shown at all:
 ```mermaid
 flowchart TD
     A["Submit runs"] --> B["For each failing field: is it already watched, or is a rendering component registered for it?"]
-    B -- "yes" --> C["Field is watched from here on; its issues show in FormidableSummary, and inline wherever the field renders"]
+    B -- "yes" --> C["Field is watched until the form passes or resets; its issues show in FormidableSummary, and inline wherever the field renders"]
     B -- "no" --> D["Issue is suppressed for this submit"]
     D --> E["SuppressedIssueDiagnostic fires once per suppressed issue"]
 

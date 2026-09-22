@@ -8,10 +8,11 @@ namespace Formidable.Sample.E2E;
 /// The page's two disclosure mechanisms and the defensive gate in one pass: a UI-collapsed
 /// section's unconditional rule is suppressed until the section renders, the accommodation
 /// cascade's own <c>When</c> keeps its rules from ever producing a suppressed issue in the first
-/// place, and a submit whose ONLY failure sits in the collapsed section — never once shown —
+/// place, and a submit whose ONLY failure sits in the collapsed section — disclosed nowhere —
 /// blocks with the model-level gate that focuses the form itself. Revealing the section is
-/// registration, not disclosure: the next submit is what shows the error, and from then on the
-/// field stays watched — its summary entry outlives even the section collapsing again.
+/// registration, not disclosure: the next submit is what shows the error, and the field stays
+/// watched from there until the form passes or resets — its summary entry outlives even the
+/// section collapsing again.
 /// </summary>
 [Collection("e2e")]
 public sealed class DisclosureJourney(SampleAppFixture app)
@@ -39,9 +40,13 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "needsaccommodation")).ToHaveCountAsync(0);
 
         // Real-typed path: fill the other visible fields validly while the traveler section
-        // stays collapsed, so its (still-empty) rule is the only failure left — suppressed,
-        // and never once shown by a submit, which is the one staging that trips the defensive
-        // gate: an error a submit HAS shown would keep its own entry instead.
+        // stays collapsed, so its (still-empty) rule is the only failure left — suppressed, and
+        // revealed by no submit so far, which leaves the blocked submit with nothing on screen
+        // to explain itself. That is what the defensive gate stands in for: not an error never
+        // shown in the form's life, but one nothing currently discloses. An error a submit has
+        // disclosed holds its own entry until the answer comes clean, and a submit that goes
+        // through clears what earlier submits revealed, so either route can stage the gate
+        // again.
         await TypeAsync(Field(page, "destination"), "Paris");
         await TabAsync(page);
         await Field(page, "accommodationtype").SelectOptionAsync("Hotel");
@@ -70,7 +75,8 @@ public sealed class DisclosureJourney(SampleAppFixture app)
 
         // Once shown, watched: collapsing the section takes the inline message with the
         // markup, but the summary keeps the entry, and another submit keeps it listed rather
-        // than trading it back for the gate. Same property
+        // than trading it back for the gate — a field a submit has disclosed stays watched
+        // until the form passes or resets. Same property
         // FormValidationEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
         // pins at the engine level. On their own the two persistence asserts would hold
         // against the pre-submit DOM just as well, so the submit is given a flip only its own

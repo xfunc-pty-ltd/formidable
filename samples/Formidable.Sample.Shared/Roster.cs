@@ -22,7 +22,7 @@ public class RosterValidator : DraftSubmitValidator<Roster>
 {
     protected override void ConfigureDraftRules()
     {
-        // Common bucket: live while editing and enforced at submit.
+        // Common bucket: enforced by a draft save and by a submit alike.
         RuleFor(r => r.Teams).NotEmpty().WithMessage("Add at least one team");
         RuleForEach(r => r.Teams).ChildRules(team =>
         {

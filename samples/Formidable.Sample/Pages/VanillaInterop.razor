@@ -7,15 +7,15 @@
 <TeachingPanel CodeFiles="@(new[] { "VanillaInterop.razor", "VanillaInterop.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li><strong>Nickname</strong> (a native <code>InputText</code>): required, validated live.</li>
-            <li><strong>Colour</strong> (a Formidable input): required, validated live.</li>
+            <li><strong>Nickname</strong> (a native <code>InputText</code>): required. A committed change to the field discloses it, no submit needed.</li>
+            <li><strong>Colour</strong> (a Formidable input): required. A committed change to the field discloses it, no submit needed.</li>
             <li>The css provider gives native InputBase components the same state classes, so both inputs style identically with zero extra wiring.</li>
             <li>The rest is rendered by hand, one concern at a time: <code>FormidableFieldAnchor</code> registers it so its submit issues disclose, the field's own id on the input is what the summary's click-to-focus looks for, and <code>aria-describedby</code> plus <code>aria-invalid</code> give a screen reader the same message pairing and error state a Formidable input emits — the page reads that state off the engine, so it appears and clears with the message beside it.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
-            <li>Submit empty — both inputs show the identical red border.</li>
+            <li>Submit empty, then click the page background so neither box holds focus — both inputs show the identical red border. The submit's own focus lands in Nickname, and a focused box wears the accent border whatever its verdict, so the comparison waits for the blur.</li>
             <li>Click the <em>Nickname is required</em> entry in the summary — focus lands in the native input, just as the colour entry lands in the Formidable one. The focus service resolves a field to an element id and looks for nothing else, so a native input carrying that id is as reachable as a wrapped one.</li>
             <li>Note the native <code>ValidationMessage</code> and Formidable's <code>FormidableFieldMessage</code> rendering side by side.</li>
             <li>Fill both and submit — the status line confirms.</li>

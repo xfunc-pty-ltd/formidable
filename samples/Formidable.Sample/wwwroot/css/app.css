@@ -16,6 +16,7 @@
     --error-text: #b91c1c;
     --warn: #a16207;
     --info: #516fca;
+    --valid: #15803d;
     --summary-bg: #fdf1ef;
     --cta: #f26a2b;
     --cta-text: #ffffff;
@@ -47,6 +48,7 @@
         --error-text: #fca5a5;
         --warn: #fbbf24;
         --info: #a5b4fc;
+        --valid: #4ade80;
         --summary-bg: rgba(248, 113, 113, .09);
         --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2399a1af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
@@ -353,9 +355,11 @@ form .formidable-invalid {
     border-color: var(--error);
 }
 
-/* "confirmed" without semaphore green: the accent mixed toward the border */
+/* The confirmation border is a verdict like the three around it, so it carries a colour of its
+   own: a field has to read as confirmed on its own, with no neutral neighbour to compare it
+   against. */
 form .formidable-valid {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    border-color: var(--valid);
 }
 
 form .formidable-warning {
@@ -366,12 +370,12 @@ form .formidable-info {
     border-color: var(--info);
 }
 
-/* The generic :focus rule above always draws the accent ring, so an invalid/warning/info field
-   would otherwise read as neutral accent while it's being edited. These override just the ring's
-   tint, not the border-color the generic rule also sets while focused, so the two stay
-   consistent with every other field until blur reveals the severity border underneath.
-   :focus-visible matches pointer and keyboard focus alike on a text-like input, so the
-   coverage matches the generic rule's plain :focus in practice. */
+/* The generic :focus rule above always draws the accent ring, so a field carrying any of the
+   four state colours would otherwise read as neutral accent while it's being edited. These
+   override just the ring's tint, not the border-color the generic rule also sets while focused,
+   so the two stay consistent with every other field until blur reveals the state border
+   underneath. :focus-visible matches pointer and keyboard focus alike on a text-like input, so
+   the coverage matches the generic rule's plain :focus in practice. */
 form .formidable-invalid:focus-visible {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 16%, transparent);
 }
@@ -382,6 +386,10 @@ form .formidable-warning:focus-visible {
 
 form .formidable-info:focus-visible {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 16%, transparent);
+}
+
+form .formidable-valid:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--valid) 16%, transparent);
 }
 
 form .formidable-pending {

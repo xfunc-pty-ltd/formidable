@@ -58,7 +58,7 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 {
     protected override void ConfigureDraftRules()
     {
-        // Common bucket: live while editing and enforced at submit.
+        // Common bucket: enforced by a draft save and by a submit alike.
         RuleFor(l => l.Title).NotEmpty().WithMessage("Title is required");
         RuleFor(l => l.Description)
             .Must(d => !d.Contains('!'))
