@@ -37,6 +37,17 @@ public class FormidableFieldAnchorTests : BunitContext
             FormidableFieldId.For(order, o => o.Description));
     }
 
+    // The aria-describedby contract: the id an input points at and the id the message list renders
+    // are the same string, and this is the one place that spells the suffix.
+    [Fact]
+    public void Messages_id_is_the_field_id_plus_the_suffix()
+    {
+        var order = new EngineOrder();
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        Assert.Equal($"{FormidableFieldId.For(field)}-messages", FormidableFieldId.MessagesFor(field));
+    }
+
     // Adaptation: bunit 2.9.0 does not dispose the first tree when a second top-level `Render`
     // call replaces it on the same BunitContext, so the anchor is rendered behind a bool flag
     // component parameter and flipped via re-parameterization

@@ -40,16 +40,18 @@ public class ValidationReportTests
     }
 
     [Fact]
-    public void Distinct_error_display_names_fall_back_to_path_and_preserve_order()
+    public void Advisories_yields_warnings_and_infos_in_order_excluding_errors()
     {
         var report = new ValidationReport(
         [
-            new ValidationIssue("Customer.Name", "required", DisplayName: "Customer name"),
-            new ValidationIssue("Customer.Name", "too short", DisplayName: "Customer name"),
-            new ValidationIssue("LineItems[0].Sku", "required"),
-            new ValidationIssue("Notes", "ignore me", ValidationSeverity.Warning, DisplayName: "Notes")
+            new ValidationIssue("A", "bad", ValidationSeverity.Error),
+            new ValidationIssue("B", "warn", ValidationSeverity.Warning),
+            new ValidationIssue("C", "info", ValidationSeverity.Info),
+            new ValidationIssue("D", "also bad", ValidationSeverity.Error)
         ]);
 
-        Assert.Equal(new[] { "Customer name", "LineItems[0].Sku" }, report.GetDistinctErrorDisplayNames());
+        Assert.Equal(
+            new[] { "warn", "info" },
+            report.Advisories.Select(i => i.Message));
     }
 }

@@ -17,7 +17,7 @@ public partial class BootstrapFitting : IAsyncDisposable
     // matters to whichever stylesheet targets it.
     private readonly FormidableOptions _options = new()
     {
-        CssClasses = new FormidableCssOptions { Invalid = "is-invalid", Valid = "is-valid" }
+        CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" }
     };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

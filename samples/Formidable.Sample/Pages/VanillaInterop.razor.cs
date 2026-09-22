@@ -18,6 +18,10 @@ public partial class VanillaInterop : IDisposable
     // the native input opposite has to be handed the same value to be reachable from the summary.
     private string NicknameId => FormidableFieldId.For(NicknameField);
 
+    // The id of the element listing this field's messages, shared by aria-describedby and the
+    // native ValidationMessage's own id so a wrapped input's contract holds for a hand-rolled one.
+    private string NicknameMessagesId => FormidableFieldId.MessagesFor(NicknameField);
+
     // Same story for aria-invalid: the field context a wrapped input reads it from does not exist
     // here, so the page reads the state off the engine. Null renders no attribute at all.
     private string? NicknameAriaInvalid =>

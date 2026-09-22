@@ -6,9 +6,12 @@ namespace Formidable.Blazor;
 /// Reference validated text input: a plain <c>&lt;input&gt;</c> bound to a <see cref="string"/>
 /// field, wired through <see cref="FormidableInputBase{TValue}"/> for registration, ids, css
 /// class, aria output, and value binding — the five extras the base class provides. A working
-/// example for wrapper authors of how little markup the base class leaves to write — including
-/// the attribute ordering: unmatched attributes are splatted first so every value the component
-/// computes below wins the duplicate-attribute race (Blazor applies last-write-wins).
+/// example for wrapper authors of how little markup the base class leaves to write: the element,
+/// its value, and the base's two calls. The attribute ordering the kit's guarantees rest on —
+/// unmatched attributes splatted first, computed values after, so those win the
+/// duplicate-attribute race (Blazor applies last-write-wins) — belongs to
+/// <see cref="FormidableInputBase{TValue}.AddCommonAttributes"/> rather than to the four frames
+/// each input used to write out for itself.
 /// </summary>
 /// <remarks>
 /// A consumer-supplied <c>id</c> is ignored: the rendered id is always the deterministic
@@ -23,10 +26,7 @@ public sealed class FormidableInputText : FormidableInputBase<string?>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "input");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", Value);
         AddValueBinding(builder, 6);
         builder.CloseElement();

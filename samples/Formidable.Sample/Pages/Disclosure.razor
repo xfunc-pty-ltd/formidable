@@ -27,7 +27,7 @@
                 @ref="_form">
     <FormidableSummary />
 
-    <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
+    <div class="field"><label>Destination <FormidableInputText @bind-Value="_request.Destination" /></label>
         <FormidableFieldMessage For="() => _request.Destination" /></div>
 
     <p>
@@ -40,8 +40,7 @@
     {
         <div class="field">
             <label>Traveler name
-                <FormidableInputText For="() => _request.TravelerName"
-                                     @bind-Value="_request.TravelerName" /></label>
+                <FormidableInputText @bind-Value="_request.TravelerName" /></label>
             <FormidableFieldMessage For="() => _request.TravelerName" />
         </div>
     }
@@ -85,8 +84,7 @@
             {
                 <div class="field">
                     <label>Special requirements
-                        <FormidableInputText For="() => _request.SpecialRequirements"
-                                              @bind-Value="_request.SpecialRequirements" /></label>
+                        <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
                     <FormidableFieldMessage For="() => _request.SpecialRequirements" />
                 </div>
             }

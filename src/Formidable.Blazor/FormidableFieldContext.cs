@@ -26,7 +26,7 @@ public sealed class FormidableFieldContext
         CssClass = cssClass;
         Issues = issues;
         AriaInvalid = state.HasErrors;
-        AriaDescribedBy = issues.Count > 0 ? $"{elementId}-messages" : null;
+        AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
     }
 
     /// <summary>The field this context describes.</summary>
@@ -49,7 +49,9 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// The id of the element holding the field's messages, or null when it has none — bind to
-    /// the input's <c>aria-describedby</c>. Equal to <c>"{ElementId}-messages"</c>.
+    /// the input's <c>aria-describedby</c>. It is
+    /// <see cref="FormidableFieldId.MessagesFor(Microsoft.AspNetCore.Components.Forms.FieldIdentifier)"/>
+    /// for <see cref="Field"/>, the same id the field's message list renders on itself.
     /// </summary>
     public string? AriaDescribedBy { get; }
 

@@ -25,9 +25,9 @@
 <FormidableForm @ref="_form" Model="_note">
     <FormidableSummary />
 
-    <div class="field"><label>Title <FormidableInputText For="() => _note.Title" @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+    <div class="field"><label>Title <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
         <FormidableFieldMessage For="() => _note.Title" /></div>
-    <div class="field"><label>Body <FormidableInputTextArea For="() => _note.Body" @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
+    <div class="field"><label>Body <FormidableInputTextArea @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
         <FormidableFieldMessage For="() => _note.Body" /></div>
 
     <div class="actions">

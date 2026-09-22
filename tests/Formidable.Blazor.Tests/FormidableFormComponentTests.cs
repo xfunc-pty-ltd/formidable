@@ -161,6 +161,60 @@ public class FormidableFormComponentTests : BunitContext
         Assert.False(outcome!.CanProceed);
     }
 
+    // The server round trip is the one pipeline step a page drives itself, and reaching it through
+    // the engine property costs two null-forgiving operators on a reference the page already holds.
+    [Fact]
+    public async Task ApplyServerIssues_is_forwarded_to_the_engine()
+    {
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "Server rejected this description")]));
+
+        Assert.Contains(
+            "Server rejected this description",
+            cut.Instance.Engine!.EditContext.GetValidationMessages(
+                new FieldIdentifier(order, nameof(EngineOrder.Description))));
+    }
+
+    [Fact]
+    public async Task ApplyServerIssues_takes_a_deserialized_problem_body_directly()
+    {
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+        var problem = new FormidableValidationProblem
+        {
+            Errors = { [nameof(EngineOrder.Description)] = ["Server rejected this description"] },
+        };
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(problem));
+
+        Assert.Contains(
+            "Server rejected this description",
+            cut.Instance.Engine!.EditContext.GetValidationMessages(
+                new FieldIdentifier(order, nameof(EngineOrder.Description))));
+    }
+
+    // Both forwards and SubmitAsync run through the engine the form builds on its first parameter
+    // set, so a call that beats that render has nothing to run on. It says so by name rather than
+    // surfacing as a bare NullReferenceException from inside the component.
+    [Fact]
+    public async Task Calls_before_the_engine_exists_name_the_form_and_the_reference()
+    {
+        var form = new FormidableForm<EngineOrder>();
+
+        var byIssues = Assert.Throws<InvalidOperationException>(() => form.ApplyServerIssues([]));
+        var byProblem = Assert.Throws<InvalidOperationException>(
+            () => form.ApplyServerIssues(new FormidableValidationProblem()));
+        var bySubmit = await Assert.ThrowsAsync<InvalidOperationException>(() => form.SubmitAsync());
+
+        Assert.Contains("FormidableForm", byIssues.Message);
+        Assert.Contains("@ref", byIssues.Message);
+        Assert.Equal(byIssues.Message, byProblem.Message);
+        Assert.Equal(byIssues.Message, bySubmit.Message);
+    }
+
     [Fact]
     public void Form_element_carries_the_model_level_id_and_tabindex()
     {

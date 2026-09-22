@@ -4,7 +4,7 @@ using Microsoft.JSInterop;
 namespace Formidable.Blazor;
 
 /// <summary>JS-module-backed focus/scroll for fields, addressed by <see cref="FormidableFieldId"/>.</summary>
-internal sealed class FormidableFocusService : IFormidableFocusService, IAsyncDisposable
+internal sealed class FormidableFocusService : IFormidableFocusService, IDisposable, IAsyncDisposable
 {
     private readonly IJSRuntime _jsRuntime;
 
@@ -60,6 +60,39 @@ internal sealed class FormidableFocusService : IFormidableFocusService, IAsyncDi
         {
             // Circuit already gone - nothing to release, whether the import itself
             // never completed or the module was already torn down with the circuit.
+        }
+    }
+
+    // Implementing IDisposable alongside IAsyncDisposable is the MEDI-recommended shape for a
+    // service whose container may be disposed either way: a container/scope disposed
+    // synchronously calls this overload, and one only implementing IAsyncDisposable throws
+    // ("... type only implements IAsyncDisposable. Use DisposeAsync to dispose the container.")
+    // instead - which broke a consumer's own bUnit teardown, since bUnit's container disposes
+    // synchronously by default. This path is deliberately best-effort: the JS module dies with
+    // the circuit regardless of whether anything here releases it, so there is no correctness
+    // reason to block. Only a module import that already finished is anything to act on; only a
+    // module dispose that completes without actually crossing the interop boundary (e.g. a
+    // synchronous test double) is observed. Anything still in flight, or the import having never
+    // completed or having faulted, is dropped rather than awaited or thrown from a method that
+    // cannot itself be asynchronous.
+    public void Dispose()
+    {
+        if (_moduleTask is not { IsCompletedSuccessfully: true } moduleTask)
+        {
+            return;
+        }
+
+        try
+        {
+            var disposeTask = moduleTask.Result.DisposeAsync();
+            if (!disposeTask.IsCompletedSuccessfully)
+            {
+                return; // needs a real await; nothing a synchronous Dispose can safely do
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone - nothing to release.
         }
     }
 }

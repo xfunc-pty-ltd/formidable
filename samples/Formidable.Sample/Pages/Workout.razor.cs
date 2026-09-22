@@ -55,6 +55,10 @@ public partial class Workout : IDisposable
     // input at all, but FormidableForm renders that id itself, on the form element.
     private string VenueRegionId => FormidableFieldId.For(VenueRegionField);
 
+    // The id of the element listing this field's messages, shared by aria-describedby and the
+    // native ValidationMessage's own id so a wrapped input's contract holds for a hand-rolled one.
+    private string VenueRegionMessagesId => FormidableFieldId.MessagesFor(VenueRegionField);
+
     // A wrapped input takes aria-invalid from its field context; a native one has no context, so
     // the page reads the same state off the engine. Null renders no attribute at all, which is
     // what a field with nothing to complain about must have.
@@ -110,7 +114,7 @@ public partial class Workout : IDisposable
 
         // Each call replaces the previous server verdict rather than adding to it, so correcting
         // the coupon and resubmitting cannot leave the old rejection behind.
-        _form!.Engine!.ApplyServerIssues(problem!.ToIssues());
+        _form!.ApplyServerIssues(problem!);
         _status = "The server rejected the registration — see the messages above.";
     }
 

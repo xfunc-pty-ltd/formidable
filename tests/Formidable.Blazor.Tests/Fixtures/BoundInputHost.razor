@@ -1,0 +1,13 @@
+@using Formidable.Blazor
+
+@* Razor-compiled on purpose: the point of this fixture is that the compiler ITSELF supplies
+   ValueExpression for @bind-Value. Hand-building the parameter with a RenderTreeBuilder would
+   assert the library's half while assuming the compiler's. *@
+<FormidableForm Model="Order">
+    <FormidableInputText @bind-Value="Order.Description" />
+</FormidableForm>
+
+@code {
+    [Parameter]
+    public EngineOrder Order { get; set; } = default!;
+}

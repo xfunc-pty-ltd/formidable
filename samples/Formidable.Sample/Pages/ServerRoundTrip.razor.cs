@@ -44,7 +44,7 @@ public partial class ServerRoundTrip
         // Each call replaces the previous server verdict — pressing Send again with new
         // input swaps the old server errors for the new ones, rather than accumulating
         // them, so a corrected resubmission cannot leave stale errors behind.
-        _form!.Engine!.ApplyServerIssues(issues);
+        _form!.ApplyServerIssues(issues);
         _serverAdvisories.AddRange(issues
             .Where(i => i.Severity != ValidationSeverity.Error)
             .Select(i => i.Message));

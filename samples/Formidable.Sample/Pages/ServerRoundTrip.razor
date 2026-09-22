@@ -49,12 +49,12 @@
 <FormidableForm @ref="_form" Model="_order">
     <FormidableSummary />
 
-    <div class="field"><label>Description <FormidableInputText For="() => _order.Description" @bind-Value="_order.Description" /></label>
+    <div class="field"><label>Description <FormidableInputText @bind-Value="_order.Description" /></label>
         <FormidableFieldMessage For="() => _order.Description" /></div>
 
     @foreach (var line in _order.Lines)
     {
-        <div class="field" @key="line"><label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
+        <div class="field" @key="line"><label>SKU <FormidableInputText @bind-Value="line.Sku" /></label>
             <FormidableFieldMessage For="() => line.Sku" /></div>
     }
 

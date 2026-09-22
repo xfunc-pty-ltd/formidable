@@ -30,14 +30,14 @@
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@($"{NicknameId}-messages")" /></label>
-        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
+                       aria-describedby="@NicknameMessagesId" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
 
     <div class="field">
         <label>Colour (Formidable input)
-            <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+            <FormidableInputText @bind-Value="_order.Colour" /></label>
         <FormidableFieldMessage For="() => _order.Colour" />
     </div>
 

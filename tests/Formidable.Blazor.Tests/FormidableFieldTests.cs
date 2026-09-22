@@ -18,7 +18,7 @@ public class FormidableFieldTests : BunitContext
     [Fact]
     public void Css_rule_matrix()
     {
-        var options = new FormidableCssOptions();
+        var options = new FormidableCssClasses();
 
         Assert.Equal(string.Empty, FormidableCss.Compute(new FieldState(false, false, false, false, false), options));
         Assert.Equal("formidable-valid", FormidableCss.Compute(new FieldState(true, false, false, false, false), options));

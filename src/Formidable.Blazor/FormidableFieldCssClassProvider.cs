@@ -11,7 +11,7 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssOptions _options;
+    private readonly FormidableCssClasses _options;
     private readonly IFormValidationEngine _engine;
 
     /// <summary>
@@ -22,7 +22,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
     /// <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssOptions options, IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(FormidableCssClasses options, IFormValidationEngine engine)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(engine);

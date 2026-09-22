@@ -290,7 +290,7 @@ form textarea:focus,
     background: var(--bg);
 }
 
-/* ---------- validation states (FormidableCssOptions defaults) ---------- */
+/* ---------- validation states (FormidableCssClasses defaults) ---------- */
 
 form .formidable-invalid {
     border-color: var(--error);

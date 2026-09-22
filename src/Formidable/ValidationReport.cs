@@ -32,9 +32,9 @@ public sealed class ValidationReport
     public IEnumerable<ValidationIssue> Infos => Issues.Where(i => i.Severity == ValidationSeverity.Info);
 
     /// <summary>
-    /// Distinct display names of error issues in first-occurrence order, falling back to the
-    /// path when no display name was provided. Intended for error-summary dialogs.
+    /// Non-error issues (warnings and infos), in issue order. Mirrors the ASP.NET Core
+    /// package's wire-level <c>ValidationReportProblemMapper.ToAdvisories</c> mapping for a
+    /// client that holds the report directly instead of a parsed problem response.
     /// </summary>
-    public IReadOnlyList<string> GetDistinctErrorDisplayNames() =>
-        Errors.Select(e => e.DisplayName ?? e.Path).Distinct().ToList();
+    public IEnumerable<ValidationIssue> Advisories => Issues.Where(i => i.Severity != ValidationSeverity.Error);
 }

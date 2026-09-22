@@ -1,5 +1,6 @@
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.Extensions.Logging;
 
 namespace Formidable.Blazor;
 
@@ -33,6 +34,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private readonly FormidableOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly Func<Func<Task>, Task> _renderDispatch;
+    private readonly ILogger? _logger;
     private readonly ValidationMessageStore _store;
     private readonly EventHandler<FieldChangedEventArgs> _fieldChangedHandler;
 
@@ -62,7 +64,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     // pass that ended long ago.
     private int _liveVersion = -1;
 
-    /// <summary>Creates an engine bound to one model + edit context pair.</summary>
+    /// <summary>
+    /// Creates an engine bound to one model + edit context pair. <paramref name="logger"/> is
+    /// optional — a direct construction with none supplied gets the engine's other diagnostics
+    /// (Trace, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>) unaffected.
+    /// </summary>
     public FormValidationEngine(
         TModel model,
         EditContext editContext,
@@ -70,7 +76,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         IModelIntrospector introspector,
         FormidableOptions options,
         TimeProvider? timeProvider = null,
-        Func<Func<Task>, Task>? renderDispatch = null)
+        Func<Func<Task>, Task>? renderDispatch = null,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(editContext);
@@ -85,6 +92,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _renderDispatch = renderDispatch ?? (work => work());
+        _logger = logger;
         _store = new ValidationMessageStore(editContext);
         _fieldChangedHandler = HandleFieldChanged;
         editContext.OnFieldChanged += _fieldChangedHandler;
@@ -506,6 +514,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     {
                         System.Diagnostics.Trace.WriteLine(
                             $"Formidable: issue at '{suppressed.Issue.Path}' is suppressed - no rendered field registration matches and no disclosure override applies.");
+                        _logger?.LogWarning(
+                            "Formidable: issue at '{Path}' is suppressed - no rendered field registration matches and no disclosure override applies.",
+                            suppressed.Issue.Path);
                         _options.SuppressedIssueDiagnostic?.Invoke(suppressed.Issue);
                     }
 
@@ -571,7 +582,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     }
 
     /// <inheritdoc />
-    public void ApplyServerIssues(IReadOnlyList<ValidationIssue> issues)
+    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
     {
         ArgumentNullException.ThrowIfNull(issues);
 

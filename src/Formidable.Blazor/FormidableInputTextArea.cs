@@ -24,10 +24,7 @@ public sealed class FormidableInputTextArea : FormidableInputBase<string?>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "textarea");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", Value);
         AddValueBinding(builder, 6);
         builder.CloseElement();

@@ -64,7 +64,7 @@
 
         <FormidableField For="() => _registration.ContactEmail" Context="field">
             <div class="field">
-                <label>Contact email <FormidableInputText For="() => _registration.ContactEmail" @bind-Value="_registration.ContactEmail" UpdateOn="InputUpdateMode.OnInput" /></label>
+                <label>Contact email <FormidableInputText @bind-Value="_registration.ContactEmail" UpdateOn="InputUpdateMode.OnInput" /></label>
                 @if (field.State.IsValidating)
                 {
                     <em role="status">checking…</em>
@@ -73,16 +73,16 @@
             <FormidableFieldMessage For="() => _registration.ContactEmail" />
         </FormidableField>
 
-        <div class="field"><label>Event name <FormidableInputText For="() => _registration.EventName" @bind-Value="_registration.EventName" /></label>
+        <div class="field"><label>Event name <FormidableInputText @bind-Value="_registration.EventName" /></label>
             <FormidableFieldMessage For="() => _registration.EventName" /></div>
-        <div class="field"><label>Event date <FormidableInputText type="date" For="() => _registration.EventDate" @bind-Value="_registration.EventDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
+        <div class="field"><label>Event date <FormidableInputText type="date" @bind-Value="_registration.EventDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
             <FormidableFieldMessage For="() => _registration.EventDate" /></div>
-        <div class="field"><label>Early-bird deadline <FormidableInputText type="date" For="() => _registration.EarlyBirdDeadline" @bind-Value="_registration.EarlyBirdDeadline" UpdateOn="InputUpdateMode.OnBlur" /></label>
+        <div class="field"><label>Early-bird deadline <FormidableInputText type="date" @bind-Value="_registration.EarlyBirdDeadline" UpdateOn="InputUpdateMode.OnBlur" /></label>
             <FormidableFieldMessage For="() => _registration.EarlyBirdDeadline" /></div>
 
-        <div class="field"><label>Description <FormidableInputText For="() => _registration.Description" @bind-Value="_registration.Description" /></label>
+        <div class="field"><label>Description <FormidableInputText @bind-Value="_registration.Description" /></label>
             <FormidableFieldMessage For="() => _registration.Description" /></div>
-        <div class="field"><label>Coupon code <FormidableInputText For="() => _registration.CouponCode" @bind-Value="_registration.CouponCode" /></label>
+        <div class="field"><label>Coupon code <FormidableInputText @bind-Value="_registration.CouponCode" /></label>
             <FormidableFieldMessage For="() => _registration.CouponCode" /></div>
     </fieldset>
 
@@ -99,9 +99,9 @@
 
         @if (_registration.IncludeCatering)
         {
-            <div class="field"><label>Catering headcount <FormidableInputText For="() => _registration.CateringHeadcount" @bind-Value="_registration.CateringHeadcount" /></label>
+            <div class="field"><label>Catering headcount <FormidableInputText @bind-Value="_registration.CateringHeadcount" /></label>
                 <FormidableFieldMessage For="() => _registration.CateringHeadcount" /></div>
-            <div class="field"><label>Dietary notes <FormidableInputText For="() => _registration.DietaryNotes" @bind-Value="_registration.DietaryNotes" /></label>
+            <div class="field"><label>Dietary notes <FormidableInputText @bind-Value="_registration.DietaryNotes" /></label>
                 <FormidableFieldMessage For="() => _registration.DietaryNotes" /></div>
         }
     </fieldset>
@@ -116,9 +116,9 @@
                 @foreach (var attendee in _registration.Attendees)
                 {
                     <li class="field" @key="attendee">
-                        <label>Name <FormidableInputText For="() => attendee.Name" @bind-Value="attendee.Name" /></label>
+                        <label>Name <FormidableInputText @bind-Value="attendee.Name" /></label>
                         <FormidableFieldMessage For="() => attendee.Name" />
-                        <label>Email <FormidableInputText For="() => attendee.Email" @bind-Value="attendee.Email" /></label>
+                        <label>Email <FormidableInputText @bind-Value="attendee.Email" /></label>
                         <FormidableFieldMessage For="() => attendee.Email" />
                         <div class="actions">
                             <button type="button" @onclick="() => RemoveAttendee(attendee, field)">Remove</button>
@@ -142,7 +142,7 @@
             <Virtualize Items="_registration.Sessions" ItemSize="SessionRowHeight" Context="session">
                 <div class="field" @key="session">
                     <label>@session.Title
-                        <FormidableInputText For="() => session.Seats" @bind-Value="session.Seats" KeepRegistered="true" />
+                        <FormidableInputText @bind-Value="session.Seats" KeepRegistered="true" />
                     </label>
                     <FormidableFieldMessage For="() => session.Seats" />
                 </div>
@@ -169,8 +169,8 @@
             <FormidableFieldMessage For="() => _registration.TicketTier" />
         </FormidableField>
 
-        <div class="field"><label>Venue region (native InputText) <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@($"{VenueRegionId}-messages")" /></label>
-            <ValidationMessage For="() => _registration.VenueRegion" id="@($"{VenueRegionId}-messages")" />
+        <div class="field"><label>Venue region (native InputText) <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@VenueRegionMessagesId" /></label>
+            <ValidationMessage For="() => _registration.VenueRegion" id="@VenueRegionMessagesId" />
             <FormidableFieldAnchor For="() => _registration.VenueRegion" /></div>
     </fieldset>
 

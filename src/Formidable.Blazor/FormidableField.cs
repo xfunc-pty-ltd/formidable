@@ -43,7 +43,7 @@ public sealed class FormidableField<TValue> : ComponentBase, IDisposable
             GetType(),
             register: context =>
             {
-                _field = FieldIdentifier.Create(For);
+                _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
                 return context.Registry.Register(_field, KeepRegistered);
             },
             stateChanged: OnEngineStateChanged);

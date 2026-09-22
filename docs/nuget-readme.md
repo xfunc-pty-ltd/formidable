@@ -41,13 +41,22 @@ Install the Blazor package:
 
     dotnet add package Formidable.Blazor
 
-Register it and your FluentValidation validators:
+Register it and your FluentValidation validators in Program.cs, using directives included:
+
+    using FluentValidation;
+    using Formidable.Blazor;
 
     builder.Services.AddFormidableBlazor();
     builder.Services.AddScoped<IValidator<QuickContact>, QuickContactValidator>();
 
+Add one line to _Imports.razor so the components resolve:
+
+    @using Formidable.Blazor
+
 Then wrap a model in FormidableForm and let FormidableInputText, FormidableFieldMessage, and
-FormidableSummary render whatever the validator reports. That is a working form.
+FormidableSummary render whatever the validator reports. That is a working form, on any page
+with an interactive render mode — every page of a standalone WebAssembly app, or a Blazor Web
+App page carrying @rendermode InteractiveServer or @rendermode InteractiveWebAssembly.
 
 ## Links
 

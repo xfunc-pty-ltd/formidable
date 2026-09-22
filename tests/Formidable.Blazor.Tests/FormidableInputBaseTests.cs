@@ -268,10 +268,7 @@ public class FormidableInputBaseTests : BunitContext
         {
             RenderedValues.Add(Value);
             builder.OpenElement(0, "input");
-            builder.AddMultipleAttributes(1, AdditionalAttributes!);
-            builder.AddAttribute(2, "id", ElementId);
-            builder.AddAttribute(3, "class", CssClass);
-            builder.AddMultipleAttributes(4, AriaAttributes!);
+            AddCommonAttributes(builder, 1);
             builder.AddAttribute(5, "value", Value);
             AddValueBinding(builder, 6);
             builder.CloseElement();

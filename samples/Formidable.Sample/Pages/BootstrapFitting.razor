@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="lib/bootstrap.min.css" />
 </HeadContent>
 <h1>Fitting a UI library</h1>
-<p>The same Quickstart model and validator, dressed in Bootstrap. The whole integration is one <code>Options</code> object: <code>FormidableCssOptions</code> maps the state class NAMES onto Bootstrap's, and the markup uses Bootstrap's own classes. While you are on this page Bootstrap's stylesheet is loaded globally — that is how single-page WASM head links work. In light mode that gives the rest of this page a slightly Bootstrap-flavoured look too; in dark mode the site shell holds onto its own colours. The demo below also follows your OS colour scheme — Bootstrap themes itself with one attribute, <code>data-bs-theme</code>, which a few lines of page script keep in sync.</p>
+<p>The same Quickstart model and validator, dressed in Bootstrap. The whole integration is one <code>Options</code> object: <code>FormidableCssClasses</code> maps the state class NAMES onto Bootstrap's, and the markup uses Bootstrap's own classes. While you are on this page Bootstrap's stylesheet is loaded globally — that is how single-page WASM head links work. In light mode that gives the rest of this page a slightly Bootstrap-flavoured look too; in dark mode the site shell holds onto its own colours. The demo below also follows your OS colour scheme — Bootstrap themes itself with one attribute, <code>data-bs-theme</code>, which a few lines of page script keep in sync.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "BootstrapFitting.razor", "BootstrapFitting.razor.cs", "QuickContact.cs" })">
     <Rules>
@@ -29,9 +29,9 @@
     <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
         <FormidableSummary />
 
-        <div class="mb-3"><label class="form-label">Name <FormidableInputText class="form-control" For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+        <div class="mb-3"><label class="form-label">Name <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
             <FormidableFieldMessage For="() => _contact.Name" /></div>
-        <div class="mb-3"><label class="form-label">Email <FormidableInputText class="form-control" For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
+        <div class="mb-3"><label class="form-label">Email <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
             <FormidableFieldMessage For="() => _contact.Email" /></div>
 
         <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>

@@ -71,8 +71,11 @@ public interface IFormValidationEngine
     /// <paramref name="issues"/> are applied; other severities are ignored. Applied issues also
     /// persist until the next debounced refresh replaces the submit-visible state from the client
     /// validator's report; a server-only issue with no matching client rule clears on that refresh.
-    /// Call from the renderer's synchronization context (a Blazor event handler or
-    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
+    /// Because the payload is treated as a submit result, applying one also sets
+    /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
+    /// submitted state through this call alone. Call from the renderer's synchronization context (a
+    /// Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and triggers
+    /// renders. <paramref name="issues"/> is enumerated exactly once.
     /// </summary>
     /// <remarks>
     /// Replace is value-equality-based: if a client-sourced issue on a field is value-identical
@@ -80,5 +83,5 @@ public interface IFormValidationEngine
     /// of the two equal entries — the two are indistinguishable, so which one is removed is
     /// unspecified.
     /// </remarks>
-    void ApplyServerIssues(IReadOnlyList<ValidationIssue> issues);
+    void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 }

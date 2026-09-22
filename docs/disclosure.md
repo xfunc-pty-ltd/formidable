@@ -113,8 +113,7 @@ user has opened the section:
     {
         <div class="field">
             <label>Traveler name
-                <FormidableInputText For="() => _request.TravelerName"
-                                     @bind-Value="_request.TravelerName" /></label>
+                <FormidableInputText @bind-Value="_request.TravelerName" /></label>
             <FormidableFieldMessage For="() => _request.TravelerName" />
         </div>
     }
@@ -172,8 +171,7 @@ Formidable-wrapped input:
             {
                 <div class="field">
                     <label>Special requirements
-                        <FormidableInputText For="() => _request.SpecialRequirements"
-                                              @bind-Value="_request.SpecialRequirements" /></label>
+                        <FormidableInputText @bind-Value="_request.SpecialRequirements" /></label>
                     <FormidableFieldMessage For="() => _request.SpecialRequirements" />
                 </div>
             }
@@ -218,8 +216,8 @@ nickname field is the remaining genuine example:
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@($"{NicknameId}-messages")" /></label>
-        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
+                       aria-describedby="@NicknameMessagesId" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
 ```

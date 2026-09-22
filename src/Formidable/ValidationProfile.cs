@@ -45,6 +45,11 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
     /// <param name="ruleSets">Named rulesets to include. At least one is required when
     /// <paramref name="includeDefaultRules"/> is <see langword="false"/> — otherwise the
     /// profile would select no rules at all.</param>
+    /// <example>
+    /// <code>ValidationProfile.Named("Approve", includeDefaultRules: false, "Approve")</code>
+    /// Pass <paramref name="includeDefaultRules"/> as a named argument — the positional
+    /// <see langword="bool"/> between two strings reads opaque at the call site otherwise.
+    /// </example>
     public static ValidationProfile Named(string name, bool includeDefaultRules = true, params string[] ruleSets)
     {
         ArgumentNullException.ThrowIfNull(ruleSets);
@@ -58,6 +63,33 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
         }
 
         return new ValidationProfile(name, includeDefaultRules, ruleSets);
+    }
+
+    /// <summary>
+    /// Resolves a profile from a name string: <c>"Draft"</c>/<c>"Submit"</c> match
+    /// case-insensitively to the canonical <see cref="Draft"/>/<see cref="Submit"/> singletons;
+    /// any other name becomes a custom profile shaped the same way <see cref="Submit"/> itself
+    /// is built — default rules plus one ruleset with the same name as the profile.
+    /// </summary>
+    /// <param name="name">The profile name to resolve.</param>
+    /// <remarks>
+    /// The one caller-facing entry point for a profile carried as a string, e.g. an HTTP
+    /// attribute property (<c>Formidable.AspNetCore</c>'s <c>ValidateAttribute.Profile</c>) or
+    /// any other string-typed configuration surface.
+    /// </remarks>
+    public static ValidationProfile FromName(string name)
+    {
+        if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
+        {
+            return Draft;
+        }
+
+        if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
+        {
+            return Submit;
+        }
+
+        return Named(name, includeDefaultRules: true, name);
     }
 
     /// <inheritdoc />

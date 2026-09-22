@@ -66,11 +66,17 @@ Pass that instance through the form's `Options` parameter to point either moment
 different profile — a wizard step, an approval stage — without touching the validator at all.
 
 Saving a draft skips the form's submit pipeline entirely. It's a plain call against the same
-validator you registered, naming the profile yourself:
+validator you registered, taken into the page with `@inject IValidator<ProfileForm> Validator`
+and handed the model plus the profile you want:
 
 ```csharp
-var report = await Validator.ValidateAsync(_profile, ValidationProfile.Draft);
+var result = await Validator.ValidateAsync(_profile, ValidationProfile.Draft);
 ```
+
+That overload is Formidable's, from `ValidatorProfileExtensions` in the core `Formidable`
+namespace, and the profile is the only thing it adds. What comes back is FluentValidation's own
+`ValidationResult` — `IsValid` and `Errors`, exactly as a direct call would return them — not a
+Formidable type of any kind.
 
 ## Severity: not everything wrong should block
 

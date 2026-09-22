@@ -13,9 +13,6 @@ public sealed class FieldRegistry
     private readonly Dictionary<FieldIdentifier, int> _counts = [];
     private readonly HashSet<FieldIdentifier> _kept = [];
 
-    /// <summary>Raised when a registration is added or removed.</summary>
-    public event Action? Changed;
-
     /// <summary>
     /// Registers a rendered field. Dispose the returned handle when the field leaves the
     /// render tree. With <paramref name="keepRegistered"/> the field stays revealed after
@@ -27,7 +24,6 @@ public sealed class FieldRegistry
     public FieldRegistration Register(FieldIdentifier field, bool keepRegistered = false)
     {
         _counts[field] = _counts.TryGetValue(field, out var count) ? count + 1 : 1;
-        Changed?.Invoke();
         return new FieldRegistration(this, field, keepRegistered);
     }
 
@@ -57,7 +53,5 @@ public sealed class FieldRegistry
         {
             _counts[field] = count - 1;
         }
-
-        Changed?.Invoke();
     }
 }

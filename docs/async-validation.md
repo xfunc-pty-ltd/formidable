@@ -102,7 +102,7 @@ as `field.State.IsValidating`:
 ```razor
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">
-            <label>Username <FormidableInputText For="() => _handle.Username" @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
+            <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>
@@ -113,7 +113,7 @@ as `field.State.IsValidating`:
 
     <FormidableField For="() => _handle.DisplayName" Context="field">
         <div class="field">
-            <label>Display name <FormidableInputText For="() => _handle.DisplayName" @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
+            <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" /></label>
             @if (field.State.IsValidating)
             {
                 <em role="status">checking…</em>

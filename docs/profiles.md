@@ -150,6 +150,7 @@ MVC's `[Validate]` attribute takes a profile **name** string instead, resolved p
 public IActionResult SaveDraft([FromBody] RoundTripOrder order) => Ok();
 ```
 
+`[Validate]` resolves that name string through `ValidationProfile.FromName(name)`:
 `"Draft"` and `"Submit"` match case-insensitively to the two built-in singletons. Any other name
 becomes a custom profile shaped the same way `Submit` itself is built —
 `ValidationProfile.Named(name, includeDefaultRules: true, name)`, i.e. default rules plus one

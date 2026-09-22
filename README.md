@@ -61,17 +61,31 @@ only on `Formidable`.
 
 ## 5-minute quickstart
 
+Five minutes in an interactive project: `dotnet new blazorwasm`, or a Blazor Web App page
+carrying `@rendermode InteractiveServer` or `@rendermode InteractiveWebAssembly`.
+`FormidableForm` refuses to render on a statically rendered page, since a form there could be
+filled in but never submitted.
+
 Install the Blazor package:
 
 ```bash
 dotnet add package Formidable.Blazor
 ```
 
-Register it and your FluentValidation validators:
+Register it and your FluentValidation validators in `Program.cs`, `using` directives included:
 
 ```csharp
+using FluentValidation;
+using Formidable.Blazor;
+
 builder.Services.AddFormidableBlazor();
 builder.Services.AddScoped<IValidator<QuickContact>, QuickContactValidator>();
+```
+
+One line in `_Imports.razor` brings every component below into scope:
+
+```razor
+@using Formidable.Blazor
 ```
 
 The model and validator — a plain `AbstractValidator<T>`, no profiles required:
@@ -111,9 +125,9 @@ The page — routed at `@page "/"` in the sample:
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
-    <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
         <FormidableFieldMessage For="() => _contact.Name" /></div>
-    <div class="field"><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
+    <div class="field"><label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
         <FormidableFieldMessage For="() => _contact.Email" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>

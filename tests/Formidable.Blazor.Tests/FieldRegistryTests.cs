@@ -63,18 +63,6 @@ public class FieldRegistryTests
     }
 
     [Fact]
-    public void Changed_event_fires_on_register_and_dispose()
-    {
-        var fired = 0;
-        _registry.Changed += () => fired++;
-
-        var registration = _registry.Register(Field("Description"));
-        registration.Dispose();
-
-        Assert.Equal(2, fired);
-    }
-
-    [Fact]
     public void Double_dispose_is_idempotent()
     {
         var registration = _registry.Register(Field("Description"));

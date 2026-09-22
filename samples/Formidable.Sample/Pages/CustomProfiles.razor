@@ -30,13 +30,13 @@
 <FormidableForm @ref="_form" Model="_post" Options="_options">
     <FormidableSummary />
 
-    <div class="field"><label>Title <FormidableInputText For="() => _post.Title" @bind-Value="_post.Title" /></label>
+    <div class="field"><label>Title <FormidableInputText @bind-Value="_post.Title" /></label>
         <FormidableFieldMessage For="() => _post.Title" /></div>
-    <div class="field"><label>Slug <FormidableInputText For="() => _post.Slug" @bind-Value="_post.Slug" /></label>
+    <div class="field"><label>Slug <FormidableInputText @bind-Value="_post.Slug" /></label>
         <FormidableFieldMessage For="() => _post.Slug" /></div>
     <div class="field">
         <label for="@CategoryId">Category</label>
-        <FormidableInputSelect For="() => _post.Category" @bind-Value="_post.Category">
+        <FormidableInputSelect @bind-Value="_post.Category">
             <option value="">Choose…</option>
             <option>Announcement</option>
             <option>Tutorial</option>
@@ -44,7 +44,7 @@
         </FormidableInputSelect>
         <FormidableFieldMessage For="() => _post.Category" />
     </div>
-    <div class="field"><label>Review note <FormidableInputText For="() => _post.ReviewNote" @bind-Value="_post.ReviewNote" /></label>
+    <div class="field"><label>Review note <FormidableInputText @bind-Value="_post.ReviewNote" /></label>
         <FormidableFieldMessage For="() => _post.ReviewNote" /></div>
 
     <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>

@@ -9,11 +9,13 @@ namespace Formidable.Blazor.Tests;
 // Adaptation: bunit 2.9.0's matcher-based SetupVoid overload returns a handler that must be
 // explicitly completed via SetVoidResult() (identifier+args
 // overloads auto-complete; the InvocationMatcher overload used here does not). Also, resolving
-// FormidableFocusService (IAsyncDisposable-only, per the binding contract) directly from
-// BunitContext.Services means the .NET DI container captures it for disposal; BunitContext's
-// xUnit teardown calls the synchronous IDisposable.Dispose(), which throws for an object that
-// only implements IAsyncDisposable. Each test explicitly awaits Services.DisposeAsync() so the
-// container is already disposed (idempotent) by the time xUnit's synchronous teardown runs.
+// FormidableFocusService directly from BunitContext.Services means the .NET DI container
+// captures it for disposal; each test still explicitly awaits Services.DisposeAsync() so the
+// container is disposed (idempotent) through the service's proper async release path before
+// BunitContext's own synchronous teardown runs. That teardown no longer THROWS on its own —
+// FormidableFocusService also implements IDisposable — but its sync Dispose() is a best-effort
+// fallback (releases the JS module only when doing so needs no further await), so the explicit
+// awaited dispose here stays the more thorough choice.
 public class FocusServiceTests : BunitContext
 {
     [Fact]
@@ -109,6 +111,31 @@ public class FocusServiceTests : BunitContext
 
         Assert.Equal(2, jsRuntime.ImportCount);
         Assert.Equal(1, jsRuntime.Module.FocusCalls);
+    }
+
+    // A container that captured FormidableFocusService for disposal must not throw when disposed
+    // SYNCHRONOUSLY — the shape MEDI itself falls back to whenever the consumer's own
+    // container/scope is torn down through ordinary IDisposable rather than awaited. Exercised at
+    // the same layer the real defect showed up in (a scope's own Dispose(), not the service
+    // directly), with the module task actually populated first so the sync path has real work to
+    // do, not just an early-out on a null task.
+    [Fact]
+    public async Task Scope_holding_the_focus_service_can_be_disposed_synchronously()
+    {
+        var jsRuntime = new FlakyImportJSRuntime(failures: 0);
+        await using var provider = new ServiceCollection()
+            .AddFormidableBlazor()
+            .AddSingleton<IJSRuntime>(jsRuntime)
+            .BuildServiceProvider();
+        var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IFormidableFocusService>();
+        var field = new FieldIdentifier(new EngineOrder(), nameof(EngineOrder.Description));
+
+        await service.FocusAsync(field);
+
+        var exception = Record.Exception(scope.Dispose);
+
+        Assert.Null(exception);
     }
 
     /// <summary>Test-only runtime whose first <paramref name="failures"/> "import" calls fault, and whose later ones return <see cref="Module"/>.</summary>

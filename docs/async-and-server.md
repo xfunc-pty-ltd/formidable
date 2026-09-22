@@ -21,7 +21,7 @@ it: while the rule is in flight, the field it's checking carries a pending state
 
 ```razor
 <FormidableField For="() => _signup.Email" Context="field">
-    <FormidableInputText For="() => _signup.Email" @bind-Value="_signup.Email" />
+    <FormidableInputText @bind-Value="_signup.Email" />
     @if (field.State.IsValidating)
     {
         <span role="status">checking…</span>

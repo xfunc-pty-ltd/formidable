@@ -47,6 +47,11 @@ Three projects, unconditional — no environment variable, no running server, no
 | `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/advisories wire mapping. |
 | `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormValidationEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
+The focus service implements both `IDisposable` and `IAsyncDisposable`, so a bUnit container
+built through `AddFormidableBlazor()` tears down on ordinary synchronous dispose — nothing extra
+to write. Awaiting `Services.DisposeAsync()` instead still works and stays the more thorough
+choice, which is what Formidable's own suite does throughout.
+
 Run the whole tier from the repo root:
 
 ```bash

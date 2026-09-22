@@ -1,7 +1,7 @@
 namespace Formidable.Blazor;
 
 /// <summary>Class names applied to a field based on its current <see cref="FieldState"/>.</summary>
-public sealed class FormidableCssOptions
+public sealed class FormidableCssClasses
 {
     /// <summary>Applied when the field has error-severity issues. Defaults to <c>"formidable-invalid"</c>.</summary>
     public string Invalid { get; set; } = "formidable-invalid";

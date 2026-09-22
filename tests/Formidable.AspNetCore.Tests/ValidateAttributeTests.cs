@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using FluentValidation;
 using Formidable;
 using Formidable.AspNetCore.Tests.Fixtures;
 using Microsoft.AspNetCore.Builder;
@@ -37,6 +40,89 @@ public sealed class OrdersController : ControllerBase
     [HttpPost("explicit-custom")]
     [Validate(typeof(ExplicitModel))]
     public IActionResult ExplicitCustom([FromBody] ExplicitModel model) => Ok(model);
+
+    [HttpPost("polymorphic")]
+    [Validate]
+    public IActionResult Polymorphic([FromBody] PolymorphicSampleOrder order) => Ok(order);
+
+    [HttpPost("polymorphic-derived-only")]
+    [Validate]
+    public IActionResult PolymorphicDerivedOnly([FromBody] OnlyDerivedPolymorphicOrder order) => Ok(order);
+
+    [HttpPost("strict-orders")]
+    [Validate(RequireValidator = true)]
+    public IActionResult StrictOrders([FromBody] SampleOrder order) => Ok(order);
+
+    [HttpPost("strict-unregistered")]
+    [Validate(RequireValidator = true)]
+    public IActionResult StrictUnregistered([FromBody] UnregisteredModel model) => Ok(model);
+
+    [HttpPost("strict-optional")]
+    [Validate(RequireValidator = true)]
+    public IActionResult StrictOptional([FromBody] SampleOrder? order) => Ok(order);
+}
+
+/// <summary>Base of a polymorphic pair pinning the declared-type validator-resolution fix: the
+/// <c>[FromBody]</c> parameter above is declared as this base type, but System.Text.Json's
+/// <c>$type</c> discriminator can bind a derived <see cref="RushPolymorphicSampleOrder"/>
+/// instance to it.</summary>
+[JsonPolymorphic]
+[JsonDerivedType(typeof(RushPolymorphicSampleOrder), "rush")]
+public class PolymorphicSampleOrder
+{
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>Deliberately has no <see cref="IModelValidator{TModel}"/> registered anywhere in
+/// this file's test apps — only the base type's validator should ever run.</summary>
+public sealed class RushPolymorphicSampleOrder : PolymorphicSampleOrder
+{
+    public bool Rush { get; set; }
+}
+
+public class PolymorphicSampleOrderValidator : DraftSubmitValidator<PolymorphicSampleOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(order => order.Description).NotEmpty().WithMessage("Required");
+}
+
+/// <summary>Base of a second polymorphic pair pinning the runtime-type FALLBACK: unlike
+/// <see cref="PolymorphicSampleOrder"/>, this base type has NO registered validator anywhere in
+/// this file's test apps — only its derived <see cref="RushOnlyPolymorphicOrder"/> does.</summary>
+[JsonPolymorphic]
+[JsonDerivedType(typeof(RushOnlyPolymorphicOrder), "rush")]
+public class OnlyDerivedPolymorphicOrder
+{
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>The only type in this pair with a registered validator — resolving strictly by the
+/// declared (base) type would find nothing and silently skip the argument; the fallback probe
+/// of the argument's runtime type is what makes validation still run.</summary>
+public sealed class RushOnlyPolymorphicOrder : OnlyDerivedPolymorphicOrder
+{
+    public bool Rush { get; set; }
+}
+
+public class RushOnlyPolymorphicOrderValidator : DraftSubmitValidator<RushOnlyPolymorphicOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(order => order.Description).NotEmpty().WithMessage("Required");
+}
+
+/// <summary>Never has a validator registered anywhere in this file's test apps — pins the
+/// <c>RequireValidator</c> strict-mode throw.</summary>
+public class UnregisteredModel
+{
+    public string Name { get; set; } = string.Empty;
 }
 
 /// <summary>Model validated by a consumer-registered <see cref="IModelValidator{TModel}"/>
@@ -70,7 +156,19 @@ public sealed class ScopedController : ControllerBase
     [HttpPost("multi")]
     public IActionResult Multi([FromBody] SampleOrder order, [FromQuery] SampleFilter filter) =>
         Ok(new { order.Description, filter.Region });
+}
 
+/// <summary>
+/// No class-level <see cref="ValidateAttribute"/>, deliberately: <see cref="EscalatedNoteValidator"/>
+/// registers only its own "Escalated" ruleset (no "Submit" shape at all), so stacking a
+/// class-level catch-all — which discovers and validates under its own default "Submit"
+/// profile — alongside this action's explicit <c>Profile = "Escalated"</c> would validate the
+/// same argument against a ruleset this validator never declared.
+/// </summary>
+[ApiController]
+[Route("mvc2")]
+public sealed class EscalatedController : ControllerBase
+{
     [HttpPost("escalated")]
     [Validate(typeof(EscalatedNote), Profile = "Escalated")]
     public IActionResult Escalated([FromBody] EscalatedNote note) => Ok(note);
@@ -85,6 +183,8 @@ public class ValidateAttributeTests
             {
                 services.AddControllers().AddApplicationPart(typeof(OrdersController).Assembly);
                 services.AddSingleton<IModelValidator<ExplicitModel>>(new ExplicitModelValidator());
+                services.AddScoped<FluentValidation.IValidator<PolymorphicSampleOrder>, PolymorphicSampleOrderValidator>();
+                services.AddScoped<FluentValidation.IValidator<RushOnlyPolymorphicOrder>, RushOnlyPolymorphicOrderValidator>();
             });
 
     private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartMvc2AppAsync() =>
@@ -256,5 +356,87 @@ public class ValidateAttributeTests
 
         Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
         Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+    }
+
+    [Fact]
+    public async Task Declared_parameter_type_drives_validator_selection_under_polymorphic_binding()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // The $type discriminator binds a derived RushPolymorphicSampleOrder instance, but the
+        // [FromBody] parameter's DECLARED type stays the base PolymorphicSampleOrder, which is
+        // what has a registered validator. Resolving by argument.GetType() (the derived runtime
+        // type) would find no IValidator<RushPolymorphicSampleOrder> and silently skip the
+        // argument — this request would return 200 with an empty Description instead of the 400
+        // asserted below.
+        var response = await client.PostAsync("mvc/polymorphic",
+            new StringContent("""{"$type":"rush","description":""}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Required", problem!.Errors["Description"]);
+    }
+
+    [Fact]
+    public async Task RequireValidator_does_not_interfere_when_a_validator_resolves()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/strict-orders",
+            new SampleOrder { Description = "ok", Items = [new SampleItem { Sku = "A" }] });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RequireValidator_throws_when_the_action_validates_nothing()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/strict-unregistered", new UnregisteredModel { Name = "x" });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains(nameof(UnregisteredModel), body);
+        Assert.Contains("RequireValidator", body);
+    }
+
+    [Fact]
+    public async Task RequireValidator_does_not_throw_on_a_client_caused_empty_body()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // A null [FromBody] argument means the action bound ZERO non-null arguments -- something
+        // any anonymous client can trigger by posting an empty/null body, not a misconfiguration
+        // -- so RequireValidator's strict throw must not fire even though nothing was validated.
+        // (The action's own Ok(null) becomes a 204 via ASP.NET Core's own null-body output
+        // formatting -- the assertion checks for "not the strict throw's 500", not one exact
+        // success code, so it stays true regardless of that unrelated framework behavior.)
+        var response = await client.PostAsync("mvc/strict-optional",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.True(response.IsSuccessStatusCode, $"Expected a success status, got {response.StatusCode}");
+    }
+
+    [Fact]
+    public async Task Runtime_type_fallback_validates_when_the_declared_type_has_no_validator()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // OnlyDerivedPolymorphicOrder (the DECLARED parameter type) has no registered validator
+        // at all; RushOnlyPolymorphicOrder (the $type-selected runtime type) does. Resolving by
+        // the declared type alone would find nothing and silently skip the argument -- the
+        // fallback probe of the runtime type is what makes this 400 instead of 200.
+        var response = await client.PostAsync("mvc/polymorphic-derived-only",
+            new StringContent("""{"$type":"rush","description":""}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Required", problem!.Errors["Description"]);
     }
 }

@@ -56,7 +56,7 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
             GetType(),
             register: context =>
             {
-                _field = FieldIdentifier.Create(For);
+                _field = FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
                 return Register(context, _field);
             },
             stateChanged: OnEngineStateChanged);
@@ -77,7 +77,7 @@ public abstract class FormidableMessageBase<TValue> : ComponentBase, IDisposable
 
         var sequence = 0;
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", $"{FormidableFieldId.For(_field)}-messages");
+        builder.AddAttribute(sequence++, "id", FormidableFieldId.MessagesFor(_field));
         builder.AddAttribute(sequence++, "class", "formidable-messages");
 
         foreach (var issue in issues)

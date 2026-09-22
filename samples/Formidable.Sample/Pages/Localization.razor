@@ -36,9 +36,9 @@
 <FormidableForm Model="_profile" OnValidSubmit="HandleValid">
     <FormidableSummary />
 
-    <div class="field"><label>Full Name <FormidableInputText For="() => _profile.FullName" @bind-Value="_profile.FullName" /></label>
+    <div class="field"><label>Full Name <FormidableInputText @bind-Value="_profile.FullName" /></label>
         <FormidableFieldMessage For="() => _profile.FullName" /></div>
-    <div class="field"><label>Age <FormidableInputText For="() => _profile.Age" @bind-Value="_profile.Age" /></label>
+    <div class="field"><label>Age <FormidableInputText @bind-Value="_profile.Age" /></label>
         <FormidableFieldMessage For="() => _profile.Age" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>

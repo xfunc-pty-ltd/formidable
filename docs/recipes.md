@@ -18,7 +18,7 @@ default) once per field change; submit runs `SubmitProfile`, and a debounced ref
 keeps what that submit revealed current.
 
 ```razor
-<FormidableInputText For="() => Model.Nickname" @bind-Value="Model.Nickname"
+<FormidableInputText @bind-Value="Model.Nickname"
                       UpdateOn="InputUpdateMode.OnInput" />
 ```
 
@@ -39,7 +39,7 @@ date input firing once per date segment being the clearest case: without the spl
 would start (and cancel) its own live pass on a value that isn't finished yet.
 
 ```razor
-<FormidableInputText type="date" For="() => Model.EventDate" @bind-Value="Model.EventDate"
+<FormidableInputText type="date" @bind-Value="Model.EventDate"
                       UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
@@ -104,7 +104,7 @@ protected override void ConfigureDraftRules() =>
 
 ```razor
 <FormidableField For="() => Model.Username" Context="field">
-    <FormidableInputText For="() => Model.Username" @bind-Value="Model.Username"
+    <FormidableInputText @bind-Value="Model.Username"
                           UpdateOn="InputUpdateMode.OnInput" />
     @if (field.State.IsValidating) { <em role="status">checking…</em> }
 </FormidableField>
@@ -127,14 +127,14 @@ refresh defers to a live pass still in flight and re-arms rather than cancelling
 **Set:** on the server, `Validate<TModel>(profile?)` on a minimal-API handler or route group, or
 `[Validate]` on an MVC action or controller. On the client, deserialize the 400 body into
 `FormidableValidationProblem`, call `ToIssues()`, and pass the result to
-`_form!.Engine!.ApplyServerIssues(...)` — the errors land on the same fields.
+`_form!.ApplyServerIssues(...)` — the errors land on the same fields.
 
 ```csharp
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
 if (!response.IsSuccessStatusCode)
 {
     var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-    _form!.Engine!.ApplyServerIssues(problem!.ToIssues());
+    _form!.ApplyServerIssues(problem!.ToIssues());
 }
 ```
 
@@ -312,8 +312,9 @@ parameter once, when it binds a `Model` instance, but the engine holds that inst
 whole lifetime and re-reads its properties fresh on every pass — mutating
 `LiveProfile`/`SubmitProfile` on the same `FormidableOptions` object takes effect starting with
 the very next pass, no fresh model required. Handing the form a wholly new `FormidableOptions`
-instance is a different move — that one does need a fresh model alongside it, since only a
-`Model` reference change makes `FormidableForm` look at the `Options` parameter again — and is
+instance is a different move — that one does need a fresh model alongside it, and the form throws
+if it doesn't get one, since only a `Model` reference change makes `FormidableForm` look at the
+`Options` parameter again — and is
 worth reaching for when a batch of option changes should become visible together in one step
 rather than as several independently-observable mutations. Server-side, minimal APIs take a
 `ValidationProfile` value directly while `[Validate(Profile = "…")]` takes a name — any name
@@ -349,11 +350,13 @@ host runs.
 
 | Symptom | Why | Fix |
 |---|---|---|
+| A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. Both diagnostics describe binding syntax; neither mentions the namespace that is actually missing. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
+| Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
 | A field says nothing until Submit is pressed. | Presence rules live in the `"Submit"` ruleset by convention, and live passes run the Draft profile. | Working as designed — move the rule into the draft bucket if it should answer live. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give the rule error severity if it must block. [Advise without blocking](#i-want-to-advise-without-blocking). |
-| Submit is blocked but no field shows a message. | Every failing field is unrevealed, so the defensive gate blocks with one model-level explanation instead of a silent no-op. | Render a `FormidableSummary` (the gate's message shows there), watch `SuppressedIssueDiagnostic`, and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
+| Submit is blocked but no field shows a message. | Every failing field is unrevealed, so the defensive gate blocks with one model-level explanation instead of a silent no-op. | Render a `FormidableSummary` (the gate's message shows there), check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | The summary names a field that is not on screen. | Visibility is decided at submit and the refresh only narrows that set, so hiding a field afterwards leaves its entry until the next submit. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Submit again to re-derive the visible set; keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
 | A message lingers after the value was fixed. | After a submit, submit-profile messages are updated by the debounced refresh — 300 ms of quiet after the value commits, which under the default `UpdateOn` means after blur — and that refresh waits for any live pass still in flight. | Wait out the debounce, commit on input instead, or tune `FormidableOptions.RefreshDebounce`. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator). |

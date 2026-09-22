@@ -30,7 +30,7 @@ rule.
                     @foreach (var member in team.Members)
                     {
                         <li class="field" @key="member">
-                            <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
+                            <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
                             <FormidableFieldMessage For="() => member.Alias" />
                             <div class="actions">
                                 <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
@@ -132,7 +132,7 @@ idioms at both levels:
             <fieldset @key="team" id="@MembersId(team)" tabindex="-1">
                 <legend>Team</legend>
                 <div class="field">
-                    <label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                    <label>Name <FormidableInputText @bind-Value="team.Name" /></label>
                     <FormidableFieldMessage For="() => team.Name" />
                 </div>
 
@@ -141,7 +141,7 @@ idioms at both levels:
                     @foreach (var member in team.Members)
                     {
                         <li class="field" @key="member">
-                            <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
+                            <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
                             <FormidableFieldMessage For="() => member.Alias" />
                             <div class="actions">
                                 <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>

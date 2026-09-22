@@ -22,10 +22,12 @@ public sealed class FormidableOptions
     /// <summary>
     /// Invoked once per error issue suppressed at submit because no rendered field
     /// registration matched and no disclosure override applied — usually a missing
-    /// wrapper or <c>FormidableFieldAnchor</c>. A Trace-output warning is emitted regardless.
+    /// wrapper or <c>FormidableFieldAnchor</c>. A Trace-output warning is emitted regardless, and
+    /// so is a logged warning when the host resolved an <c>ILoggerFactory</c> — WASM's default
+    /// logging provider is the browser console, so that channel needs no wiring here to be seen.
     /// </summary>
     public Action<ValidationIssue>? SuppressedIssueDiagnostic { get; set; }
 
     /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
-    public FormidableCssOptions CssClasses { get; set; } = new();
+    public FormidableCssClasses CssClasses { get; set; } = new();
 }

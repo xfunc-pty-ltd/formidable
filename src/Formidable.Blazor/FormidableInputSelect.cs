@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -37,7 +38,9 @@ namespace Formidable.Blazor;
 /// consistency with the rest of the kit but has no effect here: a <c>&lt;select&gt;</c> commits
 /// on its <c>change</c> event only — there is no meaningful "input" event distinct from it, the
 /// way there is for a text box — so this component always binds <c>onchange</c>, the same event
-/// native <c>InputSelect</c> binds.
+/// native <c>InputSelect</c> binds. That is the string-projected
+/// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, Func{string, Task})"/>
+/// overload's own contract, not a local exception to the kit's binding policy.
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply otherwise: a
@@ -46,7 +49,8 @@ namespace Formidable.Blazor;
 /// </para>
 /// </remarks>
 /// <typeparam name="TValue">The field's value type.</typeparam>
-public sealed class FormidableInputSelect<TValue> : FormidableInputBase<TValue>
+public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
+    : FormidableInputBase<TValue>
 {
     /// <summary>The <c>&lt;option&gt;</c> elements to render inside the select.</summary>
     [Parameter]
@@ -56,16 +60,9 @@ public sealed class FormidableInputSelect<TValue> : FormidableInputBase<TValue>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "select");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", FormatValueAsString(Value));
-        builder.AddAttribute(
-            6,
-            "onchange",
-            EventCallback.Factory.CreateBinder<string?>(this, ApplyStringAsync, FormatValueAsString(Value)));
-        builder.SetUpdatesAttributeName("value");
+        AddValueBinding(builder, 6, FormatValueAsString(Value), ApplyStringAsync);
         builder.AddContent(7, ChildContent);
         builder.CloseElement();
     }

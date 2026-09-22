@@ -26,7 +26,7 @@ namespace Formidable.Blazor;
 public static class FormidableCss
 {
     /// <summary>Computes the space-joined class string for a field state.</summary>
-    public static string Compute(FieldState state, FormidableCssOptions options)
+    public static string Compute(FieldState state, FormidableCssClasses options)
     {
         var builder = new StringBuilder();
 
@@ -71,7 +71,7 @@ The three class names themselves are configurable, each with a default:
 namespace Formidable.Blazor;
 
 /// <summary>Class names applied to a field based on its current <see cref="FieldState"/>.</summary>
-public sealed class FormidableCssOptions
+public sealed class FormidableCssClasses
 {
     /// <summary>Applied when the field has error-severity issues. Defaults to <c>"formidable-invalid"</c>.</summary>
     public string Invalid { get; set; } = "formidable-invalid";
@@ -84,7 +84,7 @@ public sealed class FormidableCssOptions
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCssOptions.cs`*
+*Source: `src/Formidable.Blazor/FormidableCssClasses.cs`*
 
 `FormidableInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for
 the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
@@ -99,18 +99,19 @@ That's the entire class-name contract: rename the three strings, and the rule ab
 decides when each one applies. What follows is how to rename them, the rule a native `InputBase`
 picks up automatically, and the ids/aria/focus wiring built on top of the same field state.
 
-## Configuring `FormidableCssOptions`
+## Configuring `FormidableCssClasses`
 
-`FormidableCssOptions` is a plain settings object — a mutable class with three `string`
+`FormidableCssClasses` is a plain settings object — a mutable class with three `string`
 properties (`Invalid`, `Valid`, `Pending`, all shown with their defaults above). Construct one,
 set whichever properties you want to rename to match your own stylesheet or design system's
 naming convention, and assign it to `FormidableOptions.CssClasses`. That property lives on the
 options object every `FormidableForm<TModel>`/`FormidableValidator<TModel>` takes (see
 [Options](options.md)). Formidable doesn't care what the strings are, only when each one
 applies. The rule above is the entire contract. As with every other `FormidableOptions`
-property, `CssClasses` is read once, when the engine is built for a given `Model` instance, and
-has no effect if changed on a later render without also swapping the model. See
-[Options](options.md#need-to-know) for that rule.
+property, `CssClasses` is read once, when the engine is built for a given `Model` instance;
+handing the form a different `FormidableOptions` instance on a later render throws rather than
+quietly changing nothing. See
+[Options](options.md#formidableoptions-is-read-once) for that rule.
 
 ## The `FieldCssClassProvider` bridge
 
@@ -131,7 +132,7 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssOptions _options;
+    private readonly FormidableCssClasses _options;
     private readonly IFormValidationEngine _engine;
 
     /// <summary>
@@ -142,7 +143,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
     /// <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssOptions options, IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(FormidableCssClasses options, IFormValidationEngine engine)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(engine);
@@ -232,6 +233,8 @@ namespace Formidable.Blazor;
 /// </summary>
 public static class FormidableFieldId
 {
+    private const string MessagesSuffix = "-messages";
+
     /// <summary>The id for a field: <c>formidable-{owner-hash}-{sanitized-name}</c>; the model-level field uses <c>form</c> as its name.</summary>
     public static string For(FieldIdentifier field)
     {
@@ -255,50 +258,39 @@ without a `nameof` step to keep in sync with the property it names. There is no 
 for the model-level field itself; construct `new FieldIdentifier(model, string.Empty)` and pass
 it to the `FieldIdentifier` overload, as `FormidableForm` does internally.
 
+The message list's id is the same id with `-messages` appended, and `FormidableFieldId.MessagesFor`
+is the one place that appends it — the `aria-describedby` contract has an owner rather than a
+convention. Call it when wiring a control by hand; the kit's inputs, the message components and
+`FormidableFieldContext.AriaDescribedBy` all get their string from it.
+
 ### `aria-invalid` and `aria-describedby`
 
-`FormidableInputBase<TValue>.AriaAttributes` sets both, following the same field state the CSS
-class rule reads:
+`FormidableInputBase<TValue>.AddCommonAttributes` renders both, following the same field state the
+CSS class rule reads:
 
 ```csharp
-    protected IReadOnlyDictionary<string, object> AriaAttributes
-    {
-        get
+        if (state.HasErrors)
         {
-            var state = State;
-            var issues = Context!.Engine.GetIssues(Field);
-
-            if (!state.HasErrors && issues.Count == 0)
-            {
-                return NoAriaAttributes;
-            }
-
-            var aria = new Dictionary<string, object>();
-            if (state.HasErrors)
-            {
-                aria["aria-invalid"] = "true";
-            }
-
-            if (issues.Count > 0)
-            {
-                aria["aria-describedby"] = $"{ElementId}-messages";
-            }
-
-            return aria;
+            builder.AddAttribute(sequence + 3, "aria-invalid", "true");
         }
-    }
+
+        if (issues.Count > 0)
+        {
+            builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+        }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
 `aria-invalid="true"` only appears for error-severity issues; `aria-describedby` appears for any
 issue, warnings and infos included, since those are still rendered and still worth announcing.
-The id it points at — `"{ElementId}-messages"` — is exactly the id
-`FormidableFieldMessage`/`FormidableCollectionMessage` render on their message list:
+The id it points at — `FormidableFieldId.MessagesFor(field)`, the field's id plus `-messages` — is
+exactly the id `FormidableFieldMessage`/`FormidableCollectionMessage` render on their message
+list:
 
 ```csharp
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", $"{FormidableFieldId.For(_field)}-messages");
+        builder.AddAttribute(sequence++, "id", FormidableFieldId.MessagesFor(_field));
         builder.AddAttribute(sequence++, "class", "formidable-messages");
 ```
 
@@ -310,7 +302,7 @@ the same inputs, so a hand-rolled control driven by `FormidableField` gets the s
 
 ```csharp
         AriaInvalid = state.HasErrors;
-        AriaDescribedBy = issues.Count > 0 ? $"{elementId}-messages" : null;
+        AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
@@ -418,7 +410,7 @@ mark while a mouse click gets `scrollIntoView` alone.
 - The class rule and its interaction with the `Pending` state — every sample using
   `FormidableInputText` shows it implicitly; [Async validation](async-validation.md)'s
   pending-UI section is the most direct look at `Pending` specifically.
-- Renaming two of `FormidableCssOptions`' three class names to fit a UI library's own —
+- Renaming two of `FormidableCssClasses`' three class names to fit a UI library's own —
   [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor), which points
   `Invalid`/`Valid` at Bootstrap's `is-invalid`/`is-valid` and lets Bootstrap's own stylesheet do
   the rest; `Pending` is left at its default there.

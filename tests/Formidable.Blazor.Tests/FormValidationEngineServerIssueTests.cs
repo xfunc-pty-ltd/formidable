@@ -90,6 +90,28 @@ public class FormValidationEngineServerIssueTests
         Assert.Contains("kept", engine.EditContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
     }
 
+    // A LINQ projection off a deserialized response body is the shape a caller actually holds, so
+    // the parameter takes any sequence rather than charging a ToList() for the privilege. The
+    // count matters as much as the acceptance: the payload is walked once, so an expensive or
+    // single-pass sequence is safe to hand over.
+    [Fact]
+    public void A_lazy_sequence_is_accepted_and_walked_once()
+    {
+        var walks = 0;
+        IEnumerable<ValidationIssue> Lazy()
+        {
+            walks++;
+            yield return new ValidationIssue("Description", "Server rejected this description");
+        }
+
+        _engine.ApplyServerIssues(Lazy());
+
+        Assert.Equal(1, walks);
+        Assert.Contains(
+            "Server rejected this description",
+            _editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
+    }
+
     [Fact]
     public void Same_field_issues_replace_across_calls()
     {

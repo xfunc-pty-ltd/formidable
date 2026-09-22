@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using Formidable;
 using Formidable.AspNetCore.Tests.Fixtures;
 using Microsoft.AspNetCore.Builder;
@@ -119,5 +120,64 @@ public class EndpointFilterTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
         Assert.Contains("Required", problem!.Errors["Description"]);
+    }
+
+    [Fact]
+    public async Task Null_body_for_a_declared_nullable_parameter_returns_400_not_500()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/optional", (SampleOrder? order) => Results.Ok(order)).Validate<SampleOrder>());
+        var client = app.GetTestClient();
+
+        // A declared SampleOrder? parameter bound to the JSON literal `null` is something any
+        // anonymous client can trigger by posting exactly this body — it must not throw.
+        var response = await client.PostAsync("/optional",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("A request body is required.", problem!.Errors[string.Empty]);
+    }
+
+    [Fact]
+    public async Task Grouped_endpoint_genuinely_missing_the_argument_still_throws()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            var group = a.MapGroup("/mixed-group").Validate<SampleOrder>();
+            group.MapPost("/orders", (SampleOrder order) => Results.Ok(order));
+            group.MapGet("/health", () => Results.Ok());
+        });
+        var client = app.GetTestClient();
+
+        // /health declares no SampleOrder parameter at all -- a wiring bug, not something a
+        // client's request shape can influence, so it stays a thrown 500 even though a sibling
+        // endpoint in the very same group has the argument.
+        var response = await client.GetAsync("/mixed-group/health");
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Grouped_endpoint_with_a_derived_declared_parameter_type_still_returns_400_not_500_on_null()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            var group = a.MapGroup("/derived-group").Validate<PolymorphicSampleOrder>();
+            group.MapPost("/orders", (RushPolymorphicSampleOrder? order) => Results.Ok(order));
+        });
+        var client = app.GetTestClient();
+
+        // The handler declares a MORE DERIVED parameter type (RushPolymorphicSampleOrder) than
+        // the group's validated TModel (PolymorphicSampleOrder). HasDeclaredParameter must
+        // recognize this as the same parameter InvokeAsync's own OfType<TModel> retrieval would
+        // match -- an exact-type check would misreport it as "no parameter of this type" and
+        // throw 500 instead of the 400 a client can trigger by posting a null body.
+        var response = await client.PostAsync("/derived-group/orders",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("A request body is required.", problem!.Errors[string.Empty]);
     }
 }

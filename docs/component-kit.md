@@ -30,26 +30,80 @@ Four names make a complete form, met together in [Quickstart](quickstart.md):
 `FormidableForm` owns the `EditContext`, `FormidableInputText` renders one validated field,
 `FormidableFieldMessage` shows that field's own issues, and `FormidableSummary` lists everything
 the form currently has to say. `FormidableForm` is the one with a contract worth stating explicitly —
-it resolves what it needs from either an argument or the DI container, and refuses to guess:
+it resolves what it needs from either an argument or the DI container, and refuses to guess.
+`FormidableValidator` resolves identically, because both hosts go through the same factory:
 
 ```csharp
-                Validator
-                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
-                    ?? throw new InvalidOperationException(
-                        $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
-                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
-                Options ?? new FormidableOptions(),
+    internal static FormValidationEngine<TModel> Create<TModel>(
+        TModel model,
+        EditContext editContext,
+        IServiceProvider services,
+        IModelValidator<TModel>? validator,
+        FormidableOptions? options,
+        Func<Func<Task>, Task> renderDispatch)
+        where TModel : class =>
+        new(
+            model,
+            editContext,
+            validator ?? ResolveValidator<TModel>(services),
+            ResolveIntrospector(services),
+            options ?? ResolveOptions(services),
+            renderDispatch: renderDispatch,
+            logger: ResolveLogger(services));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+```csharp
+    private static FormidableOptions ResolveOptions(IServiceProvider services) =>
+        (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
+```
 
-An explicit `Validator` parameter wins if one is passed. Otherwise the form resolves
-`IModelValidator<TModel>` from `Services.GetService`, and if DI has nothing either it throws a
-message naming the missing type and the fix: `services.AddFormidable()` plus a registered
-validator. The model introspector follows the same two-step fallback, with its own throw.
-Neither fallback is configurable — it's the one place the kit fails loudly instead of quietly
-doing nothing, and it's worth knowing about before an exception is the first time you meet it.
+*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+
+Three things get resolved, under one rule: what you passed wins.
+
+- **The validator.** An explicit `Validator` parameter wins. Otherwise `IModelValidator<TModel>`
+  comes from the container.
+- **The introspector.** `IModelIntrospector` comes from the container or throws. There is no
+  parameter for it.
+- **The options.** An `Options` parameter wins, then an app-wide default registered through
+  [`AddFormidableBlazor(...)`](#addformidableblazor), then `new FormidableOptions()`.
+
+A fourth thing is resolved too, on a simpler rule that has no parameter to win: the engine's
+logger comes from `ILoggerFactory` when one is registered, or stays `null` otherwise — see
+[`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) for what it's for.
+
+The validator's two failures are worth reading in full, because between them they are how a first
+form fails to start:
+
+```csharp
+        return resolved ?? throw new InvalidOperationException(
+            $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call " +
+            "services.AddFormidableBlazor() and register the FluentValidation validator.");
+```
+
+```csharp
+    private static string MissingFluentValidatorMessage<TModel>()
+    {
+        var name = FriendlyTypeName.Of(typeof(TModel));
+        return $"No FluentValidation validator for '{name}' is registered, so Formidable's " +
+            $"IModelValidator<{name}> adapter cannot be constructed. Register one with " +
+            $"services.AddScoped<IValidator<{name}>, {name}Validator>(), or register a whole " +
+            "assembly's validators at once with services.AddValidatorsFromAssembly().";
+    }
+```
+
+*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+
+The first fires when nothing is registered — no `AddFormidableBlazor()` call anywhere. The second
+is the far commoner one: Formidable is registered, so the open-generic adapter exists, but the
+FluentValidation validator it wraps does not. That state makes the container throw while
+*building* the adapter rather than return null, so it gets caught and renamed; the container's own
+exception is preserved as the inner one. Both strings are Formidable's, which is what keeps them
+readable in a trimmed WebAssembly build.
+
+None of the three resolutions is configurable beyond that — it's the one place the kit fails
+loudly instead of quietly doing nothing, and it's worth knowing about before an exception is the
+first time you meet it.
 
 That's the one contract worth holding onto before the reference proper starts. What follows
 introduces the rest of the kit in the order a growing form reaches for it: `FormidableForm` in
@@ -131,30 +185,55 @@ never manages that lifecycle itself:
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        ArgumentNullException.ThrowIfNull(Model);
+        VerifyInteractiveRenderMode();
+
+        if (Model is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(FormidableForm<TModel>)} requires a Model parameter (none was supplied) — set Model " +
+                "to the object being edited, e.g. <FormidableForm Model=\"_order\">.");
+        }
 
         if (!ReferenceEquals(_boundModel, Model))
         {
             _engine?.Dispose();
             _boundModel = Model;
+            _boundOptions = Options;
             _editContext = new EditContext(Model);
-            _engine = new FormValidationEngine<TModel>(
+            _engine = FormidableEngineFactory.Create(
                 Model,
                 _editContext,
-                Validator
-                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
-                    ?? throw new InvalidOperationException(
-                        $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
-                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
-                Options ?? new FormidableOptions(),
+                Services,
+                Validator,
+                Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+        }
+        else
+        {
+            FormidableEngineFactory.VerifyOptionsUnchanged(
+                nameof(FormidableForm<TModel>),
+                _boundOptions,
+                Options,
+                "swap the Model parameter alongside Options to rebuild the engine");
         }
     }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
+
+The same method carries three guards worth knowing about. `VerifyInteractiveRenderMode()` runs
+first: a page rendered statically with no interactivity coming can render a form but can never
+submit one, so the form says that in its own words instead of letting the platform answer the
+first submit with a 400 about `FormName`. A render mode assigned to the page or component is what
+tells that dead end apart from the static prerender pass of a component that is about to become
+interactive, which is left alone. An omitted `Model` throws a message that names the component
+and the parameter, rather than the bare `ArgumentNullException` a plain null guard would
+produce. And since the engine reads `Options` once, at construction, handing the
+parameter a *different* `FormidableOptions` instance without also swapping `Model` throws as well
+— see [Engine options](options.md#formidableoptions-is-read-once) for the shape that keeps a form
+out of that state. Swapping both together is the supported path, and the one the
+`/custom-profiles` sample takes.
 
 `SubmitAsync()` is both the handler wired to the rendered `EditForm`'s `OnSubmit` and a public
 method a consumer can call directly — a toolbar "Submit" button outside the form element, a
@@ -168,7 +247,7 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var outcome = await _engine!.ValidateForSubmitAsync();
+        var outcome = await RequireEngine().ValidateForSubmitAsync();
         if (outcome.CanProceed)
         {
             await OnValidSubmit.InvokeAsync();
@@ -186,30 +265,31 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
 The engine itself is exposed as a public property: `Engine => _engine`, typed as the non-generic
-`IFormValidationEngine`. That property is exactly what the server round-trip reaches for
-(`_form!.Engine!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)),
-and what a page reads `IsValidating` or `HasSubmitted` from without going through a field.
+`IFormValidationEngine`. `FormidableForm` also forwards its two overloads directly
+(`_form!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)), and a page
+reads `IsValidating` or `HasSubmitted` off `Engine` without going through a field.
 
 ## `FormidableInputText` and `FormidableInputBase<TValue>`
 
 `FormidableInputBase<TValue>` is the base every validated input component builds on — the kit's
 own and yours. It is public for that second reason: when the kit doesn't ship the control you
 want, deriving from it is the supported way to get one (see [Deriving your own
-input](#deriving-your-own-input) below). It provides five things so a concrete input only has to
-render markup and call `AddValueBinding` once, right before closing its element, to wire whichever
+input](#deriving-your-own-input) below). It provides five things, and a concrete input reaches all
+five with two calls: `AddCommonAttributes` right after opening its element, for the attributes
+every validated input shares, and `AddValueBinding` right before closing it, for whichever
 value-commit attribute(s) `UpdateOn` calls for:
 
-**Registration.** `OnParametersSet` resolves `For` to a `FieldIdentifier` and registers it with
-the cascaded context's `FieldRegistry` — this is what makes the field's issues visible to
+**Registration.** `OnParametersSet` resolves the field to a `FieldIdentifier` and registers it
+with the cascaded context's `FieldRegistry` — this is what makes the field's issues visible to
 progressive disclosure while the component stays mounted (see
 [Disclosure](disclosure.md)):
 
 ```csharp
     /// <summary>
-    /// Resolves <see cref="For"/>, registers the field, and binds the engine subscription to the
-    /// currently-cascaded context. A derived control that overrides this must call
-    /// <c>base.OnParametersSet()</c>, or it registers nothing and never re-renders on a
-    /// validation state change.
+    /// Resolves the field from <see cref="For"/> or <see cref="ValueExpression"/>, registers it,
+    /// and binds the engine subscription to the currently-cascaded context. A derived control that
+    /// overrides this must call <c>base.OnParametersSet()</c>, or it registers nothing and never
+    /// re-renders on a validation state change.
     /// </summary>
     protected override void OnParametersSet() =>
         _binding.Update(
@@ -217,8 +297,9 @@ progressive disclosure while the component stays mounted (see
             GetType(),
             register: context =>
             {
-                Field = FieldIdentifier.Create(For);
+                Field = FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
                 ElementId = FormidableFieldId.For(Field);
+                MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
                 return context.Registry.Register(Field, KeepRegistered);
             },
             stateChanged: OnEngineStateChanged);
@@ -226,15 +307,29 @@ progressive disclosure while the component stays mounted (see
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
+Either spelling names that field. `@bind-Value="_order.Description"` fills in `ValueExpression`,
+which the Razor compiler supplies for every `@bind-Value` — the same `Value`/`ValueChanged`/
+`ValueExpression` triple native inputs take — so ordinary markup states the field once and
+`<FormidableInputText @bind-Value="_order.Description" />` is a complete input. `For` is the
+explicit spelling: pass it when the input has no `@bind-Value` at all, or to point registration,
+messages and focus at a field other than the one the value binds. `For` wins when both are
+present, and it wins silently — bind-only markup is the idiom precisely because two spellings of
+one field can disagree. With neither, the input throws on its first render, naming itself and both
+spellings.
+
 **Ids.** The same registration computes `ElementId` — the deterministic id every input, message
 list, and the focus service address the field by (see
-[CSS and accessibility](css-and-accessibility.md)).
+[CSS and accessibility](css-and-accessibility.md)) — and `MessagesElementId` beside it, the
+`aria-describedby` target `FormidableFieldId.MessagesFor` owns. Both are computed once at
+registration rather than per render, because both change only when the field does.
 
-**CSS.** `CssClass` merges any consumer-splatted `class` with the computed state class:
+**CSS.** The computed state class merges with any consumer-splatted `class` rather than
+replacing it — `CssClass` is the protected property, and one computation answers for it and
+for the shared call below:
 
 ```csharp
-    protected string CssClass =>
-        CombineClassNames(AdditionalAttributes, FormidableCss.Compute(State, Context!.Engine.Options.CssClasses));
+    private string ComputeCssClass(FieldState state) =>
+        CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
@@ -263,40 +358,49 @@ A consumer writing `class="form-control"` on a `FormidableInputText` keeps that 
 gets `formidable-invalid`/`formidable-valid`/`formidable-pending` appended — the two are merged,
 never one replacing the other.
 
-**Aria.** `AriaAttributes` supplies `aria-invalid` when the field has error-severity issues and
-`aria-describedby` (pointing at the message list's id) when it has any issues at all, an empty
-dictionary when the field is clean:
+**Aria.** `aria-invalid` appears while the field has error-severity issues, and `aria-describedby`
+— pointing at the message list's id — while it has any issues at all; a clean field renders
+neither.
+
+**Rendering them.** `AddCommonAttributes` is the first of the two calls: it renders the splat,
+the id, the class and the aria pair, and the order it renders them in is what the kit's two
+consumer-facing guarantees rest on:
 
 ```csharp
-    protected IReadOnlyDictionary<string, object> AriaAttributes
+    protected void AddCommonAttributes(RenderTreeBuilder builder, int sequence)
     {
-        get
+        var state = State;
+        var issues = Context!.Engine.GetIssues(Field);
+
+        builder.AddMultipleAttributes(sequence, AdditionalAttributes!);
+        builder.AddAttribute(sequence + 1, "id", ElementId);
+        builder.AddAttribute(sequence + 2, "class", ComputeCssClass(state));
+
+        // Both aria attributes share one sequence number: attribute frames diff by name rather than
+        // by sequence, and sharing it keeps this call's budget at four numbers for a control
+        // numbering its own attributes around it.
+        if (state.HasErrors)
         {
-            var state = State;
-            var issues = Context!.Engine.GetIssues(Field);
+            builder.AddAttribute(sequence + 3, "aria-invalid", "true");
+        }
 
-            if (!state.HasErrors && issues.Count == 0)
-            {
-                return NoAriaAttributes;
-            }
-
-            var aria = new Dictionary<string, object>();
-            if (state.HasErrors)
-            {
-                aria["aria-invalid"] = "true";
-            }
-
-            if (issues.Count > 0)
-            {
-                aria["aria-describedby"] = $"{ElementId}-messages";
-            }
-
-            return aria;
+        if (issues.Count > 0)
+        {
+            builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
         }
     }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+
+`AdditionalAttributes` enters the render tree first and the computed values after, so the computed
+values win the duplicate-attribute race (Blazor applies last-write-wins): that is what merges a
+consumer's `class` with the state class and what drops a consumer's `id` in favour of the
+deterministic one. Because the order lives in this one call, a derived control gets it by calling
+rather than by transcribing. The call consumes four sequence numbers — `sequence` through
+`sequence + 3` — so the control's own attributes start at `sequence + 4`. It also reads the field's
+state and issues once each per render, and answers both the class and the aria attributes from that
+one read.
 
 **Value binding.** `AddValueBinding` is the call a concrete input's `BuildRenderTree` makes,
 immediately before closing its element, to wire the attribute(s) that commit a value change —
@@ -310,7 +414,10 @@ re-deciding which DOM event to bind:
         {
             builder.AddAttribute(sequence, "onchange", EventCallback.Factory.CreateBinder<TValue?>(this, v => CommitValueAsync(v), Value));
             builder.SetUpdatesAttributeName("value");
-            builder.AddAttribute(sequence + 1, "onblur", EventCallback.Factory.Create(this, NotifyChanged));
+            builder.AddAttribute(
+                sequence + 1,
+                BlurAttributeName,
+                EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
             return;
         }
 
@@ -358,10 +465,7 @@ public sealed class FormidableInputText : FormidableInputBase<string?>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "input");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", Value);
         AddValueBinding(builder, 6);
         builder.CloseElement();
@@ -371,19 +475,21 @@ public sealed class FormidableInputText : FormidableInputBase<string?>
 
 *Source: `src/Formidable.Blazor/FormidableInputText.cs`*
 
-The attribute order is the point: `AdditionalAttributes` splats first, and every value the
-component computes — `id`, `class`, the aria attributes, and `AddValueBinding`'s own event
-handlers — is added after, so each wins the duplicate-attribute race (Blazor applies
-last-write-wins). That's also why a consumer-supplied `id` is silently ignored rather than
-merged: the rendered id must always be the deterministic `FormidableFieldId`, because the message
-list's `aria-describedby` target and `IFormidableFocusService` both address the field by it. The
-same race catches a splatted `@onblur`: under `UpdateOn="OnBlur"`, `AddValueBinding`'s own
-`onblur` wins the same way, so a consumer's own `@onblur` handler is silently lost rather than
-merged. If markup needs to label the input without relying on implicit wrapping, address it by
+The whole body is the element, the base's two calls, and the value between them. Those two calls
+carry the ordering — `AdditionalAttributes` splats inside `AddCommonAttributes`, and every value
+the component computes, `AddValueBinding`'s own event handlers included, is added after, so each
+wins the duplicate-attribute race (Blazor applies last-write-wins). That's also why a
+consumer-supplied `id` is silently ignored rather than merged: the rendered id must always be the
+deterministic `FormidableFieldId`, because the message list's `aria-describedby` target and
+`IFormidableFocusService` both address the field by it. The
+`onblur` that `UpdateOn="OnBlur"` adds is the one handler that chains instead of winning: a
+consumer's own `@onblur` runs first and is awaited, then the engine is notified. Wanting the
+`blur` event for validation is not a reason to take it away from the page that also wants it.
+If markup needs to label the input without relying on implicit wrapping, address it by
 the context's id instead of assuming a consumer id sticks:
 
 ```razor
-    <div class="field"><label>Name <FormidableInputText For="() => _contact.Name" @bind-Value="_contact.Name" /></label>
+    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
         <FormidableFieldMessage For="() => _contact.Name" /></div>
 ```
 
@@ -421,11 +527,8 @@ public sealed class RatingInput : FormidableInputBase<int>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "input");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "type", "range");
-        builder.AddAttribute(3, "id", ElementId);
-        builder.AddAttribute(4, "class", CssClass);
-        builder.AddMultipleAttributes(5, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
+        builder.AddAttribute(5, "type", "range");
         builder.AddAttribute(6, "value", Value);
         AddValueBinding(builder, 7);
         builder.CloseElement();
@@ -440,14 +543,17 @@ inside a `FormidableForm` and asserts what the base hands it: the field register
 disclosure, the rendered id is the deterministic `FormidableFieldId` that the summary, the message
 list and the focus service all address, the state class is appended to whatever `class` the
 consumer splatted, and `aria-invalid`/`aria-describedby` follow the field's issues. Consume it
-like any kit input — `<RatingInput For="() => _feedback.Rating" @bind-Value="_feedback.Rating"
+like any kit input — `<RatingInput @bind-Value="_feedback.Rating"
 min="0" max="5" />` — where `min` and `max` splat through `AdditionalAttributes` untouched.
 
 Three rules apply to anything derived from the base:
 
-- **Splat first, compute after.** `AdditionalAttributes` enters the render tree before `id`,
-  `class` and the aria attributes, so the computed values win the duplicate-attribute race. That
-  ordering is what merges the consumer's `class` and drops their `id`.
+- **Call `AddCommonAttributes` first, `AddValueBinding` last.** The first renders the splat, the
+  `id`, the `class` and the aria attributes in the order that merges the consumer's `class` and
+  drops their `id`; the last renders the value-commit handler `UpdateOn` asks for. Everything the
+  control adds of its own — `type="range"` above — sits between them, after the splat, so it wins
+  the duplicate-attribute race too. Writing those four frames by hand instead is what a control
+  does when it needs them somewhere the call cannot put them, and it takes the ordering on itself.
 - **Call the base when you override `OnParametersSet`.** That is where the field resolves, registers
   and binds its engine subscription, and an override that skips `base` skips all three. Disposal is
   not yours to remember: `Dispose` is non-virtual and always releases the registration and the
@@ -474,16 +580,9 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "select");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", FormatValueAsString(Value));
-        builder.AddAttribute(
-            6,
-            "onchange",
-            EventCallback.Factory.CreateBinder<string?>(this, ApplyStringAsync, FormatValueAsString(Value)));
-        builder.SetUpdatesAttributeName("value");
+        AddValueBinding(builder, 6, FormatValueAsString(Value), ApplyStringAsync);
         builder.AddContent(7, ChildContent);
         builder.CloseElement();
     }
@@ -491,11 +590,17 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
 
 *Source: `src/Formidable.Blazor/FormidableInputSelect.cs`*
 
-A `<select>` commits on its `change` event only — there is no meaningful `input` event distinct
-from it, the way there is for a text box, and no per-segment `change` the way there is for a date
-input — so this component always binds `onchange` regardless of which of `UpdateOn`'s three modes
-is set. The parameter is still inherited (every `FormidableInputBase<TValue>` descendant has it),
-so generic code that sets it on every kit input doesn't break; it simply has no effect here.
+That is the same `AddValueBinding` the text box calls, in its string-projected overload: the
+control hands over the formatted value it just rendered and the parse-and-commit step to run when
+one comes back, and the base owns the rest — which event to bind, and the
+`SetUpdatesAttributeName("value")` that keeps the rendered `value` frame in step with the browser.
+A binder concern that reaches one kit input therefore reaches them all.
+
+The overload is fixed to `change` and ignores `UpdateOn`, which is exactly what a `<select>`
+wants: there is no meaningful `input` event distinct from `change`, the way there is for a text
+box, and no per-segment `change` the way there is for a date input. The parameter is still
+inherited (every `FormidableInputBase<TValue>` descendant has it), so generic code that sets it on
+every kit input doesn't break; it simply has no effect here.
 
 Conversion mirrors native closely — the same
 `BindConverter.TryConvertTo<TValue>` native's own `InputSelect` calls internally, with the same
@@ -590,10 +695,7 @@ public sealed class FormidableInputTextArea : FormidableInputBase<string?>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "textarea");
-        builder.AddMultipleAttributes(1, AdditionalAttributes!);
-        builder.AddAttribute(2, "id", ElementId);
-        builder.AddAttribute(3, "class", CssClass);
-        builder.AddMultipleAttributes(4, AriaAttributes!);
+        AddCommonAttributes(builder, 1);
         builder.AddAttribute(5, "value", Value);
         AddValueBinding(builder, 6);
         builder.CloseElement();
@@ -780,7 +882,7 @@ public sealed class FormidableFieldContext
         CssClass = cssClass;
         Issues = issues;
         AriaInvalid = state.HasErrors;
-        AriaDescribedBy = issues.Count > 0 ? $"{elementId}-messages" : null;
+        AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
     }
 
     /// <summary>The field this context describes.</summary>
@@ -803,7 +905,9 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// The id of the element holding the field's messages, or null when it has none — bind to
-    /// the input's <c>aria-describedby</c>. Equal to <c>"{ElementId}-messages"</c>.
+    /// the input's <c>aria-describedby</c>. It is
+    /// <see cref="FormidableFieldId.MessagesFor(Microsoft.AspNetCore.Components.Forms.FieldIdentifier)"/>
+    /// for <see cref="Field"/>, the same id the field's message list renders on itself.
     /// </summary>
     public string? AriaDescribedBy { get; }
 
@@ -855,7 +959,8 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
         _binding.Update(
             Context,
             GetType(),
-            register: context => context.Registry.Register(FieldIdentifier.Create(For), KeepRegistered));
+            register: context => context.Registry.Register(
+                FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
 
     /// <inheritdoc />
     public void Dispose() => _binding.Dispose();
@@ -960,11 +1065,6 @@ The one-call registration for a Blazor client — everything `AddFormidable()` r
 mirrors) plus the focus service:
 
 ```csharp
-namespace Formidable.Blazor;
-
-/// <summary>Dependency-injection registration for Formidable's Blazor integration.</summary>
-public static class FormidableBlazorServiceCollectionExtensions
-{
     /// <summary>
     /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
     /// plus <see cref="IFormidableFocusService"/>. The one-call registration for Blazor consumers.
@@ -977,7 +1077,6 @@ public static class FormidableBlazorServiceCollectionExtensions
         services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
         return services;
     }
-}
 ```
 
 *Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs`*
@@ -985,6 +1084,44 @@ public static class FormidableBlazorServiceCollectionExtensions
 `TryAddScoped` means a consumer that has already registered its own `IFormidableFocusService` (a
 custom focus/scroll behavior) keeps it — `AddFormidableBlazor()` never overwrites an existing
 registration.
+
+An overload takes an `Action<FormidableOptions>` and registers the configured instance as the
+app-wide default, which every form that omits its own `Options` parameter then uses:
+
+```csharp
+    /// <summary>
+    /// Registers everything <see cref="AddFormidableBlazor(IServiceCollection)"/> does, plus a
+    /// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
+    /// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
+    /// design system's class names or a team's debounce are stated once for the whole app instead
+    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed.
+    /// Existing registrations are respected.
+    /// </summary>
+    /// <remarks>
+    /// The configured instance is a singleton the whole app shares, and the engine re-reads its
+    /// properties on every pass — so mutating it at runtime changes behaviour in every live form,
+    /// not just the one being looked at.
+    /// </remarks>
+    public static IServiceCollection AddFormidableBlazor(
+        this IServiceCollection services, Action<FormidableOptions> configureDefaults)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configureDefaults);
+        services.AddFormidableBlazor();
+
+        var defaults = new FormidableOptions();
+        configureDefaults(defaults);
+        services.TryAddSingleton(defaults);
+        return services;
+    }
+```
+
+*Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs`*
+
+That is the second step of the three-step options order stated in [Need to
+know](#need-to-know): parameter, then this, then `new FormidableOptions()`. A design system's
+class names belong here rather than on every page — see [Engine
+options](options.md#app-wide-defaults).
 
 ## Virtualize and `KeepRegistered`
 
@@ -1004,7 +1141,7 @@ render window is both kept disclosed and reachable by a summary click:
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
             <div class="field" @key="gadget">
                 <label>Serial
-                    <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
+                    <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FormidableFieldMessage For="() => gadget.Serial" />
             </div>
@@ -1073,14 +1210,14 @@ form:
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@($"{NicknameId}-messages")" /></label>
-        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
+                       aria-describedby="@NicknameMessagesId" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
 
     <div class="field">
         <label>Colour (Formidable input)
-            <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+            <FormidableInputText @bind-Value="_order.Colour" /></label>
         <FormidableFieldMessage For="() => _order.Colour" />
     </div>
 

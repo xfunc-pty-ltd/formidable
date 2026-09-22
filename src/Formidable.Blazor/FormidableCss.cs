@@ -6,7 +6,7 @@ namespace Formidable.Blazor;
 public static class FormidableCss
 {
     /// <summary>Computes the space-joined class string for a field state.</summary>
-    public static string Compute(FieldState state, FormidableCssOptions options)
+    public static string Compute(FieldState state, FormidableCssClasses options)
     {
         var builder = new StringBuilder();
 

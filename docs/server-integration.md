@@ -191,11 +191,26 @@ public static class FormidableEndpointFilterExtensions
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
+    /// <remarks>
+    /// Always fails closed, with no silent-skip mode to opt out of: a handler with no
+    /// <typeparamref name="TModel"/> parameter at all throws
+    /// <see cref="InvalidOperationException"/> the first time the endpoint runs (a wiring bug);
+    /// a declared <typeparamref name="TModel"/> parameter bound to <see langword="null"/> — e.g.
+    /// a nullable body parameter posted the JSON literal <c>null</c> — returns the standard 400
+    /// validation shape with a model-level "A request body is required." error instead, since a
+    /// client can trigger that on every request. When the handler declares more than one
+    /// parameter of type <typeparamref name="TModel"/>, only the first one is validated.
+    /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
         where TModel : class
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return builder.AddEndpointFilter(new ValidationEndpointFilter<TModel>(profile ?? ValidationProfile.Submit));
+        var resolvedProfile = profile ?? ValidationProfile.Submit;
+        return builder.AddEndpointFilterFactory((factoryContext, next) =>
+        {
+            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile, HasDeclaredParameter<TModel>(factoryContext.MethodInfo));
+            return invocationContext => filter.InvokeAsync(invocationContext, next);
+        });
     }
 
     /// <summary>
@@ -209,42 +224,89 @@ public static class FormidableEndpointFilterExtensions
     /// <param name="builder">The route group to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
     /// <remarks>
-    /// Every endpoint in the group must bind an argument assignable to <typeparamref name="TModel"/> —
-    /// endpoints without one throw at request time.
+    /// Every endpoint in the group must bind a <typeparamref name="TModel"/>-typed parameter —
+    /// checked per endpoint, so one endpoint in the group missing it doesn't affect the rest.
+    /// Endpoints without one throw <see cref="InvalidOperationException"/> at request time (a
+    /// wiring bug); an endpoint that HAS the parameter but received <see langword="null"/> for
+    /// it gets the standard 400 validation shape instead, per the single-handler overload above.
+    /// When an endpoint declares more than one parameter of type <typeparamref name="TModel"/>,
+    /// only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
         where TModel : class
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return builder.AddEndpointFilter(new ValidationEndpointFilter<TModel>(profile ?? ValidationProfile.Submit));
+        var resolvedProfile = profile ?? ValidationProfile.Submit;
+        return builder.AddEndpointFilterFactory((factoryContext, next) =>
+        {
+            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile, HasDeclaredParameter<TModel>(factoryContext.MethodInfo));
+            return invocationContext => filter.InvokeAsync(invocationContext, next);
+        });
     }
+
+    // Checked once per endpoint at filter-build time (EndpointFilterFactoryContext.MethodInfo is
+    // the endpoint's own handler, even for a filter attached at the group level) rather than at
+    // every request, so ValidationEndpointFilter<TModel> can tell "no argument of this type was
+    // ever declared" (throw — a wiring bug) apart from "the declared argument was bound null"
+    // (400 — a client can trigger this on every request) without re-reflecting per request.
+    // Assignability, not exact-type equality: a handler may declare a MORE DERIVED parameter
+    // type than TModel, and InvokeAsync's own retrieval (context.Arguments.OfType<TModel>())
+    // already treats that as a match — an exact-type check here would disagree and misreport a
+    // declared-but-null derived parameter as "no parameter of this type at all".
+    private static bool HasDeclaredParameter<TModel>(MethodInfo methodInfo) =>
+        methodInfo.GetParameters().Any(p => typeof(TModel).IsAssignableFrom(p.ParameterType));
 }
 ```
 
 *Source: `src/Formidable.AspNetCore/FormidableEndpointFilterExtensions.cs`*
 
 Both overloads default to `ValidationProfile.Submit` and install the same filter — the group
-overload just attaches it to every endpoint the group defines. That's also its one caveat: since
-the filter looks for a `TModel` argument on whichever endpoint actually runs, an endpoint added to
-a validated group without one has nothing for the filter to validate.
+overload just attaches it to every endpoint the group defines, checking each one's own handler
+for a `TModel` parameter at filter-build time rather than sharing one answer across the whole
+group. That answer decides which of two very different outcomes a null model gets:
 
 ```csharp
 namespace Formidable.AspNetCore;
 
-/// <summary>Runs normalize + profile validation for one endpoint argument type.</summary>
+/// <summary>
+/// Runs normalize + profile validation for one endpoint argument type. Always fails closed: a
+/// declared parameter bound to null 400s, a genuinely absent parameter or an unresolvable
+/// <see cref="IModelValidator{TModel}"/> throws.
+/// </summary>
 internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
     where TModel : class
 {
     private readonly ValidationProfile _profile;
+    private readonly bool _hasDeclaredParameter;
 
-    public ValidationEndpointFilter(ValidationProfile profile) => _profile = profile;
+    public ValidationEndpointFilter(ValidationProfile profile, bool hasDeclaredParameter)
+    {
+        _profile = profile;
+        _hasDeclaredParameter = hasDeclaredParameter;
+    }
 
     public async ValueTask<object?> InvokeAsync(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var model = context.Arguments.OfType<TModel>().FirstOrDefault()
-            ?? throw new InvalidOperationException(
-                $"Validate<{FriendlyTypeName.Of(typeof(TModel))}>() found no endpoint argument of that type — there is nothing to validate.");
+        var model = context.Arguments.OfType<TModel>().FirstOrDefault();
+        if (model is null)
+        {
+            if (!_hasDeclaredParameter)
+            {
+                // No parameter of this type exists on the endpoint at all — a wiring bug (e.g. a
+                // group-validated endpoint that never declared the argument), not something a
+                // client can trigger by shaping a request.
+                throw new InvalidOperationException(
+                    $"Validate<{FriendlyTypeName.Of(typeof(TModel))}>() found no endpoint argument of that type — there is nothing to validate.");
+            }
+
+            // A parameter of this type IS declared on the handler but bound to null — e.g. a
+            // nullable body parameter posted the JSON literal `null`. Any anonymous client can
+            // trigger this on every request, so it gets the standard 400 validation shape
+            // instead of an exception.
+            var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
+            return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
+        }
 
         (model as INormalizableModel)?.Normalize();
 
@@ -268,11 +330,20 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 
 *Source: `src/Formidable.AspNetCore/ValidationEndpointFilter.cs`*
 
-That throw is exactly the caveat above made concrete — a group-validated endpoint with no
-`TModel`-typed argument fails every request with an `InvalidOperationException`, not a silent
-skip. `report.IsValid` is `true` whenever the report has no error-severity issues; warnings and
-infos don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls
-straight through to `next(context)` and the handler's own return value, unmodified.
+Two different reasons produce the same `model is null`, and they get two different responses. A
+group-validated endpoint with no `TModel`-typed argument at all is a wiring bug, not something a
+request can influence, so it still fails every request with an `InvalidOperationException` rather
+than a silent skip. A declared `TModel` argument bound to `null` (a nullable body parameter posted
+the JSON literal `null`) is something any anonymous client can trigger on every request, so that
+gets the standard 400 validation shape instead: a model-level `"A request body is required."`
+error, using the same `ValidationReportProblemMapper.ToErrorDictionary` mapping every other
+rejection in this document uses, not a one-off shape. Neither filter has a discovery mode to
+silently skip a resolvable-but-unregistered validator either:
+`GetRequiredService<IModelValidator<TModel>>()` throws on its own if `AddFormidable()` was never
+called, so there is no equivalent to `[Validate]`'s `RequireValidator` needed here (see below).
+`report.IsValid` is `true` whenever the report has no error-severity issues; warnings and infos
+don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls straight
+through to `next(context)` and the handler's own return value, unmodified.
 
 ## MVC
 
@@ -333,23 +404,28 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
     public override async Task OnActionExecutionAsync(
         ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        var profile = ResolveProfile(Profile);
+        var profile = ValidationProfile.FromName(Profile);
         var services = context.HttpContext.RequestServices;
         var issues = new List<ValidationIssue>();
+        var validatedAny = false;
+        var boundAnyArgument = false;
 
-        foreach (var argument in context.ActionArguments.Values)
+        foreach (var (name, argument) in context.ActionArguments)
         {
             if (argument is null)
             {
                 continue;
             }
 
-            var argumentType = argument.GetType();
-            if (!ShouldValidate(argumentType, services))
+            boundAnyArgument = true;
+
+            var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
+            if (argumentType is null)
             {
                 continue;
             }
 
+            validatedAny = true;
             (argument as INormalizableModel)?.Normalize();
 
             object validator;
@@ -369,6 +445,11 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
             var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
             issues.AddRange(report.Issues);
+        }
+
+        if (RequireValidator && boundAnyArgument && !validatedAny)
+        {
+            throw new InvalidOperationException(BuildRequireValidatorMessage(context));
         }
 
         var aggregate = new ValidationReport(issues);
@@ -402,35 +483,90 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
 *Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
 
-`null` arguments and arguments `ShouldValidate` doesn't select are skipped entirely — neither
-normalized nor validated — before the aggregate's `IsValid` gate runs once, after the loop.
-
-### Profile string mapping
-
-`[Validate]`'s `Profile` property is a string (`"Submit"` by default), resolved once per request
-against the same two conventional profiles the client uses (see [Profiles](profiles.md)):
+`null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
+`IsValid` gate runs once, after the loop; a `null` argument does not count toward
+`RequireValidator`'s "did this action bind anything at all" check below. Every non-null argument's
+type is resolved by `ResolveValidatedType`:
 
 ```csharp
-    private static ValidationProfile ResolveProfile(string name)
+    private Type? ResolveValidatedType(ActionDescriptor actionDescriptor, string parameterName, object argument, IServiceProvider services)
     {
-        // Match the two built-in profile names case-insensitively so "draft"/"DRAFT" resolve to
-        // the canonical singletons instead of silently becoming a custom profile that requests a
-        // nonexistent same-cased ruleset. Custom profile names are passed through unchanged.
-        if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
+        var declaredType = DeclaredParameterType(actionDescriptor, parameterName) ?? argument.GetType();
+        if (ShouldValidate(declaredType, services))
         {
-            return ValidationProfile.Draft;
+            return declaredType;
         }
 
-        if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
-        {
-            return ValidationProfile.Submit;
-        }
-
-        return ValidationProfile.Named(name, includeDefaultRules: true, name);
+        var runtimeType = argument.GetType();
+        return runtimeType != declaredType && ShouldValidate(runtimeType, services) ? runtimeType : null;
     }
 ```
 
 *Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
+
+`declaredType` there is the action parameter's DECLARED type (looked up on
+`context.ActionDescriptor.Parameters` by argument name), not the argument's own runtime type, and
+it is tried FIRST: when it has a registered validator, it wins outright. This matters under
+polymorphic model binding: `[FromBody] Order order` paired with a
+`[JsonPolymorphic]`/`[JsonDerivedType]` hierarchy can bind a *derived* instance to `order` while
+the parameter itself stays declared as the base `Order`. Resolving by that derived runtime type
+FIRST would let a hostile `$type` pick an unregistered derived type and skip validation entirely,
+even though the base type it's declared as has a validator — the declared type winning outright
+closes that hole. Only when the declared type resolves no validator does resolution fall back to
+probing the argument's own runtime type, so a validator registered only for a derived type still
+runs; when the action descriptor carries no matching declared parameter at all (e.g. a hand-built
+`ActionDescriptor` outside MVC's own pipeline), the runtime type is used directly, with no
+declared type to prefer. The one residual this order leaves: a derived-only validator
+registration, or an unregistered `$type`, combined with no validator for the declared type either,
+still skips the argument silently — see Strict validator resolution below for the way to turn that
+into a thrown misconfiguration instead. The minimal-API side gives derived instances the same
+base-type guarantee for a different reason: `ValidationEndpointFilter<TModel>`'s `OfType<TModel>`
+above treats `TModel` as fixed at the call site rather than probed from the argument, so there's
+no runtime type to steer in the first place.
+
+### Strict validator resolution
+
+`RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException`,
+naming the argument type(s) it considered and how to register a validator for them, when the
+action bound at least one non-null argument but validated none of them. Off by default: an action
+mixing validatable models with ordinary parameters (route values, query strings, injected
+services) legitimately validates nothing on a request with no model argument, and that is not a
+misconfiguration worth failing loudly over. A request that binds nothing at all — a null or empty
+body for a nullable parameter — is likewise not a misconfiguration, since any anonymous client can
+trigger it, so `RequireValidator` stays silent for that case too: it only fires when something was
+actually bound and none of it validated. Turn it on once every argument on an action *should*
+carry a validator, so a lost registration — a refactor that silently drops
+`AddValidatorsFromAssembly()`, or an explicit constructor type (`[Validate(typeof(Order))]`) that
+no longer matches any parameter — announces itself as a 500 instead of quietly validating
+nothing. It is also the recommended setting for any endpoint that accepts polymorphic model
+binding, turning the declared-type/runtime-type resolution's residual (above) into a thrown
+misconfiguration rather than a silent skip.
+
+### Profile string mapping
+
+`[Validate]`'s `Profile` property is a string (`"Submit"` by default), resolved once per request
+against the same two conventional profiles the client uses (see [Profiles](profiles.md)) through
+`ValidationProfile.FromName` — the one caller-facing entry point for a profile carried as a
+string, shared by any other string-typed configuration surface too:
+
+```csharp
+    public static ValidationProfile FromName(string name)
+    {
+        if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
+        {
+            return Draft;
+        }
+
+        if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
+        {
+            return Submit;
+        }
+
+        return Named(name, includeDefaultRules: true, name);
+    }
+```
+
+*Source: `src/Formidable/ValidationProfile.cs`*
 
 `"Draft"` and `"Submit"` match case-insensitively; any other string becomes a custom profile
 shaped the same way `Submit` itself is built — default rules plus one ruleset with the same name.
@@ -501,8 +637,11 @@ wire-deserialized one.
     /// <paramref name="issues"/> are applied; other severities are ignored. Applied issues also
     /// persist until the next debounced refresh replaces the submit-visible state from the client
     /// validator's report; a server-only issue with no matching client rule clears on that refresh.
-    /// Call from the renderer's synchronization context (a Blazor event handler or
-    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
+    /// Because the payload is treated as a submit result, applying one also sets
+    /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
+    /// submitted state through this call alone. Call from the renderer's synchronization context (a
+    /// Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and triggers
+    /// renders. <paramref name="issues"/> is enumerated exactly once.
     /// </summary>
     /// <remarks>
     /// Replace is value-equality-based: if a client-sourced issue on a field is value-identical
@@ -510,7 +649,7 @@ wire-deserialized one.
     /// of the two equal entries — the two are indistinguishable, so which one is removed is
     /// unspecified.
     /// </remarks>
-    void ApplyServerIssues(IReadOnlyList<ValidationIssue> issues);
+    void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
 *Source: `src/Formidable.Blazor/IFormValidationEngine.cs`*
@@ -548,7 +687,7 @@ end — press Send and the server's 400 lands on the exact fields:
         // Each call replaces the previous server verdict — pressing Send again with new
         // input swaps the old server errors for the new ones, rather than accumulating
         // them, so a corrected resubmission cannot leave stale errors behind.
-        _form!.Engine!.ApplyServerIssues(issues);
+        _form!.ApplyServerIssues(issues);
         _serverAdvisories.AddRange(issues
             .Where(i => i.Severity != ValidationSeverity.Error)
             .Select(i => i.Message));

@@ -1,4 +1,3 @@
-using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -9,16 +8,20 @@ namespace Formidable.Blazor;
 /// The primary Formidable root component. Owns the <see cref="EditContext"/> — swapping the
 /// <see cref="Model"/> parameter (e.g. a draft load) rebuilds the context and engine, so
 /// consumers never manage EditContext lifecycles. Submit runs the engine pipeline and routes
-/// to <see cref="OnValidSubmit"/> / <see cref="OnInvalidSubmit"/>.
+/// to <see cref="OnValidSubmit"/> / <see cref="OnInvalidSubmit"/>. The form needs an interactive
+/// render mode: on a page rendered statically with no interactivity coming, it throws rather than
+/// render a form whose submit cannot run.
 /// </summary>
 /// <typeparam name="TModel">The form model type.</typeparam>
 public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     where TModel : class
 {
     private TModel? _boundModel;
+    private FormidableOptions? _boundOptions;
     private EditContext? _editContext;
     private FormValidationEngine<TModel>? _engine;
     private FormidableFormContext? _context;
+    private bool _renderModeChecked;
 
     /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
     [Parameter, EditorRequired]
@@ -63,25 +66,37 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        ArgumentNullException.ThrowIfNull(Model);
+        VerifyInteractiveRenderMode();
+
+        if (Model is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(FormidableForm<TModel>)} requires a Model parameter (none was supplied) — set Model " +
+                "to the object being edited, e.g. <FormidableForm Model=\"_order\">.");
+        }
 
         if (!ReferenceEquals(_boundModel, Model))
         {
             _engine?.Dispose();
             _boundModel = Model;
+            _boundOptions = Options;
             _editContext = new EditContext(Model);
-            _engine = new FormValidationEngine<TModel>(
+            _engine = FormidableEngineFactory.Create(
                 Model,
                 _editContext,
-                Validator
-                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
-                    ?? throw new InvalidOperationException(
-                        $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
-                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
-                Options ?? new FormidableOptions(),
+                Services,
+                Validator,
+                Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+        }
+        else
+        {
+            FormidableEngineFactory.VerifyOptionsUnchanged(
+                nameof(FormidableForm<TModel>),
+                _boundOptions,
+                Options,
+                "swap the Model parameter alongside Options to rebuild the engine");
         }
     }
 
@@ -91,7 +106,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var outcome = await _engine!.ValidateForSubmitAsync();
+        var outcome = await RequireEngine().ValidateForSubmitAsync();
         if (outcome.CanProceed)
         {
             await OnValidSubmit.InvokeAsync();
@@ -103,6 +118,95 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
         StateHasChanged();
         return outcome;
+    }
+
+    /// <summary>
+    /// Applies a server response's issues to this form's engine, forwarding
+    /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
+    /// contract whole: the payload is the server's current verdict and replaces what the previous
+    /// call applied, only error-severity issues reach fields, and applying any also sets
+    /// <see cref="IFormValidationEngine.HasSubmitted"/>, since the payload is treated as a submit
+    /// result. A page holding the form with <c>@ref</c> has everything the round trip needs here,
+    /// without reaching through <see cref="Engine"/> for it. Call from the renderer's
+    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
+    /// validation state and triggers renders.
+    /// </summary>
+    /// <param name="issues">The server's current verdict. Enumerated exactly once.</param>
+    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) =>
+        RequireEngine().ApplyServerIssues(issues);
+
+    /// <summary>
+    /// Applies a deserialized validation ProblemDetails body — the shape an HTTP 400 from
+    /// Formidable.AspNetCore arrives in — by flattening it with
+    /// <see cref="FormidableValidationProblem.ToIssues"/>. Equivalent to the sequence overload in
+    /// every respect, including the <see cref="IFormValidationEngine.HasSubmitted"/> side effect;
+    /// this is the whole client half of the round trip in one call.
+    /// </summary>
+    /// <param name="problem">The deserialized response body.</param>
+    public void ApplyServerIssues(FormidableValidationProblem problem)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        RequireEngine().ApplyServerIssues(problem.ToIssues());
+    }
+
+    /// <summary>
+    /// The engine, or the reason there is not one yet. It is built on the form's first parameter
+    /// set, so every entry point that runs the pipeline has to answer for a call that beats the
+    /// first render rather than let it surface from inside the component as a null reference.
+    /// </summary>
+    private FormValidationEngine<TModel> RequireEngine() =>
+        _engine ?? throw new InvalidOperationException(
+            $"{nameof(FormidableForm<TModel>)} has no engine yet — one is built when the form first " +
+            "renders, and this call arrived before that. Capture the form with @ref and call it from " +
+            "an event handler (OnValidSubmit, a button's onclick) rather than from a lifecycle " +
+            "method that runs ahead of the first render.");
+
+    /// <summary>
+    /// Refuses to render on a page that is statically rendered with no interactivity coming. Such a
+    /// page renders the form perfectly and then answers its first submit with the platform's own
+    /// "the POST request does not specify which form is being submitted" 400 — whose advice, pass a
+    /// FormName to EditForm, is not something any FormidableForm parameter can carry.
+    /// </summary>
+    private void VerifyInteractiveRenderMode()
+    {
+        if (_renderModeChecked)
+        {
+            return;
+        }
+
+        _renderModeChecked = true;
+
+        // An assigned render mode means interactivity is coming, including on the static PRERENDER
+        // pass of an interactive component — which reports exactly the same non-interactive
+        // renderer as the dead end below. That is why neither signal decides this alone.
+        if (AssignedRenderMode is null && RendererDeclaresItselfStatic())
+        {
+            throw new InvalidOperationException(
+                $"{nameof(FormidableForm<TModel>)} requires an interactive render mode: this page is " +
+                "rendered statically and no interactivity is coming, so submitting the form would post " +
+                "back to the server instead of running the validation pipeline. Add a render mode to " +
+                "the page or component — @rendermode InteractiveServer or @rendermode " +
+                "InteractiveWebAssembly — or host the form in a standalone WebAssembly app, where " +
+                "every page is interactive already.");
+        }
+    }
+
+    /// <summary>
+    /// True only when the renderer says outright that it is not interactive. A renderer that
+    /// declines to describe itself has said nothing, and nothing is not proof of a dead end: bUnit's
+    /// test renderer throws from <c>RendererInfo</c> unless a test declares one, and rendering a
+    /// form in a component test must not depend on having declared it.
+    /// </summary>
+    private bool RendererDeclaresItselfStatic()
+    {
+        try
+        {
+            return !RendererInfo.IsInteractive;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />

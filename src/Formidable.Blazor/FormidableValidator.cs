@@ -1,4 +1,3 @@
-using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -15,6 +14,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     where TModel : class
 {
     private FormValidationEngine<TModel>? _engine;
+    private FormidableOptions? _boundOptions;
     private FormidableFormContext? _context;
 
     [CascadingParameter]
@@ -61,17 +61,23 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         // change on a render where nothing about the underlying engine actually did.
         if (_engine is null)
         {
-            _engine = new FormValidationEngine<TModel>(
+            _boundOptions = Options;
+            _engine = FormidableEngineFactory.Create(
                 model,
                 CascadedEditContext,
-                Validator
-                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
-                    ?? throw new InvalidOperationException($"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
-                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
-                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
-                Options ?? new FormidableOptions(),
+                Services,
+                Validator,
+                Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+        }
+        else
+        {
+            FormidableEngineFactory.VerifyOptionsUnchanged(
+                nameof(FormidableValidator<TModel>),
+                _boundOptions,
+                Options,
+                "swap the EditForm's model alongside Options, so a new EditContext rebuilds the engine");
         }
     }
 

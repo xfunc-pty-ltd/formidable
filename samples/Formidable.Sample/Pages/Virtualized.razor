@@ -30,7 +30,7 @@
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
             <div class="field" @key="gadget">
                 <label>Serial
-                    <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
+                    <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FormidableFieldMessage For="() => gadget.Serial" />
             </div>

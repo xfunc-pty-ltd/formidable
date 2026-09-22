@@ -129,11 +129,11 @@ So a model that's all warnings and infos, with no errors, submits successfully:
 <FormidableForm @ref="_form" Model="_listing">
     <FormidableSummary />
 
-    <div class="field"><label>Title <FormidableInputText For="() => _listing.Title" @bind-Value="_listing.Title" /></label>
+    <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" /></label>
         <FormidableFieldMessage For="() => _listing.Title" /></div>
-    <div class="field"><label>Description <FormidableInputText For="() => _listing.Description" @bind-Value="_listing.Description" /></label>
+    <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" /></label>
         <FormidableFieldMessage For="() => _listing.Description" /></div>
-    <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
+    <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" /></label>
         <FormidableFieldMessage For="() => _listing.Tags" /></div>
 
     <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>

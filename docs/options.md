@@ -30,16 +30,17 @@ which `FormidableForm` always sets itself, so the all-suppressed defensive gate'
 has an element to focus without this page (or any other) wiring it up (see
 [CSS and accessibility](css-and-accessibility.md)).
 
-Here's the one gotcha worth knowing before anything else: `FormidableForm<TModel>` builds its
+Here's the one rule worth knowing before anything else: `FormidableForm<TModel>` builds its
 engine once per `Model` instance and passes `Options` straight into the engine's constructor at
-that point. The engine never re-reads the `Options` *parameter* on a later render, so handing
-the form a whole new `FormidableOptions` instance without also swapping `Model` has no effect.
+that point. The engine never re-reads the `Options` *parameter* on a later render, so handing the
+form a whole new `FormidableOptions` instance without also swapping `Model` throws — the form
+will not accept an instance it has no way to honour.
 The engine does keep re-reading that instance's *properties* on every pass, though: mutating
 `LiveProfile`, `RefreshDebounce`, `DisclosureOverride`, or any other property on the same object
 takes effect starting with the next validation pass. See
 [Recipes](recipes.md#i-want-profiles-of-my-own) for a worked case. Building the
 `FormidableOptions` once, up front, and leaving it alone for the life of the rendered form — as
-the sample further below does — is still the simplest habit to default to.
+the sample further below does — is what the rule asks for.
 
 That's the contract. What follows is every property, what it defaults to, and where the sample
 demonstrates it.
@@ -75,11 +76,14 @@ field registry (whether a rendered field claimed that path). Model-level issues 
 submit suppresses because no rendered field registration matches it and `DisclosureOverride`
 didn't force it visible. A `Trace`-output warning is written for every suppression regardless of
 whether this callback is set — the callback is for surfacing suppressions in your own UI or
-telemetry, not the only place they get recorded.
+telemetry, not the only place they get recorded. When the host resolved an `ILoggerFactory`
+(both Blazor components do so automatically when one is registered), the same suppression also
+logs a `LogWarning` — WASM's default logging provider is the browser console, so this is the
+channel that needs no consumer wiring at all to be seen.
 
 ### `CssClasses`
 
-`FormidableCssOptions`, defaults to a new instance. Class names field components and native
+`FormidableCssClasses`, defaults to a new instance. Class names field components and native
 `InputBase` descendants apply based on field state:
 
 | Property | Applied when | Default |
@@ -110,19 +114,37 @@ so the live pass a notification starts waits for the value to actually settle in
 on a value still being typed.
 
 ```razor
-<FormidableInputText type="date" For="() => Model.EventDate" @bind-Value="Model.EventDate"
+<FormidableInputText type="date" @bind-Value="Model.EventDate"
                       UpdateOn="InputUpdateMode.OnBlur" />
 ```
+
+`OnBlur` is the one mode that binds an event a page may already want for itself, so it chains
+rather than claims: an input carrying its own splatted `@onblur` runs that handler first, awaits
+it, and notifies the engine afterwards. A field that marks itself touched on blur keeps doing so
+after the mode is switched on.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
 full behaviour table across all three modes and both rule buckets.
 **Sample:** [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — both date fields.
 
-## `FormidableOptions`, built once
+## `FormidableOptions` is read once
 
-Since a new `Options` instance only takes effect together with a new `Model` instance, the
-simplest habit is building `FormidableOptions` once, up front, and never reassigning it — exactly
-what the sample below does:
+A new `Options` instance takes effect only together with a new `Model` instance, and the form
+enforces that rather than leaving it to habit: hand the `Options` parameter a different
+`FormidableOptions` reference on a render where `Model` did not also change, and
+`FormidableForm<TModel>` throws an `InvalidOperationException` naming the three ways out —
+build the options once, mutate the instance you already have, or swap `Model` alongside them.
+`FormidableValidator<TModel>` enforces the same rule against its own rebuild trigger, a new
+`EditContext` from the enclosing `EditForm`.
+
+Two shapes therefore never work. Passing `Options="new FormidableOptions { … }"` inline hands the
+form a fresh instance on every render. Reassigning an options field to change a setting at
+runtime hands it a different one on the next render. Neither can reach an engine that already
+read its options, so both are errors on the render that introduces them rather than settings that
+quietly do nothing.
+
+Build the `FormidableOptions` once, up front, and hold it in a field for the life of the form —
+exactly what the sample below does:
 
 ```csharp
     protected override void OnInitialized()
@@ -140,6 +162,31 @@ what the sample below does:
 
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs`* — `_options` is a
 `FormidableOptions?` field on the page, built once here and never reassigned.
+
+## App-wide defaults
+
+Most settings on this page are a decision an app makes once, not per form: a design system's
+class names, a team's debounce, a profile pair. `AddFormidableBlazor` takes an
+`Action<FormidableOptions>` overload for exactly that, and registers the configured instance as
+the default every form falls back to:
+
+```csharp
+builder.Services.AddFormidableBlazor(options =>
+{
+    options.CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" };
+    options.RefreshDebounce = TimeSpan.FromMilliseconds(500);
+});
+```
+
+A form with no `Options` parameter uses those. A form that passes one wins outright —
+resolution is parameter first, then the configured default, then `new FormidableOptions()`, and
+there is no merging between the steps: an `Options` parameter replaces the app-wide instance
+whole rather than overriding a property of it. See [Component
+kit](component-kit.md#addformidableblazor) for the registration itself.
+
+The configured instance is a singleton the whole app shares. That makes property mutation a
+wider lever than it looks: changing `RefreshDebounce` on it at runtime changes every live form
+that resolved it, not the one on screen.
 
 ## Where each option is demonstrated
 

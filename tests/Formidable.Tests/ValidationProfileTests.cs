@@ -53,4 +53,21 @@ public class ValidationProfileTests
         Assert.NotEqual(ValidationProfile.Draft, ValidationProfile.Submit);
         Assert.Equal("Draft", ValidationProfile.Draft.ToString());
     }
+
+    [Fact]
+    public void FromName_matches_built_in_names_case_insensitively_to_the_canonical_singletons()
+    {
+        Assert.Same(ValidationProfile.Draft, ValidationProfile.FromName("draft"));
+        Assert.Same(ValidationProfile.Submit, ValidationProfile.FromName("SUBMIT"));
+    }
+
+    [Fact]
+    public void FromName_builds_a_custom_profile_for_any_other_name()
+    {
+        var profile = ValidationProfile.FromName("Custom");
+
+        Assert.Equal("Custom", profile.Name);
+        Assert.True(profile.IncludeDefaultRules);
+        Assert.Equal(new[] { "Custom" }, profile.RuleSets);
+    }
 }

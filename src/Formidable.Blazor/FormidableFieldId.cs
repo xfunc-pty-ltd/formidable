@@ -11,6 +11,8 @@ namespace Formidable.Blazor;
 /// </summary>
 public static class FormidableFieldId
 {
+    private const string MessagesSuffix = "-messages";
+
     /// <summary>The id for a field: <c>formidable-{owner-hash}-{sanitized-name}</c>; the model-level field uses <c>form</c> as its name.</summary>
     public static string For(FieldIdentifier field)
     {
@@ -48,4 +50,24 @@ public static class FormidableFieldId
 
         return For(new FieldIdentifier(model, member.Member.Name));
     }
+
+    /// <summary>
+    /// The id of the element listing a field's messages: <see cref="For(FieldIdentifier)"/> with a
+    /// <c>-messages</c> suffix. This is the <c>aria-describedby</c> contract, and this method owns
+    /// it: <see cref="FormidableFieldMessage{TValue}"/> and
+    /// <see cref="FormidableCollectionMessage{TValue}"/> render this id on their list, every kit
+    /// input points <c>aria-describedby</c> at it while the field has issues, and
+    /// <see cref="FormidableFieldContext.AriaDescribedBy"/> hands it to a hand-rolled control.
+    /// Call this rather than concatenating the suffix, so a control wired by hand and the message
+    /// list it describes cannot drift apart.
+    /// </summary>
+    /// <param name="field">The field whose message list is being addressed.</param>
+    public static string MessagesFor(FieldIdentifier field) => MessagesFor(For(field));
+
+    /// <summary>
+    /// The same contract, for a caller that already holds the field's element id — the id and its
+    /// message-list id are computed together at registration, so the suffix is appended without
+    /// re-deriving the id.
+    /// </summary>
+    internal static string MessagesFor(string elementId) => elementId + MessagesSuffix;
 }

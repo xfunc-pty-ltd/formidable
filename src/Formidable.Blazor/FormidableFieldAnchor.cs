@@ -34,7 +34,8 @@ public sealed class FormidableFieldAnchor<TValue> : ComponentBase, IDisposable
         _binding.Update(
             Context,
             GetType(),
-            register: context => context.Registry.Register(FieldIdentifier.Create(For), KeepRegistered));
+            register: context => context.Registry.Register(
+                FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType())), KeepRegistered));
 
     /// <inheritdoc />
     public void Dispose() => _binding.Dispose();
