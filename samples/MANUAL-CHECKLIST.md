@@ -683,25 +683,26 @@ steps build on each other.
 
 A reading check, not a browser check — do it from the repo.
 
-- [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, plus a
-      symptom-to-fix troubleshooting table* linking to `docs/recipes.md`; follow the link and it
-      resolves
-- [ ] `docs/recipes.md` opens with nineteen unnumbered `### I want…` headings, then a
-      troubleshooting table of fifteen rows
+- [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, then what
+      explains it, plus a sample where one exists* linking to `docs/recipes.md`; follow the
+      link and it resolves
+- [ ] `docs/recipes.md` opens with an intro pointing to Troubleshooting, then nineteen
+      unnumbered `### I want…` headings; `docs/troubleshooting.md` opens with a scope statement,
+      then a symptom table of fifteen rows
 - [ ] Spot-check the recipe titled **"I want every summary entry to land somewhere"** against
-      what you just saw on /workout, /vanilla, /collections and /disclosure — the ids, the
-      containers and the outline story match the pages
+      what you just saw on /workout, /vanilla, /collections and /disclosure — the ids and the
+      containers match the pages
 - [ ] Spot-check the recipe titled **"I want a modal dialog to announce a blocked submit"**
       against what you just watched on /dialog-submit — the two rules the page's own toggles
       break are things you saw go wrong when you flipped them, and the summary parameters it
       names are the ones that page sets
 - [ ] Spot-check the recipe titled **"I want to validate while typing, on blur, or only at
       submit"** — its table of `UpdateOn` against what the live channel selects matches what
-      /async and /field-state actually do, and the troubleshooting row *"A date input reports
-      impossible years while it is being typed"* matches the workout's date behaviour you just
-      walked
-- [ ] Every recipe answers with code first, then links to the doc that explains it in full and
-      the sample page that demonstrates it, and no recipe contradicts the page it names
+      /async and /field-state actually do, and `docs/troubleshooting.md`'s row *"A date input
+      reports impossible years while it is being typed"* matches the workout's date behaviour
+      you just walked
+- [ ] Every recipe answers with code first, then links to what explains it in full, with a
+      sample page where one demonstrates it, and no recipe contradicts the pages it names
 
 ### Quickstart and testing
 

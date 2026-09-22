@@ -119,6 +119,9 @@ sit: in the summary, and under the field it names.
 - Guard the deserialize: a 400 you did not write can carry anything.
 - Six stages, one form. That is the tutorial.
 
+**Compare your work:** [`/stage6`](../../samples/Formidable.Tutorial/Pages/Stage6.razor) in
+`samples/Formidable.Tutorial`.
+
 **Next:** [Recipes](../recipes.md) — the tutorial ends here, and the recipes pick up from "I want
 to…".
 

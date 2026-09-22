@@ -37,8 +37,8 @@ puts all of them within reach of every page:
 > [!NOTE]
 > Leave that line out and the Razor compiler reads every `<Formidable…>` element as plain markup.
 > Whether the build fails at all, and what it fails with, depends on what else the page does with
-> those elements. [Troubleshooting](recipes.md#part-2-troubleshooting) lists `RZ10012`, `RZ9991`
-> and `CS0103` by symptom.
+> those elements. [Troubleshooting](troubleshooting.md) lists `RZ10012`, `RZ9991` and `CS0103` by
+> symptom.
 
 ## The page
 

@@ -114,4 +114,7 @@ rules a submit would run, and a field you have changed shows what they say.
 - `field.State.IsValidating` is true while that field's check is in flight.
 - Render the status element always, and change only its text.
 
+**Compare your work:** [`/stage5`](../../samples/Formidable.Tutorial/Pages/Stage5.razor) in
+`samples/Formidable.Tutorial`.
+
 **Next:** [The server round trip](6-server.md)

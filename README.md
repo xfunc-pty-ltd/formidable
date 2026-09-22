@@ -170,8 +170,9 @@ App, and `YourApp.Client.Pages` in the `.Client` project of one created with
 That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
 registers its field and applies the validation CSS classes, and `FormidableFieldMessage` and
 `FormidableSummary` render whatever the validator reports — `Saved.` appears once a submit
-lands, and `OnInvalidSubmit` clears it the moment a later one is blocked. The same four pieces
-taken slowly, with each line explained and a run at the end, are in
+lands, and `OnInvalidSubmit` clears it the moment a later one is blocked.
+
+The same four pieces taken slowly, with each line explained and a run at the end, are in
 [Quickstart](docs/quickstart.md); the sample app's
 [Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor), which is its home page, is
 this same form grown up a little, with the model in a shared project and the handler in a
@@ -221,7 +222,7 @@ Eight documents, in reading order. Start at the top and keep going.
 | [A list of members](docs/tutorial/4-collections.md) | Rows that keep their errors, a rule for the list itself, and the notify a page-driven edit owes. |
 | [Async rules](docs/tutorial/5-async.md) | An async rule that asks a service for an answer, and the pending state that shows while it waits. |
 | [The server round trip](docs/tutorial/6-server.md) | The same validator running on the server, and a rejected submit landing back on the fields it names. |
-| [Recipes](docs/recipes.md) | "I want to…" answered with code, plus a symptom-to-fix troubleshooting table. |
+| [Recipes](docs/recipes.md) | "I want to…" answered with code, then what explains it, plus a sample where one exists. |
 
 ### Reference
 
@@ -234,12 +235,13 @@ The deep dives, grouped the way the concepts stack.
 | Concepts | [Disclosure](docs/disclosure.md) | Render-registration in full: why a submit's issue surfaces only where its field is mounted. |
 | Fields & collections | [Collections and row identity](docs/collections-and-row-identity.md) | How a message stays attached to its row through add, remove, and reorder. |
 | Fields & collections | [Component kit](docs/component-kit.md) | Every component and parameter, plus the seams for foreign and native controls. |
-| Async & server | [Async validation](docs/async-validation.md) | Pending state and the debounce that drives it, then how overlapping passes settle their order. |
+| Async & server | [Async validation](docs/async-validation.md) | When an async rule runs, what happens to a check whose value has gone stale, and which fields show "checking…". |
 | Async & server | [Server integration](docs/server-integration.md) | Two entry points, the endpoint filter and the `[Validate]` attribute, sharing one wire format. |
 | Presentation | [CSS and accessibility](docs/css-and-accessibility.md) | Formidable computes the class names and wires the ARIA; both are yours to override. |
 | Presentation | [Options](docs/options.md) | `FormidableOptions` property by property, from the debounce to the CSS class map. |
 | Project | [Migration guide](docs/migration-guide.md) | Moving an existing FluentValidation and `EditForm` integration across. |
-| Project | [Testing](docs/testing.md) | Testing the forms you build, then the suite's own shape and the gate a release has to pass. |
+| Project | [Troubleshooting](docs/troubleshooting.md) | Symptom, cause and fix, ordered build-time to run-time. |
+| Project | [Testing](docs/testing.md) | The tests you write over a form you built, and this repo's own suite: its two tiers and the gate a release has to pass. |
 | Project | [Releasing](docs/releasing.md) | The maintainer's runbook for cutting a version. |
 | Project | [Manual checklist](samples/MANUAL-CHECKLIST.md) | The eyes-on walkthrough of the sample app, one check per behaviour. |
 | Project | [Changelog](CHANGELOG.md) | What shipped, release by release. |

@@ -77,6 +77,9 @@ its orange, and the summary lists one of each.
 - Errors block a submit. Warnings and infos show and let it through.
 - The state classes rank error first, then warning, then info.
 
+**Compare your work:** [`/stage3`](../../samples/Formidable.Tutorial/Pages/Stage3.razor) in
+`samples/Formidable.Tutorial`.
+
 **Next:** [Collections](4-collections.md)
 
 **Go deeper:** [Severity](../severity.md)

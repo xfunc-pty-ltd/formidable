@@ -236,6 +236,9 @@ border every field starts with, because the valid class waits for the visitor to
 - A submit runs both buckets, so shape and presence are checked together.
 - Guard a shape rule an empty value would fail, and the shape rule stays quiet on an empty box.
 
+**Compare your work:** [`/stage2`](../../samples/Formidable.Tutorial/Pages/Stage2.razor) in
+`samples/Formidable.Tutorial`.
+
 **Next:** [Severity](3-severity.md)
 
 **Go deeper:** [Validation profiles](../profiles.md)

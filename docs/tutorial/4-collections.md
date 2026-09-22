@@ -152,6 +152,9 @@ Remove both rows, then submit, and the message lands there.
 - A page that edits the list itself calls `NotifyChanged()`.
 - A collection-level rule needs `FormidableCollectionMessage` to have anywhere to appear.
 
+**Compare your work:** [`/stage4`](../../samples/Formidable.Tutorial/Pages/Stage4.razor) in
+`samples/Formidable.Tutorial`.
+
 **Next:** [Async rules](5-async.md)
 
 **Go deeper:** [Collections and row identity](../collections-and-row-identity.md)

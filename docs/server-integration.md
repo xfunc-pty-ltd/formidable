@@ -5,21 +5,26 @@ what `ApplyServerIssues` does with what comes back
 ([The server round trip](tutorial/6-server.md)), plus the draft/submit split that decides
 which profile a request runs under ([Profiles](profiles.md)).
 
-A form's client-side code is never something a server can trust on its own. A request can skip
-the browser entirely, replay old values, or arrive from a client that never ran a single rule.
-So the server validates again, every time, no matter how thorough the checks in front of the
-user already were. That's the easy half. The harder one is what happens when the server
-disagrees. A rejection shaped differently from a client-side one — a raw string with no field
-attached, a status code and nothing else — teaches the user nothing they can act on. And a form
-that looked fine a second ago suddenly isn't, for reasons the page can't show. Formidable's
-server story answers both problems with one move: the same FluentValidation rules and profile
+A form's client-side code is never something a server can trust. A request can skip the browser,
+replay old values, or arrive from a client that never ran a single rule. So the server validates
+again, every time.
+
+The harder half is what it sends back. A rejection shaped differently from a client-side one — a
+raw string with no field attached, a status code and nothing else — teaches the user nothing they
+can act on.
+
+Formidable answers both halves with one move. The same FluentValidation rules and profile
 definitions that drive the client run again on the server, and a rejected request comes back in
-exactly the shape the client already knows how to apply.
+the shape the client already knows how to apply.
+
+This page catalogs that surface — the wire format both adapters share, each adapter's own entry
+point and strictness rules, what a handler can read back from a passing report, the normalize step
+that runs before either validates, and the client-side apply.
 
 ## Need to know
 
-One call wires an endpoint into that same validator, and on the sample's minimal API it looks
-like this:
+One call wires an endpoint into the same validator the form runs, and on the sample's minimal API
+it looks like this:
 
 ```csharp
 // Group-level validation: every endpoint in the group runs the submit profile.
@@ -29,527 +34,236 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 
 <!-- Source: `samples/Formidable.Sample.Api/Program.cs` -->
 
-MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
-adapters funnel into one wire format, defined once in the core package (no ASP.NET Core or
-Blazor dependency needed to read it), so
-whichever one rejects a request on its validators' verdict, the `errors` dictionary is the same
-one: the same paths in the same order (the report's), carrying the same messages, an empty message
-kept empty, and the `advisories` extension identical beside it. Each builds the ProblemDetails
-around that dictionary the way its own half of the framework does (the endpoint filter through
-`TypedResults.ValidationProblem`, the action filter through the app's `ProblemDetailsFactory`),
-and one difference in the envelope itself follows from that, the framework's rather than
-Formidable's: MVC's factory writes a **`traceId` whatever the host configured**, where
-`TypedResults.ValidationProblem` writes one only under `AddProblemDetails()`. A client keying on
-paths and reading messages never sees it. The one divergence that is not presentation happens
-before either adapter has a verdict to send at all, over a request body that bound to `null`:
-[Minimal APIs](#minimal-apis) below.
-On the client side,
-closing the loop is two calls: deserialize the 400 body, and hand it to
+MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. The two
+differ in where you write them and in what the framework builds around their answer. The answer
+itself is one wire format, defined once in the core package, and reading it needs no ASP.NET Core
+or Blazor dependency.
+
+| | Minimal APIs | MVC |
+|---|---|---|
+| Where it goes | `Validate<TModel>(profile?)` on a route handler or a route group | `[Validate]` on an action method or on a controller class |
+| The profile | a `ValidationProfile` value, fixed at the call site | a `Profile` string, resolved once per request |
+| What it validates | the endpoint's first `TModel` argument | every action argument whose type has a registered validator, or exactly the types you name |
+| `errors` and `advisories` | one shared mapper: the same paths in the report's own order, the same messages, an empty message kept empty | the same dictionary, from the same mapper |
+| The envelope around them | `TypedResults.ValidationProblem` | the app's own `ProblemDetailsFactory` |
+| `traceId` | written only under `AddProblemDetails()` | written whatever the host configured |
+| A declared body that bound to `null` | left to the platform, and only a refusal is enriched | bound as `null`, the action runs, and that argument is skipped |
+
+Both of the last two rows are the framework's doing rather than Formidable's. A client keying on
+paths and reading messages never sees a `traceId` either way, while the null-bound body is the one
+place the two adapters part company on more than presentation:
+[A body bound to null](#a-body-bound-to-null) below.
+
+On the client side, closing the loop is two calls: deserialize the 400 body, and hand it to
 `FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
-it carries — errors block and mark their fields `formidable-invalid`, and warnings and infos land
-as advisories that paint `formidable-warning` or `formidable-info` once the field has been touched
-or modified — and it replaces what its own previous call applied rather
-than piling onto it, so resubmitting the same or a corrected payload never leaves a stale
-duplicate behind. The deserialize half wants a guard around it, because a 400 body is not
-necessarily one of Formidable's: [Reading the rejection body](#reading-the-rejection-body) below.
-That's the whole authoring surface: pick an adapter, apply what it sends back.
-What follows is the wire format underneath both of them, each adapter's own shape, what a
-handler can read back from a passing report, and the normalize step both run before
-they validate anything.
+it carries. Errors block and mark their fields `formidable-invalid`. Warnings and infos land as
+advisories that paint `formidable-warning` or `formidable-info` once the field has been touched or
+modified.
+
+Each apply replaces what the last one applied rather than piling onto it, so resubmitting the same
+or a corrected payload never leaves a stale duplicate behind. The deserialize half wants a guard
+around it, because a 400 body is not necessarily one of Formidable's:
+[Reading the rejection body](#reading-the-rejection-body) below.
+
+That is the whole authoring surface: pick an adapter, apply what it sends back.
 
 ## The wire contract
 
-A rejected request returns a 400 `ValidationProblemDetails`. Its `errors` dictionary is keyed by
-the same property-path format the client uses internally (`Items[0].Sku`, and so on — see
-[Collections and row identity](collections-and-row-identity.md)). An `advisories` extension
-alongside `errors` carries every non-error issue from the same report. The client-side shape of
-that body is one type in the core `Formidable` package — no ASP.NET Core or Blazor dependency
-required to read it:
+A rejected request returns a 400 `ValidationProblemDetails`. Two of its members are Formidable's
+to decide, and the envelope around them belongs to whichever half of the framework built it.
 
-```csharp
-namespace Formidable;
+`errors` is the standard dictionary, keyed by the same property-path format the client uses
+internally — `Items[0].Sku`, and so on (see
+[Collections and row identity](collections-and-row-identity.md)). `advisories` is an extension
+beside it, carrying every non-error issue from the same report.
 
-/// <summary>
-/// Client-side shape of the validation ProblemDetails body produced by Formidable.AspNetCore:
-/// the standard <c>errors</c> dictionary keyed by property path plus an <c>advisories</c>
-/// extension for non-error issues. Deserialize an HTTP 400 body into this (web JSON defaults,
-/// e.g. <c>ReadFromJsonAsync</c>) and pass <see cref="ToIssues"/> to the Blazor engine's
-/// server-issue application.
-/// </summary>
-/// <remarks>
-/// Deserialize inside a guard, and treat a <see langword="null"/> result as no verdict. A 400 says
-/// the request was rejected, not that the endpoint is what rejected it: a reverse proxy, a gateway
-/// or a WAF in front of it answers with its own body, and <c>ReadFromJsonAsync</c> throws
-/// <see cref="System.Text.Json.JsonException"/> on one it cannot read into this type — an HTML
-/// page, a line of plain text, an empty body — and <see cref="InvalidOperationException"/> when the
-/// response's character set is one the runtime does not have. The JSON literal <c>null</c> throws
-/// nothing and deserializes to <see langword="null"/>, which the engine's server-issue application
-/// rejects. Inside a Blazor event handler each of those is an unhandled exception rather than a
-/// message on screen. <see cref="ToIssues"/>'s own tolerance covers the shapes that survive the
-/// parse, not the ones that fail it.
-/// </remarks>
-public sealed class FormidableValidationProblem
+```json
 {
-    /// <summary>Error messages keyed by property path (standard ValidationProblemDetails shape).</summary>
-    public Dictionary<string, string[]> Errors { get; set; } = [];
-
-    /// <summary>Non-error issues from the <c>advisories</c> extension.</summary>
-    public List<ValidationProblemAdvisory> Advisories { get; set; } = [];
-
-    /// <summary>
-    /// Flattens the payload into engine-ready issues: error entries first (one issue per
-    /// message), then advisories with their severity parsed case-insensitively — unknown or
-    /// "Error" severities read as <see cref="ValidationSeverity.Warning"/>, because the
-    /// errors dictionary is the only error channel.
-    /// </summary>
-    public IReadOnlyList<ValidationIssue> ToIssues()
-    {
-        var issues = new List<ValidationIssue>();
-
-        // A foreign 400 body can carry explicit JSON nulls anywhere its shape admits one — the
-        // collections themselves, a key's message array, an element inside that array, a whole
-        // advisory entry, or an advisory's fields (the deserializer doesn't enforce
-        // nullable-reference annotations) — tolerate every shape rather than throw. A null
-        // advisory entry carries nothing to show, so it is skipped; a null path reads as ""
-        // (the model-level path); a null message reads as "".
-        var errors = Errors ?? new Dictionary<string, string[]>();
-        var advisories = Advisories ?? [];
-
-        foreach (var (path, messages) in errors)
-        {
-            issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message ?? string.Empty)));
-        }
-
-        foreach (var advisory in advisories)
-        {
-            if (advisory is null)
-            {
-                continue;
-            }
-
-            // Enum.TryParse admits a numeric string ("99", "-1") and a comma-joined list
-            // ("Info, Warning") as readily as a member name, so the parse alone would let a
-            // foreign body name a severity no member defines — one that then reaches every
-            // severity switch and the field-state class provider as an advisory of no band.
-            // IsDefined is what keeps "unknown reads as Warning" true of every unknown.
-            var severity =
-                Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
-                && Enum.IsDefined(parsed)
-                && parsed != ValidationSeverity.Error
-                    ? parsed
-                    : ValidationSeverity.Warning;
-
-            issues.Add(new ValidationIssue(
-                advisory.Path ?? string.Empty,
-                advisory.Message ?? string.Empty,
-                severity,
-                advisory.Code,
-                advisory.DisplayName));
-        }
-
-        return issues;
-    }
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "errors": { "Items[0].Sku": ["Required"] },
+  "advisories": [
+    { "path": "Description", "message": "Avoid hyphens", "severity": "Warning", "code": null, "displayName": "Description" }
+  ]
 }
 ```
 
-<!-- Source: `src/Formidable/FormidableValidationProblem.cs` -->
+The client-side shape of that body is one type in the core `Formidable` package,
+`FormidableValidationProblem`. Deserialize an HTTP 400 into it with web JSON defaults, then hand
+the result to the form.
 
-`ToIssues()` deliberately tolerates a null or hostile payload shape rather than throwing — a
-foreign 400 body (a proxy, a gateway, a handwritten test double) can carry explicit JSON nulls
-that survive deserialization and override the property initializers above.
+| Member | Type | What it holds |
+|---|---|---|
+| `Errors` | `Dictionary<string, string[]>` | the `errors` dictionary, paths to messages |
+| `Advisories` | `List<ValidationProblemAdvisory>` | the `advisories` extension |
+| `ToIssues()` | `IReadOnlyList<ValidationIssue>` | the payload flattened for the engine: every error entry first, one issue per message, then the advisories |
 
-```csharp
-/// <summary>
-/// The wire shape of one non-error issue carried on the <c>advisories</c> extension of a
-/// validation ProblemDetails payload. <paramref name="Severity"/> is the
-/// <see cref="ValidationSeverity"/> member name as a string ("Warning" or "Info").
-/// </summary>
-/// <param name="Path">Property path in the client's format, e.g. <c>Items[0].Sku</c>.</param>
-/// <param name="Message">Human-readable message.</param>
-/// <param name="Severity">Severity name; unknown values are read as Warning.</param>
-/// <param name="Code">Optional machine-readable code.</param>
-/// <param name="DisplayName">Optional user-facing field name.</param>
-public sealed record ValidationProblemAdvisory(
-    string Path,
-    string Message,
-    string Severity,
-    string? Code = null,
-    string? DisplayName = null);
-```
+An error arrives carrying a path and a message and nothing else, because the `errors` dictionary
+has nowhere to put anything more. An advisory is a record with room for four things beside its
+path:
 
-<!-- Source: `src/Formidable/ValidationProblemAdvisory.cs` -->
+| Field | Type | What it is |
+|---|---|---|
+| `Path` | `string` | property path in the client's format, e.g. `Items[0].Sku` |
+| `Message` | `string` | the message to show |
+| `Severity` | `string` | the `ValidationSeverity` member name, `"Warning"` or `"Info"` |
+| `Code` | `string?` | optional machine-readable code |
+| `DisplayName` | `string?` | optional user-facing field name |
 
-Building the other side of that contract — turning a `ValidationReport` into the two wire pieces
-— is one static mapper in `Formidable.AspNetCore`, shared by both server adapters below:
+### Tolerance for a foreign payload
 
-```csharp
-namespace Formidable.AspNetCore;
+`FormidableValidationProblem.ToIssues()` deliberately tolerates a null or hostile payload shape
+rather than throwing. A foreign 400 body — a proxy, a gateway, a handwritten test double — can
+carry explicit JSON nulls anywhere its shape admits one, and the deserializer does not enforce
+nullable-reference annotations, so the type's own property initializers guarantee nothing.
 
-/// <summary>
-/// Maps a <see cref="ValidationReport"/> to the wire shape shared with the client:
-/// error messages keyed by property path plus non-error issues for the
-/// <see cref="AdvisoriesExtensionKey"/> ProblemDetails extension.
-/// </summary>
-public static class ValidationReportProblemMapper
-{
-    /// <summary>The ProblemDetails extension key carrying non-error issues.</summary>
-    public const string AdvisoriesExtensionKey = "advisories";
+| What the body carries | What `ToIssues()` makes of it |
+|---|---|
+| a null `errors` or `advisories` collection | an empty one |
+| a null message array under a key | no issues for that key |
+| a null message inside such an array | an empty message |
+| a null advisory entry | skipped, since it carries nothing to show |
+| a null advisory path | `""`, the model-level path |
+| a null advisory message | an empty message |
+| a severity no `ValidationSeverity` member defines | `Warning` |
+| `"Error"` as an advisory severity | `Warning`, because the `errors` dictionary is the only error channel |
 
-    /// <summary>
-    /// Error messages grouped by path, preserving issue order within each path. A
-    /// <see langword="null"/> path reads as <c>""</c>, the model-level path, and a
-    /// <see langword="null"/> message as <c>""</c> — the same tolerance
-    /// <see cref="FormidableValidationProblem.ToIssues"/> applies on the client, because
-    /// <see cref="IModelValidator{TModel}"/> is a consumer-implementable seam and a hand-rolled
-    /// one can hand back either however the type is annotated.
-    /// </summary>
-    public static Dictionary<string, string[]> ToErrorDictionary(ValidationReport report)
-    {
-        ArgumentNullException.ThrowIfNull(report);
-        return report.Errors
-            .GroupBy(issue => issue.Path ?? string.Empty)
-            .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message ?? string.Empty).ToArray());
-    }
+Severity is parsed case-insensitively and then checked with `Enum.IsDefined`. That check is what
+makes the unknown-severity row true of every unknown: `Enum.TryParse` admits a numeric string
+such as `"99"`, and a comma-joined list such as `"Info, Warning"`, as readily as a member name.
 
-    /// <summary>
-    /// Non-error issues as the advisories-extension payload, in issue order. Null paths and
-    /// messages are tolerated exactly as in <see cref="ToErrorDictionary"/>.
-    /// </summary>
-    /// <exception cref="ArgumentException">
-    /// An issue carries a <see cref="ValidationSeverity"/> value no member defines. The wire
-    /// field is a member NAME, so there is nothing honest to write: the value's own
-    /// <c>ToString</c> would put a number there, which the client reads as
-    /// <see cref="ValidationSeverity.Warning"/> — relabelling a caller's bug rather than
-    /// reporting it. Nothing shipped can produce one (the FluentValidation adapter maps
-    /// exhaustively), so the value comes from a cast in a hand-rolled validator, and naming it
-    /// is the only way its author learns of it.
-    /// </exception>
-    public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
-    {
-        ArgumentNullException.ThrowIfNull(report);
-        return report.Advisories
-            .Select(issue => new ValidationProblemAdvisory(
-                issue.Path ?? string.Empty,
-                issue.Message ?? string.Empty,
-                SeverityName(issue, nameof(report)),
-                issue.Code,
-                issue.DisplayName))
-            .ToList();
-    }
+Tolerance covers the shapes that survive the parse, never the ones that fail it. What to do about
+those is [Reading the rejection body](#reading-the-rejection-body).
 
-    private static string SeverityName(ValidationIssue issue, string parameterName) =>
-        Enum.IsDefined(issue.Severity)
-            ? issue.Severity.ToString()
-            : throw new ArgumentException(
-                $"Issue '{issue.Path}' carries severity {(int)issue.Severity}, which no ValidationSeverity member " +
-                "defines. The advisories extension carries a member name, so there is no name to write — give the " +
-                "issue Error, Warning or Info.",
-                parameterName);
+### The server-side mapper
 
-    // The ProblemDetails extensions dictionary for `report`, keyed under
-    // AdvisoriesExtensionKey -- or null when there are no advisories to carry, so a caller can
-    // attach it only when non-empty rather than repeating that count check itself. Both server
-    // adapters (the minimal-API filter and the MVC action filter) share this one step, so
-    // ToAdvisories' rejection of an undefined severity is a rejection on both: a report carrying
-    // one fails the request it was built for, whichever adapter is serving it.
-    internal static Dictionary<string, object?>? ToAdvisoriesExtensions(ValidationReport report)
-    {
-        var advisories = ToAdvisories(report);
-        return advisories.Count > 0
-            ? new Dictionary<string, object?> { [AdvisoriesExtensionKey] = advisories }
-            : null;
-    }
-}
-```
+`ValidationReportProblemMapper` in `Formidable.AspNetCore` turns a `ValidationReport` into the
+`errors` dictionary and the `advisories` payload, and both adapters call it. That is what makes
+the dictionary one dictionary rather than two that happen to agree.
 
-<!-- Source: `src/Formidable.AspNetCore/ValidationReportProblemMapper.cs` -->
+| Member | What it gives back |
+|---|---|
+| `ToErrorDictionary(report)` | the report's errors grouped by path, preserving issue order within each path |
+| `ToAdvisories(report)` | the report's non-error issues, in issue order |
+| `AdvisoriesExtensionKey` | `"advisories"`, the extension key `ToAdvisories`' result is attached under |
+
+The mapper tolerates a null path and a null message exactly as the client does, and for the same
+reason: `IModelValidator<TModel>` is a seam a consumer can implement, and a hand-rolled one can
+hand back either however the type is annotated.
+
+One shape it refuses. An issue carrying a `ValidationSeverity` value no member defines makes
+`ToAdvisories` throw `ArgumentException` rather than write a number.
+
+Both adapters reach that mapping only while building a rejection, so such an issue fails the 400
+it would have ridden. A report with no errors passes both of them unmapped, and the refusal then
+lands wherever the report's advisories are next asked for — a handler building its own 200 from
+`ToAdvisories`, say.
+
+The wire field is a member name, so there is nothing honest to write: the value's own `ToString`
+would put a number there, which the client reads as `Warning` — relabelling a caller's bug rather
+than reporting it. Nothing shipped can produce one, so the value comes from a cast in a
+hand-rolled validator, and the refusal is what tells its author.
 
 **Messages can echo user input.** A FluentValidation message built with `{PropertyValue}` embeds
-the field's own value into the response body verbatim. Formidable's own components already render
-every message as text — `FormidableFieldMessage`, `FormidableCollectionMessage`,
-`FormidableModelMessage`, and `FormidableSummary` write it through Blazor's own encoding
-(`AddContent`, never `MarkupString`) — so nothing in the kit turns that text into markup. A
-consumer reading the same `errors`/`advisories` payload outside Formidable's components needs to
-do the same: render each message as text, never interpolate it into HTML.
+the field's own value into the response body verbatim.
+
+Formidable's own components already render every message as text. `FormidableFieldMessage`,
+`FormidableCollectionMessage`, `FormidableModelMessage` and `FormidableSummary` write it through
+Blazor's own encoding (`AddContent`, never `MarkupString`), so nothing in the kit turns that text
+into markup. A consumer reading the same `errors`/`advisories` payload outside those components
+needs to do the same: render each message as text, never interpolate it into HTML.
 
 **Codes name the validator that failed.** Each advisory carries its issue's `Code`, which behind
-the FluentValidation adapter is that failure's `ErrorCode`, and the code FluentValidation supplies
-by default is the name of the validator underneath: `EmailValidator`, `MaximumLengthValidator`,
+the FluentValidation adapter is that failure's `ErrorCode`. The code FluentValidation supplies by
+default is the name of the validator underneath: `EmailValidator`, `MaximumLengthValidator`,
 `PredicateValidator` for a `Must`, and whatever a `PropertyValidator<T, TProperty>` of your own
-returns from its required `Name`. Those describe the implementation rather than the problem. The
-`errors` dictionary is paths to messages and nothing else, so this body carries a code only on an
-advisory — and carries it to whoever holds the response. `WithErrorCode("...")` replaces one, and
-it attaches to the validator it follows rather than to the rule: on a chain, each component needs
-its own, and the ones nothing names keep the default.
+returns from its required `Name`.
+
+Those describe the implementation rather than the problem, and this body carries one to whoever
+holds the response. The `errors` dictionary is paths to messages and nothing else, so a code rides
+on an advisory or not at all. `WithErrorCode("...")` replaces one, and it attaches to the
+validator it follows rather than to the rule: on a chain, each component needs its own, and the
+ones nothing names keep the default.
 
 ## Minimal APIs
 
-`Validate<TModel>(profile?)` is an endpoint-filter extension with two overloads — one route
-handler at a time, or every handler in a route group at once, the shape the recipe above uses:
+`Validate<TModel>(profile?)` is an endpoint-filter extension with two overloads: one route handler
+at a time, or every handler in a route group at once.
 
-```csharp
-namespace Formidable.AspNetCore;
-
-/// <summary>Minimal-API validation conventions.</summary>
-public static class FormidableEndpointFilterExtensions
-{
-    /// <summary>
-    /// Normalizes (when <typeparamref name="TModel"/> implements
-    /// <see cref="INormalizableModel"/>) and validates the endpoint's
-    /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
-    /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format and whose <c>advisories</c> extension carries the report's
-    /// non-error issues. Warnings and infos never block on their own: a report carrying only
-    /// them passes through to the handler, which can read it via
-    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-    /// </summary>
-    /// <param name="builder">The route handler to validate.</param>
-    /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <remarks>
-    /// Always fails closed, with no silent-skip mode to opt out of: a handler with no
-    /// <typeparamref name="TModel"/> parameter at all throws
-    /// <see cref="InvalidOperationException"/> when the endpoint's request pipeline is built (a
-    /// wiring bug) — routing materializes every mapped endpoint before it can match any
-    /// request, so the throw fails every request to the application, loudly, rather than hiding
-    /// as a 500 on the one broken route. Whether a declared <typeparamref name="TModel"/>
-    /// parameter bound to <see langword="null"/> is acceptable is left to the PLATFORM, which
-    /// decides it from the declaration: a parameter the handler declared optional — nullable, or
-    /// carrying a default — reaches the handler with <see langword="null"/> exactly as it would
-    /// without this filter, and one the platform refuses gets the standard 400 validation shape
-    /// with a model-level "A request body is required." error in place of the bare, bodiless 400
-    /// the platform writes for it. When the handler declares more than one parameter of type
-    /// <typeparamref name="TModel"/>, only the first one is validated.
-    /// </remarks>
-    public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
-        where TModel : class =>
-        AddValidation<RouteHandlerBuilder, TModel>(builder, profile);
-
-    /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile)"/>
-    /// <param name="builder">The route group to validate.</param>
-    /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <remarks>
-    /// Every endpoint in the group must bind a <typeparamref name="TModel"/>-typed parameter —
-    /// checked endpoint by endpoint, and an endpoint without one throws
-    /// <see cref="InvalidOperationException"/> when its request pipeline is built (a wiring
-    /// bug), which fails route materialization as a whole: a group carrying a mis-wired
-    /// endpoint fails every request to the application, loudly, rather than leaving that one
-    /// endpoint to 500 among working siblings. An endpoint that HAS the parameter but received
-    /// <see langword="null"/> for it leaves that to the platform and enriches only a refusal,
-    /// per the single-handler overload above. When an endpoint declares more than one parameter
-    /// of type <typeparamref name="TModel"/>, only the first one is validated.
-    /// </remarks>
-    public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
-        where TModel : class =>
-        AddValidation<RouteGroupBuilder, TModel>(builder, profile);
-
-    // The one factory both overloads install. AddEndpointFilterFactory is itself a single
-    // method generic over TBuilder : IEndpointConventionBuilder returning that same TBuilder, so
-    // both builders reach one shared framework method either way; this mirrors the framework's
-    // shape rather than inventing one.
-    private static TBuilder AddValidation<TBuilder, TModel>(TBuilder builder, ValidationProfile? profile)
-        where TBuilder : IEndpointConventionBuilder
-        where TModel : class
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        var resolvedProfile = profile ?? ValidationProfile.Submit;
-        return builder.AddEndpointFilterFactory((factoryContext, next) =>
-        {
-            ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
-            return invocationContext => filter.InvokeAsync(invocationContext, next);
-        });
-    }
-
-    // Checked once per endpoint at filter-build time (EndpointFilterFactoryContext.MethodInfo is
-    // the endpoint's own handler, even for a filter attached at the group level) rather than at
-    // every request. Throwing here, while the endpoint's request pipeline is being built, means
-    // "no argument of this type was ever declared" (a wiring bug no request shape can influence)
-    // cannot hide as a 500 on one rarely-hit route: routing materializes every mapped endpoint
-    // before it can match any request, so the mis-wiring fails every request to the application
-    // until it is fixed. It also leaves ValidationEndpointFilter<TModel> free to read a null
-    // argument as exactly one thing: "the declared argument was bound null" — which it hands
-    // straight back to the platform to judge, since the declaration that decides it is not
-    // readable from the argument.
-    // Assignability, not exact-type equality: a handler may declare a MORE DERIVED parameter
-    // type than TModel, and InvokeAsync's own retrieval (context.Arguments.OfType<TModel>())
-    // already treats that as a match — an exact-type check here would disagree and misreport a
-    // declared-but-null derived parameter as "no parameter of this type at all".
-    private static void ThrowIfNoDeclaredParameter<TModel>(MethodInfo methodInfo)
-    {
-        if (!methodInfo.GetParameters().Any(p => typeof(TModel).IsAssignableFrom(p.ParameterType)))
-        {
-            throw new InvalidOperationException(
-                $"Validate<{FriendlyTypeName.Of(typeof(TModel))}>() found no endpoint argument of that type — there is nothing to validate.");
-        }
-    }
-}
-```
-
-<!-- Source: `src/Formidable.AspNetCore/FormidableEndpointFilterExtensions.cs` -->
-
-Both overloads default to `ValidationProfile.Submit` and install the same filter — the group
+Both overloads default to `ValidationProfile.Submit` and install the same filter. The group
 overload just attaches it to every endpoint the group defines, checking each handler's own
-signature for a `TModel` parameter rather than sharing one answer across the whole group. An
-endpoint that fails that check never gets a filter at all: the factory throws instead of
-building one, so a null model at request time can only mean one thing:
+signature for a `TModel` parameter rather than sharing one answer across the whole group. Where a
+handler declares more than one parameter of that type, only the first one is validated.
 
-```csharp
-namespace Formidable.AspNetCore;
+The filter normalizes, validates, then decides. Normalize runs only where `TModel` implements
+`INormalizableModel`. An error-severity issue short-circuits to the 400 above; warnings and infos
+never block on their own.
 
-/// <summary>
-/// Runs normalize + profile validation for one endpoint argument type, stashing the computed
-/// report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-/// Fails closed on wiring and never on a declaration: an unresolvable
-/// <see cref="IModelValidator{TModel}"/> throws, and an endpoint with no parameter of this type
-/// at all never reaches the filter — the endpoint filter factory in
-/// <see cref="FormidableEndpointFilterExtensions"/> throws for it while the endpoint's request
-/// pipeline is being built. A parameter bound to <see langword="null"/> is the platform's
-/// decision, not this filter's: it is passed on, and only the refusal is enriched.
-/// </summary>
-internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
-    where TModel : class
-{
-    private readonly ValidationProfile _profile;
+`report.IsValid` is `true` whenever the report has no error-severity issues, and warnings and
+infos don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls
+straight through to the handler's own return value, unmodified. The report itself is not lost:
+[Returning warnings beside a 200](#returning-warnings-beside-a-200) below shows the handler
+reading it back.
 
-    public ValidationEndpointFilter(ValidationProfile profile)
-    {
-        _profile = profile;
-    }
+### An endpoint with nothing to validate
 
-    public async ValueTask<object?> InvokeAsync(
-        EndpointFilterInvocationContext context, EndpointFilterDelegate next)
-    {
-        var model = context.Arguments.OfType<TModel>().FirstOrDefault();
-        if (model is null)
-        {
-            // The filter factory refuses endpoints with no parameter of this type, so null here
-            // means the declared parameter itself was bound to null. Whether that is acceptable
-            // is the PLATFORM's decision and is made from the DECLARATION — nullability, a
-            // default value, an EmptyBodyBehavior — none of which a filter can read from a null
-            // argument: the null branch is reached for a non-nullable parameter and a nullable
-            // one alike. So the decision is delegated by calling next, exactly as if this filter
-            // were not installed, and a consumer who declared the parameter optional is never
-            // second-guessed. Reproducing the rule instead would mean owning a replica of it
-            // that already differs between the two hosting models in one framework version.
-            var passed = await next(context);
-            var response = context.HttpContext.Response;
+A handler that `Validate<TModel>()` finds no `TModel`-typed argument on is a wiring bug, not
+something a request can influence. The filter factory refuses it with an
+`InvalidOperationException` when the endpoint's request pipeline is built, so no filter is ever
+installed for it.
 
-            // Enriched only where the platform is SEEN to have refused: the handler was skipped
-            // (an empty result), a 400 stands on the response, and nothing has gone out yet. The
-            // platform's own refusal is a bare Content-Length: 0 — cause-blind even with
-            // ProblemDetails configured — so this restores the standard validation shape without
-            // deciding anything. Everything else falls through as whatever next produced, which
-            // is why the degrade path cannot be a wrong decision: it is pure delegation.
-            if (passed is EmptyHttpResult
-                && response.StatusCode == StatusCodes.Status400BadRequest
-                && !response.HasStarted)
-            {
-                var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
-                return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
-            }
+Routing materializes every mapped endpoint before it can match any request, which makes the
+refusal loud on purpose: one mis-wired endpoint fails every request to the application until it is
+fixed, rather than hiding as a 500 on the one broken route. A group carrying one fails route
+materialization as a whole, rather than leaving that endpoint to 500 among working siblings.
 
-            return passed;
-        }
+There is no discovery mode here to silently skip a resolvable-but-unregistered validator either.
+`GetRequiredService<IModelValidator<TModel>>()` throws on its own if `AddFormidable()` was never
+called, so this side needs no equivalent to `[Validate]`'s
+[`RequireValidator`](#strict-validator-resolution).
 
-        (model as INormalizableModel)?.Normalize();
+### A body bound to null
 
-        var validator = context.HttpContext.RequestServices.GetRequiredService<IModelValidator<TModel>>();
-        var report = await validator.ValidateAsync(model, _profile, context.HttpContext.RequestAborted);
+A declared `TModel` argument that bound to `null` is not a wiring bug, and the filter does not
+treat it as one. Whether a missing body is acceptable is something the endpoint's own signature
+already answers, and the platform reads that answer — nullability, a default value, an
+`[FromBody]` `EmptyBodyBehavior` — before the filter is reached.
 
-        // Stashed before the 400/pass-through decision so the request can always read the
-        // verdict a validator produced: the handler composes a "saved, but note…" 200 from a
-        // passing report's advisories, and middleware reads a rejection's full severity detail
-        // without parsing the response body.
-        context.HttpContext.SetFormidableValidationReport(report);
+So the filter hands the decision back by calling `next`, exactly as if it were not installed.
+Declare the parameter nullable and the handler runs with `null`, as it would with no filter in
+front of it. Declare it non-nullable and the platform refuses the request itself.
 
-        if (report.IsValid)
-        {
-            return await next(context);
-        }
-
-        return TypedResults.ValidationProblem(
-            ValidationReportProblemMapper.ToErrorDictionary(report),
-            extensions: ValidationReportProblemMapper.ToAdvisoriesExtensions(report));
-    }
-}
-```
-
-<!-- Source: `src/Formidable.AspNetCore/ValidationEndpointFilter.cs` -->
-
-A missing parameter and a null-bound one are different problems, and they surface at different
-moments. An endpoint with no `TModel`-typed argument at all is a wiring bug, not something a
-request can influence, so the factory refuses it with an `InvalidOperationException` when the
-endpoint's request pipeline is built. Routing materializes every mapped endpoint before it can
-match any request, which makes the refusal loud on purpose: one mis-wired endpoint fails every
-request to the application until it is fixed, rather than hiding as a 500 on the one broken
-route. A declared `TModel` argument bound to `null` is a different thing entirely: whether a
-missing body is acceptable is something the endpoint's own signature already answers, and the
-platform reads that answer — nullability, a default value, an `[FromBody]` `EmptyBodyBehavior` —
-before the filter is reached. So the filter hands the decision back by calling `next`, exactly as
-if it were not installed. Declare the parameter nullable and the handler runs with `null`, as it
-would with no filter in front of it; declare it non-nullable and the platform refuses the request
-itself. What the filter does then is fill in the answer, not make it: the platform's own refusal
-is a bare 400 with `Content-Length: 0` — cause-blind even with `AddProblemDetails()` and
+What the filter does then is fill in the answer, not make it. The platform's own refusal is a bare
+400 with `Content-Length: 0` — cause-blind even with `AddProblemDetails()` and
 `UseStatusCodePages()` configured — and the filter replaces that empty body with a model-level
-`"A request body is required."` error through the same
-`ValidationReportProblemMapper.ToErrorDictionary` mapping every other rejection in this document
-uses. It only does so where the platform is visibly the one refusing: an empty result came back,
-a 400 stands on the response, and nothing has been written yet. Anything else — a downstream
-filter's own 400, a response already on the wire — passes through untouched, so the failure mode
-of the check is plain delegation rather than a wrong answer.
+`"A request body is required."` error, through the same mapping every other rejection in this
+document uses.
+
+It only does so where the platform is visibly the one refusing: an empty result came back, a 400
+stands on the response, and nothing has been written yet. Anything else — a downstream filter's
+own 400, a response already on the wire — passes through untouched. The failure mode of the check
+is plain delegation rather than a wrong answer.
 
 This is the one place the two adapters part company on more than presentation, and it parts the
-way the two halves of the framework do. MVC binds `null` and runs the action with
-`ModelState` still valid — for a nullable parameter under `[ApiController]` and for any body
-parameter on a plain `Controller` alike — so `[Validate]` has nothing to validate and says
-nothing. The endpoint filter reaches the same place from the other side: it declines to decide,
-and minimal APIs happen to decide more strictly than MVC for a non-nullable parameter. Neither
-adapter is imposing a rule of Formidable's own. Neither filter has a discovery
-mode to silently skip a resolvable-but-unregistered validator either:
-`GetRequiredService<IModelValidator<TModel>>()` throws on its own if `AddFormidable()` was never
-called, so there is no equivalent to `[Validate]`'s `RequireValidator` needed here (see below).
-`report.IsValid` is `true` whenever the report has no error-severity issues; warnings and infos
-don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls straight
-through to `next(context)` and the handler's own return value, unmodified — though the report
-itself is not lost: [Returning warnings beside a 200](#returning-warnings-beside-a-200) below
-shows the handler reading it back.
+way the two halves of the framework do. MVC binds `null` and runs the action with `ModelState`
+still valid — for a nullable parameter under `[ApiController]` and for any body parameter on a
+plain `Controller` alike — so `[Validate]` has nothing to validate and says nothing.
+
+The endpoint filter reaches the same place from the other side: it declines to decide, and minimal
+APIs happen to decide more strictly than MVC for a non-nullable parameter. Neither adapter is
+imposing a rule of Formidable's own.
 
 ## MVC
 
 `[Validate]` is an `ActionFilterAttribute` usable on a method or a class. Without constructor
 arguments it discovers which action arguments to validate by probing DI for a registered
-FluentValidation `IValidator<T>`; passed explicit types, it validates exactly those argument
-types regardless of how their `IModelValidator<T>` adapter is registered:
+FluentValidation `IValidator<T>`. Passed explicit types — `[Validate(typeof(Order))]` — it
+validates exactly those argument types, regardless of how their `IModelValidator<T>` adapter is
+registered.
 
-```csharp
-/// <summary>Validates arguments discovered by validator registration.</summary>
-public ValidateAttribute() => _modelTypes = [];
-
-/// <summary>Validates the arguments of exactly these model types.</summary>
-public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
-```
-
-<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
-
-```csharp
-private bool ShouldValidate(Type argumentType, IServiceProvider services)
-{
-    if (_modelTypes.Length > 0)
-    {
-        return _modelTypes.Contains(argumentType);
-    }
-
-    // Probe the FluentValidation registration directly: resolving IModelValidator<T>
-    // through the open-generic adapter THROWS when no IValidator<T> exists, so the
-    // validator interface itself is the safe presence check for the shipped path.
-    return services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is not null;
-}
-```
-
-<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
-
-Placed on a class, `[Validate]` applies to every action on it — the sample uses exactly this
-shape, with no explicit model types, relying on discovery:
+Placed on a class, `[Validate]` applies to every action on it. The sample uses exactly this shape,
+with no explicit model types, relying on discovery:
 
 ```csharp
 [ApiController]
@@ -566,226 +280,150 @@ public class AgreementsController : ControllerBase
 <!-- Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs` -->
 
 An action can bind more than one validatable argument. `[Validate]` runs normalize-then-validate
-on every one of them and aggregates every issue from every argument into a single `ValidationReport`
-before deciding whether to short-circuit — one 400 for the whole action, not one per argument:
+on every one of them and aggregates every issue from every argument into a single
+`ValidationReport` before deciding whether to short-circuit — one 400 for the whole action, not
+one per argument.
 
-```csharp
-public override async Task OnActionExecutionAsync(
-    ActionExecutingContext context, ActionExecutionDelegate next)
-{
-    var profile = ValidationProfile.FromName(Profile);
-    var services = context.HttpContext.RequestServices;
-    ThrowIfDiscoveryResolvesNoValidator(context.ActionDescriptor, services);
+The merge is deliberately flat. The 400's `errors` dictionary keys each issue by its own property
+path with no per-argument prefix, so two validated models sharing a property name land under one
+key.
 
-    var issues = new List<ValidationIssue>();
-    var validatedAny = false;
+`null` arguments are skipped entirely — neither normalized nor validated — and the aggregate's
+`IsValid` gate runs once, after every argument has been through. The report is stashed before that
+gate, so `GetFormidableValidationReport` reads back the aggregate whether the request went on to a
+400 or to the action (see [Returning warnings beside a 200](#returning-warnings-beside-a-200)).
 
-    foreach (var (name, argument) in context.ActionArguments)
-    {
-        if (argument is null)
-        {
-            continue;
-        }
+None of the filter's own per-argument checks can throw over what a request bound or failed to
+bind. The one strictness check that runs per request happens before any argument is looked at, and
+it reads the action's declared parameters rather than its arguments —
+[Strict validator resolution](#strict-validator-resolution) has both halves.
 
-        var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
-        if (argumentType is null)
-        {
-            continue;
-        }
+What can still throw is the consumer's own code. Each bound model's `Normalize()` runs, and then
+the model is handed to the validator, dispatched deliberately without exception wrapping. So
+either hop's data-dependent throw surfaces its own exception type, exactly as it would through the
+endpoint filter's direct calls.
 
-        validatedAny = true;
-        (argument as INormalizableModel)?.Normalize();
+### Building the 400
 
-        object validator;
-        try
-        {
-            validator = services.GetRequiredService(typeof(IModelValidator<>).MakeGenericType(argumentType));
-        }
-        catch (InvalidOperationException ex)
-            when (services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is null)
-        {
-            // The open-generic adapter is registered but the validator it wraps is not, so
-            // resolving it throws during activation rather than returning null. Reached
-            // through the explicit-types path, which names the type instead of probing for
-            // a validator — the discovery path cannot get here, because ShouldValidate only
-            // returns true for a type whose IValidator<T> it just found.
-            throw new InvalidOperationException(MissingFluentValidatorMessage.For(argumentType), ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // A registered IValidator<T> contradicts the diagnosis above, so this failure
-            // has some other cause — the adapter itself was never wired up, almost always
-            // because AddFormidable() was never called.
-            throw new InvalidOperationException(
-                $"No IModelValidator<{FriendlyTypeName.Of(argumentType)}> is resolvable — call services.AddFormidable() to register the FluentValidation adapter.",
-                ex);
-        }
+The MVC filter asks the app's own `ProblemDetailsFactory` — which is what
+`ControllerBase.ValidationProblem()` uses — for the envelope, hands it an empty
+`ModelStateDictionary`, and then puts the mapper's dictionary into `Errors` directly.
 
-        var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
-        issues.AddRange(report.Issues);
-    }
+That is where this filter's 400 picks up the trace identifier, the
+`ApiBehaviorOptions.ClientErrorMapping` type link and any consumer factory's own additions.
+Building the `ValidationProblemDetails` by hand would carry none of it.
 
-    var aggregate = new ValidationReport(issues);
-
-    if (validatedAny)
-    {
-        // Stashed before the 400/pass-through decision so the request can always read the
-        // verdict the validators produced. Gated on validatedAny: when nothing was
-        // validated, the accessor answers null rather than serving an empty report that
-        // implies rules ran and passed.
-        context.HttpContext.SetFormidableValidationReport(aggregate);
-    }
-
-    if (!aggregate.IsValid)
-    {
-        var problem = BuildProblem(context.HttpContext, aggregate);
-
-        var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
-        if (extensions is not null)
-        {
-            foreach (var (key, value) in extensions)
-            {
-                problem.Extensions[key] = value;
-            }
-        }
-
-        // The media type is set outright rather than left to BadRequestObjectResult's
-        // implicit content negotiation, which is what makes this a problem+json response
-        // whatever the request's Accept header asks for.
-        context.Result = new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status400BadRequest,
-            ContentTypes = { "application/problem+json" }
-        };
-        return;
-    }
-
-    await next();
-}
-```
-
-<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
-
-`null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
-`IsValid` gate runs once, after the loop. None of the filter's own checks in the loop can throw
-over what a request bound or failed to bind: the one strictness check that runs per request is
-the line above it, and it reads the action's declared parameters rather than its arguments — both
-halves are described below. What can still throw there is the consumer's own code: the loop
-runs each bound model's `Normalize()` and then hands it to `InvokeValidateAsync`, which
-deliberately dispatches without exception wrapping, so either hop's data-dependent throw
-surfaces its own exception type, exactly as it would through the endpoint filter's direct
-calls.
-`BuildProblem`, just out
-of view above, is where the errors become a response: it asks the app's own
-`ProblemDetailsFactory`, which is what `ControllerBase.ValidationProblem()` uses, for the envelope,
-handing it an empty `ModelStateDictionary`, and then puts the mapper's dictionary into `Errors`
-directly. That is where this filter's 400 picks up the trace identifier, the
-`ApiBehaviorOptions.ClientErrorMapping` type link and any consumer factory's own additions. No
-error passes through the `ModelStateDictionary`, deliberately: it is a prefix trie 32 nodes deep
-at most, so the path an ordinary recursive validator produces
+No error passes through the `ModelStateDictionary`, deliberately, and for two reasons. It is a
+prefix trie 32 nodes deep at most, so the path an ordinary recursive validator produces
 (`RuleForEach(n => n.Children).SetValidator(this)`) would throw out of the response builder from
-sixteen collection levels down, a few hundred bytes of request body; and the framework's
-`ValidationProblemDetails` constructor over a populated one is quadratic in the number of keys,
-which one issue per collection row reaches quickly. A document that deep has to be let in by MVC
-itself first: its JSON formatter caps nesting at `JsonOptions.MaxDepth` (32 on MVC, where minimal
-APIs read System.Text.Json's own 64) and its validation visitor stops at
-`MvcOptions.MaxValidationDepth` (32), each stopping the request before any action filter runs.
-Raise both, and `[Validate]` adds no cap of its own. The errors are out of the factory's reach,
-and that touches two consumer seams the same way: an app's own `ProblemDetailsFactory` override
-receives the empty `ModelStateDictionary`, and `ProblemDetailsOptions.CustomizeProblemDetails`
-runs inside the factory before the dictionary is set. Either sees an empty `Errors` on this path
-where `TypedResults.ValidationProblem` shows the hook the full set and asks no
-`ProblemDetailsFactory` for anything, so anything either derives from the errors (a count, a log
-line) is derived from nothing, and an `Errors` entry either writes is replaced by the mapper's
-dictionary. Everything else either does (reading the request, adding an extension) lands on the
-response as it does for the app's other 400s. The merge
-is deliberately flat: the 400's `errors` dictionary keys each issue by its own property path with
-no per-argument prefix, so two validated models sharing a property name land under one key. The
-stash just above the `IsValid` gate is what `GetFormidableValidationReport` reads back: the
-aggregate, whether the request went on to a 400 or to the action (see
-[Returning warnings beside a 200](#returning-warnings-beside-a-200)). Every non-null argument's
-type is resolved by `ResolveValidatedType`:
+sixteen collection levels down, a few hundred bytes of request body.
 
-```csharp
-private Type? ResolveValidatedType(ActionDescriptor actionDescriptor, string parameterName, object argument, IServiceProvider services)
-{
-    var declaredType = DeclaredParameterType(actionDescriptor, parameterName) ?? argument.GetType();
-    if (ShouldValidate(declaredType, services))
-    {
-        return declaredType;
-    }
+The second reason is cost. The framework's `ValidationProblemDetails` constructor over a populated
+dictionary is quadratic in the number of keys, which one issue per collection row reaches quickly.
 
-    var runtimeType = argument.GetType();
-    return runtimeType != declaredType && ShouldValidate(runtimeType, services) ? runtimeType : null;
-}
-```
+A document that deep has to be let in by MVC itself first. Its JSON formatter caps nesting at
+`JsonOptions.MaxDepth` (32 on MVC, where minimal APIs read System.Text.Json's own 64) and its
+validation visitor stops at `MvcOptions.MaxValidationDepth` (32), each stopping the request before
+any action filter runs. Raise both, and `[Validate]` adds no cap of its own.
 
-<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
+Setting `Errors` directly is also what keeps both adapters serving one dictionary.
 
-`declaredType` there is the action parameter's DECLARED type (looked up on
-`context.ActionDescriptor.Parameters` by argument name), not the argument's own runtime type, and
-it is tried FIRST: when it has a registered validator, it wins outright. This matters under
-polymorphic model binding: `[FromBody] Order order` paired with a
-`[JsonPolymorphic]`/`[JsonDerivedType]` hierarchy can bind a *derived* instance to `order` while
-the parameter itself stays declared as the base `Order`. Resolving by that derived runtime type
-FIRST would let a hostile `$type` pick an unregistered derived type and skip validation entirely,
-even though the base type it's declared as has a validator — the declared type winning outright
-closes that hole. Only when the declared type resolves no validator does resolution fall back to
-probing the argument's own runtime type, so a validator registered only for a derived type still
-runs; when the action descriptor carries no matching declared parameter at all (e.g. a hand-built
-`ActionDescriptor` outside MVC's own pipeline), the runtime type is used directly, with no
-declared type to prefer. The one residual this order leaves: a derived-only validator
-registration, or an unregistered `$type`, combined with no validator for the declared type either,
-still skips the argument silently — name the base type on the attribute
-(`[Validate(typeof(Order))]`) to close it, which is the recommended shape for any action that
-accepts polymorphic model binding: an explicit type is validated as the declared type whatever the
-runtime type turns out to be, and a missing `IValidator<Order>` for it throws rather than being
-skipped. The minimal-API side gives derived instances the same
-base-type guarantee for a different reason: `ValidationEndpointFilter<TModel>`'s `OfType<TModel>`
-above treats `TModel` as fixed at the call site rather than probed from the argument, so there's
-no runtime type to steer in the first place.
+**Two consumer seams see an empty `Errors` on this path.** The errors are out of the factory's
+reach, so an app's own `ProblemDetailsFactory` override receives the empty `ModelStateDictionary`,
+and `ProblemDetailsOptions.CustomizeProblemDetails` runs inside the factory before the dictionary
+is set.
+
+Either sees that empty `Errors` where `TypedResults.ValidationProblem` shows the hook the full set
+and asks no `ProblemDetailsFactory` for anything. So anything either derives from the errors — a
+count, a log line — is derived from nothing, and an `Errors` entry either writes is replaced by
+the mapper's dictionary.
+
+Everything else either does, such as reading the request or adding an extension, lands on the
+response as it does for the app's other 400s.
+
+### Which type an argument is validated as
+
+Every non-null action argument's type is resolved before it is validated, and the order that
+resolution tries is load-bearing:
+
+| Tried | What happens |
+|---|---|
+| the parameter's DECLARED type, looked up on `ActionDescriptor.Parameters` by argument name | when it has a registered validator, it wins outright |
+| the argument's own runtime type | tried only where the declared type resolves nothing, so a validator registered only for a derived type still runs |
+| neither resolves one | the argument is skipped |
+
+Where the action descriptor carries no matching declared parameter at all — a hand-built
+`ActionDescriptor` outside MVC's own pipeline, say — the runtime type is used directly, with no
+declared type to prefer.
+
+The declared type winning outright is what closes a hole under polymorphic model binding.
+`[FromBody] Order order` paired with a `[JsonPolymorphic]`/`[JsonDerivedType]` hierarchy can bind a
+*derived* instance to `order` while the parameter itself stays declared as the base `Order`.
+Resolving by that derived runtime type first would let a hostile `$type` pick an unregistered
+derived type and skip validation entirely, even though the base type it's declared as has a
+validator.
+
+One residual the order leaves: a derived-only validator registration, or an unregistered `$type`,
+combined with no validator for the declared type either, still skips the argument silently. Name
+the base type on the attribute — `[Validate(typeof(Order))]` — to close it.
+
+That is the recommended shape for any action that accepts polymorphic model binding: an explicit
+type is validated as the declared type whatever the runtime type turns out to be, and a missing
+`IValidator<Order>` for it throws rather than being skipped.
+
+The minimal-API side gives derived instances the same base-type guarantee for a different reason.
+Its filter retrieves the argument by `TModel`, fixed at the call site rather than probed from the
+argument, so there is no runtime type to steer in the first place.
 
 ### Strict validator resolution
 
-`RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException` when
-the action could never hand the filter anything to validate — an explicit constructor type
-(`[Validate(typeof(Order), RequireValidator = true)]`) that matches no declared parameter, or a
-parameter list nothing registered validates. It is decided from the action's DECLARED parameters,
-which is what keeps it out of a client's reach: an action's parameter list is fixed, where what a
-request happens to bind is not.
+`RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException` when the
+action could never hand the filter anything to validate. Two shapes reach it: an explicit
+constructor type (`[Validate(typeof(Order), RequireValidator = true)]`) that matches no declared
+parameter, and a parameter list nothing registered validates.
+
+It is decided from the action's DECLARED parameters, which is what keeps it out of a client's
+reach: an action's parameter list is fixed, where what a request happens to bind is not.
 
 Where it is decided depends on whether you name the types, because the two modes need different
-things to answer. With explicit types the parameter list either could carry one of them or could
-not, and MVC settles that while it builds its application model — the host stops before it serves
-anything, and the message names the model type the attribute asked for. That is the same design
-the minimal-API half already ships: `ThrowIfNoDeclaredParameter` [above](#minimal-apis) reads the
-handler's `MethodInfo` while the endpoint's pipeline is built. It also reports through the seam
-the framework gives any attribute for it — MVC applies `IActionModelConvention` for an attribute
-on a method and `IControllerModelConvention` for one on a class, both without an
-`AddControllers(options => …)` registration, so `[Validate]` needs no startup hook of its own. A
-class-level `[Validate(RequireValidator = true)]` is judged action by action, exactly as the group
-overload on the minimal-API side checks each endpoint's own signature.
+things to answer:
 
-With no explicit types the attribute discovers what to validate from validator *registration*,
-and an application-model convention cannot read one: an `ActionModel` carries no
-`IServiceProvider`. So discovery mode answers in two places. The convention insists the action
-declares parameters at all, and the first request to the action probes each declared parameter
-type for a registered `IValidator<T>` — the same presence check the filter itself discovers
-arguments with. Declared, not bound: the answer is the same on every request, so it is computed
-once per action, and a dropped `AddValidatorsFromAssembly()` then fails every request to that
-action rather than quietly validating nothing. Later than build time, and for a reason that
-cannot be engineered away — there is no container to ask before a request exists — but never
-reachable by a request's shape.
+| Mode | Decided | What it checks |
+|---|---|---|
+| explicit types | while MVC builds its application model, before the host serves anything | that some declared parameter could carry one of the named types; the message names the model type the attribute asked for |
+| discovery | in two places — the model build, then the action's first request | that the action declares parameters at all, then that some declared parameter type has a registered `IValidator<T>` |
+
+The model-build half is the same design the minimal-API side already ships, where its own check
+reads the handler's `MethodInfo` while the endpoint's pipeline is built. It also reports through
+the seam the framework gives any attribute for it: MVC applies `IActionModelConvention` for an
+attribute on a method and `IControllerModelConvention` for one on a class, both without an
+`AddControllers(options => …)` registration, so `[Validate]` needs no startup hook of its own.
+
+A class-level `[Validate(RequireValidator = true)]` is judged action by action, exactly as the
+group overload on the minimal-API side checks each endpoint's own signature.
+
+Discovery mode cannot be settled at model build alone. What makes a parameter validatable is a
+validator *registration*, and an application-model convention cannot read one: an `ActionModel`
+carries no `IServiceProvider`. So the convention insists the action declares parameters at all,
+and the first
+request to the action probes each declared parameter type for a registered `IValidator<T>` — the
+same presence check the filter itself discovers arguments with.
+
+Declared, not bound: the answer is the same on every request, so it is computed once per action,
+and a dropped `AddValidatorsFromAssembly()` then fails every request to that action rather than
+quietly validating nothing. Later than build time, for a reason that cannot be engineered away —
+there is no container to ask before a request exists — but never reachable by a request's shape.
 
 One shape is refused that the filter would otherwise have validated: a base-typed parameter whose
 only registered validator is for a *derived* type. The filter reaches that at run time by falling
-back to the bound argument's own type (see the resolution order above), but the declared type
-resolves nothing, and telling the difference would mean reading what a request bound — the
-client-reachable check this design exists to avoid. **Naming the model types is the stronger
-mode**: it is answered entirely at model build, it admits a base-typed parameter for a named
-derived model, and it is the same move that closes the polymorphic residual above. A named type
-with no `IValidator<T>` throws pointing at `AddValidatorsFromAssembly`, and an unwired adapter
-throws pointing at `AddFormidable()`.
+back to the bound argument's own type, but the declared type resolves nothing, and telling the
+difference would mean reading what a request bound — the client-reachable check this design exists
+to avoid.
+
+**Naming the model types is the stronger mode.** It is answered entirely at model build, it admits
+a base-typed parameter for a named derived model, and it is the same move that closes the
+polymorphic residual above. A named type with no `IValidator<T>` throws pointing at
+`AddValidatorsFromAssembly`, and an unwired adapter throws pointing at `AddFormidable()`.
 
 Off by default: an action mixing validatable models with ordinary parameters (route values, query
 strings, injected services) is free to declare no model at all, and that is not a
@@ -794,50 +432,36 @@ misconfiguration.
 ### Profile string mapping
 
 `[Validate]`'s `Profile` property is a string (`"Submit"` by default), resolved once per request
-against the same two conventional profiles the client uses (see [Profiles](profiles.md)) through
-`ValidationProfile.FromName` — the one caller-facing entry point for a profile carried as a
-string, shared by any other string-typed configuration surface too:
+through `ValidationProfile.FromName` — the one caller-facing entry point for a profile carried as
+a string, shared by any other string-typed configuration surface too.
 
-```csharp
-public static ValidationProfile FromName(string name)
-{
-    if (string.Equals(name, "Draft", StringComparison.OrdinalIgnoreCase))
-    {
-        return Draft;
-    }
+| The name | What it resolves to |
+|---|---|
+| `"Draft"` or `"Submit"`, matched case-insensitively | the built-in profile of that name, the same two the client uses (see [Profiles](profiles.md)) |
+| any other single name | a custom profile shaped the same way `Submit` itself is built: default rules plus one ruleset with the same name |
+| a blank name, or one joining several with `,` or `;` | refused loudly, throwing on every request to the action |
 
-    if (string.Equals(name, "Submit", StringComparison.OrdinalIgnoreCase))
-    {
-        return Submit;
-    }
+FluentValidation splits a joined name where a rule is *declared*, never where one is selected, so
+a profile naming one would silently select nothing
+([Profiles](profiles.md#server-side-profile-selection)).
 
-    return Named(name, includeDefaultRules: true, name);
-}
-```
-
-<!-- Source: `src/Formidable/ValidationProfile.cs` -->
-
-`"Draft"` and `"Submit"` match case-insensitively; any other name becomes a custom profile
-shaped the same way `Submit` itself is built — default rules plus one ruleset with the same name.
-Two shapes are refused loudly instead, throwing on every request to the action: a blank name,
-and one joining several names with `,` or `;`. FluentValidation splits a joined name where a
-rule is *declared*, never where one is selected, so a profile naming one would silently select
-nothing ([Profiles](profiles.md#server-side-profile-selection)).
 The minimal-API filter takes a `ValidationProfile` value directly instead of a name string, since
 `Validate<TModel>(profile?)` is a compile-time call site, not a request-time attribute property.
 That is the whole reason the two entry points name the same thing in two types: an attribute
 argument has to be a compile-time constant, and a `ValidationProfile` is a value built at runtime.
+
 So `[Validate(Profile = "Submit")]` and `Validate<Order>(ValidationProfile.Submit)` select exactly
-the same rules — read the string as the name of the profile the value names directly, and the same
+the same rules. Read the string as the name of the profile the value names directly, and the same
 pairing holds for `"Draft"` and for any custom profile name.
 
 ## Returning warnings beside a 200
 
-A report with no errors never blocks, so the wire contract above has nothing to say about its
-warnings and infos: the handler's own response goes out untouched. The report is not gone,
-though. Both adapters stash the report the moment validation computes it, before the
-400/pass-through decision, and `GetFormidableValidationReport` reads it back anywhere the
-`HttpContext` is in reach — most usefully inside the handler a passing request went on to run:
+A report with no errors never blocks, so the wire contract has nothing to say about its warnings
+and infos: the handler's own response goes out untouched. The report is not gone, though.
+
+Both adapters stash the report the moment validation computes it, before the 400/pass-through
+decision, and `GetFormidableValidationReport` reads it back anywhere the `HttpContext` is in reach
+— most usefully inside the handler a passing request went on to run:
 
 ```csharp
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
@@ -857,33 +481,21 @@ orders.MapPost("/", (RoundTripOrder order, HttpContext http) =>
 });
 ```
 
-The `ToAdvisories` call is the point of the composition: it is the same public mapping the 400
+The `ToAdvisories` call is the point of the composition. It is the same public mapping the 400
 path uses, so a "saved, but note…" response carries its warnings in the exact wire shape the
-client already parses into `FormidableValidationProblem.Advisories`. An MVC action does the same
-through its own `HttpContext` property; for `[Validate]` the report is the aggregate across
-every validated argument. On a request no Formidable adapter validated — an endpoint outside
-the filter, an action whose arguments resolved no validator — the accessor returns `null`, so
-code shared across both kinds of route checks before reading.
+client already parses into `FormidableValidationProblem.Advisories`.
+
+An MVC action does the same through its own `HttpContext` property; for `[Validate]` the report is
+the aggregate across every validated argument. On a request no Formidable adapter validated — an
+endpoint outside the filter, an action whose arguments resolved no validator — the accessor
+returns `null`, so code shared across both kinds of route checks before reading.
 
 ## Normalize pipeline
 
-Both adapters run the model's own cleanup hook before validation, if it has one:
+Both server adapters run the model's own cleanup hook before validation, if the model has one.
+The hook is one interface a consumer model implements:
 
 ```csharp
-namespace Formidable;
-
-/// <summary>
-/// A model that can clear values not applicable to its current selections — deselected option
-/// branches, rows with no content — before persistence or validation. Called by the server
-/// validation filters before validation; client code may invoke it directly before saving
-/// drafts.
-/// </summary>
-/// <remarks>
-/// Implemented by consumer models, so it grows accordingly: a member added after v1 carries a
-/// default implementation, and a model that does not override it keeps compiling with its
-/// normalization unchanged — the default clears nothing the model's own
-/// <see cref="Normalize"/> does not.
-/// </remarks>
 public interface INormalizableModel
 {
     /// <summary>Clears fields not applicable to the current selection state and strips empty collection rows.</summary>
@@ -913,9 +525,9 @@ public class RoundTripOrder : INormalizableModel
 
 <!-- Excerpt from `samples/Formidable.Sample.Shared/RoundTripOrder.cs` -->
 
-Both `ValidationEndpointFilter<TModel>` and `[Validate]` call
-`(model as INormalizableModel)?.Normalize()` in place, on the exact instance the framework
-already deserialized and bound — before that instance is handed to `ValidateAsync`.
+Both adapters call `(model as INormalizableModel)?.Normalize()` in place, on the exact instance
+the framework already deserialized and bound, before that instance is handed to `ValidateAsync`.
+
 `Normalize()` mutates the object rather than returning a copy. So the same instance the request
 model binder produced is what the validator checks and, if validation passes, what the route
 handler or action ultimately runs against. The handler sees the normalized model, not the
@@ -923,128 +535,117 @@ wire-deserialized one.
 
 ## Client round-trip
 
-`IFormidableEngine.ApplyServerIssues` documents its own contract in full:
-
-```csharp
-/// <summary>
-/// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
-/// submit results: the server's verdict applies at the severity it carries. Errors land on
-/// their fields and reach the EditContext's message store; warnings and infos land as
-/// advisories, which the reads above surface and the store — an error-only surface — does not.
-/// The payload is treated as the server's CURRENT verdict: it replaces the server's previous
-/// one outright rather than accumulating with it, so re-submitting the same or a corrected
-/// payload does not duplicate inline messages. The server's issues are held apart from the
-/// client's own, so a replace cannot disturb a client-sourced issue on the same field, and an
-/// advisory whose message a client rule already disclosed for that field shows once, as the
-/// client's copy. Applying is itself a disclosure event for the fields it names: a client
-/// error the last submit computed but had nowhere to show surfaces alongside the server's.
-/// The server's verdict stands until a newer whole-model answer supersedes it — the next
-/// debounced refresh, the next submit, or a page saying what its freshly loaded values have
-/// earned through <see cref="DiscloseLoadedValuesAsync"/> — at which point a server-only
-/// issue with no matching client rule goes, while one a client rule agrees with keeps showing
-/// through the client's own answer. Because the payload is treated as a submit result,
-/// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
-/// server-side reaches the submitted state through this call alone — and it clears any
-/// standing incomplete-validation fault, whatever the client is doing: a verdict has arrived
-/// to stand in for the one a faulted pass could not finish. Call from the renderer's
-/// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
-/// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
-/// once.
-/// </summary>
-/// <remarks>
-/// Errors bypass the field registry: the server judged what was actually submitted, so an error
-/// shows whether or not the client rendered its field, and only a disclosure override returning
-/// <see langword="false"/> hides one. Advisories take the same override-aware visibility
-/// answer the client's own do: a disclosure override settles it in either direction, and
-/// where none speaks, one with no rendered field is not shown — because an advisory blocks
-/// nothing, so hiding one strands no verdict. Reporting is where the two part company: a
-/// suppressed advisory here reaches the suppressed-issue diagnostic, where a submit's own
-/// reaches nothing at all — no Trace line, no logged warning, no callback. A payload
-/// carrying the same message twice for one field at one severity lands it once: a reader
-/// has no use for it twice.
-/// </remarks>
-void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
-```
-
-<!-- Source: `src/Formidable.Blazor/IFormidableEngine.cs` -->
+`ApplyServerIssues` has two overloads on `FormidableForm` and on `FormidableValidator`: a sequence
+of `ValidationIssue`, or a deserialized `FormidableValidationProblem`. The engine's own method
+takes the sequence. A sequence is enumerated exactly once.
 
 **Replace, not accumulate.** Each call is the server's current verdict, full stop. The server's
 issues live apart from the client's own answer, so applying one swaps that set outright and
-touches nothing the client said: call it twice in a row with the same or a corrected body and no
-stale duplicate is left behind, and a client rule failing on the same field keeps its own message
-throughout. An apply is also a disclosure event for the fields it names, so a client error the
-last submit computed but had nowhere to show surfaces alongside the server's (see
-[Disclosure](disclosure.md)). The server's verdict then stands until a newer whole-model answer
-supersedes it — the debounced refresh behind the next edit, the next submit, or a page saying what
-its freshly loaded values have earned — at which point a server-only issue with no matching client
-rule goes, and one the client agrees with carries on through the client's own answer.
+touches nothing the client said.
 
-**The severity is the server's to set.** An error lands on its field, blocks the submit and reaches
-the EditContext's message store. A warning or an info lands on the same field as an advisory:
-visible in Formidable's own message components and in the summary, blocking nothing, and never
-written to the store, which carries errors only. The page writes no advisory plumbing of its own.
+Call it twice in a row with the same or a corrected body and no stale duplicate is left behind,
+and a client rule failing on the same field keeps its own message throughout. A payload carrying
+the same message twice for one field at one severity lands it once, for the same reason: a reader
+has no use for it twice.
 
-**The store is the compatibility bridge, by contract.** It exists so a page that already renders a
-native `ValidationSummary` or `ValidationMessage`, or calls `GetValidationMessages` directly,
-keeps working without swapping in Formidable's own summary and message components. That is a
-promise rather than a side effect: the store is a projection of the same channel views the
-engine's own reads answer from, rebuilt whenever one of them moves, so a native component reads
-the same answer `FormidableFieldMessage` does, as far as the store is able to carry it — errors
-only, at no severity it can express, and with repeats collapsed on its own terms rather than the
-issue reads'. The errors those
-views disclose reach it, and the projection asks nothing further about registration: a field the
-submit channel is watching keeps its store entry after it leaves the page, until a later pass
-answers for it again, and the live channel's default policy discloses an engaged field's error
-whether or not anything renders it. That last one matters most to a form with no Formidable
-components at all. Nothing registers its fields, so a live channel deferring to registration would
-leave a native page's own errors out of the only surface it reads. A page that wants the narrower
-behaviour opts into it with
-[`FormidableOptions.LiveDisclosure`](options.md#livedisclosure), which moves every surface
-together rather than splitting them. What the store does not carry is the curated reading
-experience: severities, disclosure, document order and focus are what Formidable's own summary and
-message components provide, by reading the engine directly rather than the store.
+An apply is also a disclosure event for the fields it names, so a client error the last submit
+computed but had nowhere to show surfaces alongside the server's (see
+[Disclosure](disclosure.md)).
 
-**A rejection moves focus, the way a blocked submit does.** `FormidableForm.ApplyServerIssues`
-is a submit's verdict arriving late, so a payload carrying an error lands the visitor on the first
+The server's verdict then stands until a newer whole-model answer supersedes it — the debounced
+refresh behind the next edit, the next submit, or a page saying what its freshly loaded values
+have earned. At that point a server-only issue with no matching client rule goes, and one the
+client agrees with carries on through the client's own answer.
+
+**An apply is a submit result, so it sets `HasSubmitted`.** A page whose only validation is
+server-side reaches the submitted state through this call alone. It also clears any standing
+incomplete-validation fault, whatever the client is doing: a verdict has arrived to stand in for
+the one a faulted pass could not finish.
+
+**The severity is the server's to set.** An error lands on its field, blocks the submit and
+reaches the EditContext's message store. A warning or an info lands on the same field as an
+advisory: visible in Formidable's own message components and in the summary, blocking nothing, and
+never written to the store, which carries errors only. The page writes no advisory plumbing of its
+own.
+
+**A rejection moves focus, the way a blocked submit does.** `FormidableForm.ApplyServerIssues` is
+a submit's verdict arriving late, so a payload carrying an error lands the visitor on the first
 error on the page — the target a blocked client submit gets, under the same
 `FocusFirstErrorOnInvalidSubmit` switch (see
 [Component kit](component-kit.md#formidableformtmodel)). A payload with no error in it moves
-nothing, since nothing about it was rejected. `Engine.ApplyServerIssues(...)` is the quiet path
-for an apply nobody just asked for, and `FormidableValidator`'s forwarders are quiet for a
-narrower reason: attach mode does focus a blocked submit's first error, through its own
-`ValidateForSubmitAsync()`, but the round trip is the page's own, so what happens after a
-rejection is the page's to choose. `FocusFirstErrorAsync()` on the validator is how it chooses the
-same move, once the applied verdict is on screen.
+nothing, since nothing about it was rejected.
+
+`Engine.ApplyServerIssues(...)` is the quiet path for an apply nobody just asked for, and
+`FormidableValidator`'s forwarders are quiet for a narrower reason. Attach mode does focus a
+blocked submit's first error, through its own `ValidateForSubmitAsync()`, but the round trip is
+the page's own, so what happens after a rejection is the page's to choose.
+`FocusFirstErrorAsync()` on the validator is how it chooses the same move, once the applied
+verdict is on screen.
+
+### The store as a compatibility bridge
+
+The `EditContext`'s message store exists so a page that already renders a native
+`ValidationSummary` or `ValidationMessage`, or calls `GetValidationMessages` directly, keeps
+working without swapping in Formidable's own summary and message components.
+
+That is a promise rather than a side effect. The store is a projection of the same channel views
+the engine's own reads answer from, rebuilt whenever one of them moves, so a native component
+reads the same answer `FormidableFieldMessage` does — as far as the store is able to carry it.
+
+The store carries errors only, at no severity it can express, and collapses repeats on its own
+terms rather than the issue reads'.
+
+The errors those channel views disclose reach it, and the projection asks nothing further about
+registration. A field the submit channel is watching keeps its store entry after it leaves the
+page, until a later pass answers for it again, and the live channel's default policy discloses an
+engaged field's error whether or not anything renders it.
+
+That last one matters most to a form with no Formidable components at all. Nothing registers its
+fields, so a live channel deferring to registration would leave a native page's own errors out of
+the only surface it reads. A page that wants the narrower behaviour opts into it with
+[`FormidableOptions.LiveDisclosure`](options.md#livedisclosure), which moves every surface
+together rather than splitting them.
+
+What the store does not carry is the curated reading experience. Severities, disclosure, document
+order and focus are what Formidable's own summary and message components provide, by reading the
+engine directly rather than the store.
 
 ### Reading the rejection body
 
 A 400 says the request was rejected, not who rejected it. A reverse proxy, an API gateway or a WAF
-in front of the endpoint answers with its own HTML page or its own JSON, and neither is the verdict
-the page is waiting for. Deserializing is where it finds out, and the response's `Content-Type` will
-not tell it first: `ReadFromJsonAsync` reads the body whatever media type the header names, so an
-HTML page labelled `application/json` throws exactly as an unlabelled one does. It throws
-`JsonException` when the body will not deserialize into the type at all, for example an HTML page, a
-line of plain text, an empty body, or JSON whose members conflict with it. It throws
-`InvalidOperationException` when the header names a character set the runtime does not have, and
-that is not an exotic case: `windows-1252` and `Shift_JIS` both throw, where `utf-8` and
-`iso-8859-1` are read. And the JSON literal `null` throws nothing: it deserializes to `null`, which
-`ApplyServerIssues` rejects with `ArgumentNullException`. Inside a Blazor event handler each of
-those is an unhandled exception, which is the page's error UI on WebAssembly and a faulted circuit
-on Server.
+in front of the endpoint answers with its own HTML page or its own JSON, and neither is the
+verdict the page is waiting for.
 
-Deserializing is a shape check, not a verdict check. A gateway's own JSON deserializes happily into
-a problem carrying no errors and no advisories, and applying that replaces whatever the last
-response left on screen with nothing, which reads as a rejection with no reason given. The sample
-below posts to its own API, so it stops at the shape; a page in front of infrastructure it does not
-control has the emptier case to weigh too.
+Deserializing is where it finds out, and the response's `Content-Type` will not tell it first:
+`ReadFromJsonAsync` reads the body whatever media type the header names, so an HTML page labelled
+`application/json` throws exactly as an unlabelled one does.
+
+| What comes back | What the parse does |
+|---|---|
+| a body that will not deserialize into the type at all — an HTML page, a line of plain text, an empty body, or JSON whose members conflict with it | throws `JsonException` |
+| a header naming a character set the runtime does not have — `windows-1252` and `Shift_JIS` both throw, where `utf-8` and `iso-8859-1` are read | throws `InvalidOperationException` |
+| the JSON literal `null` | throws nothing: it deserializes to `null`, which `ApplyServerIssues` rejects with `ArgumentNullException` |
+
+Inside a Blazor event handler each of those is an unhandled exception, which is the page's error UI
+on WebAssembly and a faulted circuit on Server.
+
+Deserializing is a shape check, not a verdict check. A gateway's own JSON deserializes happily
+into a problem carrying no errors and no advisories, and applying that replaces whatever the last
+response left on screen with nothing — which reads as a rejection with no reason given.
+
+The sample below posts to its own API, so it stops at the shape. A page in front of infrastructure
+it does not control has the emptier case to weigh too.
 
 So the parse belongs inside a `try`, a `null` result counts as no verdict, and the page says so in
-its own words rather than through the framework's. What it does not do is clear the last verdict,
-and that cuts both ways: an unreadable response is no evidence the previous one stopped being true,
-so wiping the messages a visitor is working through would cost them their only reasons, while a
-corrected resubmission that comes back unreadable leaves those same reasons standing under a status
-line that reads as current. A page that would rather show nothing than risk showing something stale
-hands `ApplyServerIssues` an empty sequence, which swaps the server source for nothing.
+its own words rather than through the framework's.
+
+What it does not do is clear the last verdict, and that cuts both ways. An unreadable response is
+no evidence the previous one stopped being true, so wiping the messages a visitor is working
+through would cost them their only reasons. A corrected resubmission that comes back unreadable
+leaves those same reasons standing under a status line that reads as current.
+
+A page that would rather show nothing than risk showing something stale hands `ApplyServerIssues`
+an empty sequence, which swaps the server source for nothing.
 
 The sample deliberately skips client-side submit validation so the round trip is visible end to end:
 press Send and the server's 400 lands on the exact fields.
@@ -1105,50 +706,59 @@ private async Task Send()
 
 Errors reach the form's fields the moment `ApplyServerIssues` runs, bypassing the field-registry
 disclosure check entirely (see [Disclosure](disclosure.md)). The server already validated the
-submitted data, so a field the client happens not to have rendered isn't a disclosure concern —
-and an error that blocks the save has to reach the user either way. Advisories in the same payload
-take the same override-aware visibility answer the client's own advisories do: a
-`DisclosureOverride` settles it in either direction, and where none speaks, one whose field is on
-screen shows there and one whose field isn't is dropped. An advisory blocks nothing, so hiding one
-strands no verdict. Reporting is where the two part company: a dropped advisory here is named by a
-suppressed-issue diagnostic, where one a submit drops reaches nothing at all — no Trace line, no
-logged warning, no `SuppressedIssueDiagnostic` callback.
+submitted data, so a field the client happens not to have rendered isn't a disclosure concern, and
+an error that blocks the save has to reach the user either way. Only a `DisclosureOverride`
+returning `false` hides one.
 
-Both sides usually run the same validator, so the same advisory often arrives twice — once from the
+Advisories in the same payload take the same override-aware visibility answer the client's own
+advisories do: a `DisclosureOverride` settles it in either direction, and where none speaks, one
+whose field is on screen shows there and one whose field isn't is dropped. An advisory blocks
+nothing, so hiding one strands no verdict.
+
+Reporting is where the two part company. A dropped advisory here is named by a suppressed-issue
+diagnostic, where one a submit drops reaches nothing at all — no Trace line, no logged warning, no
+`SuppressedIssueDiagnostic` callback.
+
+Both sides usually run the same validator, so the same advisory often arrives twice: once from the
 client's own submit and once from the response. It shows once, as the client's copy, because the
-views merge the client's answer first and drop the server's repeat of it. That match is on the
-message text at the same severity, so a client and a server phrasing the same advisory differently
-show both: keeping the two sides' message resources in step is the consumer's job, the same way
-keeping their rules in step is.
+views merge the client's answer first and drop the server's repeat of it.
+
+That match is on the message text at the same severity, so a client and a server phrasing the same
+advisory differently show both. Keeping the two sides' message resources in step is the consumer's
+job, the same way keeping their rules in step is.
 
 **Advisories never ride a success response.** The wire contract above only defines the *rejection*
 shape — the `advisories` extension exists on a 400 `ValidationProblemDetails` body. Both adapters
-skip straight to the framework's ordinary success path when the report has no errors
-(`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections
-above). The handler's or action's own return value passes through completely untouched, with no
-advisories attached, because there is no wire contract for a successful response to carry them.
-A handler that wants its 200 to say "saved, but note…" builds that response itself, from the
-report the adapter already computed — see
+skip straight to the framework's ordinary success path when the report has no errors.
+
+The handler's or action's own return value passes through completely untouched, with no advisories
+attached, because there is no wire contract for a successful response to carry them. A handler
+that wants its 200 to say "saved, but note…" builds that response itself, from the report the
+adapter already computed — see
 [Returning warnings beside a 200](#returning-warnings-beside-a-200).
 
 **A response's paths are read against the live model.** Applying a verdict resolves each issue's
-path against the object graph the form is bound to, and every segment but the last is navigated:
-a member lookup on whatever the walk has reached so far, invoking that member's getter or its
-indexer where one matches. The last segment names the field rather than navigating into it, and a
-segment that resolves to nothing ends the walk there. Formidable's own adapters send the
-validator's own paths, but the apply assumes nothing about where a body came from, so an invented
-path is read segment by segment for as long as the model has members to match. Those reads happen
-wherever the component runs: in a WebAssembly app, the visitor's own machine; in a Blazor Server
-circuit, the server, where a segment landing on a getter with a side effect — an EF navigation
-property that lazy-loads — is a database query.
+path against the object graph the form is bound to, and every segment but the last is navigated: a
+member lookup on whatever the walk has reached so far, invoking that member's getter or its
+indexer where one matches.
+
+The last segment names the field rather than navigating into it, and a segment that resolves to
+nothing ends the walk there. Formidable's own adapters send the validator's own paths, but the
+apply assumes nothing about where a body came from, so an invented path is read segment by segment
+for as long as the model has members to match.
+
+Those reads happen wherever the component runs: in a WebAssembly app, the visitor's own machine;
+in a Blazor Server circuit, the server, where a segment landing on a getter with a side effect —
+an EF navigation property that lazy-loads — is a database query.
 
 **Collection sizes are the host's job, not the validator's.** Both sample endpoints validate
-whatever collection a client sends without capping how large it can get — the request body's size
+whatever collection a client sends without capping how large it can get. The request body's size
 limit is the only ceiling on `RoundTripOrder.Lines` or
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)'s `EventRegistration.Attendees`,
 and that page's own attendee-count rule is `Warning` severity (see [Severity](severity.md)), so it
-never blocks a submit by itself. A real API should add an error-severity cap alongside the format
-rules already in place:
+never blocks a submit by itself.
+
+A real API should add an error-severity cap alongside the format rules already in place:
 
 ```csharp
 RuleFor(x => x.Attendees).Must(a => a.Count <= 100).WithMessage("Too many attendees in one request");
@@ -1164,8 +774,10 @@ the Minimal API endpoint, with its MVC twin at
 [`samples/Formidable.Sample.Api/Controllers/OrdersController.cs`](../samples/Formidable.Sample.Api/Controllers/OrdersController.cs).
 The page's endpoint picker posts to either one, with a caption under the radios naming the live
 URL, so the two 400s are traceable to their source.
+
 [`samples/Formidable.Sample.Api/requests.http`](../samples/Formidable.Sample.Api/requests.http)
-has ready-made requests against both endpoints for use outside the browser. Run the API first
-(`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the Blazor sample
-and press "Send to server". Pressing Enter triggers the browser's implicit form submission,
-which runs the client-side submit pipeline this page deliberately skips.
+has ready-made requests against both endpoints for use outside the browser.
+
+Run the API first (`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in
+the Blazor sample and press "Send to server". Pressing Enter triggers the browser's implicit form
+submission, which runs the client-side submit pipeline this page deliberately skips.

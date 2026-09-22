@@ -28,9 +28,10 @@ by hand — the kind of integration code a form-heavy codebase accumulates one f
 (a footgun being an API that invites you to hurt yourself). Beside it is the Formidable
 mechanism that answers that pattern natively. The patterns themselves are generic: they're what
 anyone hand-rolling this integration is likely to reach for, and most of them were in my own
-code first. **See it** links the sample page where you can watch the answer work. Every row is
-held still by a test in the suite; a pattern with no shipped sample or test is left out rather
-than padded in.
+code first.
+
+**See it** links the sample page where you can watch the answer work. Every row is held still by
+a test in the suite; a pattern with no shipped sample or test is left out rather than padded in.
 
 | Workaround pattern | Formidable mechanism | See it |
 |---|---|---|

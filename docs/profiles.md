@@ -7,9 +7,10 @@ One validator ends up serving more than two moments the instant a form grows pas
 example. A signup form's email needs a shape check while the visitor is typing and a presence
 check at submit — that is two moments already. Add a save-draft button and there's a
 third moment: valid enough to keep, not yet valid enough to send. Add an approval step behind
-submit and there's a fourth: valid enough to submit, not yet valid enough to approve. Write a
-separate validator per moment and the same `RuleFor(x => x.Email)` exists in every one of them,
-agreeing today and drifting the first time someone fixes one copy and forgets the rest.
+submit and there's a fourth: valid enough to submit, not yet valid enough to approve.
+
+Write a separate validator per moment and the same `RuleFor(x => x.Email)` exists in every one of
+them, agreeing today and drifting the first time someone fixes one copy and forgets the rest.
 
 A `ValidationProfile` is Formidable's answer: one validator, and a name that selects which
 subset of its rules applies at any given moment. This page covers the two profiles Formidable
@@ -45,9 +46,11 @@ public class DraftedBriefValidator : DraftSubmitValidator<DraftedBrief>
 routes to a `"Submit"` ruleset layered on top of them. Skip the split and a blank field earns two
 complaints for the price of one mistake — "this is required" and "this is malformed" — the moment
 anything validates it at all. Keeping the two questions on separate axes is what keeps a single
-mistake to a single message. Draft rules ask "is this value malformed?" and treat an empty value
-as fine, since a blank field mid-draft isn't wrong yet. Submit rules ask "is this value present at
-all?" and treat that same empty value as missing.
+mistake to a single message.
+
+Draft rules ask "is this value malformed?" and treat an empty value as fine, since a blank field
+mid-draft isn't wrong yet. Submit rules ask "is this value present at all?" and treat that same
+empty value as missing.
 
 | Profile | Rules it runs |
 |---|---|
@@ -129,20 +132,21 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
   profile too, executing only the rules no pass has answered for the current edit and serving
   stored verdicts for the rest
   (see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
-- **Live passes** — one per field change — run `LiveProfile` (`FormidableOptions.LiveProfile`),
-  which is nullable and defaults to `null`: the live channel then evaluates the submit profile
-  itself, whichever instance that property currently holds. Point it somewhere narrower and the
-  live channel evaluates that profile instead.
+- **Live passes** run `LiveProfile` (`FormidableOptions.LiveProfile`), which is nullable and
+  defaults to `null`: the live channel then evaluates the submit profile itself, whichever
+  instance that property currently holds. Point it somewhere narrower and the live channel
+  evaluates that profile instead.
 
 Following the submit profile is what lets a live message say what a submit would actually
 complain about, presence rules included. What keeps that from nagging is not the rule selection
 but the engaged set: a live pass files a verdict only for the fields something has engaged, so a
 field nobody has reached stays silent however loudly its rule is failing underneath (see
-[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)). Narrowing `LiveProfile`
-is the second, blunter lever, and it is worth reaching for when a submit rule is genuinely too
-expensive to run on every change — a uniqueness check against a server, say. It cannot tell an
-untouched field from an engaged one, so it silences the field the visitor is working in along
-with the rest.
+[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)).
+
+Narrowing `LiveProfile` is the second, blunter lever, and it is worth reaching for when a submit
+rule is genuinely too expensive to run on every change — a uniqueness check against a server, say.
+It cannot tell an untouched field from an engaged one, so it silences the field the visitor is
+working in along with the rest.
 
 Saving a draft doesn't go through the engine's submit pipeline at all, whatever the live channel
 is doing — it's a separate, lenient validation call straight against the injected
@@ -194,10 +198,5 @@ produces. A rule's `WithName(...)` call lands on `ValidationIssue.DisplayName`, 
 `SubmitOutcome.VisibleErrorSummary` — ready for a dialog or summary without any extra mapping step
 on your end. A localized message from FluentValidation's own resource pipeline takes the same
 route.
-
-**Test:** `Submit_shows_only_revealed_fields_and_reports_their_display_names`
-(`tests/Formidable.Blazor.Tests/FormidableEngineSubmitTests.cs`) pins a rule with
-`WithName("Order description")` surfacing that exact display name in
-`SubmitOutcome.VisibleErrorSummary`.
 
 **Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor)
