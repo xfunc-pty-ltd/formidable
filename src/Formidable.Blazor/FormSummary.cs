@@ -7,8 +7,8 @@ namespace Formidable.Blazor;
 /// Renders a live, severity-grouped summary of every currently-visible validation issue across
 /// the form, backed by <see cref="IFormValidationEngine.GetVisibleIssues"/> — the same fault-first,
 /// submit-then-live-deduped view <c>FieldMessage</c>/<c>CollectionMessage</c> use per-field, but
-/// for the whole form at once. Renders nothing while the form has no visible issues; otherwise an
-/// <c>aria-alert</c> region with one list per non-empty severity group (errors, then warnings,
+/// for the whole form at once. Renders nothing while the form has no visible issues; otherwise a
+/// <c>role="alert"</c> region with one list per non-empty severity group (errors, then warnings,
 /// then infos), each item a button that moves focus to the offending field via
 /// <see cref="IFormidableFocusService"/>. Subscribes to the cascaded engine's
 /// <see cref="IFormValidationEngine.StateChanged"/> so the summary stays current through live

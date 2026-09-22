@@ -2,8 +2,9 @@ namespace Formidable;
 
 /// <summary>
 /// A model that can clear values not applicable to its current selections — deselected option
-/// branches, rows with no content — before persistence or validation. Called by form
-/// infrastructure prior to save/submit on the client and enforced again at the server boundary.
+/// branches, rows with no content — before persistence or validation. Called by the server
+/// validation filters before validation; client code may invoke it directly before saving
+/// drafts.
 /// </summary>
 public interface INormalizableModel
 {

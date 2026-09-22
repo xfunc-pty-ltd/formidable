@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -19,6 +20,11 @@ namespace Formidable.AspNetCore;
 /// regardless of how their <see cref="IModelValidator{TModel}"/> is registered.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+[RequiresUnreferencedCode(
+    "Resolves IModelValidator<T> for each action argument's runtime type via " +
+    "Type.MakeGenericType and invokes ValidateAsync via MethodInfo.Invoke; trimming can " +
+    "remove the closed generic instantiation or the ValidateAsync method for argument " +
+    "types not otherwise statically referenced, breaking validation for those types.")]
 public sealed class ValidateAttribute : ActionFilterAttribute
 {
     private readonly Type[] _modelTypes;
@@ -29,8 +35,10 @@ public sealed class ValidateAttribute : ActionFilterAttribute
     /// <summary>Validates the arguments of exactly these model types.</summary>
     public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
 
-    /// <summary>Profile name: "Draft", "Submit" (default), or a custom profile name — custom
-    /// names run default rules plus the same-named rule set, mirroring Submit's shape.</summary>
+    /// <summary>Profile name: "Draft", "Submit" (default), or a custom profile name. The two
+    /// built-in names match case-insensitively (e.g. "draft" and "DRAFT" both resolve to the
+    /// built-in <see cref="ValidationProfile.Draft"/>); custom names run default rules plus the
+    /// same-named rule set, mirroring Submit's shape.</summary>
     public string Profile { get; set; } = "Submit";
 
     /// <inheritdoc />

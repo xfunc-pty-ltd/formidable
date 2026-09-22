@@ -20,12 +20,12 @@ namespace Formidable.Introspection;
 /// malformed path (one <see cref="PropertyPath.TryParse"/> rejects) resolves to the model root
 /// with the entire original path as the property name.
 /// </remarks>
+[RequiresUnreferencedCode("Walks the object graph via reflection; model members must not be trimmed.")]
 public sealed class ReflectionModelIntrospector : IModelIntrospector
 {
     private readonly ConcurrentDictionary<(Type Type, string Property), PropertyInfo?> _propertyCache = new();
 
     /// <inheritdoc />
-    [RequiresUnreferencedCode("Walks the object graph via reflection; model members must not be trimmed.")]
     public ResolvedField Resolve(object rootModel, string propertyPath)
     {
         ArgumentNullException.ThrowIfNull(rootModel);

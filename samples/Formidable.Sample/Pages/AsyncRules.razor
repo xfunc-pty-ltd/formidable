@@ -2,7 +2,7 @@
 
 <PageTitle>Async rules</PageTitle>
 <h1>Async rules</h1>
-<p>Type "admin" and pause: the uniqueness check runs after the debounce, shows a pending state, and a new keystroke cancels the in-flight check.</p>
+<p>Type "admin" and pause: each keystroke starts the check immediately (the 600ms delay simulates a server call), shows a pending state, and a new keystroke cancels the in-flight check.</p>
 
 <FormidableForm Model="_handle">
     <FormSummary />
