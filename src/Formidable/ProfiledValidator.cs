@@ -115,11 +115,28 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
                     ? string.Join(", ", _registeredRuleSetNames.OrderBy(name => name, StringComparer.Ordinal).Select(name => $"'{name}'"))
                     : "none registered";
                 throw new InvalidOperationException(
-                    $"Profile ruleset '{ruleSetName}' matches no ruleset on '{GetType().Name}' — available: {available}.");
+                    $"Profile ruleset '{ruleSetName}' matches no ruleset on '{FriendlyTypeName.Of(GetType())}' — available: {available}.");
             }
         }
 
         _verifiedProfiles.TryAdd(profile, 0);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="validator"/>'s own <see cref="VerifyRuleSets"/> when it derives from
+    /// <see cref="ProfiledValidator{T}"/>, and does nothing otherwise — the one call every
+    /// profile-aware entry point shares instead of repeating the type test. Static, so the
+    /// enclosing type's own type parameter plays no part in that test: the pattern match below
+    /// closes over <typeparamref name="TValidated"/> alone, resolved from
+    /// <paramref name="validator"/>, and a caller reaches this member through whichever closed
+    /// <see cref="ProfiledValidator{T}"/> happens to be in scope.
+    /// </summary>
+    internal static void VerifyRuleSetsIfProfiled<TValidated>(IValidator<TValidated> validator, ValidationProfile profile)
+    {
+        if (validator is ProfiledValidator<TValidated> profiledValidator)
+        {
+            profiledValidator.VerifyRuleSets(profile);
+        }
     }
 
     private bool IsSelectable(string ruleSetName) =>

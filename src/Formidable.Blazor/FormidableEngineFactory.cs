@@ -109,7 +109,11 @@ internal static class FormidableEngineFactory
     /// construction (no container involved) must stay possible with no logging at all, and a
     /// consumer who never registered <see cref="ILoggerFactory"/> gets the engine's pre-existing
     /// diagnostics (Trace, the callback) exactly as before — logging is additive, never required.
+    /// Internal rather than private: <see cref="FirstErrorFocus"/>'s focus-miss diagnostic and
+    /// <see cref="FormidableValidator{TModel}"/>'s missing-click-recovery-root diagnostic resolve
+    /// their own logger the identical way, through this one method, so the "Formidable" category
+    /// name has a single home rather than one per call site.
     /// </summary>
-    private static ILogger? ResolveLogger(IServiceProvider services) =>
+    internal static ILogger? ResolveLogger(IServiceProvider services) =>
         ((ILoggerFactory?)services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable");
 }

@@ -48,7 +48,7 @@ public static class PropertyPath
 
             if (remaining[0] == '[')
             {
-                if (!TryConsumeIndexer(ref remaining, result.Count, result))
+                if (!TryConsumeIndexer(ref remaining, result))
                 {
                     return false;
                 }
@@ -91,10 +91,10 @@ public static class PropertyPath
     }
 
     /// <summary>Consumes a '[token]' indexer and appends it to <paramref name="result"/>.</summary>
-    private static bool TryConsumeIndexer(ref ReadOnlySpan<char> remaining, int segmentsSoFar, List<PathSegment> result)
+    private static bool TryConsumeIndexer(ref ReadOnlySpan<char> remaining, List<PathSegment> result)
     {
         var close = remaining.IndexOf(']');
-        if (close <= 1 || segmentsSoFar == 0)
+        if (close <= 1 || result.Count == 0)
         {
             return false; // unclosed, empty, or leading indexer
         }

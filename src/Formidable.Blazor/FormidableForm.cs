@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -21,7 +20,6 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 {
     private TModel? _boundModel;
     private FormidableOptions? _boundOptions;
-    private EditContext? _editContext;
     private FormidableEngine<TModel>? _engine;
     private FormidableFormContext? _context;
     private string _modelLevelFieldId = string.Empty;
@@ -395,6 +393,19 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // reference comparison.
         await EstablishClickRecoveryAsync();
 
+        await ResolveFieldOrderAsync(version);
+    }
+
+    /// <summary>
+    /// Resolves where this render's fields actually sit and hands the engine the reading order,
+    /// or leaves whatever order is already in force when neither the registry version nor a
+    /// reported layout move calls for a fresh resolve. See the remarks on
+    /// <see cref="OnAfterRenderAsync"/> for why this phase runs where it does and what its
+    /// failure paths tolerate.
+    /// </summary>
+    /// <param name="version">The registry version this render observed, latched before the resolve begins.</param>
+    private async Task ResolveFieldOrderAsync(int version)
+    {
         if (version == _fieldOrderVersion && !_layoutMoved)
         {
             return;
@@ -425,7 +436,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // would take whichever of its two positions the answer listed last rather than the one the
         // page puts it in. Adding it is also what leaves the request never empty, whatever the
         // registry holds.
-        var fields = _engine.Registry.RegisteredFields.ToList();
+        var fields = _engine!.Registry.RegisteredFields.ToList();
         if (!fields.Contains(_engine.ModelLevelField))
         {
             fields.Add(_engine.ModelLevelField);
@@ -695,10 +706,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _engine?.Dispose();
         _boundModel = model;
         _boundOptions = Options;
-        _editContext = new EditContext(model);
+        var editContext = new EditContext(model);
         _engine = FormidableEngineFactory.Create(
             model,
-            _editContext,
+            editContext,
             Services,
             Validator,
             Options,
@@ -1034,7 +1045,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
         {
             inner.OpenComponent<EditForm>(0);
-            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _editContext);
+            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _engine!.EditContext);
             inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
             // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
             // The default is deliberate: without it, any native constraint attribute inside the
@@ -1044,10 +1055,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // interactive check: :invalid still matches, ValidityState is still computed, and
             // checkValidity()/reportValidity() still work when called.
             inner.AddAttribute(3, "novalidate", true);
-            if (AdditionalAttributes is not null)
-            {
-                inner.AddMultipleAttributes(4, AdditionalAttributes!);
-            }
+            inner.AddMultipleAttributes(4, AdditionalAttributes!);
             // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
             // because the all-suppressed gate's summary entry addresses the form by this id (see
             // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
@@ -1079,28 +1087,19 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// The form element's merged <c>aria-describedby</c> value: any consumer-splatted
-    /// <c>aria-describedby</c> first, then the model-level message list's id
-    /// (<see cref="FormidableFieldId.MessagesFor(string)"/> of <c>_modelLevelFieldId</c>) appended
-    /// — the same consumer-first, computed-appended shape a kit input applies to its own
-    /// <c>aria-describedby</c>. The computed id is rendered unconditionally here, where a kit
-    /// input renders one only while its own field has issues, so the splatted ids are the only
-    /// ones describing anything while <see cref="FormidableModelMessage"/> is absent or standing
-    /// empty; that is what puts them first. Appending keeps a consumer's own hint where the
-    /// consumer put it rather than reshuffling it once the model-level list has something to say.
+    /// The form element's merged <c>aria-describedby</c> value: the model-level message list's id
+    /// (<see cref="FormidableFieldId.MessagesFor(string)"/> of <c>_modelLevelFieldId</c>) merged
+    /// with any consumer-splatted <c>aria-describedby</c> through
+    /// <see cref="FormidableCss.CombineSplatted"/> — the same method a kit input calls for its own
+    /// <c>aria-describedby</c> and for <c>class</c>, so the merges are identical by construction.
+    /// The computed id is rendered unconditionally here, where a kit input renders one only while
+    /// its own field has issues, so the splatted ids are the only ones describing anything while
+    /// <see cref="FormidableModelMessage"/> is absent or standing empty; that is what puts them
+    /// first. Appending keeps a consumer's own hint where the consumer put it rather than
+    /// reshuffling it once the model-level list has something to say.
     /// </summary>
-    private string ComputeModelLevelAriaDescribedBy()
-    {
-        var messagesId = FormidableFieldId.MessagesFor(_modelLevelFieldId);
-        if (AdditionalAttributes is null
-            || !AdditionalAttributes.TryGetValue("aria-describedby", out var splatted))
-        {
-            return messagesId;
-        }
-
-        var splattedIds = Convert.ToString(splatted, CultureInfo.InvariantCulture);
-        return string.IsNullOrEmpty(splattedIds) ? messagesId : $"{splattedIds} {messagesId}";
-    }
+    private string ComputeModelLevelAriaDescribedBy() =>
+        FormidableCss.CombineSplatted(AdditionalAttributes, "aria-describedby", FormidableFieldId.MessagesFor(_modelLevelFieldId));
 
     /// <inheritdoc />
     public void Dispose()

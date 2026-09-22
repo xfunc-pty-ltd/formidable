@@ -48,22 +48,19 @@ internal static class FirstErrorFocus
     /// the element itself is nothing having taken focus, which happens two ways: no element on the
     /// page carries the field's id — a virtualized row outside the render window, a control that
     /// renders no such id at all — or the element that carries it will not take focus, being
-    /// disabled, hidden, or sealed off by an ancestor. Either is handled the same way
-    /// <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once
-    /// when a fallback is wired, retry once. With none wired, the miss reports a diagnostic
-    /// instead — see <see cref="ReportFallbackMiss"/> — since the visitor otherwise gets no
-    /// signal at all that the field they need is out of reach.
+    /// disabled, hidden, or sealed off by an ancestor. Either is handled by
+    /// <see cref="TryFocusAsync"/>, which is also what a click on a
+    /// <see cref="FormidableSummary"/> entry runs. With no fallback wired, the miss reports a
+    /// diagnostic instead — see <see cref="ReportFallbackMiss"/> — since the visitor otherwise
+    /// gets no signal at all that the field they need is out of reach.
     /// </remarks>
     /// <param name="services">The root's own injected provider, for the focus service and the
     /// diagnostic's logger factory — both are optional registrations.</param>
     /// <param name="engine">The engine whose visible issues the choice is made from.</param>
-    /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or null when unwired.</param>
-    /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or null when unwired.
-    /// Awaited once the field is chosen and before the first attempt on it, so a page that has to
-    /// clear something out of the way — a modal over the field, a collapsed section around it —
-    /// finishes doing that first. It is deliberately not awaited again before the fallback's
-    /// retry: the preparation was for this move, and a callback with a side effect as visible as
-    /// closing a dialog must not run twice for one of them. Both the early returns above it stay
+    /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or null when unwired;
+    /// <see cref="TryFocusAsync"/> says when it is consulted.</param>
+    /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or null when unwired;
+    /// <see cref="TryFocusAsync"/> says when it is awaited. The early returns above that call stay
     /// early returns, so nothing prepares for a move that is not about to happen.</param>
     /// <returns><see langword="true"/> when an element took focus, and <see langword="false"/>
     /// when nothing did: no <see cref="IFormidableFocusService"/> is registered, the engine
@@ -92,36 +89,76 @@ internal static class FirstErrorFocus
             return false;
         }
 
-        if (prepare is not null)
+        var took = await TryFocusAsync(focusService, firstIssue.Field, prepare, fallback);
+        if (!took && fallback is null)
         {
-            await prepare(firstIssue.Field);
+            ReportFallbackMiss(services, firstIssue.Issue);
         }
 
-        if (await focusService.FocusAsync(firstIssue.Field))
+        return took;
+    }
+
+    /// <summary>
+    /// What a focus move does once the field to land on is chosen: await whatever the page does to
+    /// make that field reachable, try its element, and — when the try misses and a wired fallback
+    /// reports the element reachable — try it once more. Choosing the field stays with the caller:
+    /// <see cref="MoveAsync"/> reads it off the engine's visible issues, where a click on a
+    /// <see cref="FormidableSummary"/> entry already names one. What happens to the field
+    /// afterwards is the same move either way, so it is written once — a page that wires one
+    /// <c>PrepareFocus</c> or <c>FocusFallback</c> callback to a root and to a summary at once
+    /// gets one move out of both. What is made of the answer stays each caller's own:
+    /// <see cref="MoveAsync"/> reports a miss no fallback was wired to recover (see
+    /// <see cref="ReportFallbackMiss"/>), where a summary click reads it not at all, having
+    /// nowhere else to send the visitor.
+    /// </summary>
+    /// <param name="focusService">The service that addresses the element, resolved by the
+    /// caller.</param>
+    /// <param name="field">The field to land on.</param>
+    /// <param name="prepare">The page's <c>PrepareFocus</c> callback, or null when unwired.
+    /// Awaited once, before the first attempt, so a page that has to clear something out of the
+    /// way — a modal over the field, a collapsed section around it — finishes doing that first. It
+    /// is deliberately not awaited again before the retry: the preparation was for this move, and
+    /// a callback with a side effect as visible as closing a dialog must not run twice for one of
+    /// them. It is awaited here and nowhere else, below whatever the caller does to decide there is
+    /// a move to make at all, so nothing prepares for a move that does not happen.</param>
+    /// <param name="fallback">The page's <c>FocusFallback</c> callback, or null when unwired.
+    /// Consulted once, and only after an attempt has already missed; the retry follows only when it
+    /// answers <see langword="true"/>, since a retry into an element the page has just declined to
+    /// make reachable would only miss again.</param>
+    /// <returns><see langword="true"/> when an element took focus — the first attempt landed, or
+    /// the retry behind a recovering fallback did — and <see langword="false"/> when nothing did:
+    /// no fallback wired, a fallback that declined, or a retry that missed again.</returns>
+    internal static async ValueTask<bool> TryFocusAsync(
+        IFormidableFocusService focusService,
+        FieldIdentifier field,
+        Func<FieldIdentifier, ValueTask>? prepare,
+        Func<FieldIdentifier, ValueTask<bool>>? fallback)
+    {
+        if (prepare is not null)
+        {
+            await prepare(field);
+        }
+
+        if (await focusService.FocusAsync(field))
         {
             return true;
         }
 
-        if (fallback is null)
-        {
-            ReportFallbackMiss(services, firstIssue.Issue);
-            return false;
-        }
-
-        if (!await fallback(firstIssue.Field))
+        if (fallback is null || !await fallback(field))
         {
             return false;
         }
 
-        return await focusService.FocusAsync(firstIssue.Field);
+        return await focusService.FocusAsync(field);
     }
 
     /// <summary>
     /// The one report a focus miss with no fallback to retry through gets: a Trace line for a
     /// debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
-    /// mirrors <c>FormidableEngine.ReportSuppressed</c>'s dual channel, minus the
-    /// options-callback channel that has no analogue here. Names the fallback parameter so a
-    /// consumer's console points straight at the seam that would close the gap.
+    /// written once through <see cref="FormidableDiagnostics"/>, and mirroring
+    /// <c>FormidableEngine.ReportSuppressed</c>'s dual channel, minus the options-callback channel
+    /// that has no analogue here. Names the fallback parameter so a consumer's console points
+    /// straight at the seam that would close the gap.
     /// </summary>
     /// <param name="services">The root's own injected provider; a host with no logger factory
     /// registered gets the Trace line alone.</param>
@@ -131,11 +168,11 @@ internal static class FirstErrorFocus
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
-        System.Diagnostics.Trace.WriteLine(
+        FormidableDiagnostics.Warn(
+            FormidableEngineFactory.ResolveLogger(services),
             $"Formidable: the field a focus move aimed at, '{path}', did not take focus: " +
             "either nothing renders its id or the element that does will not accept focus, and no " +
-            $"{FallbackParameterName} is wired to make it reachable.");
-        ((ILoggerFactory?)services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable").LogWarning(
+            $"{FallbackParameterName} is wired to make it reachable.",
             "Formidable: the field a focus move aimed at, '{Path}', did not take focus: either " +
             "nothing renders its id or the element that does will not accept focus, and no " +
             "{Parameter} is wired to make it reachable.",

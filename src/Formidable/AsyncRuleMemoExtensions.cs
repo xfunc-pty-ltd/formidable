@@ -70,6 +70,6 @@ public static class AsyncRuleMemoExtensions
         return ruleBuilder.MustAsync((value, cancellationToken) =>
             value is null
                 ? predicate(value, cancellationToken)
-                : memo.GetAsync(value, (key, ct) => predicate(key, ct), cancellationToken));
+                : memo.GetAsync(value, predicate, cancellationToken));
     }
 }

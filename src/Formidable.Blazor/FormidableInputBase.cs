@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Linq.Expressions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -246,23 +245,16 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
 
     /// <summary>
     /// The <c>aria-describedby</c> value <see cref="AddCommonAttributes"/> renders while the
-    /// field has issues: any consumer-splatted <c>aria-describedby</c> first, then
-    /// <see cref="MessagesElementId"/> — the same consumer-first, computed-appended merge
-    /// <see cref="CssClass"/> applies to <c>class</c>. Splatted first because the splatted ids
-    /// are the only ones present while the field is clean: appending the messages id when
-    /// issues arrive adds to the end of the announced sequence, where prepending would
-    /// reshuffle the consumer's hint at the exact moment an error joins it.
+    /// field has issues: any consumer-splatted <c>aria-describedby</c> merged with
+    /// <see cref="MessagesElementId"/> through <see cref="FormidableCss.CombineSplatted"/> — the
+    /// same method <see cref="ComputeCssClass"/> calls for <c>class</c>, so the two merges are
+    /// identical by construction rather than by coincidence. Splatted first because the splatted
+    /// ids are the only ones present while the field is clean: appending the messages id when
+    /// issues arrive adds to the end of the announced sequence, where prepending would reshuffle
+    /// the consumer's hint at the exact moment an error joins it.
     /// </summary>
-    private string ComputeAriaDescribedBy()
-    {
-        if (AdditionalAttributes is null || !AdditionalAttributes.TryGetValue("aria-describedby", out var splatted))
-        {
-            return MessagesElementId;
-        }
-
-        var splattedIds = Convert.ToString(splatted, CultureInfo.InvariantCulture);
-        return string.IsNullOrEmpty(splattedIds) ? MessagesElementId : $"{splattedIds} {MessagesElementId}";
-    }
+    private string ComputeAriaDescribedBy() =>
+        FormidableCss.CombineSplatted(AdditionalAttributes, "aria-describedby", MessagesElementId);
 
     /// <summary>
     /// Assigns <see cref="Value"/>, invokes <see cref="ValueChanged"/>, marks the field touched,
@@ -319,7 +311,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     }
 
     /// <summary>
-    /// Whether <see cref="AddValueBinding(RenderTreeBuilder, int)"/> binds <c>blur</c> in every
+    /// Whether the value binding — <see cref="AddValueBinding(RenderTreeBuilder, int)"/> in any of
+    /// its overloads, since one implementation answers for all three — binds <c>blur</c> in every
     /// <see cref="UpdateOn"/> mode so <see cref="SyncDomValueAsync"/> can run there. False by
     /// default: a control whose DOM always displays exactly what it reports has nothing to
     /// reconcile. The kit's number and date inputs opt in, because their native elements can keep
@@ -351,12 +344,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <summary>
     /// Adds the attribute(s) that commit a value change, honouring <see cref="UpdateOn"/>: under
     /// <see cref="InputUpdateMode.OnChange"/> (default) or <see cref="InputUpdateMode.OnInput"/> a
-    /// single event both commits the value and notifies the engine (see
-    /// <see cref="SetCurrentValueAsync"/>); under <see cref="InputUpdateMode.OnBlur"/> the two
-    /// split across two events instead — the value commits on <c>change</c> via
-    /// <see cref="CommitValueAsync"/>, arming a pending notification that the next <c>blur</c>
-    /// delivers via <see cref="NotifyChanged"/>, once the value has had a chance to settle; a
-    /// blur with no commit pending delivers nothing. Reads
+    /// single event both commits the value and notifies the engine — the two steps
+    /// <see cref="SetCurrentValueAsync"/> performs in one call; under
+    /// <see cref="InputUpdateMode.OnBlur"/> the two split across two events instead — the value
+    /// commits on <c>change</c> via <see cref="CommitValueAsync"/>, arming a pending notification
+    /// that the next <c>blur</c> delivers via <see cref="NotifyChanged"/>, once the value has had
+    /// a chance to settle; a blur with no commit pending delivers nothing. Reads
     /// <see cref="Value"/> directly rather than taking it as a parameter, since the base already
     /// owns it. Call this last, immediately before <see cref="RenderTreeBuilder.CloseElement"/>:
     /// it consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever it
@@ -369,6 +362,19 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// following diff emits no edit when nothing actually changed.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// This description covers all three overloads, because all three are one implementation
+    /// reached with a different commit step: each hands over a step that commits whatever the DOM
+    /// sent and reports whether it committed anything, and the shared implementation settles what
+    /// <see cref="UpdateOn"/> decides at render time — which event carries the commit, whether the
+    /// report earns a notification at once or leaves one pending for <c>blur</c>, and whether
+    /// <c>blur</c> is bound at all. Where the three agree they agree by running the same code,
+    /// rather than by three descriptions of them matching; where one differs, as the
+    /// string-projected overload does in coercing <see cref="InputUpdateMode.OnInput"/> for a
+    /// <c>&lt;select&gt;</c>, the difference is an argument to that implementation and not a
+    /// second copy of it.
+    /// </para>
+    /// <para>
     /// The <c>onblur</c> this adds chains rather than clobbers: a consumer-splatted
     /// <c>@onblur</c> handler is invoked first and awaited, and the kit's own blur work — the DOM
     /// value sync for a control that opts in, then under <see cref="InputUpdateMode.OnBlur"/> the
@@ -378,28 +384,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// exception and neither the sync nor the notification runs — the value itself was already
     /// committed on the earlier <c>change</c> event either way, and its notification stays
     /// pending for the next blur to deliver.
+    /// </para>
     /// </remarks>
-    protected void AddValueBinding(RenderTreeBuilder builder, int sequence)
-    {
-        if (UpdateOn == InputUpdateMode.OnBlur)
-        {
-            builder.AddAttribute(sequence, "onchange", EventCallback.Factory.CreateBinder<TValue?>(this, v => CommitValueAsync(v), Value));
-            builder.SetUpdatesAttributeName("value");
-            AddBlurBinding(builder, sequence + 1);
-            return;
-        }
-
-        builder.AddAttribute(
-            sequence,
-            UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
-            EventCallback.Factory.CreateBinder<TValue?>(this, v => SetCurrentValueAsync(v), Value));
-        builder.SetUpdatesAttributeName("value");
-
-        if (SyncsDomValueOnBlur)
-        {
-            AddBlurBinding(builder, sequence + 1);
-        }
-    }
+    /// <param name="builder">The render tree being built.</param>
+    /// <param name="sequence">The first sequence number this call consumes.</param>
+    protected void AddValueBinding(RenderTreeBuilder builder, int sequence) =>
+        AddCommitBinding<TValue?>(builder, sequence, Value, CommitTypedAsync, inputEventAvailable: true);
 
     /// <summary>
     /// The string-projected value binding, for a control whose DOM value is always a string while
@@ -410,13 +400,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="InputUpdateMode.OnChange"/> (the default) — both bind <c>onchange</c> and, once
     /// <paramref name="tryCommitAsync"/> reports a value was committed, notify the engine
     /// immediately. Under <see cref="InputUpdateMode.OnBlur"/> the same <c>change</c> event still
-    /// commits the value, but the notification the commit arms defers to <c>blur</c> instead,
-    /// riding the same <see cref="HandleBlurAsync"/> the typed overload uses — including the
-    /// consumer-splatted-<c>onblur</c> chaining; a string that fails to parse commits nothing and
-    /// arms nothing, so the following blur delivers nothing. Also marks <c>value</c> as the
-    /// attribute the commit handler updates, exactly as
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> does. It consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 under
-    /// <see cref="InputUpdateMode.OnBlur"/>.
+    /// commits the value, but the notification the commit arms defers to <c>blur</c> instead; a
+    /// string that fails to parse commits nothing and arms nothing, so the following blur
+    /// delivers nothing. Beyond the string projection and that coercion this overload settles
+    /// nothing of its own: the blur chaining, the <c>value</c> attribute marking and the sequence
+    /// budget — <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever
+    /// <c>blur</c> is bound — are <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s
+    /// description.
     /// </summary>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first sequence number this call consumes.</param>
@@ -432,33 +422,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         RenderTreeBuilder builder,
         int sequence,
         string? formattedValue,
-        Func<string?, Task<bool>> tryCommitAsync)
-    {
-        if (UpdateOn == InputUpdateMode.OnBlur)
-        {
-            builder.AddAttribute(
-                sequence,
-                "onchange",
-                EventCallback.Factory.CreateBinder<string?>(this, v => tryCommitAsync(v), formattedValue));
-            builder.SetUpdatesAttributeName("value");
-            AddBlurBinding(builder, sequence + 1);
-            return;
-        }
-
-        builder.AddAttribute(
-            sequence,
-            "onchange",
-            EventCallback.Factory.CreateBinder<string?>(this, v => CommitAndNotifyAsync(tryCommitAsync, v), formattedValue));
-        builder.SetUpdatesAttributeName("value");
-    }
-
-    private async Task CommitAndNotifyAsync(Func<string?, Task<bool>> tryCommitAsync, string? value)
-    {
-        if (await tryCommitAsync(value))
-        {
-            NotifyChanged();
-        }
-    }
+        Func<string?, Task<bool>> tryCommitAsync) =>
+        AddCommitBinding<string?>(builder, sequence, formattedValue, tryCommitAsync, inputEventAvailable: false);
 
     /// <summary>
     /// Parses a DOM-committed string into <typeparamref name="TValue"/> for the
@@ -485,13 +450,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// invariant, format-exact parsing (<see cref="FormidableInputNumber{TValue}"/> and
     /// <see cref="FormidableInputDate{TValue}"/> are the kit's two cases) while still getting
     /// <see cref="InputUpdateMode.OnInput"/> and the commit/notify split
-    /// <see cref="InputUpdateMode.OnBlur"/> needs, exactly as
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> provides them (a string the parser
-    /// rejects commits nothing, so it arms no blur-delivered notification) — including the
-    /// consumer-splatted <c>onblur</c> chaining, since both overloads share the same
-    /// <see cref="HandleBlurAsync"/>. It consumes <paramref name="sequence"/>, and
-    /// <paramref name="sequence"/> + 1 whenever it also binds <c>blur</c>, exactly like the typed
-    /// overload.
+    /// <see cref="InputUpdateMode.OnBlur"/> needs — a string the parser rejects commits nothing,
+    /// so it arms no blur-delivered notification. Beyond the parser it takes, this overload
+    /// settles nothing of its own: which event carries the commit, the blur chaining, the
+    /// <c>value</c> attribute marking and the sequence budget — <paramref name="sequence"/>, and
+    /// <paramref name="sequence"/> + 1 whenever <c>blur</c> is bound — are
+    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s description.
     /// </summary>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first sequence number this call consumes.</param>
@@ -501,28 +465,75 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         RenderTreeBuilder builder,
         int sequence,
         string? formattedValue,
-        StringValueParser tryParseValue)
+        StringValueParser tryParseValue) =>
+        AddCommitBinding<string?>(
+            builder,
+            sequence,
+            formattedValue,
+            value => CommitParsedAsync(tryParseValue, value),
+            inputEventAvailable: true);
+
+    /// <summary>
+    /// The one implementation behind all three <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
+    /// overloads: it renders the commit attribute, marks <c>value</c> as what that handler updates,
+    /// and binds <c>blur</c> where the mode or the control calls for it. What
+    /// <see cref="UpdateOn"/> decides at render time is decided here and nowhere else, so two
+    /// overloads cannot drift into answering a mode differently; what an overload brings is the
+    /// commit step and whether the element has an <c>input</c> event worth binding. The mode's one
+    /// remaining consequence lives at event time instead, in <see cref="HandleBlurAsync"/>'s gate
+    /// on delivering a pending notification.
+    /// </summary>
+    /// <typeparam name="TBound">
+    /// The type the binder round-trips: the field's own type where the DOM value converts
+    /// directly, <see cref="string"/> where the control projects it through one. Annotated for
+    /// trimming because the binder converts through reflection, the same reason
+    /// <typeparamref name="TValue"/> is.
+    /// </typeparam>
+    /// <param name="builder">The render tree being built.</param>
+    /// <param name="sequence">The first sequence number this call consumes.</param>
+    /// <param name="current">The value already rendered, which the binder compares against.</param>
+    /// <param name="commitAsync">
+    /// Commits what the DOM sent and reports whether it committed anything — false for a string
+    /// the control's own parsing rejects, which is the silent-revert contract every kit input
+    /// shares.
+    /// </param>
+    /// <param name="inputEventAvailable">
+    /// Whether the element has an <c>input</c> event distinct from <c>change</c>. False coerces
+    /// <see cref="InputUpdateMode.OnInput"/> onto <c>onchange</c>, for an element such as
+    /// <c>&lt;select&gt;</c> where the two would mean the same thing.
+    /// </param>
+    private void AddCommitBinding<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TBound>(
+        RenderTreeBuilder builder,
+        int sequence,
+        TBound current,
+        Func<TBound, Task<bool>> commitAsync,
+        bool inputEventAvailable)
     {
-        if (UpdateOn == InputUpdateMode.OnBlur)
-        {
-            builder.AddAttribute(
-                sequence,
-                "onchange",
-                EventCallback.Factory.CreateBinder<string?>(this, v => CommitParsedAsync(tryParseValue, v), formattedValue));
-            builder.SetUpdatesAttributeName("value");
-            AddBlurBinding(builder, sequence + 1);
-            return;
-        }
+        // OnBlur is the one mode that splits commit from notify, so it is the one mode where the
+        // commit's report earns nothing immediately and blur has a notification to deliver.
+        var deferNotification = UpdateOn == InputUpdateMode.OnBlur;
 
         builder.AddAttribute(
             sequence,
-            UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
-            EventCallback.Factory.CreateBinder<string?>(this, v => SetCurrentParsedAsync(tryParseValue, v), formattedValue));
+            inputEventAvailable && UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
+            EventCallback.Factory.CreateBinder<TBound>(this, value => CommitThenNotifyAsync(value), current));
+
+        // Marks the attribute just added, so it has to follow that AddAttribute and precede the
+        // blur binding below.
         builder.SetUpdatesAttributeName("value");
 
-        if (SyncsDomValueOnBlur)
+        if (deferNotification || SyncsDomValueOnBlur)
         {
             AddBlurBinding(builder, sequence + 1);
+        }
+
+        async Task CommitThenNotifyAsync(TBound value)
+        {
+            var committed = await commitAsync(value);
+            if (committed && !deferNotification)
+            {
+                NotifyChanged();
+            }
         }
     }
 
@@ -536,11 +547,32 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             BlurAttributeName,
             EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
 
-    private Task CommitParsedAsync(StringValueParser tryParseValue, string? value) =>
-        tryParseValue(value, out var parsed) ? CommitValueAsync(parsed) : Task.CompletedTask;
+    /// <summary>
+    /// The commit step behind the typed overload: the binder has already converted the DOM's
+    /// string into <typeparamref name="TValue"/>, so this step has no parse of its own to fail
+    /// and always reports a commit.
+    /// </summary>
+    private async Task<bool> CommitTypedAsync(TValue? value)
+    {
+        await CommitValueAsync(value);
+        return true;
+    }
 
-    private Task SetCurrentParsedAsync(StringValueParser tryParseValue, string? value) =>
-        tryParseValue(value, out var parsed) ? SetCurrentValueAsync(parsed) : Task.CompletedTask;
+    /// <summary>
+    /// The commit step behind the <see cref="StringValueParser"/> overload: a string the parser
+    /// rejects leaves the field exactly as it was and reports no commit, so nothing notifies now
+    /// and no notification waits for <c>blur</c>.
+    /// </summary>
+    private async Task<bool> CommitParsedAsync(StringValueParser tryParseValue, string? value)
+    {
+        if (!tryParseValue(value, out var parsed))
+        {
+            return false;
+        }
+
+        await CommitValueAsync(parsed);
+        return true;
+    }
 
     /// <summary>
     /// Runs a consumer-splatted <c>onblur</c> handler, then the control's DOM value sync, then —

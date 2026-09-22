@@ -38,4 +38,14 @@ public static class FormidableHttpContextExtensions
             ? value as ValidationReport
             : null;
     }
+
+    /// <summary>
+    /// Stashes <paramref name="report"/> as the current request's computed report, for
+    /// <see cref="GetFormidableValidationReport"/> to read back. Internal: writing the report is
+    /// each server adapter's own job, never a consumer's.
+    /// </summary>
+    internal static void SetFormidableValidationReport(this HttpContext context, ValidationReport report)
+    {
+        context.Items[ValidationReportKey] = report;
+    }
 }

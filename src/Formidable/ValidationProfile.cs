@@ -1,3 +1,5 @@
+using FluentValidation.Internal;
+
 namespace Formidable;
 
 /// <summary>
@@ -122,6 +124,34 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
         }
 
         return Named(name, includeDefaultRules: true, name);
+    }
+
+    /// <summary>
+    /// The profile as FluentValidation's own ruleset-name list: <see cref="RuleSets"/> in
+    /// declared order, then <c>"default"</c> when <see cref="IncludeDefaultRules"/> is set.
+    /// Every profile-shaped selection reads this one list — the name list a validation strategy
+    /// is given, and the list a selector is constructed from — so the routes cannot come apart
+    /// into two readings of one profile.
+    /// </summary>
+    /// <remarks>
+    /// A list carrying the default ruleset name selects the rules that sit outside every
+    /// ruleset, which is the selection <c>ValidationStrategy.IncludeRulesNotInRuleSet</c> asks
+    /// for — so a profile spelled as one name list and the same profile asked for in separate
+    /// calls select the same rules.
+    /// The wildcard <c>"*"</c> needs nothing of its own: it already reaches every rule,
+    /// bucketed or not, so the default name beside it selects nothing further. Each call
+    /// answers with a fresh array, because a selector keeps the array it is handed.
+    /// </remarks>
+    internal string[] ToRuleSetNames()
+    {
+        var names = new List<string>(RuleSets.Count + 1);
+        names.AddRange(RuleSets);
+        if (IncludeDefaultRules)
+        {
+            names.Add(RulesetValidatorSelector.DefaultRuleSetName);
+        }
+
+        return [.. names];
     }
 
     /// <summary>

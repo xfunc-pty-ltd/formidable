@@ -36,17 +36,8 @@ public static class FormidableEndpointFilterExtensions
     /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
-        where TModel : class
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        var resolvedProfile = profile ?? ValidationProfile.Submit;
-        return builder.AddEndpointFilterFactory((factoryContext, next) =>
-        {
-            ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
-            return invocationContext => filter.InvokeAsync(invocationContext, next);
-        });
-    }
+        where TModel : class =>
+        AddValidation<RouteHandlerBuilder, TModel>(builder, profile);
 
     /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile)"/>
     /// <param name="builder">The route group to validate.</param>
@@ -63,6 +54,15 @@ public static class FormidableEndpointFilterExtensions
     /// of type <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
+        where TModel : class =>
+        AddValidation<RouteGroupBuilder, TModel>(builder, profile);
+
+    // The one factory both overloads install. AddEndpointFilterFactory is itself a single
+    // method generic over TBuilder : IEndpointConventionBuilder returning that same TBuilder, so
+    // both builders reach one shared framework method either way; this mirrors the framework's
+    // shape rather than inventing one.
+    private static TBuilder AddValidation<TBuilder, TModel>(TBuilder builder, ValidationProfile? profile)
+        where TBuilder : IEndpointConventionBuilder
         where TModel : class
     {
         ArgumentNullException.ThrowIfNull(builder);

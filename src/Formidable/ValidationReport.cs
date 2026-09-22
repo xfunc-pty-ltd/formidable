@@ -74,9 +74,10 @@ public sealed class ValidationReport
     public IReadOnlyList<ValidationIssue> Infos { get; }
 
     /// <summary>
-    /// Non-error issues (warnings and infos), in issue order. Mirrors the ASP.NET Core
-    /// package's wire-level <c>ValidationReportProblemMapper.ToAdvisories</c> mapping for a
-    /// client that holds the report directly instead of a parsed problem response.
+    /// Non-error issues — warnings, infos, and any severity outside those two named members —
+    /// in issue order. Mirrors the ASP.NET Core package's wire-level
+    /// <c>ValidationReportProblemMapper.ToAdvisories</c> mapping for a client that holds the
+    /// report directly instead of a parsed problem response.
     /// </summary>
     public IReadOnlyList<ValidationIssue> Advisories { get; }
 }

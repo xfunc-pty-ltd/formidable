@@ -733,8 +733,8 @@ public class FormidableEngineSubmitCoverageTests
     // Mutations this breaks, separately: dropping EndPass's coverage bump leaves the cached
     // served answer standing — nothing re-keys the cache when the pass ends, and the unrelated
     // field keeps a green whose promised re-answer is gone; dropping the fault path's
-    // AbandonHeldCoverage lets the serve route hand the held answer straight back out for the
-    // live window still armed behind the fault, with the same wrong green.
+    // _submitCoverage.Abandon() lets the serve route hand the held answer straight back out for
+    // the live window still armed behind the fault, with the same wrong green.
     [Fact]
     public async Task A_faulting_pass_retracts_the_served_vouch_at_once()
     {

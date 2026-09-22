@@ -68,7 +68,7 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
         // verdict a validator produced: the handler composes a "saved, but note…" 200 from a
         // passing report's advisories, and middleware reads a rejection's full severity detail
         // without parsing the response body.
-        context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = report;
+        context.HttpContext.SetFormidableValidationReport(report);
 
         if (report.IsValid)
         {

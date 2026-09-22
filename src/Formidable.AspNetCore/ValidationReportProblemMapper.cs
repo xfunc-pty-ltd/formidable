@@ -42,8 +42,7 @@ public static class ValidationReportProblemMapper
     public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
-        return report.Issues
-            .Where(issue => issue.Severity != ValidationSeverity.Error)
+        return report.Advisories
             .Select(issue => new ValidationProblemAdvisory(
                 issue.Path ?? string.Empty,
                 issue.Message ?? string.Empty,

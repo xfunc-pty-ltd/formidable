@@ -151,7 +151,7 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
         builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
         {
             inner.OpenComponent<EditForm>(0);
-            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _editContext);
+            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _engine!.EditContext);
             inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
             // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
             // The default is deliberate: without it, any native constraint attribute inside the
@@ -161,10 +161,7 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
             // interactive check: :invalid still matches, ValidityState is still computed, and
             // checkValidity()/reportValidity() still work when called.
             inner.AddAttribute(3, "novalidate", true);
-            if (AdditionalAttributes is not null)
-            {
-                inner.AddMultipleAttributes(4, AdditionalAttributes!);
-            }
+            inner.AddMultipleAttributes(4, AdditionalAttributes!);
             // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
             // because the all-suppressed gate's summary entry addresses the form by this id (see
             // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
@@ -747,27 +744,28 @@ for the shared call below:
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
 ```csharp
-    internal static string CombineClassNames(IReadOnlyDictionary<string, object>? additionalAttributes, string computed)
+    internal static string CombineSplatted(IReadOnlyDictionary<string, object>? attributes, string attributeName, string computed)
     {
-        if (additionalAttributes is null || !additionalAttributes.TryGetValue("class", out var splatted))
+        if (attributes is null || !attributes.TryGetValue(attributeName, out var splatted))
         {
             return computed;
         }
 
-        var splattedClass = Convert.ToString(splatted, CultureInfo.InvariantCulture);
-        if (string.IsNullOrEmpty(splattedClass))
+        var splattedValue = Convert.ToString(splatted, CultureInfo.InvariantCulture);
+        if (string.IsNullOrEmpty(splattedValue))
         {
             return computed;
         }
 
-        return computed.Length == 0 ? splattedClass : $"{splattedClass} {computed}";
+        return computed.Length == 0 ? splattedValue : $"{splattedValue} {computed}";
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCss.cs`* — the merge lives on `FormidableCss` because it
-is not the inputs' alone: the message components and `FormidableSummary`'s wrapper answer a
-splatted `class` through the same method, so one implementation keeps the policy identical
-everywhere it applies.
+*Source: `src/Formidable.Blazor/FormidableCss.cs`* — `CombineClassNames` is this method's `class`
+case; the merge lives on `FormidableCss` because it is not the inputs' alone — the message
+components, `FormidableSummary`'s wrapper, and the `aria-describedby` merges on the `<form>`
+element and on a kit input all answer a consumer's splatted value through this one
+implementation.
 
 A consumer writing `class="form-control"` on a `FormidableInputText` keeps that class and still
 gets whichever state class applies — `formidable-invalid`, `formidable-warning`,
@@ -835,43 +833,66 @@ from that one read; `aria-required` is a separate ask, of a cached answer.
 **Value binding.** `AddValueBinding` is the call a concrete input's `BuildRenderTree` makes,
 immediately before closing its element, to wire the attribute(s) that commit a value change —
 honouring `UpdateOn` for every mode the enum has, present and future, rather than each input
-re-deciding which DOM event to bind:
+re-deciding which DOM event to bind. There are three overloads, differing in how the DOM's text
+becomes the field's value, and one implementation underneath all three:
 
 ```csharp
-    protected void AddValueBinding(RenderTreeBuilder builder, int sequence)
+    private void AddCommitBinding<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TBound>(
+        RenderTreeBuilder builder,
+        int sequence,
+        TBound current,
+        Func<TBound, Task<bool>> commitAsync,
+        bool inputEventAvailable)
     {
-        if (UpdateOn == InputUpdateMode.OnBlur)
-        {
-            builder.AddAttribute(sequence, "onchange", EventCallback.Factory.CreateBinder<TValue?>(this, v => CommitValueAsync(v), Value));
-            builder.SetUpdatesAttributeName("value");
-            AddBlurBinding(builder, sequence + 1);
-            return;
-        }
+        // OnBlur is the one mode that splits commit from notify, so it is the one mode where the
+        // commit's report earns nothing immediately and blur has a notification to deliver.
+        var deferNotification = UpdateOn == InputUpdateMode.OnBlur;
 
         builder.AddAttribute(
             sequence,
-            UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
-            EventCallback.Factory.CreateBinder<TValue?>(this, v => SetCurrentValueAsync(v), Value));
+            inputEventAvailable && UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
+            EventCallback.Factory.CreateBinder<TBound>(this, value => CommitThenNotifyAsync(value), current));
+
+        // Marks the attribute just added, so it has to follow that AddAttribute and precede the
+        // blur binding below.
         builder.SetUpdatesAttributeName("value");
 
-        if (SyncsDomValueOnBlur)
+        if (deferNotification || SyncsDomValueOnBlur)
         {
             AddBlurBinding(builder, sequence + 1);
+        }
+
+        async Task CommitThenNotifyAsync(TBound value)
+        {
+            var committed = await commitAsync(value);
+            if (committed && !deferNotification)
+            {
+                NotifyChanged();
+            }
         }
     }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
-The trailing branch is the number and date inputs' opt-in: those two controls bind `blur` in
-every mode, because their native elements can display text they report as empty and only a
-blur-time write can reconcile the box with the model — the mechanism their own sections below
-walk through.
+Each overload hands that method a commit step: something that commits whatever the DOM sent and
+reports whether it committed anything. What `UpdateOn` decides at render time is then settled in
+the one place — which event carries the commit, whether the report earns a notification at once or
+leaves one for `blur` to deliver, and whether `blur` is bound at all. Where the three overloads
+agree they agree by running the same code; where one differs (the `<select>` coercion below), the
+difference is an argument rather than a second copy.
+
+The `SyncsDomValueOnBlur` half of that blur condition is the number and date inputs' opt-in: those
+two controls bind `blur` in every mode, because their native elements can display text they report
+as empty and only a blur-time write can reconcile the box with the model — the mechanism their own
+sections below walk through.
 
 Under `OnChange` (default) and `OnInput`, a single event both commits the value and starts
-validation — that's `SetCurrentValueAsync`, which assigns `Value`, invokes `ValueChanged`, marks
-the field touched, and notifies the `EditContext` so the engine's live validation pass runs, all
-in one call:
+validation: the commit step runs, and the notification follows as soon as it reports a commit.
+Those are the two steps `SetCurrentValueAsync` performs in one call, which is what a control
+driving a commit from a handler of its own reaches for — it assigns `Value`, invokes
+`ValueChanged`, marks the field touched, and notifies the `EditContext` so the engine's live
+validation pass runs:
 
 ```csharp
     protected async Task SetCurrentValueAsync(TValue? value)
@@ -1176,7 +1197,7 @@ attributes, not form values):
         catch (InvalidOperationException ex)
         {
             throw new InvalidOperationException(
-                $"{typeof(FormidableInputSelect<TValue>)} does not support the type '{typeof(TValue)}'.", ex);
+                $"{FriendlyTypeName.Of(typeof(FormidableInputSelect<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'.", ex);
         }
     }
 ```
@@ -1267,7 +1288,7 @@ parser rather than the base's own conversion:
             targetType != typeof(decimal))
         {
             throw new InvalidOperationException(
-                $"{typeof(FormidableInputNumber<TValue>)} does not support the type '{typeof(TValue)}'. " +
+                $"{FriendlyTypeName.Of(typeof(FormidableInputNumber<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'. " +
                 "Supported types are int, long, short, float, double, decimal, and their nullable forms.");
         }
     }
@@ -1404,11 +1425,14 @@ way the sample transitions [`FormidableSummary`](#formidablesummary), whose wrap
 persist the same way while its bands come and go, and so a configured `InlineMessageLive` sits on
 an element that persists across renders rather than one that enters alongside the text it
 announces (see [Options](options.md#inlinemessagelive)). It shares one base
-(`FormidableMessageBase<TValue>`) with its collection-level sibling
-for resolving `For`, subscribing to the engine's `StateChanged`, and rendering that same list.
-That base is public only because a public component cannot inherit a less accessible base; its
-constructor is not, so these two components are the only shapes it takes. Unlike
-`FormidableInputBase<TValue>`, it is not an extension point.
+(`FormidableMessageBase<TValue>`) with its collection-level sibling for subscribing to the
+engine's `StateChanged` and rendering that same list; resolving `For` comes from
+`FormidableAccessorComponentBase<TValue>`, a level further up — the same base `FormidableField`,
+`FormidableFieldAnchor` and `FormidableRequiredIndicator` build on. Both bases are public only
+because a public component cannot inherit a less accessible base; neither's constructor is, so
+`FormidableFieldMessage` and `FormidableCollectionMessage` are the only two shapes
+`FormidableMessageBase<TValue>` takes. Unlike `FormidableInputBase<TValue>`, neither is an
+extension point.
 
 `AdditionalAttributes` splats onto that list element under the kit's usual ordering: the
 consumer's attributes enter the render tree first and the computed ones after, so a computed
@@ -1446,7 +1470,7 @@ One base method decides whether rendering a message list also registers the fiel
 /// revealed.
 /// </summary>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>
@@ -1792,9 +1816,9 @@ the seam: see [Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-ap
 
 `Show` picks which severities a summary renders. It defaults to `SummaryFilter.All` — the single
 combined list above — and the other four members (`Errors`, `Advisories`, `Warnings`, `Infos`)
-narrow it, `Advisories` meaning warnings and infos together, exactly as
-`ValidationReport.Advisories` does. A page that wants the blocking problems apart from the
-commentary renders two:
+narrow it, `Advisories` meaning every non-error issue, exactly as `ValidationReport.Advisories`
+does: warnings, infos, and any severity outside those two. A page that wants the blocking
+problems apart from the commentary renders two:
 
 ```razor
 <FormidableSummary Show="SummaryFilter.Errors" />
@@ -2128,7 +2152,7 @@ own registration:
 /// input of its own to register it.
 /// </summary>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>
@@ -2320,12 +2344,8 @@ using `FormidableField` either — a raw `<input>`, a native `<select>` bound ma
 third-party component. It renders nothing:
 
 ```csharp
-public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
+public sealed class FormidableFieldAnchor<TValue> : FormidableAccessorComponentBase<TValue>
 {
-    /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>
-    [Parameter, EditorRequired]
-    public Expression<Func<TValue>> For { get; set; } = default!;
-
     /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
@@ -2335,10 +2355,6 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
     /// re-render — registering the field is its whole job.
     /// </summary>
     protected override bool ObservesEngineState => false;
-
-    /// <inheritdoc />
-    private protected override FieldIdentifier ResolveField() =>
-        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
 
     /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context) =>

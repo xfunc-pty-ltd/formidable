@@ -88,7 +88,7 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
             targetType != typeof(DateOnly))
         {
             throw new InvalidOperationException(
-                $"{typeof(FormidableInputDate<TValue>)} does not support the type '{typeof(TValue)}'. " +
+                $"{FriendlyTypeName.Of(typeof(FormidableInputDate<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'. " +
                 "Supported types are DateTime, DateTimeOffset, DateOnly, and their nullable forms.");
         }
     }
@@ -138,15 +138,15 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
     /// </summary>
     private static bool TryParseValue(string? value, out TValue? result)
     {
-        var isNullable = Nullable.GetUnderlyingType(typeof(TValue)) is not null;
+        var underlying = Nullable.GetUnderlyingType(typeof(TValue));
 
         if (string.IsNullOrEmpty(value))
         {
             result = default;
-            return isNullable;
+            return underlying is not null;
         }
 
-        var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);
+        var targetType = underlying ?? typeof(TValue);
         bool success;
         object parsed;
 

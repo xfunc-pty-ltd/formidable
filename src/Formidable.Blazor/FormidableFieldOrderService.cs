@@ -8,11 +8,11 @@ namespace Formidable.Blazor;
 /// the only thing that knows where an element actually sits, so each field's rendered element id
 /// crosses the interop boundary and the ids come back ordered by <c>compareDocumentPosition</c>.
 /// </summary>
-internal sealed class FormidableFieldOrderService : IFormidableFieldOrderService, IDisposable, IAsyncDisposable
+internal sealed class FormidableFieldOrderService : FormidableJsBackedService, IFormidableFieldOrderService
 {
-    private readonly FormidableJsModule _module;
-
-    public FormidableFieldOrderService(IJSRuntime jsRuntime) => _module = new FormidableJsModule(jsRuntime);
+    public FormidableFieldOrderService(IJSRuntime jsRuntime) : base(jsRuntime)
+    {
+    }
 
     public async ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields)
     {
@@ -35,7 +35,7 @@ internal sealed class FormidableFieldOrderService : IFormidableFieldOrderService
         // all, so they demonstrate nothing about context capture). The result assembly below
         // touches no component state, and keeping the context is what lets a later addition
         // that does stay safe rather than becoming a Server-only race no test would catch.
-        var ordered = await _module
+        var ordered = await Module
             .InvokeAsync<IReadOnlyList<string>>("orderFields", new object?[] { ids });
 
         // The answer crosses a deserialization boundary, so it can arrive as nothing at all
@@ -58,10 +58,4 @@ internal sealed class FormidableFieldOrderService : IFormidableFieldOrderService
 
         return result;
     }
-
-    // Both disposal shapes so either kind of container teardown releases the module - the
-    // rationale and the semantics live with FormidableJsModule.
-    public ValueTask DisposeAsync() => _module.DisposeAsync();
-
-    public void Dispose() => _module.Dispose();
 }

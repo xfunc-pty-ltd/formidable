@@ -70,17 +70,23 @@ public abstract class DelegatingModelValidator<TModel>
     : IModelValidator<TModel>, IRuleInspectingValidator<TModel>, IRuleLevelValidator<TModel>
 {
     private readonly IModelValidator<TModel> _inner;
+    private readonly IRuleInspectingValidator<TModel>? _inspector;
+    private readonly IRuleLevelValidator<TModel>? _ruleLevel;
 
     /// <summary>
-    /// Wraps <paramref name="inner"/>. Its optional capabilities are tested at each call rather
-    /// than captured here, so a wrapped validator whose own testers change answer over its
-    /// lifetime is followed rather than frozen at construction.
+    /// Wraps <paramref name="inner"/>. Which capability interfaces it implements is resolved
+    /// once, here — an object's runtime type cannot change over its lifetime, so that answer
+    /// cannot go stale — while each capability's own testers (<see cref="CanInspectRules"/>,
+    /// <see cref="CanValidateByRule"/>) are read at every call, so a wrapped validator whose own
+    /// testers change answer over its lifetime is followed rather than frozen at construction.
     /// </summary>
     /// <param name="inner">The validator every member of this class forwards to.</param>
     protected DelegatingModelValidator(IModelValidator<TModel> inner)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;
+        _inspector = inner as IRuleInspectingValidator<TModel>;
+        _ruleLevel = inner as IRuleLevelValidator<TModel>;
     }
 
     /// <inheritdoc />
@@ -97,8 +103,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// The wrapped validator's own answer, and <see langword="false"/> where it does not implement
     /// <see cref="IRuleInspectingValidator{TModel}"/>.
     /// </remarks>
-    public virtual bool CanInspectRules =>
-        _inner is IRuleInspectingValidator<TModel> inspector && inspector.CanInspectRules;
+    public virtual bool CanInspectRules => _inspector?.CanInspectRules ?? false;
 
     /// <inheritdoc />
     /// <remarks>
@@ -108,7 +113,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// promises.
     /// </remarks>
     public virtual FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile) =>
-        _inner is IRuleInspectingValidator<TModel> inspector
+        _inspector is { } inspector
             ? inspector.GetFieldRequirement(fieldPath, profile)
             : FieldRequirement.NotRequired;
 
@@ -119,7 +124,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// <see cref="CanInspectRules"/> reading <see langword="false"/> promises.
     /// </remarks>
     public virtual IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile) =>
-        _inner is IRuleInspectingValidator<TModel> inspector
+        _inspector is { } inspector
             ? inspector.GetDeclaredFieldPaths(profile)
             : FrozenSet<string>.Empty;
 
@@ -128,8 +133,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// The wrapped validator's own answer, and <see langword="false"/> where it does not implement
     /// <see cref="IRuleLevelValidator{TModel}"/>.
     /// </remarks>
-    public virtual bool CanValidateByRule =>
-        _inner is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule;
+    public virtual bool CanValidateByRule => _ruleLevel?.CanValidateByRule ?? false;
 
     /// <inheritdoc />
     /// <remarks>
@@ -140,7 +144,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// does not implement <see cref="IRuleLevelValidator{TModel}"/>.
     /// </remarks>
     public virtual IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile) =>
-        _inner is IRuleLevelValidator<TModel> ruleLevel
+        _ruleLevel is { } ruleLevel
             ? ruleLevel.SelectRules(profile)
             : throw NoRuleLevelCapability();
 
@@ -152,7 +156,7 @@ public abstract class DelegatingModelValidator<TModel>
     public virtual Task<RuleLevelResult> ValidateRulesAsync(
         TModel model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
         CancellationToken cancellationToken = default) =>
-        _inner is IRuleLevelValidator<TModel> ruleLevel
+        _ruleLevel is { } ruleLevel
             ? ruleLevel.ValidateRulesAsync(model, profile, rules, cancellationToken)
             : throw NoRuleLevelCapability();
 
@@ -166,12 +170,12 @@ public abstract class DelegatingModelValidator<TModel>
     /// </remarks>
     public virtual IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(
         IReadOnlyList<RuleIdentity> rules) =>
-        _inner is IRuleLevelValidator<TModel> ruleLevel
+        _ruleLevel is { } ruleLevel
             ? ruleLevel.GroupBySelectionClass(rules)
             : throw NoRuleLevelCapability();
 
     private NotSupportedException NoRuleLevelCapability() =>
-        new($"'{_inner.GetType().Name}' does not implement IRuleLevelValidator<{typeof(TModel).Name}>, " +
+        new($"'{FriendlyTypeName.Of(_inner.GetType())}' does not implement IRuleLevelValidator<{FriendlyTypeName.Of(typeof(TModel))}>, " +
             $"so the rules it holds cannot be selected or run apart from a whole-profile pass. " +
             $"Check {nameof(CanValidateByRule)} first.");
 }

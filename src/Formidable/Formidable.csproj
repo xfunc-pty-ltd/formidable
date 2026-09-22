@@ -21,6 +21,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
+        <Using Include="Formidable.Shared" />
+    </ItemGroup>
+
+    <ItemGroup>
         <!-- Lets the test project pin internal mechanics (e.g. the FluentValidation inspection
              surface guard's predicate) directly, rather than only through public surface. -->
         <InternalsVisibleTo Include="Formidable.Tests" />

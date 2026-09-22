@@ -167,7 +167,7 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
             // verdict the validators produced. Gated on validatedAny: when nothing was
             // validated, the accessor answers null rather than serving an empty report that
             // implies rules ran and passed.
-            context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = aggregate;
+            context.HttpContext.SetFormidableValidationReport(aggregate);
         }
 
         if (!aggregate.IsValid)

@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -9,25 +8,21 @@ namespace Formidable.Blazor;
 /// Renderless field component: hands any UI library a fresh <see cref="FormidableFieldContext"/>
 /// on every render via <see cref="ChildContent"/> (state, issues, computed CSS class, aria ids),
 /// and registers with the form's <see cref="FieldRegistry"/> so automatic disclosure stays
-/// truthful for whatever markup <see cref="ChildContent"/> renders. <see cref="For"/> is
+/// truthful for whatever markup <see cref="ChildContent"/> renders. <see cref="FormidableAccessorComponentBase{TValue}.For"/> is
 /// (re-)read whenever the cascaded <see cref="FormidableFormContext"/> is a new instance —
 /// including the first render and again after a host such as <c>FormidableForm</c>/
 /// <c>FormidableValidator</c> swaps its model and rebuilds its engine and registry — so the
 /// registration and the engine subscription always target the currently-active context.
 /// </summary>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>
-public sealed class FormidableField<TValue> : FormidableComponentBase
+public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TValue>
 {
     private FieldIdentifier _field;
     private string _elementId = string.Empty;
-
-    /// <summary>Accessor for the field to render, e.g. <c>() => Model.Description</c>.</summary>
-    [Parameter, EditorRequired]
-    public Expression<Func<TValue>> For { get; set; } = default!;
 
     /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
@@ -36,10 +31,6 @@ public sealed class FormidableField<TValue> : FormidableComponentBase
     /// <summary>Renders with the field's current <see cref="FormidableFieldContext"/>.</summary>
     [Parameter, EditorRequired]
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
-
-    /// <inheritdoc />
-    private protected override FieldIdentifier ResolveField() =>
-        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
 
     /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context)

@@ -101,7 +101,7 @@ public sealed class FormidableInputNumber<[DynamicallyAccessedMembers(Dynamicall
             targetType != typeof(decimal))
         {
             throw new InvalidOperationException(
-                $"{typeof(FormidableInputNumber<TValue>)} does not support the type '{typeof(TValue)}'. " +
+                $"{FriendlyTypeName.Of(typeof(FormidableInputNumber<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'. " +
                 "Supported types are int, long, short, float, double, decimal, and their nullable forms.");
         }
     }

@@ -15,10 +15,7 @@ public static class ValidatorProfileExtensions
     {
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(profile);
-        if (validator is ProfiledValidator<T> profiledValidator)
-        {
-            profiledValidator.VerifyRuleSets(profile);
-        }
+        ProfiledValidator<T>.VerifyRuleSetsIfProfiled(validator, profile);
 
         return validator.Validate(BuildContext(model, profile));
     }
@@ -31,25 +28,18 @@ public static class ValidatorProfileExtensions
     {
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(profile);
-        if (validator is ProfiledValidator<T> profiledValidator)
-        {
-            profiledValidator.VerifyRuleSets(profile);
-        }
+        ProfiledValidator<T>.VerifyRuleSetsIfProfiled(validator, profile);
 
         return validator.ValidateAsync(BuildContext(model, profile), cancellationToken);
     }
 
+    /// <summary>
+    /// Names the profile's rulesets on the validation strategy, which builds its selector from
+    /// them. The names come from <see cref="ValidationProfile.ToRuleSetNames"/>, the one place a
+    /// profile becomes FluentValidation names — so a whole-profile run here and a selector built
+    /// anywhere else in the library select from the same list rather than from two readings that
+    /// have to be kept agreeing.
+    /// </summary>
     private static ValidationContext<T> BuildContext<T>(T model, ValidationProfile profile) =>
-        ValidationContext<T>.CreateWithOptions(model, options =>
-        {
-            if (profile.RuleSets.Count > 0)
-            {
-                options.IncludeRuleSets([.. profile.RuleSets]);
-            }
-
-            if (profile.IncludeDefaultRules)
-            {
-                options.IncludeRulesNotInRuleSet();
-            }
-        });
+        ValidationContext<T>.CreateWithOptions(model, options => options.IncludeRuleSets(profile.ToRuleSetNames()));
 }

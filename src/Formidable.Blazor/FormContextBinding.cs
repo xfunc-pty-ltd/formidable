@@ -34,8 +34,8 @@ internal sealed class FormContextBinding : IDisposable
     public void Update(
         FormidableFormContext? context,
         Type componentType,
-        Func<FormidableFormContext, FieldRegistration?>? register = null,
-        EventHandler<FormidableStateChangedEventArgs>? stateChanged = null)
+        Func<FormidableFormContext, FieldRegistration?>? register,
+        EventHandler<FormidableStateChangedEventArgs>? stateChanged)
     {
         if (context is null)
         {

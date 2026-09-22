@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Threading;
 
 namespace Formidable.Introspection;
 
@@ -94,18 +93,9 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
         object current = rootModel;
 
-        for (var i = 0; i < segments.Count; i++)
+        for (var i = 0; i < segments.Count - 1; i++)
         {
-            var segment = segments[i];
-            var isLast = i == segments.Count - 1;
-
-            if (isLast)
-            {
-                // Terminal segment: never navigate — it names the field on the current owner.
-                return new ResolvedField(current, RejoinFrom(segments, i));
-            }
-
-            var next = Navigate(current, segment);
+            var next = Navigate(current, segments[i]);
 
             if (next is null)
             {
@@ -115,7 +105,11 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
             current = next;
         }
 
-        return new ResolvedField(rootModel, propertyPath); // unreachable for non-empty parses
+        // Terminal segment: never navigate — it names the field on the current owner. A
+        // successful parse always yields at least one segment: PropertyPath's grammar requires
+        // the first one to be a property (TryParse refuses both a leading '.' and a leading
+        // indexer), so segments.Count - 1 never goes negative here.
+        return new ResolvedField(current, RejoinFrom(segments, segments.Count - 1));
     }
 
     /// <inheritdoc />
@@ -276,7 +270,9 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
     private object? GetIndexedValue(object collection, string indexToken)
     {
-        if (int.TryParse(indexToken, out var index) && collection is IList list)
+        var isNumeric = int.TryParse(indexToken, out var index);
+
+        if (isNumeric && collection is IList list)
         {
             try
             {
@@ -293,14 +289,14 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
             }
         }
 
-        return TryIndexerProperty(collection, indexToken);
+        return TryIndexerProperty(collection, indexToken, isNumeric);
     }
 
-    private object? TryIndexerProperty(object collection, string indexToken)
+    private object? TryIndexerProperty(object collection, string indexToken, bool isNumeric)
     {
         try
         {
-            var indexer = GetOrCacheIndexer(collection.GetType(), int.TryParse(indexToken, out _));
+            var indexer = GetOrCacheIndexer(collection.GetType(), isNumeric);
 
             if (indexer is null)
             {

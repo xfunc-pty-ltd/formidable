@@ -121,11 +121,14 @@ internal sealed class FormidableJsModule
     // instead - which broke a consumer's own bUnit teardown, since bUnit's container disposes
     // synchronously by default. This path is deliberately best-effort: the JS module dies with
     // the circuit regardless of whether anything here releases it, so there is no correctness
-    // reason to block. Only a module import that already finished is anything to act on; only a
-    // module dispose that completes without actually crossing the interop boundary (e.g. a
-    // synchronous test double) is observed. Anything still in flight, or the import having never
-    // completed or having faulted, is dropped rather than awaited or thrown from a method that
-    // cannot itself be asynchronous.
+    // reason to block. Only a module import that already finished is anything to act on, and the
+    // dispose call is fired and discarded rather than awaited: a synchronous method has no way to
+    // wait on it, so whether the release itself completes, faults or never finishes is never
+    // observed here on any path. The discard is also why the catch below is narrower than
+    // DisposeAsync's IsInteropFailure - nothing here inspects the task afterward, so the only
+    // exception this method can ever see is one the call raises before it returns a task at all,
+    // and JSDisconnectedException, a circuit already known gone, is the case this catch is kept
+    // for.
     public void Dispose()
     {
         if (_moduleTask is not { IsCompletedSuccessfully: true } moduleTask)
@@ -135,11 +138,7 @@ internal sealed class FormidableJsModule
 
         try
         {
-            var disposeTask = moduleTask.Result.DisposeAsync();
-            if (!disposeTask.IsCompletedSuccessfully)
-            {
-                return; // needs a real await; nothing a synchronous Dispose can safely do
-            }
+            _ = moduleTask.Result.DisposeAsync();
         }
         catch (JSDisconnectedException)
         {

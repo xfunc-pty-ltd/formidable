@@ -146,7 +146,7 @@ public sealed class FormidableInputSelect<[DynamicallyAccessedMembers(Dynamicall
         catch (InvalidOperationException ex)
         {
             throw new InvalidOperationException(
-                $"{typeof(FormidableInputSelect<TValue>)} does not support the type '{typeof(TValue)}'.", ex);
+                $"{FriendlyTypeName.Of(typeof(FormidableInputSelect<TValue>))} does not support the type '{FriendlyTypeName.Of(typeof(TValue))}'.", ex);
         }
     }
 }

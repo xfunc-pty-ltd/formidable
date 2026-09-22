@@ -20,6 +20,14 @@ namespace Formidable;
 /// </summary>
 internal static class FluentValidationInspectionSurface
 {
+    // The four by-name reads the inspection walk performs, named once here and shared with the
+    // walk (FluentValidationModelValidator.Inspection.cs) so the guard and the walk cannot drift
+    // to different names of the same member.
+    internal const string GetValidatorMethod = "GetValidator";
+    internal const string RuleSetsProperty = "RuleSets";
+    internal const string FilterProperty = "Filter";
+    internal const string AsyncFilterProperty = "AsyncFilter";
+
     // Lazy, so the reflection runs on the first inspection ask rather than at type load, and
     // in its default ExecutionAndPublication mode, so the check runs once per process and the
     // diagnostic inside it cannot repeat.
@@ -40,10 +48,10 @@ internal static class FluentValidationInspectionSurface
         try
         {
             intact =
-                typeof(ChildValidatorAdaptor<,>).GetMethod("GetValidator", BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ChildValidatorAdaptor<,>).GetProperty("RuleSets", BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ICollectionRule<,>).GetProperty("Filter", BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ICollectionRule<,>).GetProperty("AsyncFilter", BindingFlags.Public | BindingFlags.Instance) is not null;
+                typeof(ChildValidatorAdaptor<,>).GetMethod(GetValidatorMethod, BindingFlags.Public | BindingFlags.Instance) is not null
+                && typeof(ChildValidatorAdaptor<,>).GetProperty(RuleSetsProperty, BindingFlags.Public | BindingFlags.Instance) is not null
+                && typeof(ICollectionRule<,>).GetProperty(FilterProperty, BindingFlags.Public | BindingFlags.Instance) is not null
+                && typeof(ICollectionRule<,>).GetProperty(AsyncFilterProperty, BindingFlags.Public | BindingFlags.Instance) is not null;
         }
         catch (Exception)
         {

@@ -67,9 +67,10 @@ Assert.Contains(submit.Errors, i => i.Path == "Title"); // submitting it is not
 `IModelValidator<T>` is the seam the engine validates through, so a test driving it directly runs
 exactly what a form runs — one profile at a time, which is the pairing worth pinning: a presence
 rule stays quiet under `Draft` and blocks under `Submit`. `ValidationReport` splits the answer by
-severity (`Errors`, `Warnings`, `Infos`, and `Advisories` for the two non-error buckets together),
-and `IsValid` counts errors only, so a warning-only report is valid. `ValidationIssue.Path` is
-FluentValidation's own property path, indexes included (`Lines[0].Sku`).
+severity (`Errors`, `Warnings`, `Infos`, and `Advisories` for every non-error issue: warnings,
+infos, and any severity outside those two), and `IsValid` counts errors only, so a warning-only
+report is valid. `ValidationIssue.Path` is FluentValidation's own property path, indexes included
+(`Lines[0].Sku`).
 
 All of that lives in the core `Formidable` package, which has no Blazor dependency — a plain xunit
 project referencing it is enough. Resolve `IModelValidator<T>` from a container if the test already

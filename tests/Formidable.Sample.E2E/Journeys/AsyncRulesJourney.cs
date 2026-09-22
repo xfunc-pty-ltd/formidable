@@ -138,8 +138,8 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
 
     // Property: after a submit, editing the username produces exactly one REAL checking window
     // (one lasting a healthy fraction of the simulated delay), not two. A window count alone
-    // cannot establish this: FormidableEngine's RunPassAsync wraps every pass, including a
-    // refresh that validates nothing async at all, in the same SetValidating(true)/(false) pair
+    // cannot establish this: FormidableEngine's RunPassAsync opens and closes the validating
+    // indicator around every pass alike, a refresh that validates nothing async at all included
     // — the refresh's own indicator is deliberately never suppressed — so even correct code
     // shows a second, instantaneous open/close here. Duration is what discriminates a genuine
     // round trip from that harmless flash; see InstallCheckWindowProbe below.

@@ -194,9 +194,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
         if (_engine is not null && !ReferenceEquals(_engine.EditContext, CascadedEditContext))
         {
-            _engine.Registry.Changed -= OnFieldRegistryChanged;
-            _engine.Dispose();
-            _engine = null;
+            TearDownEngine();
         }
 
         // _context is rebuilt only when _engine is: it is the cascaded CascadingValue's Value
@@ -283,8 +281,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <summary>
     /// The one report a page offering the guard nothing to scope itself to gets: a Trace line for
     /// a debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
-    /// the same dual channel <c>FormidableForm</c>'s unwired-<c>FocusFallback</c> miss already
-    /// uses. It names both routes, because either one closes the gap in a line.
+    /// written once through <see cref="FormidableDiagnostics"/>, the same dual channel
+    /// <c>FormidableForm</c>'s unwired-<c>FocusFallback</c> miss already uses. It names both
+    /// routes, because either one closes the gap in a line.
     /// </summary>
     private void ReportNoClickRecoveryRoot()
     {
@@ -294,9 +293,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             "EditForm this attaches to, or place it around a field this component registers, or set " +
             "FormidableOptions.ClickRecovery to None to ask for no guard at all.";
 
-        System.Diagnostics.Trace.WriteLine(message);
-        ((ILoggerFactory?)Services.GetService(typeof(ILoggerFactory)))?
-            .CreateLogger("Formidable").LogWarning(message);
+        FormidableDiagnostics.Warn(FormidableEngineFactory.ResolveLogger(Services), message);
     }
 
     /// <summary>
@@ -623,14 +620,25 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         // Recorded first, so an establish still awaiting its round trip finds this set rather
         // than registering a guard the release below has already gone past.
         _disposed = true;
+        TearDownEngine();
+        ReleaseClickRecovery();
+    }
 
-        if (_engine is not null)
+    /// <summary>
+    /// Unsubscribes from the current engine's registry, disposes it and clears the field — a
+    /// no-op when there is no engine to tear down. Shared by the two moments that retire an
+    /// engine: an EditContext swap replacing it with a fresh one, and disposal replacing it with
+    /// nothing.
+    /// </summary>
+    private void TearDownEngine()
+    {
+        if (_engine is null)
         {
-            _engine.Registry.Changed -= OnFieldRegistryChanged;
-            _engine.Dispose();
-            _engine = null;
+            return;
         }
 
-        ReleaseClickRecovery();
+        _engine.Registry.Changed -= OnFieldRegistryChanged;
+        _engine.Dispose();
+        _engine = null;
     }
 }

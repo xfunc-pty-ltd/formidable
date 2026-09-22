@@ -498,8 +498,12 @@ public sealed class FormidableSummary : FormidableComponentBase
             ? bandIssues.GroupBy(v => v.Field).Select(g => g.First()).ToList()
             : bandIssues.ToList();
 
-    // The one thing a clicked entry does: take the visitor to the field that entry names.
-    private Task ActivateAsync(VisibleIssue entry) => FocusWithFallbackAsync(entry.Field);
+    // The one thing a clicked entry does: take the visitor to the field that entry names. Naming
+    // the field is the click's whole contribution — the steps that get the visitor there are the
+    // ones a root's own focus move runs, prepare and fallback included. The answer goes unread: a
+    // click has nowhere else to send the visitor if the field will not take focus.
+    private async Task ActivateAsync(VisibleIssue entry) =>
+        await FirstErrorFocus.TryFocusAsync(FocusService, entry.Field, PrepareFocus, FocusFallback);
 
     private bool Matches(ValidationSeverity severity) => Show switch
     {
@@ -531,25 +535,5 @@ public sealed class FormidableSummary : FormidableComponentBase
             _ => "infos-heading",
         };
         return FormidableFieldId.For(new FieldIdentifier(this, suffix));
-    }
-
-    private async Task FocusWithFallbackAsync(FieldIdentifier field)
-    {
-        if (PrepareFocus is not null)
-        {
-            await PrepareFocus(field);
-        }
-
-        if (await FocusService.FocusAsync(field))
-        {
-            return;
-        }
-
-        if (FocusFallback is null || !await FocusFallback(field))
-        {
-            return;
-        }
-
-        await FocusService.FocusAsync(field);
     }
 }

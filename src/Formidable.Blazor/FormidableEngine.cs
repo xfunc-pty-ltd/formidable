@@ -45,16 +45,21 @@ namespace Formidable.Blazor;
 /// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
 /// _version gates the channel sources with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
-/// A fourth mechanism covers the per-rule verdict store: _editStamp mutates synchronously on the
-/// caller's context as each field change arrives — and as DiscloseLoadedValuesAsync begins,
-/// which is a page stating that the model moved without one — while the store itself is read
-/// on the dispatcher as a pass or a validity probe decides what is left to execute and written
-/// only in a verdict landing — a pass's apply, version- and generation-gated, in the same
-/// dispatch as the channel sources beside it, or the probe's own dispatch, generation-gated and
-/// skipped when an edit has arrived since the probe began — and its generation mutates with the
-/// rendered-field-set change, also on the
-/// dispatcher. A pass in flight across such a change can therefore neither read a store that is
-/// mutating under it nor write verdicts computed against a page that has since moved.
+/// A fourth mechanism covers the per-rule verdict store, and its doctrine lives with the store
+/// on <see cref="SetVerdictStore"/>: _editStamp mutates synchronously on the caller's context
+/// as each field change arrives — and as DiscloseLoadedValuesAsync begins, which is a page
+/// stating that the model moved without one — and reaches the store only as arguments, while
+/// the store itself is planned against, filed into and cleared only on the dispatcher, its
+/// writes generation-gated inside the store's own TryFile and the pass-level version gate
+/// staying in the pass's dispatch here.
+/// A fifth covers the submit-coverage vouch, whose doctrine lives with the tracker on
+/// <see cref="SubmitCoverageTracker"/>: reading the vouch is itself the mutation — a
+/// render-path <see cref="GetFieldState"/> ask recomputes the tracker's cached answer in
+/// place — and the tracker carries no locking or dispatch of its own. Its two edit-shaped
+/// writes ride the caller's context beside the edit-stamp moves they belong to (a field
+/// change's NoteEdit, the load's opening Abandon); every other write — the version moves at
+/// pass end, field-set change and probe landing, the fault path's Abandon, the whole-model
+/// record — happens on the dispatcher.
 /// One thread-discipline fact spans every mechanism above: an await calls
 /// ConfigureAwait(false) exactly when its own continuation is off the dispatcher, needing
 /// neither the renderer's context nor any of the state above back. Every await in this file
@@ -78,7 +83,6 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private readonly Func<Func<Task>, Task> _renderDispatch;
     private readonly ILogger? _logger;
     private readonly ValidationMessageStore _store;
-    private readonly EventHandler<FieldChangedEventArgs> _fieldChangedHandler;
 
     // The live channel's verdict source: each engaged field's answer from the live pass that
     // most recently filed one — an empty list is a real answer (the field's rules passed), a
@@ -174,113 +178,30 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // holds values nothing notified for. Nothing covers the rest.
     private int _editStamp;
 
-    // Every rule's most recent verdict, held one entry per executed SET rather than one per
-    // rule: a pass runs the stale remainder of its selection in as few validator calls as its
-    // rules' selection classes allow, and the issues one call produced answer for exactly the
-    // set it was given. _ruleToSet indexes each rule to the set that answered it, so the
-    // per-rule questions the engine asks — is this rule covered, and is that answer fresh —
-    // stay a dictionary read. Reuse stays bidirectional and order-independent for a rule:
-    // whichever pass ran it last at the current stamp has answered it for every later pass at
-    // that stamp, whatever profile either ran, for as long as the whole set it was run in sits
-    // within that later pass's own selection — which is what a selection-class partition
-    // guarantees, since no profile can take part of a class. Filing a set drops every stored set
-    // answering for a different model state and every one sharing a rule with it, and a
-    // rendered-field-set change empties both structures, so their size stays bounded by rule
-    // count.
-    private readonly List<SetVerdict> _setVerdicts = [];
-    private readonly Dictionary<RuleIdentity, SetVerdict> _ruleToSet = [];
+    // The per-rule verdict store — every rule's most recent answer, held per executed set. The
+    // store doctrine lives on the type itself; the engine keeps the caller-side halves: every
+    // touch rides the renderer's dispatcher, and a pass's apply gates on _version before
+    // filing. Not _store: that name is the ValidationMessageStore's.
+    private readonly SetVerdictStore _verdictStore = new();
 
-    // Names the rendered field set the stored verdicts were computed against, the one staleness
-    // the edit counter cannot see. OnRenderedFieldsChanged bumps it as it clears the store, and
-    // a pass writes verdicts only while the generation it captured at its own begin still
-    // stands — a pass in flight across a field-set change would otherwise put back, verbatim,
-    // exactly what the clear just removed.
-    private int _storeGeneration;
+    // The submit-coverage vouch behind the Valid state class, held whole on one type: the derived
+    // answer, its cache, the held answer and the capability-less source live on the tracker,
+    // whose own doc carries the doctrine. The engine keeps the seams the tracker deliberately
+    // never holds — the scheduler's on-its-way answer (ReAnswerOnItsWay) and issue
+    // resolution — and hands the per-ask coordinates in at WouldPassSubmit.
+    private readonly SubmitCoverageTracker _submitCoverage;
 
-    // Moves whenever a source the submit-coverage read derives from moves — a pass ending
-    // however it ends (see EndPass), a probe landing, the rendered-field-set clear — so the
-    // answer below can be cached per state rather than recomputed per field per render. The
-    // edit stamp is the cache key's other half; nothing else feeds the read.
-    private int _coverageVersion;
-
-    // The cached submit-coverage answer: whether every submit-selected rule has a current
-    // verdict, and which fields those verdicts fail (resolved once per recompute — resolution
-    // walks the model, and a per-read walk would put reflection behind every rendered field).
-    // Stamps of -1 mean never computed; the profile is remembered by reference because the
-    // options holding it are settable.
-    private int _coverageCacheEditStamp = -1;
-    private int _coverageCacheVersion = -1;
-    private ValidationProfile? _coverageCacheProfile;
-    private bool _coverageFresh;
-    private HashSet<FieldIdentifier>? _coverageErrorFields;
+    // The rule-selection half of the submit-coverage read, built once from the validator the
+    // engine holds: the method group cannot change, where a lambda at the ask site would
+    // allocate per read — and the read runs per rendered field per render. Whether the
+    // selection is OFFERED to the tracker stays a per-ask capability test in WouldPassSubmit,
+    // so this field spares an allocation without freezing an answer.
+    private readonly Func<ValidationProfile, IReadOnlyList<RuleIdentity>>? _selectSubmitRules;
 
     // The submit profile's presence demands, resolved to fields (see Requirements). Null until
     // first asked, and dropped whenever the profile instance or the rendered field set moves.
     private Dictionary<FieldIdentifier, FieldRequirement>? _requirements;
     private ValidationProfile? _requirementsProfile;
-
-    // The last coverage answer that came out fresh, and the two coordinates it answers for. They
-    // are the cache key above minus exactly one member — the coverage version — and ignoring that
-    // one member is the whole of what holding an answer means. A rendered-field-set change empties
-    // the verdict store and moves that version, which leaves the walk below nothing to read about
-    // a model the edit stamp says has not moved; the held answer covers that window, until the
-    // re-answer the change arms lands. An edit strands it only conditionally: while a re-answer is
-    // demonstrably on its way (see ServeHeldCoverage's second route) the answer keeps serving the
-    // fields the edit did not touch, and it stops the moment nothing is coming any more — the
-    // serve condition is re-checked on every read — or the pass carrying the promise ends without
-    // landing, which abandons it outright. A superseded pass is not itself a drop — it fails the
-    // version guard the abandon sits behind — and the answer then stands or falls on whether its
-    // displacer, or an arm, still promises a re-answer. The profile is part of the answer's
-    // identity and not merely of the cache's: an answer selected under one submit profile says
-    // nothing about the rules another selects. Every fresh answer is held, whichever branch
-    // produced it, so the field means one thing throughout; only the rule walk has a use for one.
-    // Held is the DERIVED answer alone, never a verdict: a stale verdict becomes a wrong message,
-    // where a held vouch is a border the pass behind it corrects. And held is the last answer a
-    // READ asked for, which is the only one worth holding — the Valid class IS that read, so a
-    // field wearing green has necessarily asked for an answer at the stamp it wears it at, and a
-    // stamp nothing ever asked about has no green to lose.
-    private int _heldCoverageStamp = -1;
-    private ValidationProfile? _heldCoverageProfile;
-    private HashSet<FieldIdentifier>? _heldCoverageErrorFields;
-
-    // Whether the cached answer above was served from the held answer ACROSS an edit —
-    // ServeHeldCoverage's second route. A marked answer needs two things an earned one does not:
-    // the cache short-circuit re-checks on every read that a re-answer is still on its way, and
-    // WouldPassSubmit withholds the vouch from the fields in _editedPastHold. Every recompute
-    // clears it, so an earned answer is never re-checked.
-    private bool _coverageServedAcrossEdit;
-
-    // The fields edited since the held answer was computed — added beside the edit stamp as each
-    // field change arrives, cleared whenever a fresh compute holds a new answer. While an answer
-    // is served across an edit these are the fields it cannot speak for: the edits invalidated
-    // exactly their values, so they paint as they would with no hold anywhere — which is what
-    // keeps a just-emptied required field from wearing green on the strength of a value it no
-    // longer holds. Never pruned on field departure, deliberately: excluding a departed field
-    // affects nothing rendered, an identity that returns was genuinely edited and stays honestly
-    // excluded, and every fresh hold clears the set whole anyway.
-    private readonly HashSet<FieldIdentifier> _editedPastHold = [];
-
-    // How long a pass in flight counts as "a re-answer on its way". A backstop rather than a
-    // knob: it only ever decides anything on a form whose pass has hung — where the held field
-    // shows no pending indicator, since the indicator scopes to the edited fields — and a hung
-    // form should lose its confirmation borders rather than keep them for ever. Generous on
-    // purpose: a rule slower than this loses the held green early, the conservative direction.
-    // The bound is the current pass's age, never the held answer's: each edit against a
-    // validator that hangs again starts a fresh pass, so the same, ever-staler answer can be
-    // re-served for another bound per edit — broken-form territory by design, and the edited
-    // fields themselves are excluded throughout.
-    private static readonly TimeSpan HeldVouchBound = TimeSpan.FromSeconds(30);
-
-    // The capability-less coverage source: the edit stamp at which the last whole-model
-    // SubmitProfile evaluation this source takes — a COMPLETED submit, refresh or load pass, or a
-    // fallback probe — began, and the fields its report failed. A live pass is excluded by kind
-    // rather than by the profile it ran: LiveProfile decides that, and a narrowed one answers for
-    // fewer rules than a submit would. A validator with no rule-level seam has no verdicts to
-    // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is
-    // the current stamp"; -1 until one completes, which is what keeps a never-evaluated form
-    // from wearing green it has not earned.
-    private int _lastSubmitAnswerStamp = -1;
-    private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
     // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
     // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
@@ -336,9 +257,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             ReportInspectionUnavailable();
         }
 
+        _selectSubmitRules = validator is IRuleLevelValidator<TModel> ruleLevel
+            ? ruleLevel.SelectRules
+            : null;
+        _submitCoverage = new SubmitCoverageTracker(_verdictStore, ReAnswerOnItsWay, Resolve);
+
         _store = new ValidationMessageStore(editContext);
-        _fieldChangedHandler = HandleFieldChanged;
-        editContext.OnFieldChanged += _fieldChangedHandler;
+        editContext.OnFieldChanged += HandleFieldChanged;
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
 
@@ -431,9 +356,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// </para>
     /// <para>
     /// A selection that throws (a typo'd ruleset name) answers "nothing found" rather than
-    /// taking the render down — the same call <see cref="EnsureSubmitCoverageCurrent"/> makes
-    /// one screen up, and for the same reason: the next pass surfaces that exception through
-    /// its own fault policy, which is where a configuration error belongs. Only entries that
+    /// taking the render down — the same choice <see cref="SubmitCoverageTracker"/> makes at
+    /// its own selection walk, and for the same reason: the next pass surfaces that exception
+    /// through its own fault policy, which is where a configuration error belongs. Only entries that
     /// demand something are kept, so a lookup miss and
     /// <see cref="FieldRequirement.NotRequired"/> are the same answer.
     /// </para>
@@ -491,187 +416,38 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>
-    /// Whether the engine can vouch that a submit would not fail <paramref name="field"/> — the
-    /// Valid class's <see cref="FieldState.WouldPassSubmit"/> conjunct: the submit-selected
-    /// coverage is fresh at the current edit stamp AND carries no error-severity issue for the
-    /// field, disclosed or not. Freshness is form-level, deliberately — which fields a PASSING
-    /// rule speaks for is unknowable without per-rule field attribution the adapters cannot
-    /// honestly provide, so one form-wide answer covers every field — while dirtiness is
-    /// per-field, because a failing answer names its fields itself. What "coverage" means is
-    /// the capability split: a rule-capable validator's coverage is the verdict store (every
-    /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
-    /// validator's coverage is the last whole-model SubmitProfile evaluation a submit, a refresh,
-    /// a load or a probe completed, current exactly while its begin stamp is still the current
-    /// edit stamp — a live pass is excluded by kind, whatever profile it ran. The rule-capable
-    /// coverage can also be a HELD answer: a rendered-field-set change empties the store while the
-    /// edit stamp says the model those verdicts described has not moved, and
-    /// <see cref="ServeHeldCoverage"/> covers that gap, so green describes the model rather than
-    /// the page's registration churn — and it covers the gap an edit itself opens, while the pass
-    /// re-answering that edit is demonstrably on its way, so one field's edit does not withdraw
-    /// every other field's confirmation for the debounce window plus the rules' flight. An
-    /// answer served across an edit cannot speak for the edited fields themselves — the edits
-    /// invalidated exactly their values — so those are excluded here and paint as they would
-    /// with no hold anywhere. The fallback needs no cover of its own — its source is not
-    /// the store, and a field-set change leaves it exactly as current as the edit stamp already
-    /// found it.
+    /// The engine's read of the submit-coverage vouch — see
+    /// <see cref="SubmitCoverageTracker.WouldPassSubmit"/> for the doctrine. What lives here is
+    /// the ask's coordinates, computed at each ask: the current edit stamp, the submit profile,
+    /// and the rule selection — offered only while the validator can validate rule by rule,
+    /// because <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/> is a live read (a
+    /// cascade-mode flip changes it with no engine event anywhere) and the options' profile is
+    /// read-at-each-use. Freezing either at construction would leave the vouch answering for a
+    /// configuration the form no longer runs.
     /// </summary>
-    private bool WouldPassSubmit(FieldIdentifier field)
-    {
-        EnsureSubmitCoverageCurrent();
-        return _coverageFresh
-            && (_coverageErrorFields is null || !_coverageErrorFields.Contains(field))
-            && (!_coverageServedAcrossEdit || !_editedPastHold.Contains(field));
-    }
+    private bool WouldPassSubmit(FieldIdentifier field) =>
+        _submitCoverage.WouldPassSubmit(
+            field,
+            _editStamp,
+            _options.SubmitProfile,
+            _validator is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule
+                ? _selectSubmitRules
+                : null);
 
     /// <summary>
-    /// Recomputes the cached submit-coverage answer when the edit stamp, a coverage source, or
-    /// the submit profile has moved since it was last computed — or when the cached answer was
-    /// served across an edit and the re-answer it stands on is no longer on its way — once per
-    /// state change rather than once per field per render, since the walk selects rules and
-    /// resolves the failing verdicts' issues to fields. A selection that throws (a typo'd
-    /// ruleset name, say) reads as stale coverage rather than taking the render down: the next
-    /// pass surfaces the same exception through its own fault policy, which is where a
-    /// configuration error belongs.
-    /// Nothing held stands in for that one: a selection that cannot be walked leaves nothing
-    /// able to vouch for anything.
+    /// The profile the live channel runs. Unset, it runs the submit profile itself — the STORED
+    /// instance, never a copy of it: the verdict store's freshness check and the submit-coverage
+    /// cache both key on the profile by reference, and an equal-but-distinct object would silently
+    /// defeat each of them. Resolved at each ask rather than once, per the options'
+    /// read-at-each-use contract — <see cref="FormidableOptions.LiveProfile"/> holds a mutable
+    /// instance a consumer may swap at any moment.
     /// </summary>
-    private void EnsureSubmitCoverageCurrent()
-    {
-        var profile = _options.SubmitProfile;
-        if (_coverageCacheEditStamp == _editStamp
-            && _coverageCacheVersion == _coverageVersion
-            && ReferenceEquals(_coverageCacheProfile, profile)
-            // An answer served across an edit stands only while the re-answer it was served on
-            // the promise of is still on its way; nothing re-keys this cache while a pass merely
-            // hangs, so the promise is re-checked at the read itself. Once a recompute lands the
-            // flag is clear and the short-circuit is unconditional again.
-            && (!_coverageServedAcrossEdit || ReAnswerOnItsWay()))
-        {
-            return;
-        }
-
-        _coverageCacheEditStamp = _editStamp;
-        _coverageCacheVersion = _coverageVersion;
-        _coverageCacheProfile = profile;
-        _coverageFresh = false;
-        _coverageErrorFields = null;
-        _coverageServedAcrossEdit = false;
-
-        if (_validator is not IRuleLevelValidator<TModel> ruleLevel || !ruleLevel.CanValidateByRule)
-        {
-            if (_lastSubmitAnswerStamp == _editStamp)
-            {
-                _coverageFresh = true;
-                _coverageErrorFields = _lastSubmitAnswerErrorFields.Count > 0
-                    ? _lastSubmitAnswerErrorFields
-                    : null;
-                HoldCoverage(profile);
-            }
-
-            return;
-        }
-
-        HashSet<FieldIdentifier>? errorFields = null;
-        try
-        {
-            var plan = BuildRulePlan(ruleLevel, profile, executeAll: false, _editStamp);
-            if (plan.Remainder.Count > 0)
-            {
-                // A rule with no current answer. The held answer stands in for it on either of
-                // two grounds — a rendered-field-set change emptied the store without moving
-                // the edit stamp, so an answer computed at that stamp is one nothing since has
-                // invalidated; or an edit moved the stamp while the pass re-answering it is
-                // demonstrably on its way, in which case the held answer serves every field
-                // the edit did not touch. Otherwise coverage is stale and its fields are moot.
-                ServeHeldCoverage(profile);
-                return;
-            }
-
-            foreach (var stored in plan.Reused)
-            {
-                foreach (var issue in stored.Issues)
-                {
-                    if (issue.Severity == ValidationSeverity.Error)
-                    {
-                        (errorFields ??= []).Add(Resolve(issue));
-                    }
-                }
-            }
-        }
-        catch (Exception)
-        {
-            return; // selection failed: nothing can vouch for anything — stale
-        }
-
-        _coverageFresh = true;
-        _coverageErrorFields = errorFields;
-        HoldCoverage(profile);
-    }
-
-    /// <summary>
-    /// Holds the answer <see cref="EnsureSubmitCoverageCurrent"/> has just computed, together
-    /// with the edit stamp and profile it answers for. Called only where the answer came out
-    /// fresh: a stale read is not an answer, and holding one would be vouching for nothing.
-    /// Holding also empties the edited-field record: the answer being held is current, so no
-    /// field has been edited past it yet.
-    /// </summary>
-    private void HoldCoverage(ValidationProfile profile)
-    {
-        _heldCoverageStamp = _editStamp;
-        _heldCoverageProfile = profile;
-        _heldCoverageErrorFields = _coverageErrorFields;
-        _editedPastHold.Clear();
-    }
-
-    /// <summary>
-    /// Serves the held answer in place of a recomputed one, on either of two grounds. The first:
-    /// the verdicts it was derived from are gone while the model it describes is not — a
-    /// rendered-field-set change empties the store and never moves the edit stamp, so matching
-    /// that stamp is exactly the condition "nothing but the rendered field set has changed since
-    /// this was computed", and the change that emptied the store also arms the pass that replaces
-    /// the held answer with an earned one. The second: an edit moved the stamp past the held
-    /// answer while a re-answer is demonstrably on its way (<see cref="ReAnswerOnItsWay"/>) —
-    /// without this, one field's edit withdraws every other field's confirmation for the whole
-    /// gap between the edit and the pass's landing, a debounce window plus the rules' flight. An
-    /// answer served on the second ground is marked as such, and two things keep the mark honest:
-    /// <see cref="WouldPassSubmit"/> excludes the fields edited since the hold, so the edited
-    /// field itself paints exactly as it would with no hold anywhere, and
-    /// <see cref="EnsureSubmitCoverageCurrent"/> re-checks the serve condition on every read of
-    /// the marked answer, so a pass that hangs past <see cref="HeldVouchBound"/> — or a promise
-    /// that evaporates — loses the vouch at the next read rather than keeping it for ever. The
-    /// profile match guards both grounds: an answer about one selection of rules never vouches
-    /// for another. What a served answer can be wrong about is bounded the same way it always
-    /// was: it answers from the model state it was computed against until the pass behind it
-    /// lands, the lag <see cref="IsFormValid"/> has always carried, on the same terms.
-    /// </summary>
-    private void ServeHeldCoverage(ValidationProfile profile)
-    {
-        if (!ReferenceEquals(_heldCoverageProfile, profile))
-        {
-            return;
-        }
-
-        if (_heldCoverageStamp == _editStamp)
-        {
-            _coverageFresh = true;
-            _coverageErrorFields = _heldCoverageErrorFields;
-            _coverageServedAcrossEdit = false;
-            return;
-        }
-
-        if (!ReAnswerOnItsWay())
-        {
-            return;
-        }
-
-        _coverageFresh = true;
-        _coverageErrorFields = _heldCoverageErrorFields;
-        _coverageServedAcrossEdit = true;
-    }
+    private ValidationProfile ResolvedLiveProfile => _options.LiveProfile ?? _options.SubmitProfile;
 
     /// <summary>
     /// Whether a re-answer of the submit-selected coverage is demonstrably on its way. A pass in
-    /// flight is asked first, and its age before anything else: past <see cref="HeldVouchBound"/>
+    /// flight is asked first, and its age before anything else: past
+    /// <see cref="SubmitCoverageTracker.HeldVouchBound"/>
     /// nothing counts, not even what is armed behind it. A hung submit, live or load pass defers
     /// every armed refresh for as long as it hangs, and a hung refresh is not deferred to but
     /// displaced by the next refresh fire, which begins a pass with a bound of its own; either
@@ -691,8 +467,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// degenerate never-closing width — so an accumulator standing behind one promises nothing,
     /// however many fields it holds. The options are read here, at each ask, per their
     /// read-at-each-use contract. This is the serve-across-an-edit condition
-    /// <see cref="ServeHeldCoverage"/> asks, and the standing condition
-    /// <see cref="EnsureSubmitCoverageCurrent"/> re-asks on every read of an answer so served.
+    /// <see cref="SubmitCoverageTracker"/> asks as it serves, and the standing condition it
+    /// re-asks on every read of an answer so served.
     /// The validity probe is deliberately not consulted — it
     /// is fire-and-forget, with no descriptor to read a start time from — which leaves one
     /// configuration blinking on an edit exactly as a form with nothing scheduled does: a
@@ -701,8 +477,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// </summary>
     private bool ReAnswerOnItsWay()
     {
-        var liveAnswersSubmit = ReferenceEquals(
-            _options.LiveProfile ?? _options.SubmitProfile, _options.SubmitProfile);
+        var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
 
         if (_currentPass is { } pass)
         {
@@ -711,7 +486,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // (RunRefreshPassAsync re-arms behind exactly those kinds), and a hung refresh is
             // displaced by the next fire rather than deferred to, beginning a pass with a bound
             // of its own — so at this read the arms below cannot stand in for the pass past it.
-            if (_timeProvider.GetElapsedTime(pass.StartedAt) >= HeldVouchBound)
+            if (_timeProvider.GetElapsedTime(pass.StartedAt)
+                >= SubmitCoverageTracker.HeldVouchBound)
             {
                 return false;
             }
@@ -736,23 +512,6 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 && liveDebounce != Timeout.InfiniteTimeSpan)
             || (_pendingRefreshFields.Count > 0
                 && _options.RefreshDebounce != Timeout.InfiniteTimeSpan);
-    }
-
-    /// <summary>
-    /// Drops the held coverage answer outright, so nothing serves it again until a fresh compute
-    /// holds a new one. Two things reach for it: a current pass ending without landing — the
-    /// re-answer any served vouch was standing on the promise of is gone, and retraction must
-    /// not wait out <see cref="HeldVouchBound"/> or a still-armed window — and the whole-model
-    /// adoption <see cref="DiscloseLoadedValuesAsync"/> opens with, which declares the model
-    /// moved out from under everything the hold describes; its own pass re-answers and re-holds.
-    /// Nulling the profile is what closes both serve routes: a stamp of -1 never matches, and
-    /// no profile ever compares equal to none.
-    /// </summary>
-    private void AbandonHeldCoverage()
-    {
-        _heldCoverageStamp = -1;
-        _heldCoverageProfile = null;
-        _heldCoverageErrorFields = null;
     }
 
     /// <summary>
@@ -983,12 +742,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return false;
             }
 
-            foreach (var errorField in _submitVerdictErrors.Keys)
+            if (_revealedErrorFields.Overlaps(_submitVerdictErrors.Keys))
             {
-                if (_revealedErrorFields.Contains(errorField))
-                {
-                    return false;
-                }
+                return false;
             }
 
             // The live channel explains a block just as well as the submit channel does, so it
@@ -1091,18 +847,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 ? revealed
                 : null;
 
-        List<ValidationIssue>? merged = null;
-        if (_serverErrors.TryGetValue(field, out var server))
-        {
-            foreach (var issue in server)
-            {
-                if (client is null || !client.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
-                {
-                    merged ??= client is null ? [] : [.. client];
-                    merged.Add(issue);
-                }
-            }
-        }
+        var merged = MergeServer(client, _serverErrors.GetValueOrDefault(field));
 
         if (field.Equals(ModelLevelField) && GateActive)
         {
@@ -1127,21 +872,51 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 ? revealed
                 : null;
 
-        List<ValidationIssue>? merged = null;
-        if (_serverAdvisories.TryGetValue(field, out var server))
+        return MergeServer(client, _serverAdvisories.GetValueOrDefault(field)) ?? client;
+    }
+
+    /// <summary>
+    /// Appends the server's issues for a field to the client's, skipping any the client is already
+    /// showing at the same severity — the client merges first, so an identical sentence from both
+    /// sides collapses to the client's copy. Returns <see langword="null"/> when the server adds
+    /// nothing, so a caller with more to append knows whether a copy has been taken yet: the
+    /// client's own list is never mutated, since the channel views hand it straight back when
+    /// nothing merges.
+    /// </summary>
+    private static List<ValidationIssue>? MergeServer(
+        List<ValidationIssue>? client,
+        List<ValidationIssue>? server)
+    {
+        if (server is null)
         {
-            foreach (var issue in server)
+            return null;
+        }
+
+        List<ValidationIssue>? merged = null;
+        foreach (var issue in server)
+        {
+            if (client is null || !client.Any(i => SameMessageAndSeverity(i, issue)))
             {
-                if (client is null || !client.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
-                {
-                    merged ??= client is null ? [] : [.. client];
-                    merged.Add(issue);
-                }
+                merged ??= client is null ? [] : [.. client];
+                merged.Add(issue);
             }
         }
 
-        return merged ?? client;
+        return merged;
     }
+
+    /// <summary>
+    /// Whether two issues say the same thing at the same weight — the test wherever a repeated
+    /// sentence folds into the one already held: the channel views folding a server copy into the
+    /// client's, and a server apply folding a payload's second copy into the entry it already
+    /// took. The severity half earns its place on the advisory side, where one list holds every
+    /// non-error severity at once and the same sentence can legitimately sit at two of them; in an
+    /// error list it is constant and costs nothing. The live-issue merge inside
+    /// <see cref="RebuildStore"/> tests the message alone instead, deliberately, for the reason
+    /// stated there.
+    /// </summary>
+    private static bool SameMessageAndSeverity(ValidationIssue left, ValidationIssue right) =>
+        left.Message == right.Message && left.Severity == right.Severity;
 
     /// <summary>
     /// Every field the submit channel's error view has entries for, paired with its merged view:
@@ -1445,20 +1220,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
         }
 
-        var republished = false;
+        var dropped = false;
         if (departed is not null)
         {
-            var republish = false;
             foreach (var field in departed)
             {
                 _engagedFields.Remove(field);
-                republish |= _liveVerdicts.Remove(field);
+                dropped |= _liveVerdicts.Remove(field);
             }
 
-            if (republish)
+            if (dropped)
             {
                 RebuildStore();
-                republished = true;
             }
         }
 
@@ -1468,7 +1241,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // verdicts standing owes a republish in that mode. The default policy never consults
         // registration, which is what keeps the default's churn cost at the departure-only
         // republish above.
-        if (!republished
+        if (!dropped
             && _liveVerdicts.Count > 0
             && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)
         {
@@ -1493,12 +1266,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // stood before the move. The generation bump extends the same argument to a pass already
         // in flight: its verdict apply checks the generation it captured at begin and declines
         // to write, so the clear cannot be undone by work that predates it.
-        _setVerdicts.Clear();
-        _ruleToSet.Clear();
-        _storeGeneration++;
+        _verdictStore.Clear();
         // The emptied store answers for nothing, so the coverage read re-derives — or, while the
         // edit stamp says the model it described still stands, holds the answer it last gave.
-        _coverageVersion++;
+        _submitCoverage.MoveVersion();
 
         // The presence demands are keyed by fields resolved against the model graph, and a move
         // in what the page renders is the one signal the engine has that the graph behind it may
@@ -1528,7 +1299,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // joins the edited-past-hold record in the same breath: if the held coverage answer is
         // served across this edit, this is the one field it must not vouch for.
         _editStamp++;
-        _editedPastHold.Add(e.FieldIdentifier);
+        _submitCoverage.NoteEdit(e.FieldIdentifier);
 
         MarkTouched(e.FieldIdentifier);
 
@@ -1633,8 +1404,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// Retires the pass in flight: the validating flag, the field scope narrowing it, and the
     /// descriptor naming the pass all clear together, so nothing that runs afterwards can read a
     /// pass that has already ended. The caller establishes that the pass is still the current one —
-    /// the verdict dispatch does that with its own version guard, <see cref="SetValidating"/> with
-    /// its. Ending a pass also moves the coverage version, whatever the outcome: a landing can
+    /// the verdict dispatch does that with its own version guard,
+    /// <see cref="EndPassWithoutLandingAsync"/> with the one <see cref="PublishPassStateAsync"/>
+    /// applies. Ending a pass also moves the coverage version, whatever the outcome: a landing can
     /// have written verdicts the coverage read derives from, live passes included, and a pass
     /// that ends WITHOUT landing can no longer be the re-answer a held vouch was being served on
     /// the promise of — either way the next coverage read must re-decide rather than stand on a
@@ -1645,53 +1417,60 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         IsValidating = false;
         _validatingScope = null;
         _currentPass = null;
-        _coverageVersion++;
+        _submitCoverage.MoveVersion();
     }
 
     /// <summary>
-    /// Flips <see cref="IsValidating"/> and notifies, marshaled through <c>_renderDispatch</c> so
-    /// the flip lands on the renderer's dispatcher rather than on whatever thread completed the pass.
-    /// The write is skipped when <paramref name="pass"/> is no longer the current one —
-    /// a superseded pass must not stomp a newer pass's state. <paramref name="fields"/> narrows which
-    /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the field(s)
-    /// that triggered it — one field for an immediate edit, every field an open live-debounce
-    /// window accumulated for a debounced one; a refresh pass passes the fields edited within its
-    /// debounce window; the pass <see cref="DiscloseLoadedValuesAsync"/> runs passes an EMPTY
-    /// set, since no field is waiting on it; and a submit passes <see langword="null"/>
-    /// (form-wide, every field), being the pass the visitor asked for. Only
-    /// meaningful when <paramref name="value"/> is <see langword="true"/> — clearing ends the pass outright (see
-    /// <see cref="EndPass"/>), scope and descriptor with it.
+    /// Flips <see cref="IsValidating"/> on as a pass begins, and narrows which fields
+    /// <see cref="GetFieldState"/> reports as validating. <paramref name="fields"/> is that scope:
+    /// a live pass passes the field(s) that triggered it — one field for an immediate edit, every
+    /// field an open live-debounce window accumulated for a debounced one; a refresh pass passes
+    /// the fields edited within its debounce window; the pass
+    /// <see cref="DiscloseLoadedValuesAsync"/> runs passes an EMPTY set, since no field is waiting
+    /// on it; and a submit passes <see langword="null"/> (form-wide, every field), being the pass
+    /// the visitor asked for.
+    /// </summary>
+    private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
+        PublishPassStateAsync(pass, () =>
+        {
+            IsValidating = true;
+            _validatingScope = fields;
+        });
+
+    /// <summary>
+    /// Retires a pass that ended WITHOUT landing, however it came to — a fault and a caller's
+    /// cancellation are the everyday routes. The re-answer any held vouch is being served on the
+    /// promise of goes with it, and retraction must be immediate rather than bound-delayed:
+    /// <see cref="EndPass"/> moves the coverage version out from under the cache, and abandoning
+    /// the held answer keeps the serve route from handing it straight back out for a still-armed
+    /// window or the bound's remainder. A pass that landed ended at its verdict dispatch and never
+    /// reaches here, and a superseded pass is refused by the version gate
+    /// <see cref="PublishPassStateAsync"/> applies, so neither costs a hold anything.
+    /// </summary>
+    private Task EndPassWithoutLandingAsync(PassScope pass) =>
+        PublishPassStateAsync(pass, () =>
+        {
+            _submitCoverage.Abandon();
+            EndPass();
+        });
+
+    /// <summary>
+    /// Applies a pass-state change and notifies, marshaled through <c>_renderDispatch</c> so the
+    /// write lands on the renderer's dispatcher rather than on whatever thread completed the pass.
+    /// <paramref name="change"/> is skipped when <paramref name="pass"/> is no longer the current
+    /// one — a superseded pass must not stomp a newer pass's state.
     /// Also raises the EditContext's own validation-state notification, not just the engine's: a
     /// native InputBase re-renders on that event, not on <see cref="StateChanged"/>, so without it
     /// the Pending class a native input picks up through
     /// <see cref="FormidableFieldCssClassProvider"/> would light on the next store rebuild but have
     /// no later trigger to clear it once the pass ends.
     /// </summary>
-    private Task SetValidating(bool value, PassScope pass, HashSet<FieldIdentifier>? fields = null) =>
+    private Task PublishPassStateAsync(PassScope pass, Action change) =>
         _renderDispatch(() =>
         {
             if (pass.Version == _version)
             {
-                if (value)
-                {
-                    IsValidating = true;
-                    _validatingScope = fields;
-                }
-                else
-                {
-                    // A current pass clearing the flag here ended without landing, however it
-                    // came to — a fault and a caller's cancellation are the everyday routes —
-                    // so the re-answer any held vouch is being served on the promise of is
-                    // gone, and retraction must be immediate rather than bound-delayed: EndPass
-                    // moves the coverage version out from under the cache, and abandoning the
-                    // held answer keeps the serve route from handing it straight back out for a
-                    // still-armed window or the bound's remainder. A pass that landed ended at
-                    // its verdict dispatch and never reaches this branch, and a superseded pass
-                    // fails the version guard above, so neither costs a hold anything here.
-                    AbandonHeldCoverage();
-                    EndPass();
-                }
-
+                change();
                 NotifyStateChanged();
                 EditContext.NotifyValidationStateChanged();
             }
@@ -1753,38 +1532,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // and the generation names the rendered field set they are computed against, which is
         // what the verdict apply below checks before it writes the store.
         var editStamp = _editStamp;
-        var generation = _storeGeneration;
+        var generation = _verdictStore.Generation;
 
         try
         {
-            await SetValidating(true, pass, beginScope()).ConfigureAwait(false);
+            await BeginValidatingAsync(pass, beginScope()).ConfigureAwait(false);
 
-            var report = ValidationReport.Empty;
-            List<SetVerdict>? executed = null;
+            ValidationReport report;
+            List<SetVerdict>? executed;
             try
             {
-                if (_validator is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule)
-                {
-                    // The store is only ever touched on the dispatcher, so the decision about
-                    // what is left to execute rides one dispatch of its own — the same channel
-                    // every other store mutation uses — rather than racing a clear or a write
-                    // from off it. A selection error (a typo'd ruleset name, say) surfaces here
-                    // exactly as a whole-profile validation surfaces it, through the fault
-                    // policy below.
-                    RulePlan plan = null!;
-                    await _renderDispatch(() =>
-                    {
-                        plan = BuildRulePlan(ruleLevel, profile, kind == PassKind.Submit, editStamp);
-                        return Task.CompletedTask;
-                    }).ConfigureAwait(false);
-
-                    (report, executed) = await ExecuteRulePlanAsync(ruleLevel, profile, plan, editStamp, pass.Token)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    report = await _validator.ValidateAsync(_model, profile, pass.Token).ConfigureAwait(false);
-                }
+                (report, executed, _) = await EvaluateAsync(
+                    profile,
+                    executeAll: kind == PassKind.Submit,
+                    editStamp,
+                    pass.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!external.IsCancellationRequested)
             {
@@ -1817,13 +1579,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // entries the change's clear just removed. A faulted pass never reaches this
                 // dispatch, and a superseded one stops at the version gate above, so neither
                 // writes anything, store included.
-                if (executed is not null && generation == _storeGeneration)
-                {
-                    foreach (var verdict in executed)
-                    {
-                        StoreSetVerdict(verdict);
-                    }
-                }
+                _verdictStore.TryFile(executed, generation);
 
                 applyVerdict(report);
 
@@ -1840,8 +1596,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // derives from.
                 if (kind != PassKind.Live)
                 {
-                    _lastSubmitAnswerStamp = editStamp;
-                    _lastSubmitAnswerErrorFields = [.. _submitVerdictErrors.Keys];
+                    _submitCoverage.RecordWholeModelAnswer(
+                        editStamp, [.. _submitVerdictErrors.Keys]);
                 }
 
                 // The pass ends here, not only in the finally below: retiring it before
@@ -1866,63 +1622,53 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // leaves the flag cleared and costs one extra round, rather than leaving it stuck on.
             if (IsValidating)
             {
-                await SetValidating(false, pass).ConfigureAwait(false);
+                await EndPassWithoutLandingAsync(pass).ConfigureAwait(false);
             }
         }
     }
 
     /// <summary>
-    /// Decides what a capability evaluation has left to execute: the stored sets it may serve
-    /// from, and the rules of the profile's selection none of them answers. A stored set is
-    /// servable only where the current selection CONTAINS it, because a set's issues belong to
-    /// the set as a whole and there is no per-rule attribution to strip the ones a narrower
-    /// profile does not select — so a set answers a selection it is part of and never one it
-    /// straddles. A submit sets <paramref name="executeAll"/> and serves nothing by fiat: it is
-    /// the disclosure event, and its full run is also what repopulates the store so everything
-    /// behind it starts from answered rules; every other kind, and the validity probe, consults
-    /// freshness. Runs on the dispatcher (the caller marshals), because the store is read here
-    /// and mutates only there.
+    /// The evaluate step behind both whole-model evaluations — an engine pass and the validity
+    /// probe — split on capability. A validator that can validate rule by rule is planned against
+    /// the verdict store, so only the rules with no fresh verdict at <paramref name="editStamp"/>
+    /// execute, unless <paramref name="executeAll"/> runs the selection whole, and the report
+    /// handed back is ASSEMBLED from the sets served and the sets just run. The plan is built
+    /// on the dispatcher, where the store mutates. Any other validator gets the whole profile
+    /// in one call — correct, unoptimised. Which of the two ran comes back beside the report,
+    /// because the verdict list cannot say it: a capability evaluation whose every selected
+    /// rule is already answered executes nothing and returns none either.
+    /// Nothing is caught here, and nothing is written: the callers' fault policies genuinely
+    /// differ — a pass tells supersession from its own caller's cancellation and reports or
+    /// rethrows by kind, where a probe nobody awaits has only the event — and the verdicts come
+    /// back for the caller's own version- and generation-gated apply to file.
     /// </summary>
-    private RulePlan BuildRulePlan(
-        IRuleLevelValidator<TModel> ruleLevel,
+    private async Task<(ValidationReport Report, List<SetVerdict>? Executed, bool RuleCapable)> EvaluateAsync(
         ValidationProfile profile,
         bool executeAll,
-        int editStamp)
+        int editStamp,
+        CancellationToken token)
     {
-        var selection = ruleLevel.SelectRules(profile);
-        var reused = new List<SetVerdict>();
-        HashSet<RuleIdentity>? covered = null;
-
-        if (!executeAll && _setVerdicts.Count > 0)
+        if (_validator is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule)
         {
-            var selected = new HashSet<RuleIdentity>(selection);
-            covered = [];
-            foreach (var rule in selection)
+            // The store is only ever touched on the dispatcher, so the decision about what is
+            // left to execute rides one dispatch of its own — the same channel every other
+            // store mutation uses — rather than racing a clear or a write from off it. A
+            // selection error (a typo'd ruleset name, say) surfaces here exactly as a
+            // whole-profile validation surfaces it, through the caller's fault policy.
+            RulePlan plan = null!;
+            await _renderDispatch(() =>
             {
-                if (covered.Contains(rule)
-                    || !_ruleToSet.TryGetValue(rule, out var stored)
-                    || !stored.IsFreshFor(editStamp, profile)
-                    || !stored.Rules.IsSubsetOf(selected)
-                    || stored.Rules.Overlaps(covered))
-                {
-                    continue;
-                }
+                plan = _verdictStore.Plan(ruleLevel.SelectRules(profile), executeAll, editStamp, profile);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
 
-                reused.Add(stored);
-                covered.UnionWith(stored.Rules);
-            }
+            var (report, executed) = await ExecuteRulePlanAsync(ruleLevel, profile, plan, editStamp, token)
+                .ConfigureAwait(false);
+            return (report, executed, true);
         }
 
-        var remainder = new List<RuleIdentity>(selection.Count);
-        foreach (var rule in selection)
-        {
-            if (covered is null || !covered.Contains(rule))
-            {
-                remainder.Add(rule);
-            }
-        }
-
-        return new RulePlan(reused, remainder);
+        var wholeProfile = await _validator.ValidateAsync(_model, profile, token).ConfigureAwait(false);
+        return (wholeProfile, null, false);
     }
 
     /// <summary>
@@ -2001,37 +1747,6 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>
-    /// Files a set verdict, dropping every stored set it supersedes: one that answers for an
-    /// older model state, and one that shares a rule with it, since two sets holding one rule
-    /// between them would let a plan serve that rule's issues twice. Runs on the dispatcher,
-    /// like every other store mutation.
-    /// </summary>
-    private void StoreSetVerdict(SetVerdict verdict)
-    {
-        for (var i = _setVerdicts.Count - 1; i >= 0; i--)
-        {
-            var stored = _setVerdicts[i];
-            if (stored.EditStamp != verdict.EditStamp || stored.Rules.Overlaps(verdict.Rules))
-            {
-                _setVerdicts.RemoveAt(i);
-                foreach (var rule in stored.Rules)
-                {
-                    if (_ruleToSet.TryGetValue(rule, out var owner) && ReferenceEquals(owner, stored))
-                    {
-                        _ruleToSet.Remove(rule);
-                    }
-                }
-            }
-        }
-
-        _setVerdicts.Add(verdict);
-        foreach (var rule in verdict.Rules)
-        {
-            _ruleToSet[rule] = verdict;
-        }
-    }
-
-    /// <summary>
     /// The single fault policy behind every pass that reports rather than rethrows: a form-level
     /// issue saying the verdict is incomplete, written only while <paramref name="pass"/> is still
     /// the current one, then <see cref="ValidationFaulted"/> for a host that wants to log it. The
@@ -2082,11 +1797,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         // Captured beside the snapshot, and handed to the pass rather than read again later: the
         // option holds a mutable instance a consumer may swap at any moment, so the profile this
-        // pass ran under is only knowable by remembering it here. Unset, the live channel runs
-        // the submit profile itself — the STORED instance, never a copy of it: the verdict
-        // store's freshness check and the submit-coverage cache both key on the profile by
-        // reference, and an equal-but-distinct object would silently defeat each of them.
-        var liveProfile = _options.LiveProfile ?? _options.SubmitProfile;
+        // pass ran under is only knowable by remembering it here.
+        var liveProfile = ResolvedLiveProfile;
 
         await RunPassAsync(
             PassKind.Live,
@@ -2185,36 +1897,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // names the rendered field set they were computed against, and the profile is
         // remembered because the options holding it are settable.
         var editStamp = _editStamp;
-        var generation = _storeGeneration;
+        var generation = _verdictStore.Generation;
         var profile = _options.SubmitProfile;
 
-        var ruleLevel = _validator as IRuleLevelValidator<TModel>;
-        var ruleCapable = ruleLevel is not null && ruleLevel.CanValidateByRule;
-
         ValidationReport report;
-        List<SetVerdict>? executed = null;
+        List<SetVerdict>? executed;
+        bool ruleCapable;
         try
         {
-            if (ruleCapable)
-            {
-                // The same dispatch discipline the pass skeleton uses: the store is read on the
-                // dispatcher, where it mutates. A selection error surfaces through the fault
-                // policy below, exactly as a whole-profile validation would surface it.
-                RulePlan plan = null!;
-                await _renderDispatch(() =>
-                {
-                    plan = BuildRulePlan(ruleLevel!, profile, executeAll: false, editStamp);
-                    return Task.CompletedTask;
-                }).ConfigureAwait(false);
-
-                (report, executed) = await ExecuteRulePlanAsync(ruleLevel!, profile, plan, editStamp, _probeCts.Token)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                report = await _validator.ValidateAsync(_model, profile, _probeCts.Token)
-                    .ConfigureAwait(false);
-            }
+            (report, executed, ruleCapable) = await EvaluateAsync(
+                profile,
+                executeAll: false,
+                editStamp,
+                _probeCts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -2233,17 +1928,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return Task.CompletedTask;
             }
 
-            var movedCoverage = false;
-
-            if (executed is { Count: > 0 } && generation == _storeGeneration && editStamp == _editStamp)
-            {
-                foreach (var verdict in executed)
-                {
-                    StoreSetVerdict(verdict);
-                }
-
-                movedCoverage = true;
-            }
+            // The probe's stricter write gate is the store's four-argument overload:
+            // generation-checked like a pass's filing, and additionally refused when an edit
+            // has arrived since the probe began — a probe has no version for a fresher
+            // landing to supersede it through.
+            var movedCoverage = _verdictStore.TryFile(executed, generation, editStamp, _editStamp);
 
             if (stamp == _formValidityStamp)
             {
@@ -2262,22 +1951,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         errorFields.Add(Resolve(issue));
                     }
 
-                    _lastSubmitAnswerStamp = editStamp;
-                    _lastSubmitAnswerErrorFields = errorFields;
+                    _submitCoverage.RecordWholeModelAnswer(editStamp, errorFields);
                     movedCoverage = true;
                 }
 
-                var isFormValid = report.IsValid;
-                if (isFormValid != IsFormValid)
-                {
-                    IsFormValid = isFormValid;
-                    NotifyStateChanged();
-                }
+                SetFormValidity(report.IsValid);
             }
 
             if (movedCoverage)
             {
-                _coverageVersion++;
+                _submitCoverage.MoveVersion();
                 NotifyStateChanged();
                 EditContext.NotifyValidationStateChanged();
             }
@@ -2311,10 +1994,23 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _formValidityStamp++;
 
-        var isFormValid = report.IsValid;
-        if (isFormValid != IsFormValid)
+        SetFormValidity(report.IsValid);
+    }
+
+    /// <summary>
+    /// Writes <see cref="IsFormValid"/> and notifies only when the answer moves. Both writers —
+    /// the probe and a whole-model pass's adoption — recompute this whenever their own cadence
+    /// brings them round: the probe on every field-change notification while no
+    /// <see cref="FormidableOptions.LiveDebounce"/> is configured, and once per debounce window
+    /// while one is, riding the cadence that window exists to collapse those raw notifications
+    /// into. The answer mostly comes back the same either way, so notifying unconditionally would
+    /// publish a render round for a value nothing on the page could tell from the last one.
+    /// </summary>
+    private void SetFormValidity(bool value)
+    {
+        if (value != IsFormValid)
         {
-            IsFormValid = isFormValid;
+            IsFormValid = value;
             NotifyStateChanged();
         }
     }
@@ -2447,25 +2143,32 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// disclosed.
     /// </summary>
     private Dictionary<FieldIdentifier, List<ValidationIssue>> ResolveVisibleAdvisories(ValidationReport report) =>
-        report.Issues
-            .Where(i => i.Severity != ValidationSeverity.Error)
-            .Select(i => (Issue: i, Field: Resolve(i)))
-            .Where(x => IsVisible(x.Issue, x.Field))
-            .GroupBy(x => x.Field, x => x.Issue)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        GroupByResolvedField(
+            report.Advisories
+                .Select(i => (Issue: i, Field: Resolve(i)))
+                .Where(x => IsVisible(x.Issue, x.Field)));
 
     /// <summary>
     /// Resolves each issue to its field exactly once and groups by the result — one path parse and
     /// object walk per issue, rather than one per issue for every field waiting on the verdict.
     /// </summary>
     private Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
-        IEnumerable<ValidationIssue> issues)
+        IEnumerable<ValidationIssue> issues) =>
+        GroupByResolvedField(issues.Select(issue => (Issue: issue, Field: Resolve(issue))));
+
+    /// <summary>
+    /// Groups issues whose field a caller has already resolved — the caller keeping the pairs
+    /// because it has its own use for them, a visibility filter or a reveal-ledger union, and
+    /// resolving a second time here would be the cost the other overload exists to avoid. Each
+    /// field's list keeps the order the pairs arrived in.
+    /// </summary>
+    private static Dictionary<FieldIdentifier, List<ValidationIssue>> GroupByResolvedField(
+        IEnumerable<(ValidationIssue Issue, FieldIdentifier Field)> resolved)
     {
         var grouped = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
 
-        foreach (var issue in issues)
+        foreach (var (issue, field) in resolved)
         {
-            var field = Resolve(issue);
             if (!grouped.TryGetValue(field, out var forField))
             {
                 grouped[field] = forField = [];
@@ -2664,9 +2367,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // submit that disclosed nothing is the case the defensive gate explains, and
                     // the views synthesize its form-level issue for as long as GateActive holds —
                     // there is no entry to write, so there is no entry a refresh can delete.
-                    _submitVerdictErrors = resolvedErrors
-                        .GroupBy(x => x.Field, x => x.Issue)
-                        .ToDictionary(g => g.Key, g => g.ToList());
+                    _submitVerdictErrors = GroupByResolvedField(resolvedErrors);
                     _gateArmed = disclosed.Count == 0;
 
                     // Advisory sites are not necessarily error sites: a visible field can carry a
@@ -2755,7 +2456,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 channel[field] = forField = [];
             }
 
-            if (!forField.Any(i => i.Message == issue.Message && i.Severity == issue.Severity))
+            if (!forField.Any(i => SameMessageAndSeverity(i, issue)))
             {
                 forField.Add(issue);
             }
@@ -2789,7 +2490,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // serve routes would otherwise keep it standing — this very pass is a re-answer on its
         // way. Nothing between here and the landing may vouch from values the load replaces;
         // the pass re-answers and re-holds.
-        AbandonHeldCoverage();
+        _submitCoverage.Abandon();
 
         var profile = _options.SubmitProfile;
         HashSet<FieldIdentifier>? adopted = null;
@@ -3122,16 +2823,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         if (_disposed)
         {
             // A refresh pass whose dispatch was still queued when the owning component went away
-            // re-arms the timer from its own deferral branch; re-arming a disposed ITimer throws.
+            // re-arms the timer from its own deferral branch; a disposed engine arms no timer.
             return;
         }
 
-        _refreshTimer ??= _timeProvider.CreateTimer(
-            _ => _ = _renderDispatch(RunRefreshPassAsync),
-            state: null,
-            dueTime: Timeout.InfiniteTimeSpan,
-            period: Timeout.InfiniteTimeSpan);
-        _refreshTimer.Change(_options.RefreshDebounce, Timeout.InfiniteTimeSpan);
+        ArmTimer(ref _refreshTimer, RunRefreshPassAsync, _options.RefreshDebounce);
     }
 
     /// <summary>
@@ -3146,16 +2842,30 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             // A debounced live pass whose dispatch was still queued when the owning component
             // went away re-arms nothing on its own, but a field change notification racing
-            // Dispose could still reach here; re-arming a disposed ITimer throws.
+            // Dispose could still reach here; a disposed engine arms no timer.
             return;
         }
 
-        _liveTimer ??= _timeProvider.CreateTimer(
-            _ => _ = _renderDispatch(RunDebouncedLivePassAsync),
+        ArmTimer(ref _liveTimer, RunDebouncedLivePassAsync, debounce);
+    }
+
+    /// <summary>
+    /// Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> on
+    /// the renderer's dispatcher once, <paramref name="due"/> from now. Created with no due time
+    /// and no period, so the arming is entirely the <c>Change</c> below: a timer that fires only
+    /// when something asks it to, and only once per ask, is what makes every debounce in the
+    /// engine a sliding window rather than a repeating tick. The caller decides whether arming is
+    /// safe at all — a disposed engine arms no timer — because how a call can still arrive
+    /// after disposal differs per caller.
+    /// </summary>
+    private void ArmTimer(ref ITimer? timer, Func<Task> fire, TimeSpan due)
+    {
+        timer ??= _timeProvider.CreateTimer(
+            _ => _ = _renderDispatch(fire),
             state: null,
             dueTime: Timeout.InfiniteTimeSpan,
             period: Timeout.InfiniteTimeSpan);
-        _liveTimer.Change(debounce, Timeout.InfiniteTimeSpan);
+        timer.Change(due, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -3313,8 +3023,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 _serverErrors.Clear();
                 _serverAdvisories.Clear();
                 _submitVerdictErrors = GroupByResolvedField(report.Errors);
-                _submitVerdictAdvisories = GroupByResolvedField(
-                    report.Issues.Where(i => i.Severity != ValidationSeverity.Error));
+                _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
             }).ConfigureAwait(false);
     }
 
@@ -3327,7 +3036,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         _disposed = true;
-        EditContext.OnFieldChanged -= _fieldChangedHandler;
+        EditContext.OnFieldChanged -= HandleFieldChanged;
         _refreshTimer?.Dispose();
         _liveTimer?.Dispose();
         _passCts?.Cancel();
@@ -3381,67 +3090,3 @@ internal enum PassKind
 /// as the re-answer on its way.</param>
 internal readonly record struct PassScope(
     PassKind Kind, int Version, CancellationToken Token, long StartedAt);
-
-/// <summary>What one pass may serve from the store, and what it is left to execute.</summary>
-/// <param name="Reused">The stored sets the current selection contains, each answering for every
-/// rule it holds.</param>
-/// <param name="Remainder">The selected rules no reused set answers, in declaration order.</param>
-internal sealed record RulePlan(List<SetVerdict> Reused, List<RuleIdentity> Remainder);
-
-/// <summary>
-/// One executed SET of rules' answer, together with everything that decides whether a later pass
-/// may serve it instead of running those rules again. Held as one value because the parts are
-/// meaningless apart: issues with no idea which model state or which profile produced them
-/// cannot be checked against anything. The issues belong to the set as a whole rather than to any
-/// one member, which is why no per-rule attribution is needed and why a set answers only for a
-/// selection that contains it: each rule's failures land in exactly one set's report.
-/// </summary>
-/// <param name="rules">The rules the set was executed for.</param>
-/// <param name="issues">The issues they produced — empty when they all passed, which is as much a
-/// fact worth reusing as a failure is.</param>
-/// <param name="editStamp">The engine's edit count as the producing pass began — the model state
-/// this verdict answers for.</param>
-/// <param name="isProfileScoped">Whether the execution consulted a child-scope decision that can
-/// differ across profiles (see <see cref="RuleLevelResult.IsProfileScoped"/>) — when it did, the
-/// verdict answers only for <paramref name="profile"/> and an honest store re-runs the set for
-/// any other.</param>
-/// <param name="profile">The profile the producing pass ran under, remembered by reference
-/// because the options holding the profiles are settable.</param>
-internal sealed class SetVerdict(
-    HashSet<RuleIdentity> rules,
-    IReadOnlyList<ValidationIssue> issues,
-    int editStamp,
-    bool isProfileScoped,
-    ValidationProfile profile)
-{
-    /// <summary>The rules this verdict answers for.</summary>
-    internal HashSet<RuleIdentity> Rules { get; } = rules;
-
-    /// <summary>The issues the set produced.</summary>
-    internal IReadOnlyList<ValidationIssue> Issues { get; } = issues;
-
-    /// <summary>The edit stamp the producing pass began at.</summary>
-    internal int EditStamp { get; } = editStamp;
-
-    /// <summary>Whether the verdict answers only for <see cref="Profile"/>.</summary>
-    internal bool IsProfileScoped { get; } = isProfileScoped;
-
-    /// <summary>The profile the producing pass ran under.</summary>
-    internal ValidationProfile Profile { get; } = profile;
-
-    /// <summary>
-    /// Whether this verdict may be served to a pass that read <paramref name="editStamp"/> at
-    /// its beginning and runs <paramref name="profile"/>: the stamps must agree, and a
-    /// profile-scoped verdict additionally answers only for the very profile it ran under.
-    /// </summary>
-    /// <remarks>
-    /// The stamp comparison says only that nothing has told the engine the model moved since —
-    /// which is what "the model is unchanged" means to an engine that is told about changes. Two
-    /// things tell it: a field-changed notification, and
-    /// <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/>, which moves the stamp
-    /// itself precisely because the values it is about arrived without one. A mutation made
-    /// without either is invisible to it.
-    /// </remarks>
-    internal bool IsFreshFor(int editStamp, ValidationProfile profile) =>
-        EditStamp == editStamp && (!IsProfileScoped || ReferenceEquals(Profile, profile));
-}

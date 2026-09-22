@@ -226,8 +226,7 @@ public static class ValidationReportProblemMapper
     public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
-        return report.Issues
-            .Where(issue => issue.Severity != ValidationSeverity.Error)
+        return report.Advisories
             .Select(issue => new ValidationProblemAdvisory(
                 issue.Path ?? string.Empty,
                 issue.Message ?? string.Empty,
@@ -321,17 +320,8 @@ public static class FormidableEndpointFilterExtensions
     /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
-        where TModel : class
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        var resolvedProfile = profile ?? ValidationProfile.Submit;
-        return builder.AddEndpointFilterFactory((factoryContext, next) =>
-        {
-            ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
-            return invocationContext => filter.InvokeAsync(invocationContext, next);
-        });
-    }
+        where TModel : class =>
+        AddValidation<RouteHandlerBuilder, TModel>(builder, profile);
 
     /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile)"/>
     /// <param name="builder">The route group to validate.</param>
@@ -348,6 +338,15 @@ public static class FormidableEndpointFilterExtensions
     /// of type <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
+        where TModel : class =>
+        AddValidation<RouteGroupBuilder, TModel>(builder, profile);
+
+    // The one factory both overloads install. AddEndpointFilterFactory is itself a single
+    // method generic over TBuilder : IEndpointConventionBuilder returning that same TBuilder, so
+    // both builders reach one shared framework method either way; this mirrors the framework's
+    // shape rather than inventing one.
+    private static TBuilder AddValidation<TBuilder, TModel>(TBuilder builder, ValidationProfile? profile)
+        where TBuilder : IEndpointConventionBuilder
         where TModel : class
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -460,7 +459,7 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
         // verdict a validator produced: the handler composes a "saved, but note…" 200 from a
         // passing report's advisories, and middleware reads a rejection's full severity detail
         // without parsing the response body.
-        context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = report;
+        context.HttpContext.SetFormidableValidationReport(report);
 
         if (report.IsValid)
         {
@@ -633,7 +632,7 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
             // verdict the validators produced. Gated on validatedAny: when nothing was
             // validated, the accessor answers null rather than serving an empty report that
             // implies rules ran and passed.
-            context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = aggregate;
+            context.HttpContext.SetFormidableValidationReport(aggregate);
         }
 
         if (!aggregate.IsValid)

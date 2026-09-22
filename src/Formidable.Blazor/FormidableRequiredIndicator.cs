@@ -1,5 +1,3 @@
-using System.Linq.Expressions;
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 
@@ -10,7 +8,7 @@ namespace Formidable.Blazor;
 /// <c>&lt;span class="formidable-required" aria-hidden="true"&gt;</c> around
 /// <see cref="FormidableOptions.RequiredIndicatorContent"/> while
 /// <see cref="IFormidableEngine.GetFieldRequirement"/> answers
-/// <see cref="FieldRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
+/// <see cref="FieldRequirement.Required"/> for <see cref="FormidableAccessorComponentBase{TValue}.For"/>, and nothing at all otherwise.
 /// While <see cref="FormidableOptions.ShowRequiredIndicators"/> is off, the component renders
 /// nothing for any field, whatever the rules demand.
 /// Place it wherever the marker belongs — inside the field's <c>&lt;label&gt;</c>, after the
@@ -43,24 +41,20 @@ namespace Formidable.Blazor;
 /// <para>
 /// Registers nothing: a marker is not an input, so what keeps the field registered for disclosure
 /// is the validated input beside it (or a <see cref="FormidableFieldAnchor{TValue}"/>), exactly
-/// as it is for <see cref="FormidableFieldMessage{TValue}"/>. <see cref="For"/> is (re-)read
+/// as it is for <see cref="FormidableFieldMessage{TValue}"/>. <see cref="FormidableAccessorComponentBase{TValue}.For"/> is (re-)read
 /// whenever the cascaded <see cref="FormidableFormContext"/> is a new instance — including the
 /// first render and again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c>
 /// swaps its model and rebuilds its engine and registry.
 /// </para>
 /// </remarks>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>
-public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBase
+public sealed class FormidableRequiredIndicator<TValue> : FormidableAccessorComponentBase<TValue>
 {
     private FieldIdentifier _field;
-
-    /// <summary>Accessor for the field to mark, e.g. <c>() => Model.Description</c>.</summary>
-    [Parameter, EditorRequired]
-    public Expression<Func<TValue>> For { get; set; } = default!;
 
     /// <summary>
     /// False: requiredness is a property of the rules, not of what the current values are doing,
@@ -70,10 +64,6 @@ public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBas
     /// rather than on the next pass.
     /// </summary>
     protected override bool ObservesEngineState => false;
-
-    /// <inheritdoc />
-    private protected override FieldIdentifier ResolveField() =>
-        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
 
     /// <inheritdoc />
     protected override FieldRegistration? Register(FormidableFormContext context)

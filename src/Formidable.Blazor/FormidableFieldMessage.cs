@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -7,7 +6,7 @@ namespace Formidable.Blazor;
 
 /// <summary>
 /// Shared lifecycle and rendering for field-level and collection-level message components:
-/// resolves <see cref="For"/> to a <see cref="FieldIdentifier"/>, subscribes to the cascaded
+/// resolves <see cref="FormidableAccessorComponentBase{TValue}.For"/> to a <see cref="FieldIdentifier"/>, subscribes to the cascaded
 /// engine's <see cref="IFormidableEngine.StateChanged"/> so a validation pass re-renders the
 /// list, and renders an accessible message list from <see cref="IFormidableEngine.GetIssues"/>.
 /// The list element renders always — empty when the field currently has no issues — so a
@@ -20,18 +19,18 @@ namespace Formidable.Blazor;
 /// accessible outside this assembly, so <see cref="FormidableFieldMessage{TValue}"/> and
 /// <see cref="FormidableCollectionMessage{TValue}"/> are the only two shapes; whether the field
 /// is also registered with the field registry is the one thing they differ on (see
-/// <see cref="RegisterField"/>). <see cref="For"/> is (re-)read whenever
+/// <see cref="RegisterField"/>). <see cref="FormidableAccessorComponentBase{TValue}.For"/> is (re-)read whenever
 /// the cascaded <see cref="FormidableFormContext"/> is a new instance — including the first
 /// render and again after a host such as <c>FormidableForm</c>/<c>FormidableValidator</c> swaps
 /// its model and rebuilds its engine and registry — so any registration and the engine
 /// subscription always target the currently-active context.
 /// </summary>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>
-public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
+public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponentBase<TValue>
 {
     private FieldIdentifier _field;
     private string _messagesElementId = string.Empty;
@@ -39,10 +38,6 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     private protected FormidableMessageBase()
     {
     }
-
-    /// <summary>Accessor for the field whose messages are rendered, e.g. <c>() => Model.Description</c>.</summary>
-    [Parameter, EditorRequired]
-    public Expression<Func<TValue>> For { get; set; } = default!;
 
     /// <summary>Additional attributes splatted onto the rendered list element.</summary>
     /// <remarks>
@@ -72,12 +67,8 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     /// </summary>
     private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 
-    /// <inheritdoc />
-    private protected sealed override FieldIdentifier ResolveField() =>
-        FieldIdentifier.Create(FieldAccessor.RequireFor(For, GetType()));
-
     /// <summary>
-    /// Resolves <see cref="For"/> to the field these messages speak for, computes the id the list
+    /// Resolves <see cref="FormidableAccessorComponentBase{TValue}.For"/> to the field these messages speak for, computes the id the list
     /// renders — the target every <c>aria-describedby</c> for that field points at — and then
     /// hands the registration decision to <see cref="RegisterField"/>, the one thing the two
     /// message components differ on.
@@ -87,7 +78,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
         _field = ResolveField();
-        _messagesElementId = FormidableFieldId.MessagesFor(FormidableFieldId.For(_field));
+        _messagesElementId = FormidableFieldId.MessagesFor(_field);
         return RegisterField(context, _field);
     }
 
@@ -164,7 +155,7 @@ internal static class FormidableMessageList
 /// revealed.
 /// </summary>
 /// <typeparam name="TValue">
-/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// The accessor's type, inferred from <see cref="FormidableAccessorComponentBase{TValue}.For"/>: the field's own value type, or
 /// <c>object</c> where a shared component forwards an
 /// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
 /// </typeparam>

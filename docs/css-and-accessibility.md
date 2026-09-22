@@ -814,7 +814,7 @@ passes both id strings across the interop boundary, returning whatever the JS si
 
 ```csharp
     public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
-        _module.InvokeAsync<bool>(
+        Module.InvokeAsync<bool>(
             "focusField",
             FormidableFieldId.For(field),
             FormidableFieldId.MessagesFor(field));
