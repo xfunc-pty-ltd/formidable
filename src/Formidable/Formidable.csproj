@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>Form validation for Blazor built on FluentValidation: validation profiles, progressive disclosure, collection paths with row-stable identity, client + server.</Description>
+        <PackageTags>blazor;validation;fluentvalidation;forms</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FluentValidation" Version="12.1.1" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    </ItemGroup>
+
+</Project>
