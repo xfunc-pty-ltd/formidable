@@ -5,6 +5,9 @@ wanting fewer contributors (bug reports, doc fixes, and well-scoped PRs are all 
 it does mean review bandwidth is limited and the bar for merging is "this fits the project's
 shape," not just "this works."
 
+Releases are the maintainer's alone: contributions land through pull requests, the maintainer
+reviews and merges them, and nothing in a pull request can publish a package or move a tag.
+
 ## Project layout
 
 ```
@@ -111,6 +114,14 @@ just its type. Save `<remarks>` for one thing the caller must act on; put the re
 line of code in a `//` comment beside it instead. No em dashes. Describe the public surface in
 terms a consumer already knows, not the engine's own internal vocabulary. The maintainer checks
 every PR's XML for summary length, required tags, and that vocabulary boundary.
+
+## Commit messages
+
+Commits follow Conventional Commits: `type(scope): subject`, with types `feat`, `fix`,
+`docs`, `test`, `refactor`, `perf`, `style`, `build`, `chore` or `ci`, scopes `core`,
+`blazor`, `aspnetcore`, `sample`, `e2e`, `docs` or `build`, and a subject of at most 72
+characters. Reference an issue from the body (`Closes #123`); the changelog links it. CI
+checks the shape on every pull request.
 
 ## Before opening a PR
 
