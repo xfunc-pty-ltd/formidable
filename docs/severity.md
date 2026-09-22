@@ -39,10 +39,7 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 {
     protected override void ConfigureDraftRules()
     {
-    }
-
-    protected override void ConfigureSubmitRules()
-    {
+        // Common bucket: live while editing AND enforced at submit (walkthrough decision, 11 Aug).
         RuleFor(l => l.Title).NotEmpty().WithMessage("Title is required");
         RuleFor(l => l.Description)
             .Must(d => !d.Contains('!'))
@@ -53,15 +50,24 @@ public class ListingValidator : DraftSubmitValidator<Listing>
             .WithSeverity(Severity.Info)
             .WithMessage("More than five tags rarely helps discovery");
     }
+
+    protected override void ConfigureSubmitRules()
+    {
+    }
 }
 ```
 
 *Source: `samples/Formidable.Sample.Shared/Listing.cs`*
 
-The warning and info rules here live in `ConfigureSubmitRules()` — the `"Submit"` ruleset — not
-`ConfigureDraftRules()`, so under the default `LiveProfile` (`Draft`; see
-[`docs/profiles.md`](profiles.md)) they don't run on a live pass. They first run at submit, and
-stay live-refreshed after that — see "The warning lifetime" below.
+The warning and info rules here live in `ConfigureDraftRules()` — Formidable's shared "common"
+bucket, run by both the draft/live ruleset and folded into `"Submit"` (see
+[`docs/profiles.md`](profiles.md)) — so under the default `LiveProfile` (`Draft`) they run live,
+on blur, exactly like the required-title error above, and are still enforced when the form
+submits. A validator that instead wants its warnings and infos to stay quiet until submit places
+them in `ConfigureSubmitRules()` — the scratch validator in
+`tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs` is a ready-made example of that
+shape. Either way, the disclosure lifecycle described in "The warning lifetime" below applies once
+the issue has first been shown.
 
 ## Warnings and infos never block
 

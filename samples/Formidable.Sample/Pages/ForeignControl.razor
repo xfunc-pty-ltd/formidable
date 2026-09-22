@@ -4,7 +4,24 @@
 <h1>Wrapping a foreign control</h1>
 <p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> instead of wrapping the control in a label — wrapping isn't possible because the label must target the foreign element's own id, which only the field context supplies; every other page in this sample wraps.</p>
 
-<FormidableForm Model="_order">
+<TeachingPanel CodeFiles="@(new[] { "ForeignControl.razor", "ForeignControl.razor.cs", "GadgetOrder.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Colour</strong> — required, validated live.</li>
+            <li>The select is a control Formidable does not wrap. The renderless <code>FormidableField</code> hands its template everything a wrapper would have supplied: <code>ElementId</code>, <code>CssClass</code>, aria attributes, and <code>NotifyChanged()</code>.</li>
+            <li>Compare with Quickstart: wrapped inputs label-wrap and need no id; a foreign control keeps its own element, so the label targets <code>field.ElementId</code> instead.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit empty — the select gets the same red border and message treatment as any wrapped input.</li>
+            <li>Pick a colour — the state clears live.</li>
+            <li>Open <em>Show the code</em> and compare this page's select wiring with Quickstart's one-line wrapped input.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_order" OnValidSubmit="HandleValid">
     <FormSummary />
 
     <FormidableField For="() => _order.Colour" Context="field">
@@ -23,15 +40,9 @@
         <FieldMessage For="() => _order.Colour" />
     </FormidableField>
 
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
 
-@code {
-    private readonly GadgetOrder _order = new() { Nickname = "sample" };
-
-    private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
-    {
-        _order.Colour = args.Value?.ToString() ?? string.Empty;
-        field.NotifyChanged();
-    }
-}
+<p role="status">@_status</p>

@@ -21,12 +21,13 @@ public class FocusServiceTests : BunitContext
     {
         Services.AddFormidableBlazor();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
-        var invocation = module.SetupVoid("focusField", _ => true).SetVoidResult();
+        var invocation = module.Setup<bool>("focusField", _ => true).SetResult(true);
         var order = new EngineOrder();
         var service = Services.GetRequiredService<IFormidableFocusService>();
 
-        await service.FocusAsync(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        var found = await service.FocusAsync(new FieldIdentifier(order, nameof(EngineOrder.Description)));
 
+        Assert.True(found);
         invocation.VerifyInvoke("focusField");
         Assert.Equal(
             FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description))),
@@ -60,7 +61,7 @@ public class FocusServiceTests : BunitContext
     {
         Services.AddFormidableBlazor();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
-        var invocation = module.SetupVoid("focusField", _ => true).SetVoidResult();
+        var invocation = module.Setup<bool>("focusField", _ => true).SetResult(true);
         var order = new EngineOrder();
         var service = Services.GetRequiredService<IFormidableFocusService>();
 
@@ -128,6 +129,26 @@ public class FocusServiceTests : BunitContext
                 ? ValueTask.FromException<TValue>(new JSException("could not load the module"))
                 : ValueTask.FromResult((TValue)(object)Module);
         }
+    }
+
+    // Pins the miss path specifically (module returns false, e.g. a virtualized row outside the
+    // render window). The hit path is pinned separately, on the existing SetResult(true) setup in
+    // Focus_invokes_the_module_with_the_field_id above — together they rule out an implementation
+    // that discards the module's result and always returns default(bool).
+    [Fact]
+    public async Task Focus_returns_the_module_result()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        var order = new EngineOrder();
+        var service = Services.GetRequiredService<IFormidableFocusService>();
+
+        var found = await service.FocusAsync(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        Assert.False(found);
+
+        await Services.DisposeAsync();
     }
 
     /// <summary>Test-only module reference counting the calls the focus service makes through it.</summary>

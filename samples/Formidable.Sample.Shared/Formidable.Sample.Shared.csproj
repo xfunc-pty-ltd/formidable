@@ -2,4 +2,7 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\Formidable\Formidable.csproj" />
     </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="*.cs" />
+    </ItemGroup>
 </Project>

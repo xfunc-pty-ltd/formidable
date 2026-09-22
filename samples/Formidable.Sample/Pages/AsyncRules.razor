@@ -4,7 +4,24 @@
 <h1>Async rules</h1>
 <p>Type "admin" and pause: each keystroke starts the check immediately (the 600ms delay simulates a server call), shows a pending state, and a new keystroke cancels the in-flight check.</p>
 
-<FormidableForm Model="_handle">
+<TeachingPanel CodeFiles="@(new[] { "Handle.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Username</strong> and <strong>Display name</strong> — checked for uniqueness asynchronously while you type (a 600&nbsp;ms delay stands in for the server). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
+            <li><strong>Username</strong> — also required at submit.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Type <code>admin</code> and pause — a spinner and "checking…" appear on that field only, then the taken message lands.</li>
+            <li>Type quickly — each keystroke cancels the in-flight check; only the final value gets a verdict.</li>
+            <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
+            <li>Clear Username and submit — the required rule blocks.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_handle" OnValidSubmit="HandleValid">
     <FormSummary />
 
     <FormidableField For="() => _handle.Username" Context="field">
@@ -29,11 +46,11 @@
         <FieldMessage For="() => _handle.DisplayName" />
     </FormidableField>
 
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
 
-<p><small>The pending flag is scoped to the field being edited during a live pass — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>
+<p role="status">@_status</p>
 
-@code {
-    private readonly Handle _handle = new();
-}
+<p><small>The pending flag is scoped to the field being edited during a live pass — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>

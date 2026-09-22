@@ -527,7 +527,7 @@ end — press Send and the server's 400 lands on the exact fields:
     }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor`*
+*Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs`*
 
 Error issues from `ToIssues()` reach the form's fields the moment `ApplyServerIssues` runs — they
 bypass the field-registry disclosure check entirely (see

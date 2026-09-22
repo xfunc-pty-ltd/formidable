@@ -119,7 +119,7 @@ private async Task SaveDraft()
 }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Profiles.razor`*
+*Source: `samples/Formidable.Sample/Pages/Profiles.razor.cs`*
 
 ## Server-side profile selection
 

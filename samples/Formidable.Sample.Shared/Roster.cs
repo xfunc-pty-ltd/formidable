@@ -22,10 +22,7 @@ public class RosterValidator : DraftSubmitValidator<Roster>
 {
     protected override void ConfigureDraftRules()
     {
-    }
-
-    protected override void ConfigureSubmitRules()
-    {
+        // Common bucket: live while editing AND enforced at submit (walkthrough decision, 11 Aug).
         RuleFor(r => r.Teams).NotEmpty().WithMessage("Add at least one team");
         RuleForEach(r => r.Teams).ChildRules(team =>
         {
@@ -34,5 +31,9 @@ public class RosterValidator : DraftSubmitValidator<Roster>
             team.RuleForEach(t => t.Members).ChildRules(member =>
                 member.RuleFor(m => m.Alias).NotEmpty().WithMessage("Alias is required"));
         });
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
     }
 }

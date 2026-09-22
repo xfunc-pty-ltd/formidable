@@ -62,6 +62,39 @@ public class FormValidationEngineHardeningTests
         Assert.Contains(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
     }
 
+    // Same lifetime pin as above, but with NO co-occurring error anywhere in the model: the
+    // submit report is otherwise valid (report.IsValid == true), so this exercises the
+    // valid-branch's re-freeze (_advisoryVisible) rather than the invalid branch's. Deleting the
+    // valid branch's `_advisoryVisible = _submitAdvisories.Keys.ToHashSet();` line leaves the
+    // warning captured at submit but drops it the moment any field changes and the debounced
+    // refresh runs, because the refresh's advisory filter is `_submitVisible.Contains ||
+    // _advisoryVisible.Contains` and _submitVisible is empty on an errors-free submit.
+    [Fact]
+    public async Task Submit_warning_with_no_errors_anywhere_survives_the_debounced_refresh()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = new EngineCustomer() }; // NotEmpty and NotNull both pass; only the hyphen warning fires
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        // No error anywhere in the model, so this submit takes the report.IsValid branch.
+        await engine.ValidateForSubmitAsync();
+        Assert.Contains(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+
+        // Nothing to fix here (there was never an error) - just trigger some field change so
+        // HasSubmitted schedules the debounced refresh.
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        time.Advance(TimeSpan.FromMilliseconds(301)); // the debounced refresh pass runs
+        await Task.Yield();
+
+        Assert.Contains(engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+    }
+
     [Fact]
     public async Task ApplyServerIssues_clears_a_prior_fault()
     {

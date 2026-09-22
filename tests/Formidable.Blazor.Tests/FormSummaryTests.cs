@@ -1,6 +1,7 @@
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
@@ -25,10 +26,12 @@ public class FormSummaryTests : BunitContext
     {
         Services.AddFormidableBlazor();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
-        JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js").SetupVoid("focusField", _ => true).SetVoidResult();
+        JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js").Setup<bool>("focusField", _ => true).SetResult(true);
     }
 
-    private IRenderedComponent<FormidableForm<EngineOrder>> RenderWithSummary(EngineOrder order)
+    private IRenderedComponent<FormidableForm<EngineOrder>> RenderWithSummary(
+        EngineOrder order,
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null)
     {
         var cut = Render(builder =>
         {
@@ -38,6 +41,11 @@ public class FormSummaryTests : BunitContext
             builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
             {
                 inner.OpenComponent<FormSummary>(0);
+                if (focusFallback is not null)
+                {
+                    inner.AddComponentParameter(1, "FocusFallback", focusFallback);
+                }
+
                 inner.CloseComponent();
             }));
             builder.CloseComponent();
@@ -103,6 +111,75 @@ public class FormSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync()); // valid submit clears everything
 
         form.WaitForAssertion(() => Assert.Empty(form.FindAll(".formidable-summary")));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Fallback_is_invoked_on_focus_miss_and_true_triggers_one_retry()
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        var fallbackCalls = 0;
+        var order = new EngineOrder();
+        var form = RenderWithSummary(order, _ =>
+        {
+            fallbackCalls++;
+            return ValueTask.FromResult(true);
+        });
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
+
+        form.FindAll("button.formidable-summary__link")[0].Click();
+
+        Assert.Equal(1, fallbackCalls);
+        JSInterop.VerifyInvoke("focusField", 2);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Fallback_is_not_invoked_when_focus_succeeds()
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        var fallbackCalls = 0;
+        var order = new EngineOrder();
+        var form = RenderWithSummary(order, _ =>
+        {
+            fallbackCalls++;
+            return ValueTask.FromResult(true);
+        });
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
+
+        form.FindAll("button.formidable-summary__link")[0].Click();
+
+        Assert.Equal(0, fallbackCalls);
+        JSInterop.VerifyInvoke("focusField", 1);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_false_fallback_result_means_no_retry()
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        var fallbackCalls = 0;
+        var order = new EngineOrder();
+        var form = RenderWithSummary(order, _ =>
+        {
+            fallbackCalls++;
+            return ValueTask.FromResult(false);
+        });
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
+
+        form.FindAll("button.formidable-summary__link")[0].Click();
+
+        Assert.Equal(1, fallbackCalls);
+        JSInterop.VerifyInvoke("focusField", 1);
 
         await Services.DisposeAsync();
     }

@@ -13,10 +13,7 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 {
     protected override void ConfigureDraftRules()
     {
-    }
-
-    protected override void ConfigureSubmitRules()
-    {
+        // Common bucket: live while editing AND enforced at submit (walkthrough decision, 11 Aug).
         RuleFor(l => l.Title).NotEmpty().WithMessage("Title is required");
         RuleFor(l => l.Description)
             .Must(d => !d.Contains('!'))
@@ -26,5 +23,9 @@ public class ListingValidator : DraftSubmitValidator<Listing>
             .Must(t => t.Length == 0 || t.Split(',').Length <= 5)
             .WithSeverity(Severity.Info)
             .WithMessage("More than five tags rarely helps discovery");
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
     }
 }

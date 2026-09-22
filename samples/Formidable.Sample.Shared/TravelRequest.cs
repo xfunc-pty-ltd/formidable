@@ -15,10 +15,7 @@ public class TravelRequestValidator : DraftSubmitValidator<TravelRequest>
 {
     protected override void ConfigureDraftRules()
     {
-    }
-
-    protected override void ConfigureSubmitRules()
-    {
+        // Common bucket: live while editing AND enforced at submit (walkthrough decision, 11 Aug).
         RuleFor(t => t.Destination).NotEmpty().WithMessage("Destination is required");
         RuleFor(t => t.TravelerName).NotEmpty().WithMessage("Traveler name is required");
         RuleFor(t => t.NeedsAccommodation).NotNull().WithMessage("Answer the accommodation question");
@@ -26,5 +23,9 @@ public class TravelRequestValidator : DraftSubmitValidator<TravelRequest>
             .When(t => t.NeedsAccommodation == true);
         RuleFor(t => t.SpecialRequirements).NotEmpty().WithMessage("Describe the special requirements")
             .When(t => t.NeedsAccommodation == true && t.AccommodationType == "Accessible");
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
     }
 }

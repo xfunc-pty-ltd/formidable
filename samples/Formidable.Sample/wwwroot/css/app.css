@@ -300,7 +300,6 @@ button {
     border-radius: var(--radius-button);
     padding: .55rem 1.3rem;
     cursor: pointer;
-    margin-right: .4rem;
 }
 
 button[type=submit],
@@ -419,4 +418,75 @@ em[role=status] {
 
 .member-list li.field {
     margin-bottom: .8rem;
+}
+
+/* ---------- teaching panel and action rows (walkthrough response) ---------- */
+
+.teaching {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: 1rem 1.15rem;
+    margin: 1.1rem 0 1.4rem;
+    font-size: .92rem;
+}
+
+.teaching h2 {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin: 0 0 .35rem;
+}
+
+.teaching section + section,
+.teaching .teaching__code {
+    margin-top: .9rem;
+}
+
+.teaching ul,
+.teaching ol {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.teaching li {
+    margin: .2rem 0;
+}
+
+.teaching__code summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.teaching__code h3 {
+    font-size: .8rem;
+    font-family: Consolas, monospace;
+    color: var(--muted);
+    margin: .8rem 0 .3rem;
+}
+
+.teaching__code pre {
+    background: var(--field-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .75rem .9rem;
+    overflow-x: auto;
+    font-size: .8rem;
+    line-height: 1.45;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: 1.25rem;
+}
+
+.actions button {
+    margin-right: 0;
+}
+
+p[role=status] {
+    margin-top: 1rem;
 }

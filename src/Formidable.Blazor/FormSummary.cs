@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Formidable.Blazor;
@@ -23,6 +24,16 @@ public sealed class FormSummary : ComponentBase, IDisposable
 
     [Inject]
     private IFormidableFocusService FocusService { get; set; } = default!;
+
+    /// <summary>
+    /// Invoked when a clicked issue's element is not in the DOM (focus miss) — e.g. a virtualized
+    /// row outside the render window. Return <c>true</c> after making the element renderable
+    /// (scrolling its container, expanding a section) and the summary retries the focus exactly
+    /// once; return <c>false</c> to leave the miss as-is. When unset, a miss is silently ignored,
+    /// matching the component's pre-fallback behaviour.
+    /// </summary>
+    [Parameter]
+    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
     /// <inheritdoc />
     protected override void OnParametersSet() =>
@@ -71,7 +82,7 @@ public sealed class FormSummary : ComponentBase, IDisposable
                 builder.OpenElement(sequence++, "button");
                 builder.AddAttribute(sequence++, "type", "button");
                 builder.AddAttribute(sequence++, "class", "formidable-summary__link");
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusService.FocusAsync(visibleIssue.Field).AsTask()));
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusWithFallbackAsync(visibleIssue.Field)));
                 builder.AddContent(sequence++, visibleIssue.Issue.Message);
                 builder.CloseElement();
 
@@ -82,6 +93,21 @@ public sealed class FormSummary : ComponentBase, IDisposable
         }
 
         builder.CloseElement();
+    }
+
+    private async Task FocusWithFallbackAsync(FieldIdentifier field)
+    {
+        if (await FocusService.FocusAsync(field))
+        {
+            return;
+        }
+
+        if (FocusFallback is null || !await FocusFallback(field))
+        {
+            return;
+        }
+
+        await FocusService.FocusAsync(field);
     }
 
     private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);

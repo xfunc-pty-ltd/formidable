@@ -1,0 +1,21 @@
+<aside class="teaching">
+    <section>
+        <h2>The rules</h2>
+        @Rules
+    </section>
+    <section>
+        <h2>Try it</h2>
+        @TryIt
+    </section>
+    @if (CodeFiles is { Length: > 0 })
+    {
+        <details class="teaching__code">
+            <summary>Show the code</summary>
+            @foreach (var file in CodeFiles)
+            {
+                <h3>@file</h3>
+                <pre><code>@Source.Read(file)</code></pre>
+            }
+        </details>
+    }
+</aside>

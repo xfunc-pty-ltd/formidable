@@ -17,7 +17,7 @@ internal sealed class FormidableFocusService : IFormidableFocusService, IAsyncDi
 
     public FormidableFocusService(IJSRuntime jsRuntime) => _jsRuntime = jsRuntime;
 
-    public async ValueTask FocusAsync(FieldIdentifier field)
+    public async ValueTask<bool> FocusAsync(FieldIdentifier field)
     {
         var moduleTask = _moduleTask ??= _jsRuntime.InvokeAsync<IJSObjectReference>(
             "import", "./_content/Formidable.Blazor/formidable.js").AsTask();
@@ -41,7 +41,7 @@ internal sealed class FormidableFocusService : IFormidableFocusService, IAsyncDi
             throw;
         }
 
-        await module.InvokeVoidAsync("focusField", FormidableFieldId.For(field));
+        return await module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
     }
 
     public async ValueTask DisposeAsync()

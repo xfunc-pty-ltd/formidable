@@ -5,4 +5,7 @@
         <ProjectReference Include="..\..\src\Formidable.Blazor\Formidable.Blazor.csproj" />
         <ProjectReference Include="..\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
     </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="Pages\*.razor;Pages\*.razor.cs" />
+    </ItemGroup>
 </Project>

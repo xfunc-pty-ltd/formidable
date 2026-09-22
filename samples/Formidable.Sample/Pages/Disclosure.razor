@@ -4,7 +4,25 @@
 <h1>Progressive disclosure</h1>
 <p>Two different disclosure mechanisms live on this page. The traveler details section below is collapsed by pure UI state while its rule is unconditional: submit before expanding it and the error is suppressed — logged to the diagnostic below rather than shown inline — until the field is actually rendered. The accommodation cascade further down instead pairs each rule's <code>When</code> with the same condition that reveals its field, so its rules never produce a suppressed issue in the first place; that is the pattern for ordinary data-dependent sections.</p>
 
-<FormidableForm Model="_request" Options="_options">
+<TeachingPanel CodeFiles="@(new[] { "TravelRequest.cs", "Disclosure.razor", "Disclosure.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Destination</strong>, <strong>Traveler name</strong>, and the <strong>accommodation question</strong> — required, validated live.</li>
+            <li><strong>Accommodation type</strong> — required only when you answered Yes; <strong>Special requirements</strong> — required only for Accessible. Their <code>When()</code> conditions mirror what the UI reveals.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Type into Traveler name, leave the field, clear it, leave again — the required message appears live because you acted on the field.</li>
+            <li>Hide traveler details and submit — that error is suppressed into the diagnostic list below instead of appearing inline. A collapsed section cannot show a message.</li>
+            <li>Show the details and submit again — the error is now inline and in the summary.</li>
+            <li>Answer Yes, pick Accessible — watch the conditional cascade reveal rules only as their fields appear.</li>
+            <li>Complete everything and submit — the status line confirms.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid">
     <FormSummary />
 
     <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
@@ -51,8 +69,10 @@
         </fieldset>
     }
 
-    <button type="submit">Submit</button>
+    <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
+
+<p role="status">@_status</p>
 
 <h2>Suppressed-issue diagnostic</h2>
 <p><small>Entries accumulate across submits — the list below is append-only.</small></p>
@@ -62,23 +82,3 @@
         <li>@message</li>
     }
 </ul>
-
-@code {
-    private readonly TravelRequest _request = new();
-    private readonly List<string> _suppressed = [];
-    private FormidableOptions? _options;
-    private bool _showDetails;
-
-    protected override void OnInitialized()
-    {
-        _options = new FormidableOptions
-        {
-            SuppressedIssueDiagnostic = issue => _suppressed.Add($"{issue.Path}: {issue.Message}")
-        };
-    }
-
-    private void SetNeeds(bool value) => _request.NeedsAccommodation = value;
-
-    private void OnTypeChanged(ChangeEventArgs args) =>
-        _request.AccommodationType = args.Value?.ToString() ?? string.Empty;
-}

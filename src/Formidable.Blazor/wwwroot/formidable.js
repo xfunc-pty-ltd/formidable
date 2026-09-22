@@ -1,7 +1,10 @@
 export function focusField(id) {
     const element = document.getElementById(id);
-    if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "center" });
-        element.focus({ preventScroll: true });
+    if (!element) {
+        return false;
     }
+
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.focus({ preventScroll: true });
+    return true;
 }

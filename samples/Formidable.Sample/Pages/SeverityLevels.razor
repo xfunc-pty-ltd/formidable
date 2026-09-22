@@ -4,6 +4,25 @@
 <h1>Severity levels</h1>
 <p>Warnings and infos render distinctly and never block submission; only errors do.</p>
 
+<TeachingPanel CodeFiles="@(new[] { "Listing.cs", "SeverityLevels.razor", "SeverityLevels.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Title</strong> — required (error severity: blocks submission).</li>
+            <li><strong>Description</strong> — an exclamation mark draws a <em>warning</em> (advisory: never blocks).</li>
+            <li><strong>Tags</strong> — more than five draws an <em>info</em> (advisory: never blocks). Advisories validate live, when you leave the field.</li>
+            <li>Advisory-only submissions still announce the summary — screen readers hear the warnings and infos that did not block.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Type <code>Great synth!</code> into Description and leave the field — the warning appears immediately, in amber.</li>
+            <li>Enter six comma-separated tags and leave the field — the info appears, in purple-blue.</li>
+            <li>Fill Title and submit — it goes through: the status line counts the warnings and infos that did NOT block.</li>
+            <li>Clear Title and submit — only the error blocks; the advisories keep their place and colour in the summary.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
 <FormidableForm @ref="_form" Model="_listing">
     <FormSummary />
 
@@ -14,21 +33,7 @@
     <div class="field"><label>Tags (comma-separated) <FormidableInputText For="() => _listing.Tags" @bind-Value="_listing.Tags" /></label>
         <FieldMessage For="() => _listing.Tags" /></div>
 
-    <button type="button" class="primary" @onclick="Submit">Submit</button>
+    <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
 </FormidableForm>
 
 <p role="status">@_status</p>
-
-@code {
-    private readonly Listing _listing = new();
-    private FormidableForm<Listing>? _form;
-    private string _status = string.Empty;
-
-    private async Task Submit()
-    {
-        var outcome = await _form!.SubmitAsync();
-        _status = outcome.CanProceed
-            ? $"Submitted with {outcome.Report.Warnings.Count()} warning(s) and {outcome.Report.Infos.Count()} info(s) — none of them blocked."
-            : "Blocked by errors — fix them and resubmit.";
-    }
-}

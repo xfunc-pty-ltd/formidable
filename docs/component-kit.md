@@ -525,13 +525,35 @@ Each item is a button that moves focus to the offending field through `IFormidab
 
 *Source: `src/Formidable.Blazor/FormSummary.cs`*
 
-**The virtualize caveat.** `FocusAsync` locates the target by DOM id (see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md) for the focus service's mechanism),
-so click-to-focus can only reach an element that is actually rendered right now. A field whose row
-sits outside a `Virtualize` container's current render window keeps its summary entry — the issue
-is genuinely still there — but there is no element in the DOM yet for the button to focus; the
-user has to scroll to it themselves. The Virtualize section below shows the pattern that keeps
-such a field's error visible in the summary at all despite the row being disposed off-screen.
+**`FocusFallback`.** `FocusAsync` locates the target by DOM id (see
+[`docs/css-and-accessibility.md`](css-and-accessibility.md) for the focus service's mechanism), so
+click-to-focus can only reach an element that is actually rendered right now — a field whose row
+sits outside a `Virtualize` container's current render window keeps its summary entry (the issue is
+genuinely still there) but has no DOM element yet for the button to focus. `FocusFallback` is the
+escape hatch for exactly that gap:
+
+```csharp
+    /// <summary>
+    /// Invoked when a clicked issue's element is not in the DOM (focus miss) — e.g. a virtualized
+    /// row outside the render window. Return <c>true</c> after making the element renderable
+    /// (scrolling its container, expanding a section) and the summary retries the focus exactly
+    /// once; return <c>false</c> to leave the miss as-is. When unset, a miss is silently ignored,
+    /// matching the component's pre-fallback behaviour.
+    /// </summary>
+    [Parameter]
+    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+```
+
+*Source: `src/Formidable.Blazor/FormSummary.cs`*
+
+Click-to-focus targets elements in the DOM. For virtualized rows outside the render window, give
+`FormSummary` a `FocusFallback`: it receives the field identifier on a focus miss; make the element
+renderable (for example, scroll the virtualized container to the row's offset), return `true`, and
+the summary retries the focus once. The sample's Virtualize page
+([`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor)) shows the pattern — its
+fallback scrolls by approximate row height and lets the retried focus centre the row exactly. A
+fixed post-scroll delay keeps the sample honest and simple; a production consumer might poll for
+the element instead.
 
 ## `AddFormidableBlazor()`
 
@@ -572,47 +594,68 @@ Every registering component exposes a `KeepRegistered` parameter (`ValidatedInpu
 descendants, `FieldAnchor`, `FormidableField`, `CollectionMessage`). A `Virtualize` container
 disposes rows that scroll out of view even though they remain part of the form; without
 `KeepRegistered`, a scrolled-away row's field would unregister and its already-showing error would
-go quiet, even though the row still exists in the model:
+go quiet, even though the row still exists in the model. The sample page pairs that with
+`FormSummary`'s `FocusFallback` (see above), so a row far outside the render window is both kept
+disclosed and reachable by a summary click:
 
 ```razor
-@page "/virtualized"
+<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+    <FormSummary FocusFallback="ScrollToRowAsync" />
 
-<PageTitle>Virtualize + KeepRegistered</PageTitle>
-<h1>Virtualize + KeepRegistered</h1>
-<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows revealed, so submit still reports their errors in the summary. Click-to-focus works for rows near the viewport; a row far outside the virtualized render window keeps its summary entry, but you scroll to it yourself — the focus service can only target elements that exist in the DOM.</p>
-
-<FormidableForm Model="_order">
-    <FormSummary />
-
-    <div style="height: 20rem; overflow-y: auto;">
-        <Virtualize Items="_order.Gadgets" Context="gadget">
-            <p @key="gadget">
+    <div class="scroll-panel">
+        <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
+            <div class="field" @key="gadget">
                 <label>Serial
                     <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FieldMessage For="() => gadget.Serial" />
-            </p>
+            </div>
         </Virtualize>
     </div>
 
-    <button type="submit">Submit</button>
+    <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
-
-@code {
-    private readonly GadgetOrder _order = new()
-    {
-        Colour = "Red",
-        Nickname = "bulk",
-        Gadgets = [.. Enumerable.Range(1, 200).Select(i => new Gadget { Serial = i % 7 == 0 ? string.Empty : $"SN-{i:0000}" })]
-    };
-}
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Virtualized.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor`* — the full page wraps this in a
+`TeachingPanel` (rules plus a "Show the code" accordion with the real source); the form markup
+itself is unchanged from what's shown here.
 
-`KeepRegistered="true"` on the row's `FormidableInputText` is the whole change from an
-unvirtualized list — submit still reports every failing row in `FormSummary`, scrolled away or
-not; only reaching one by click-to-focus is limited to whatever `Virtualize` currently renders.
+`KeepRegistered="true"` on the row's `FormidableInputText` keeps a scrolled-away row's error in
+`FormSummary` no matter how far it scrolls, exactly as before. What's new is `ScrollToRowAsync`,
+the code-behind method wired to `FocusFallback` above:
+
+```csharp
+    private const float RowHeight = 96f;
+```
+
+```csharp
+    private async ValueTask<bool> ScrollToRowAsync(FieldIdentifier field)
+    {
+        if (field.Model is not Gadget gadget)
+        {
+            return false;
+        }
+
+        var index = _order.Gadgets.IndexOf(gadget);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * RowHeight);
+        await Task.Delay(120);
+        return true;
+    }
+```
+
+*Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor.cs`*
+
+Clicking a summary entry for a row inside the current render window still focuses it directly. For
+a row scrolled far away, the miss triggers `ScrollToRowAsync`, which scrolls `.scroll-panel` to the
+row's approximate offset (`index * RowHeight`) and waits 120ms for `Virtualize` to render it before
+returning `true` — the summary then retries the focus, and its own `scrollIntoView` centres the row
+exactly. See `FocusFallback` above for the general mechanism this page demonstrates.
 
 ## Vanilla interop
 

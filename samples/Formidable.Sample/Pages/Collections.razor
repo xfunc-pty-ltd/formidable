@@ -4,7 +4,24 @@
 <h1>Nested collections — row-stable errors</h1>
 <p>Submit with gaps, then reorder or delete rows: each error stays glued to its row because identity follows the object instance, not the index.</p>
 
-<FormidableForm Model="_roster">
+<TeachingPanel CodeFiles="@(new[] { "Roster.cs", "Collections.razor", "Collections.razor.cs" })">
+    <Rules>
+        <ul>
+            <li>At least one <strong>team</strong>; every team needs a <strong>name</strong> and at least one <strong>member</strong>; every member needs an <strong>alias</strong>. All live.</li>
+            <li>Row identity follows the object instance, not the index — that is what keeps errors glued to their rows.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit with gaps — each error sits with its row, and the summary lists them all.</li>
+            <li>Move a team or member up — errors travel with the row, never sticking to a position.</li>
+            <li>Remove an offending row — its error disappears with it.</li>
+            <li>Fill every alias and name, submit — the status line confirms.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_roster" OnValidSubmit="HandleValid">
     <FormSummary />
     <CollectionMessage For="() => _roster.Teams" />
 
@@ -22,38 +39,25 @@
                     <li class="field" @key="member">
                         <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
                         <FieldMessage For="() => member.Alias" />
-                        <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
-                        <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                        <div class="actions">
+                            <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
+                            <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                        </div>
                     </li>
                 }
             </ul>
-            <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
-            <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
-            <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+            <div class="actions">
+                <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
+                <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
+                <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+            </div>
         </fieldset>
     }
 
-    <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
-    <button type="submit">Submit</button>
+    <div class="actions">
+        <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
+        <button type="submit">Submit</button>
+    </div>
 </FormidableForm>
 
-@code {
-    private readonly Roster _roster = new()
-    {
-        Teams =
-        [
-            new Team { Name = "Alpha", Members = [new Member { Alias = "ace" }, new Member()] },
-            new Team { Members = [new Member()] }
-        ]
-    };
-
-    private static void MoveUp<T>(List<T> list, T item)
-    {
-        var index = list.IndexOf(item);
-        if (index > 0)
-        {
-            list.RemoveAt(index);
-            list.Insert(index - 1, item);
-        }
-    }
-}
+<p role="status">@_status</p>

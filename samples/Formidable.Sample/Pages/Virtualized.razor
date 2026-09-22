@@ -2,13 +2,31 @@
 
 <PageTitle>Virtualize + KeepRegistered</PageTitle>
 <h1>Virtualize + KeepRegistered</h1>
-<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows revealed, so submit still reports their errors in the summary. Click-to-focus works for rows near the viewport; a row far outside the virtualized render window keeps its summary entry, but you scroll to it yourself — the focus service can only target elements that exist in the DOM.</p>
+<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows revealed, so submit still reports their errors — and the summary's focus fallback scrolls far rows into view on click.</p>
 
-<FormidableForm Model="_order">
-    <FormSummary />
+<TeachingPanel CodeFiles="@(new[] { "Virtualized.razor", "Virtualized.razor.cs", "GadgetOrder.cs" })">
+    <Rules>
+        <ul>
+            <li>Every row's <strong>Serial</strong> is required (live). Every 7th row starts empty.</li>
+            <li><code>KeepRegistered</code> keeps scrolled-away rows disclosed, so their errors stay in the summary.</li>
+            <li>The summary's <code>FocusFallback</code> handles rows outside the render window: scroll the panel to the row, let Virtualize render it, retry the focus once.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit — the summary lists errors including rows far outside the viewport.</li>
+            <li>Click an entry near the top — it focuses directly.</li>
+            <li>Click one of the LAST entries — the panel scrolls, the row renders, and focus lands. That is the fallback at work.</li>
+            <li>Fix a serial, scroll far away, submit again — the row's verdict updates without it being visible.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+    <FormSummary FocusFallback="ScrollToRowAsync" />
 
     <div class="scroll-panel">
-        <Virtualize Items="_order.Gadgets" Context="gadget">
+        <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
             <div class="field" @key="gadget">
                 <label>Serial
                     <FormidableInputText For="() => gadget.Serial" @bind-Value="gadget.Serial" KeepRegistered="true" />
@@ -18,14 +36,7 @@
         </Virtualize>
     </div>
 
-    <button type="submit">Submit</button>
+    <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
 
-@code {
-    private readonly GadgetOrder _order = new()
-    {
-        Colour = "Red",
-        Nickname = "bulk",
-        Gadgets = [.. Enumerable.Range(1, 200).Select(i => new Gadget { Serial = i % 7 == 0 ? string.Empty : $"SN-{i:0000}" })]
-    };
-}
+<p role="status">@_status</p>

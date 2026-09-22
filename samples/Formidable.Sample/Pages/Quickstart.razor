@@ -4,6 +4,23 @@
 <h1>Quickstart</h1>
 <p>One model, one plain FluentValidation validator, three components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
 
+<TeachingPanel CodeFiles="@(new[] { "QuickContact.cs", "Quickstart.razor", "Quickstart.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Name</strong> — required.</li>
+            <li><strong>Email</strong> — required, and must be a valid address. The rule chain stops at the first failure, so you always see one message at a time.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit the empty form — inline errors appear and the summary lists both.</li>
+            <li>Click "Email is required" in the summary — the email field focuses.</li>
+            <li>Type <code>not-an-email</code> and leave the field — the message changes to "A valid email is required".</li>
+            <li>Fix both fields and submit — the status line thanks you by name.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
     <FormSummary />
 
@@ -12,17 +29,10 @@
     <div class="field"><label>Email <FormidableInputText For="() => _contact.Email" @bind-Value="_contact.Email" /></label>
         <FieldMessage For="() => _contact.Email" /></div>
 
-    <button type="submit">Submit</button>
+    <div class="actions"><button type="submit">Submit</button></div>
 </FormidableForm>
 
 @if (_submitted)
 {
     <p role="status">Submitted — thanks, @_contact.Name!</p>
-}
-
-@code {
-    private readonly QuickContact _contact = new();
-    private bool _submitted;
-
-    private void HandleValid() => _submitted = true;
 }

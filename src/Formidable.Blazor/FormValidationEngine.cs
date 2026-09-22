@@ -302,6 +302,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
         return field.Equals(ModelLevelField) || Registry.IsRevealed(field);
     }
 
+    /// <summary>
+    /// The submit report's non-error issues, resolved and filtered to visible fields, grouped by
+    /// field. Used identically by both branches of <see cref="ValidateForSubmitAsync"/> — whether
+    /// or not the same report also contains errors has no bearing on which of its advisories are
+    /// disclosed.
+    /// </summary>
+    private Dictionary<FieldIdentifier, List<ValidationIssue>> ResolveVisibleAdvisories(ValidationReport report) =>
+        report.Issues
+            .Where(i => i.Severity != ValidationSeverity.Error)
+            .Select(i => (Issue: i, Field: Resolve(i)))
+            .Where(x => IsVisible(x.Issue, x.Field))
+            .GroupBy(x => x.Field, x => x.Issue)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
     private IEnumerable<ValidationIssue> EnumerateIssuesFor(FieldIdentifier field)
     {
         if (_liveIssues.TryGetValue(field, out var live))
@@ -404,12 +418,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
                 if (report.IsValid)
                 {
+                    // No error-severity issues, so nothing blocks the submit - but the report can
+                    // still carry warnings/infos (e.g. an error-free field with an advisory-severity
+                    // rule). Warning lifetime is symmetric with errors: submit is the disclosure
+                    // event regardless of which severity it reveals, so advisories are captured here
+                    // exactly as the invalid branch below captures them, even though there is no
+                    // error to pair them with.
                     canProceed = true;
                     _submitIssues = [];
-                    _submitAdvisories = [];
                     _submitVisible = [];
-                    _advisoryVisible = [];
                     _appliedServerIssues = [];
+
+                    _submitAdvisories = ResolveVisibleAdvisories(report);
+                    _advisoryVisible = _submitAdvisories.Keys.ToHashSet();
                 }
                 else
                 {
@@ -441,12 +462,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                     _submitVisible = visibleErrors.Select(x => x.Field).ToHashSet();
                     _appliedServerIssues = [];
 
-                    _submitAdvisories = report.Issues
-                        .Where(i => i.Severity != ValidationSeverity.Error)
-                        .Select(i => (Issue: i, Field: Resolve(i)))
-                        .Where(x => IsVisible(x.Issue, x.Field))
-                        .GroupBy(x => x.Field, x => x.Issue)
-                        .ToDictionary(g => g.Key, g => g.ToList());
+                    _submitAdvisories = ResolveVisibleAdvisories(report);
 
                     // Advisory sites are not necessarily error sites: a visible field can carry a
                     // warning while passing every error rule. Recording them separately is what lets

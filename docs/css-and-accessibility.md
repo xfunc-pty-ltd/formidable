@@ -278,19 +278,24 @@ namespace Formidable.Blazor;
 /// </summary>
 public interface IFormidableFocusService
 {
-    /// <summary>Scrolls to and focuses the element rendered for <paramref name="field"/>.</summary>
+    /// <summary>
+    /// Moves focus to the rendered element for <paramref name="field"/>, scrolling it into view.
+    /// Returns <c>true</c> when the element was found and focused, <c>false</c> when no element
+    /// with the field's id exists in the DOM — e.g. a virtualized row outside the render window.
+    /// </summary>
     /// <param name="field">The field whose rendered element should receive focus.</param>
-    ValueTask FocusAsync(FieldIdentifier field);
+    ValueTask<bool> FocusAsync(FieldIdentifier field);
 }
 ```
 
 *Source: `src/Formidable.Blazor/IFormidableFocusService.cs`*
 
 The shipped implementation is a thin JS-interop wrapper: it computes the field's
-`FormidableFieldId` and passes just that id string across the interop boundary:
+`FormidableFieldId`, passes just that id string across the interop boundary, and returns whatever
+the JS side reports:
 
 ```csharp
-        await module.InvokeVoidAsync("focusField", FormidableFieldId.For(field));
+        return await module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFocusService.cs`*
@@ -298,23 +303,30 @@ The shipped implementation is a thin JS-interop wrapper: it computes the field's
 ```javascript
 export function focusField(id) {
     const element = document.getElementById(id);
-    if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "center" });
-        element.focus({ preventScroll: true });
+    if (!element) {
+        return false;
     }
+
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.focus({ preventScroll: true });
+    return true;
 }
 ```
 
 *Source: `src/Formidable.Blazor/wwwroot/formidable.js`*
 
-`document.getElementById(id)` is the entire lookup, and the `if (element)` guard makes a missing
-target a silent no-op rather than a JS error — which matters for two cases documented elsewhere:
-a field scrolled out of a `Virtualize` window with no current DOM element (see the virtualize
-caveat in [`docs/component-kit.md`](component-kit.md)), and a raw/foreign control whose markup
-never actually rendered `field.ElementId` as its `id` attribute — `FormidableField`'s
-`ForeignControl.razor` sample sets `id="@field.ElementId"` explicitly for exactly this reason (see
-[`docs/component-kit.md`](component-kit.md)); a `FieldAnchor`-only registration with no id on the
-control it anchors has nothing for the focus service to find.
+`document.getElementById(id)` is the entire lookup, and a miss is reported rather than swallowed:
+`focusField` returns `false` when no element carries the id, and `FocusAsync` propagates that bool
+straight back to its caller. The silent no-op lives one layer up, in `FormSummary`'s click-to-focus
+handler, when `FocusAsync` reports a miss and no `FocusFallback` is set (or the fallback itself
+fails to recover it) — which matters for two cases documented elsewhere: a field scrolled out of a
+`Virtualize` window with no current DOM element — the click-to-focus miss that `FormSummary`'s
+`FocusFallback` parameter exists to recover from (see [`docs/component-kit.md`](component-kit.md))
+— and a raw/foreign control whose markup never actually rendered `field.ElementId` as its `id`
+attribute — `FormidableField`'s `ForeignControl.razor` sample sets `id="@field.ElementId"`
+explicitly for exactly this reason (see [`docs/component-kit.md`](component-kit.md)); a
+`FieldAnchor`-only registration with no id on the control it anchors has nothing for the focus
+service to find.
 
 ## Where this is demonstrated
 

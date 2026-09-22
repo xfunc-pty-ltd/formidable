@@ -3,7 +3,26 @@
 
 <PageTitle>Server round-trip</PageTitle>
 <h1>Server round-trip</h1>
-<p>This form deliberately skips client-side submit validation — press Send and watch the server's 400 land on the exact fields. Run the Api first: <code>dotnet run --project samples/Formidable.Sample.Api</code>. Press "Send to server" rather than Enter — Enter triggers the browser's implicit form submission, which runs the client-side submit pipeline this page deliberately skips.</p>
+<p>This form deliberately skips client-side submit validation — press Send and watch the server's 400 land on the exact fields. Press "Send to server" rather than Enter — Enter triggers the browser's implicit form submission, which runs the client-side submit pipeline this page deliberately skips.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "RoundTripOrder.cs", "ServerRoundTrip.razor", "ServerRoundTrip.razor.cs" })">
+    <Rules>
+        <ul>
+            <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
+            <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
+            <li>Non-error issues in the response (warnings) are listed by the page, not applied to fields.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
+            <li>Click <em>Send to server</em> with everything empty — the 400 lands inline on the exact fields.</li>
+            <li>Click an entry in the summary — it focuses that field.</li>
+            <li>Fix one field and send again — the new verdict replaces the old one entirely.</li>
+            <li>Complete the order and send — the server accepts and the status line confirms.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
 
 <FormidableForm @ref="_form" Model="_order">
     <FormSummary />
@@ -16,9 +35,11 @@
         <div class="field" @key="line"><label>SKU <FormidableInputText For="() => line.Sku" @bind-Value="line.Sku" /></label>
             <FieldMessage For="() => line.Sku" /></div>
     }
-    <button type="button" @onclick="() => _order.Lines.Add(new OrderLine())">Add line</button>
 
-    <button type="button" class="primary" @onclick="Send">Send to server</button>
+    <div class="actions">
+        <button type="button" @onclick="() => _order.Lines.Add(new OrderLine())">Add line</button>
+        <button type="button" class="primary" @onclick="Send">Send to server</button>
+    </div>
 </FormidableForm>
 
 @if (_serverWarnings.Count > 0)
@@ -32,36 +53,3 @@
     </ul>
 }
 <p role="status">@_status</p>
-
-@code {
-    private readonly RoundTripOrder _order = new() { Lines = [new OrderLine()] };
-    private FormidableForm<RoundTripOrder>? _form;
-    private readonly List<string> _serverWarnings = [];
-    private string _status = string.Empty;
-
-    private async Task Send()
-    {
-        _serverWarnings.Clear();
-        var response = await Http.PostAsJsonAsync("/api/orders/", _order);
-
-        if (response.IsSuccessStatusCode)
-        {
-            _status = "Server accepted the order.";
-            return;
-        }
-
-        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        var issues = problem!.ToIssues();
-
-        // The engine applies error-severity issues to fields; non-error issues are the
-        // page's to present (a 400's warnings ride alongside its errors by contract).
-        // Each call replaces the previous server verdict — pressing Send again with new
-        // input swaps the old server errors for the new ones, rather than accumulating
-        // them, so a corrected resubmission cannot leave stale errors behind.
-        _form!.Engine!.ApplyServerIssues(issues);
-        _serverWarnings.AddRange(issues
-            .Where(i => i.Severity != ValidationSeverity.Error)
-            .Select(i => i.Message));
-        _status = "Server rejected the order — its errors are now inline.";
-    }
-}

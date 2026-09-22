@@ -9,7 +9,11 @@ namespace Formidable.Blazor;
 /// </summary>
 public interface IFormidableFocusService
 {
-    /// <summary>Scrolls to and focuses the element rendered for <paramref name="field"/>.</summary>
+    /// <summary>
+    /// Moves focus to the rendered element for <paramref name="field"/>, scrolling it into view.
+    /// Returns <c>true</c> when the element was found and focused, <c>false</c> when no element
+    /// with the field's id exists in the DOM — e.g. a virtualized row outside the render window.
+    /// </summary>
     /// <param name="field">The field whose rendered element should receive focus.</param>
-    ValueTask FocusAsync(FieldIdentifier field);
+    ValueTask<bool> FocusAsync(FieldIdentifier field);
 }
