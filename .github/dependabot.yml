@@ -8,12 +8,18 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
 
   - package-ecosystem: "nuget"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
     ignore:
       # The three library projects under src/ declare their versions as contract rather than as
       # a record of what happens to be current, so each is a decision to take by hand.

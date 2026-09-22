@@ -33,7 +33,7 @@ jobs:
       - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true
 
   commit-style:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -113,8 +113,8 @@ Commits follow [Angular Conventional Commits](https://www.conventionalcommits.or
 `type(scope): subject`, with types `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `style`,
 `build`, `chore` or `ci`, a subject of at most 72 characters, and a body explaining the *why*,
 not just the *what*. Reference an issue from the body (`Closes #123`); the changelog links it.
-CI checks the shape on every pull request. Look at the existing git history for the tone and
-level of detail expected.
+CI checks the shape on every pull request; Dependabot's own are exempt, since its titles are
+machine-fixed. Look at the existing git history for the tone and level of detail expected.
 
 Where the change lands in one of the surfaces below, name it as an optional scope,
 `type(scope): ...`:
