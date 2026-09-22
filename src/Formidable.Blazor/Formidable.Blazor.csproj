@@ -5,7 +5,11 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\Formidable\Formidable.csproj" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.10" />
+        <!-- Floored at the lowest patch carrying the API this library uses. A NuGet floor is a
+             minimum, so a higher one forces every consumer onto that servicing band or a later
+             one, and a consumer pinned below it cannot restore at all (NU1605). From this floor
+             a consumer's own pins float the resolved version upward. -->
+        <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.0" />
     </ItemGroup>
     <ItemGroup>
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />

@@ -314,6 +314,72 @@ public sealed class FormidableOptions
     public string? InlineMessageRole { get; set; }
 
     /// <summary>
+    /// The sentence the all-suppressed defensive gate carries — the one model-level explanation a
+    /// blocked submit shows when every field that failed is hidden and nothing on screen accounts
+    /// for the block. Defaults to <c>"The form cannot be submitted because information that is not
+    /// currently displayed is invalid."</c>, which is a sentence in English, so a form addressing
+    /// its users in another language, or in a wording of its own, replaces it here.
+    /// </summary>
+    /// <remarks>
+    /// Read wherever a surface asks the submit channel what it holds, so
+    /// <see cref="IFormValidationEngine.GetIssues"/>,
+    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> and the components reading them answer
+    /// with a change from the next read after it is made; the <c>EditContext</c>'s
+    /// <c>ValidationMessageStore</c> is a materialized projection of those same reads rather than a
+    /// read of them, so it carries the change from its next rebuild. The engine files no gate
+    /// entry that could go stale between the two: the gate is a predicate over source state, and
+    /// its issue is built where it is read.
+    /// This property decides that one explanation and nothing else. A failing rule's message
+    /// belongs to the validator that wrote it, and the name the gate's explanation is listed
+    /// under in <see cref="SubmitOutcome.VisibleErrorSummary"/> is
+    /// <see cref="ModelLevelDisplayName"/>.
+    /// </remarks>
+    public string DefensiveGateMessage { get; set; } =
+        "The form cannot be submitted because information that is not currently displayed is invalid.";
+
+    /// <summary>
+    /// The name <see cref="SubmitOutcome.VisibleErrorSummary"/> lists an error under when that
+    /// error's issue names no field of its own — the defensive gate's explanation, and any
+    /// model-level rule a blocked submit disclosed. Defaults to <c>"This form"</c>. It is English,
+    /// as <see cref="DefensiveGateMessage"/> and <see cref="ValidationFaultMessage"/> are, and a
+    /// form re-voicing any of the three has reason to look at the other two.
+    /// </summary>
+    /// <remarks>
+    /// That list holds names rather than messages: an entry is the issue's
+    /// <see cref="ValidationIssue.DisplayName"/> where the issue carries one and its
+    /// <see cref="ValidationIssue.Path"/> otherwise, and this property stands in wherever that
+    /// pair leaves an empty string. Read as each submit builds its outcome, so a
+    /// <see cref="SubmitOutcome"/> already handed back holds the names it was built with.
+    /// It reaches that list and nothing else. A <c>FormidableSummary</c> entry renders its
+    /// issue's <see cref="ValidationIssue.Message"/>, and an <c>ItemTemplate</c> that renders a
+    /// name instead reads the <see cref="ValidationIssue.DisplayName"/> the issue itself carries
+    /// — which the gate's explanation leaves unset.
+    /// </remarks>
+    public string ModelLevelDisplayName { get; set; } = "This form";
+
+    /// <summary>
+    /// The sentence a faulted pass files against the form: a validation pass threw before it could
+    /// finish, so what the form shows is incomplete rather than wrong. Defaults to
+    /// <c>"Validation could not run to completion; recent changes may not be fully validated."</c>,
+    /// English as its two siblings above are, and replaced the same way.
+    /// </summary>
+    /// <remarks>
+    /// Read where a faulted pass files its issue, and that issue is stored rather than derived, so
+    /// a change reaches the NEXT fault while one already on screen goes on saying what it said
+    /// when it was filed. Contrast <see cref="DefensiveGateMessage"/>, whose explanation is built
+    /// at each read because the gate files nothing. The stored issue is cleared from two places
+    /// rather than one: a pass that completes without faulting, and
+    /// <see cref="IFormValidationEngine.ApplyServerIssues"/>, which clears it with no pass
+    /// involved — so a server round trip after a client-side fault ends it exactly as a recovered
+    /// pass does, and a form does not carry a fault it is no longer subject to.
+    /// It says nothing about what threw, deliberately: the exception is delivered to
+    /// <see cref="IFormValidationEngine.ValidationFaulted"/>, which is where a host logs it and
+    /// where anything diagnostic belongs. This is the half the person filling the form reads.
+    /// </remarks>
+    public string ValidationFaultMessage { get; set; } =
+        "Validation could not run to completion; recent changes may not be fully validated.";
+
+    /// <summary>
     /// Re-sorts the order visible issues are reported in. Defaults to <see langword="null"/>,
     /// which reports them in the document order of the rendered fields — what most forms want.
     /// </summary>

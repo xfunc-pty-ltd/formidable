@@ -50,10 +50,18 @@ internal static class FirstErrorFocus
     /// diagnostic's logger factory — both are optional registrations.</param>
     /// <param name="engine">The engine whose visible issues the choice is made from.</param>
     /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or null when unwired.</param>
+    /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or null when unwired.
+    /// Awaited once the field is chosen and before the first attempt on it, so a page that has to
+    /// clear something out of the way — a modal over the field, a collapsed section around it —
+    /// finishes doing that first. It is deliberately not awaited again before the fallback's
+    /// retry: the preparation was for this move, and a callback with a side effect as visible as
+    /// closing a dialog must not run twice for one of them. Both the early returns above it stay
+    /// early returns, so nothing prepares for a move that is not about to happen.</param>
     internal static async ValueTask MoveAsync(
         IServiceProvider services,
         IFormValidationEngine engine,
-        Func<FieldIdentifier, ValueTask<bool>>? fallback)
+        Func<FieldIdentifier, ValueTask<bool>>? fallback,
+        Func<FieldIdentifier, ValueTask>? prepare)
     {
         var focusService = services.GetService<IFormidableFocusService>();
         if (focusService is null)
@@ -67,6 +75,11 @@ internal static class FirstErrorFocus
         if (firstIssue is null)
         {
             return;
+        }
+
+        if (prepare is not null)
+        {
+            await prepare(firstIssue.Field);
         }
 
         if (await focusService.FocusAsync(firstIssue.Field))

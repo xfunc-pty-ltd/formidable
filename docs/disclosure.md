@@ -31,19 +31,19 @@ explanation instead of quietly doing nothing —
 > blocks that case with a form-level explanation instead.
 
 ```csharp
-    /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
-    /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing and nothing on screen
-    /// explains the block, so this one model-level explanation stands in for the errors the user
-    /// cannot see.</summary>
-    private static readonly ValidationIssue GateIssue = new(
-        string.Empty,
-        "The form cannot be submitted because information that is not currently displayed is invalid.");
+    public string DefensiveGateMessage { get; set; } =
+        "The form cannot be submitted because information that is not currently displayed is invalid.";
 ```
 
-*Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
+*Source: `src/Formidable.Blazor/FormidableOptions.cs`*
 
-That explanation is a model-level issue — it belongs to the form, not to any field — and it is
-served to every surface that reads model-level issues, not to the summary alone.
+That sentence is a default rather than a fixture. It is English, so a form that addresses its
+users in another language, or in a wording of its own, replaces it through
+[`DefensiveGateMessage`](options.md#defensivegatemessage). The engine builds the gate's issue
+where it reads that option, and a replacement reaches the next surface that asks.
+
+The gate's explanation is a model-level issue — it belongs to the form, not to any field — and
+it is served to every surface that reads model-level issues, not to the summary alone.
 `FormidableSummary` lists it, and its click-to-focus addresses the form by
 `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`, exactly like a named field:
 `FormidableForm` renders that id — plus `tabindex="-1"` so the otherwise-inert `<form>` element

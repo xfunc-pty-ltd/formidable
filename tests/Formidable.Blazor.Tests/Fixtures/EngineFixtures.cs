@@ -264,6 +264,37 @@ public sealed class DeclarationOrderValidator : DraftSubmitValidator<EngineOrder
 }
 
 /// <summary>
+/// Fails one field twice at error severity and that same field once at each advisory severity,
+/// so a single blocked submit fills all three severity bands and leaves the error band holding
+/// two entries that share a <c>FieldIdentifier</c>. That last part is the shape a summary
+/// counting ISSUES and a summary counting FIELDS disagree about, and
+/// <see cref="EngineOrder.Description"/> carries a <c>WithName</c> so the display name a grouped
+/// entry shows is distinguishable from the path it was derived from.
+/// </summary>
+public sealed class TwiceFailingFieldValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description)
+            .NotEmpty().WithName("Order description").WithMessage("Description is required");
+        RuleFor(x => x.Description).MinimumLength(5).WithMessage("Description is too short");
+        RuleFor(x => x.Customer).NotNull().WithMessage("A customer is required");
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Warning)
+            .WithMessage("Description could be clearer");
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Info)
+            .WithMessage("Descriptions help reviewers");
+    }
+}
+
+/// <summary>
 /// Submit validator that fails <see cref="EngineOrder.Description"/> with a WARNING and
 /// <see cref="EngineCustomer.Name"/> with an error, for a page that renders the advisory-bearing
 /// field above the erroring one: the topmost visible issue is then an advisory, while the thing a
@@ -482,6 +513,16 @@ public sealed class CapabilityHidingModelValidator<TModel>(IModelValidator<TMode
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         inner.Validate(model, profile);
 }
+
+/// <summary>
+/// The least a consumer can write over <see cref="DelegatingModelValidator{TModel}"/>: it changes
+/// nothing, which is what makes it the control against
+/// <see cref="CapabilityHidingModelValidator{TModel}"/>. The two wrap the same inner validator and
+/// present the same validation seam, and everything that separates them at an engine comes from
+/// the capabilities one forwards and the other drops.
+/// </summary>
+public sealed class DelegatingWrapperValidator<TModel>(IModelValidator<TModel> inner)
+    : DelegatingModelValidator<TModel>(inner);
 
 /// <summary>
 /// A form whose values arrive from somewhere other than the visitor's typing, shaped so one

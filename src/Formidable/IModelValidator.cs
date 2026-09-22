@@ -1,9 +1,11 @@
 namespace Formidable;
 
 /// <summary>
-/// The seam between Formidable's engines and a validation implementation. The shipped
-/// implementation is <see cref="FluentValidationModelValidator{TModel}"/>; the interface exists
-/// so the engines never depend on FluentValidation types directly.
+/// The seam between Formidable's engines and a validation implementation. Two implementations
+/// ship: <see cref="FluentValidationModelValidator{TModel}"/>, which adapts a FluentValidation
+/// validator, and <see cref="DelegatingModelValidator{TModel}"/>, the base for a validator that
+/// wraps another one. The interface exists so the engines never depend on FluentValidation types
+/// directly.
 /// </summary>
 /// <remarks>
 /// Implementing this interface is supported surface, and it grows accordingly: a member added

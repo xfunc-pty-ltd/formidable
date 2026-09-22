@@ -336,7 +336,9 @@ public interface IFormValidationEngine
     /// issue with no matching client rule goes, while one a client rule agrees with keeps showing
     /// through the client's own answer. Because the payload is treated as a submit result,
     /// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
-    /// server-side reaches the submitted state through this call alone. Call from the renderer's
+    /// server-side reaches the submitted state through this call alone — and it clears any
+    /// standing incomplete-validation fault, whatever the client is doing: a verdict has arrived
+    /// to stand in for the one a faulted pass could not finish. Call from the renderer's
     /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
     /// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
     /// once.

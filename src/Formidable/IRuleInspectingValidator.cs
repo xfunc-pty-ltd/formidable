@@ -33,6 +33,13 @@ namespace Formidable;
 /// so a caller that asks per field per render caches them itself.
 /// </para>
 /// <para>
+/// A validator wrapping another one forwards this capability by deriving from
+/// <see cref="DelegatingModelValidator{TModel}"/>, whose tester answers the wrapped validator's
+/// own answer. A wrapper implementing <see cref="IModelValidator{TModel}"/> alone presents no
+/// capability at all, which a caller's test reads exactly as it reads a validator that never had
+/// one.
+/// </para>
+/// <para>
 /// Implementing this interface is supported surface, and it grows accordingly: a member added
 /// after v1 carries a default implementation whose answer is the documented "cannot tell" — a
 /// new tester reads <see langword="false"/>, a new reader reports the empty answer — which is

@@ -430,6 +430,60 @@ role that arrives together with the content it describes. Recommended on forms t
 same thing is worse than one. See [CSS and accessibility](css-and-accessibility.md) for the
 summary's own fixed-role regions.
 
+### `DefensiveGateMessage`
+
+`string`, defaults to `"The form cannot be submitted because information that is not currently
+displayed is invalid."` — the sentence the all-suppressed defensive gate carries, which is the one
+model-level explanation a blocked submit shows when every field that failed is hidden and nothing
+on screen accounts for the block (see [Disclosure](disclosure.md)).
+
+It is English, which is why it is settable: a form addressing its users in another language, or in
+a wording of its own, replaces it here. The gate's issue is built where this property is read, so
+the engine's own reads — `GetIssues`, `GetVisibleIssues`, and every component built on them —
+answer with a replacement from the next read. The `EditContext`'s message store is a materialized
+projection of those reads rather than a read of them, so it carries the change from its next
+rebuild. Nothing between the two can go stale: the gate is a predicate over source state rather
+than an entry filed somewhere, so there is no gate entry holding the old sentence.
+
+This option decides that one explanation and nothing else. A failing rule's message belongs to the
+validator that wrote it, and the name the gate's explanation is listed under in a `SubmitOutcome`'s
+`VisibleErrorSummary` is `ModelLevelDisplayName`, next.
+
+### `ModelLevelDisplayName`
+
+`string`, defaults to `"This form"`. The name `SubmitOutcome.VisibleErrorSummary` lists an error
+under when that error's issue names no field of its own: the defensive gate's explanation, and
+any model-level rule a blocked submit disclosed.
+
+That list holds names rather than messages. An entry is the issue's `DisplayName` where the issue
+carries one — what `WithName(...)` sets — and its `Path` otherwise, and this option stands in
+wherever that pair leaves an empty string. It is read as each submit builds its outcome, so a
+`SubmitOutcome` already handed back holds the names it was built with.
+
+It reaches that list and nothing else. A `FormidableSummary` entry renders its issue's `Message`,
+and an `ItemTemplate` that renders a name instead reads the `DisplayName` the issue itself carries
+— which the gate's explanation leaves unset.
+
+### `ValidationFaultMessage`
+
+`string`, defaults to `"Validation could not run to completion; recent changes may not be fully
+validated."` — the sentence a faulted pass files against the form. A validation pass threw before
+it could finish, so what the form is showing is incomplete rather than wrong, and this is how it
+says so.
+
+Its read timing is not the gate's, and the difference is worth knowing before you set it from a
+culture switch. The issue is filed when the fault is reported and then stored, so a change reaches
+the *next* fault while one already on screen goes on saying what it said when it was written.
+
+The stored issue is cleared from two places rather than one: a pass that completes without
+faulting, and `ApplyServerIssues`, which clears it with no pass involved. A server round trip
+after a client-side fault therefore ends it exactly as a recovered pass does, and a form does not
+carry a fault it is no longer subject to.
+
+It says nothing about what threw, which is the division of labour rather than an omission: the
+exception goes to the engine's `ValidationFaulted` event, where a host logs it. This is the half
+the person filling in the form reads.
+
 ### `OrderIssues`
 
 `Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?`, defaults to `null`, which
@@ -644,12 +698,15 @@ that is the smallest page that reproduces the shift.
 `RequiredOverride` has none because every validator the sample ships can be inspected; the recipe
 linked from its entry is its worked example.
 
-Three more have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`
-reports into your telemetry rather than onto the screen; `InlineMessageRole` changes only what a
-screen reader announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a
-reading order every sample page is already content with, since each lays its fields out top to
-bottom. Each one's entry above is its worked example. For the case where the layout itself is what
-makes document order wrong, and the delegate cannot help because it cannot measure, see
+Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic` reports into
+your telemetry rather than onto the screen; `InlineMessageRole` changes only what a screen reader
+announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a reading order every
+sample page is already content with, since each lays its fields out top to bottom; and
+`DefensiveGateMessage`, `ModelLevelDisplayName` and `ValidationFaultMessage` replace strings the
+samples are content to show as they ship, in a corpus written in one language. Each one's entry
+above is its worked example.
+For the case where the layout itself is what makes document order wrong, and the delegate cannot
+help because it cannot measure, see
 [Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-appear-on-screen).
 
 Two components carry behaviour this page's options don't reach:

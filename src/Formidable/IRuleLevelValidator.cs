@@ -19,6 +19,13 @@ namespace Formidable;
 /// identity-to-rule lookup.
 /// </para>
 /// <para>
+/// A validator wrapping another one forwards this capability by deriving from
+/// <see cref="DelegatingModelValidator{TModel}"/>, whose tester answers the wrapped validator's
+/// own answer. A wrapper implementing <see cref="IModelValidator{TModel}"/> alone presents no
+/// capability at all, which a caller's test reads exactly as it reads a validator that never had
+/// one.
+/// </para>
+/// <para>
 /// Implementing this interface is supported surface, and it grows accordingly: a member added
 /// after v1 carries a default implementation matching this interface's own posture for absent
 /// capability — a new tester reads <see langword="false"/>, and a new doer throws

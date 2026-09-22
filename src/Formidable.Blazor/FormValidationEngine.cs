@@ -744,10 +744,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <summary>The defensive gate's form-level issue, synthesized by the channel views whenever
     /// <see cref="GateActive"/> holds: a blocked submit disclosed nothing and nothing on screen
     /// explains the block, so this one model-level explanation stands in for the errors the user
-    /// cannot see.</summary>
-    private static readonly ValidationIssue GateIssue = new(
-        string.Empty,
-        "The form cannot be submitted because information that is not currently displayed is invalid.");
+    /// cannot see. Built afresh from <see cref="FormidableOptions.DefensiveGateMessage"/> at each
+    /// read, which is what lets a page change the sentence between one surface's read and the
+    /// next.</summary>
+    private ValidationIssue GateIssue => new(string.Empty, _options.DefensiveGateMessage);
 
     /// <summary>
     /// Whether the defensive gate is showing. The gate is a predicate over source state rather
@@ -1721,7 +1721,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// The single fault policy behind every pass that reports rather than rethrows: a form-level
     /// issue saying the verdict is incomplete, written only while <paramref name="pass"/> is still
     /// the current one, then <see cref="ValidationFaulted"/> for a host that wants to log it. The
-    /// event is raised either way — a superseded pass's exception still happened.
+    /// event is raised either way — a superseded pass's exception still happened. The issue's
+    /// sentence is read from <see cref="FormidableOptions.ValidationFaultMessage"/> here, at the
+    /// one moment it is filed, so the stored issue keeps the wording in force when it was written.
     /// </summary>
     private async Task ReportFaultAsync(PassScope pass, Exception exception)
     {
@@ -1729,9 +1731,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         {
             if (pass.Version == _version)
             {
-                _faultIssue = new ValidationIssue(
-                    string.Empty,
-                    "Validation could not run to completion; recent changes may not be fully validated.");
+                _faultIssue = new ValidationIssue(string.Empty, _options.ValidationFaultMessage);
                 RebuildStore();
             }
             return Task.CompletedTask;
@@ -2252,13 +2252,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
                     _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
 
+                    // Both arms name the model level the same way, because both are naming the
+                    // same nameless thing: an issue that resolved to no field of its own.
+                    var modelLevelName = _options.ModelLevelDisplayName;
                     summary = disclosed.Count > 0
                         ? disclosed
                             .Select(x => x.Issue.DisplayName ?? x.Issue.Path)
-                            .Select(name => name.Length == 0 ? "This form" : name)
+                            .Select(name => name.Length == 0 ? modelLevelName : name)
                             .Distinct()
                             .ToList()
-                        : ["This form"]; // the gate's own model-level entry is what the summary points at
+                        : [modelLevelName]; // the gate's own model-level entry is what the summary points at
                 }
             }).ConfigureAwait(false);
 
@@ -2276,6 +2279,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         ArgumentNullException.ThrowIfNull(issues);
 
         HasSubmitted = true;
+
+        // A verdict has arrived, so the caveat that the last one was incomplete has nothing left
+        // to qualify. Unconditional on purpose, and it is one of only two places the fault issue
+        // is cleared: the client may still be faulting, and a pass may never run again on a form
+        // the server alone judges, so waiting for a clean pass would leave the caveat standing
+        // over an answer that superseded it.
         _faultIssue = null;
 
         // The payload is the server's CURRENT verdict, not an addition to its last one: replacing

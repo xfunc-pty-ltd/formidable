@@ -580,6 +580,120 @@ service already resolved, and costs no JavaScript of your own.
 **Sample:** no page. Every sample form lays its fields out top to bottom, where document order and
 visual order are the same answer.
 
+### I want my own summary markup
+
+**Set:** nothing, in most cases — check first that
+[`FormidableSummary`](component-kit.md#formidablesummary) cannot be shaped into what you want,
+because it carries wiring a hand-rolled list has to rebuild. `ItemTemplate` decides what an entry
+says, `GroupByField` gives you one entry per field rather than per issue, `MaxItems` and
+`OverflowTemplate` cap the list and say what stands in for the rest, and `OnItemActivated` decides
+what a click does. Between them that is the field-name list, deduplicated and capped, with its own
+click behaviour.
+
+A surface those cannot reach — a dialog laid out as a grid, a status bar, a wizard's step
+indicator — reads the same two seams the component reads:
+
+```csharp
+using Formidable;
+using Formidable.Blazor;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
+
+public partial class MissingFieldList : ComponentBase, IDisposable
+{
+    [CascadingParameter]
+    private FormidableFormContext Context { get; set; } = default!;
+
+    [Inject]
+    private IFormidableFocusService Focus { get; set; } = default!;
+
+    private IFormValidationEngine? _subscribed;
+
+    private List<(string Name, FieldIdentifier Field)> Entries =>
+        Context.Engine.GetVisibleIssues()
+            .Where(visible => visible.Issue.Severity == ValidationSeverity.Error)
+            .GroupBy(visible => visible.Field)
+            .Select(group => (Name: NameOf(group.First().Issue), Field: group.Key))
+            .ToList();
+
+    private static string NameOf(ValidationIssue issue) =>
+        issue.DisplayName ?? (issue.Path.Length == 0 ? "This form" : issue.Path);
+
+    private async Task GoToAsync(FieldIdentifier field) => await Focus.FocusAsync(field);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Context.Engine, _subscribed))
+        {
+            return;
+        }
+
+        if (_subscribed is not null)
+        {
+            _subscribed.StateChanged -= Redraw;
+        }
+
+        _subscribed = Context.Engine;
+        _subscribed.StateChanged += Redraw;
+    }
+
+    private void Redraw(object? sender, FormidableStateChangedEventArgs e) => StateHasChanged();
+
+    public void Dispose()
+    {
+        if (_subscribed is not null)
+        {
+            _subscribed.StateChanged -= Redraw;
+            _subscribed = null;
+        }
+    }
+}
+```
+
+```razor
+<ul class="missing-fields" role="alert">
+    @foreach (var entry in Entries)
+    {
+        <li>
+            <button type="button" @onclick="() => GoToAsync(entry.Field)">@entry.Name</button>
+        </li>
+    }
+</ul>
+```
+
+Five things the shipped component knows, which your own has to know too:
+
+- **`GetVisibleIssues()` is the whole answer.** It is the same submit-then-live-deduped view the
+  kit's message components read per field, computed from engine state on every ask, and it pairs
+  each issue with the `FieldIdentifier` it resolved to, including the model-level identifier for
+  a verdict about the form as a whole.
+- **`Issue.DisplayName` is the user-facing name.** Where a rule set `WithName(...)`, that is the
+  value; where none did, it is FluentValidation's own display name for the property. It is
+  nullable, and two issues on one field can carry different names, since `WithName` applies to the
+  rule that declared it. The engine's own two model-level issues (the validator fault and the
+  all-suppressed gate's explanation) carry none, and neither does an error mapped from a
+  `ProblemDetails` body, whose `errors` half is paths and messages only. Hence the fallback above.
+- **The order is the page's, under `FormidableForm`.** That root resolves where the fields sit and
+  hands the answer to its engine, so entries arrive in the order a visitor reads them, with
+  anything the page could not place last. `FormidableValidator` resolves no order, so a list
+  attached to someone else's `EditForm` arrives in validator order instead (see
+  [Component kit](component-kit.md#the-order-entries-appear-in)).
+- **Focus goes through `IFormidableFocusService`.** Its currency is the `FieldIdentifier`, so the
+  entry you rendered is already holding what the click needs. Injecting it also gets you whatever
+  the app registered ahead of `AddFormidableBlazor()`. What you do not get for free is
+  `FormidableSummary`'s miss recovery: a field that is not currently in the DOM has nothing to
+  focus, and retrying after making it renderable is yours to write.
+- **Subscribe to `StateChanged`, and keep the announcing element persistent.** The engine raises
+  it on every pass, refresh and server apply; without the subscription the list is only as fresh
+  as whatever else happened to re-render. And a live region announces reliably only when the
+  element carrying the role was already in the DOM, so render the `<ul>` and its role from the
+  first paint and let the items come and go inside it. That is the discipline behind the summary's
+  own [two fixed-role regions](css-and-accessibility.md#formidablesummary-as-a-live-region).
+
+**Read:** [Component kit](component-kit.md#formidablesummary),
+[CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region).
+**Sample:** no page. Every sample form uses `FormidableSummary` itself.
+
 ### I want to use a native or third-party control
 
 **Set:** wrap it in `FormidableField` and call `field.NotifyChanged()` from its change handler —
@@ -675,10 +789,10 @@ other than Draft or Submit becomes the default rules plus the same-named ruleset
 
 ### I want localized messages
 
-**Set:** nothing in Formidable — FluentValidation's own localization passes straight through. Keep
-a rule's default message and FluentValidation translates it by `CultureInfo.CurrentUICulture`; for
-your own text, pass a message *factory* so the resource lookup happens each time the rule runs and
-follows the culture in force then.
+**Set:** three `FormidableOptions` strings, below — every rule's own message reaches you through
+FluentValidation's localization untouched. Keep a rule's default message and FluentValidation
+translates it by `CultureInfo.CurrentUICulture`; for your own text, pass a message *factory* so
+the resource lookup happens each time the rule runs and follows the culture in force then.
 
 ```csharp
 RuleFor(p => p.Age).Must(BeAWholeAgeInRange)
@@ -692,7 +806,38 @@ RuleFor(o => o.Description).NotEmpty().WithName("Order description");
 its culture at startup, so a language switch means storing the choice and applying it before the
 host runs.
 
-**Read:** [Profiles](profiles.md) (localization and display names).
+Three strings a form puts on screen come from the engine rather than from a rule, and all three
+ship in English: [`DefensiveGateMessage`](options.md#defensivegatemessage), the explanation a
+blocked submit shows when every field that failed is hidden;
+[`ModelLevelDisplayName`](options.md#modelleveldisplayname), the name a model-level entry is
+listed under in `SubmitOutcome.VisibleErrorSummary`; and
+[`ValidationFaultMessage`](options.md#validationfaultmessage), what a pass that threw before it
+could finish leaves on the form. Nothing else the kit renders is the library's own words: every
+other message on a form was written by a rule, or came back from your server. Give these three a
+resource lookup and the form is speaking your language:
+
+```csharp
+_options = new FormidableOptions
+{
+    DefensiveGateMessage = ValidationMessages.HiddenFieldsInvalid,
+    ModelLevelDisplayName = ValidationMessages.ThisForm,
+    ValidationFaultMessage = ValidationMessages.ValidationIncomplete
+};
+```
+
+Each is read where the engine uses it, so a later culture change is a matter of assigning these
+properties on the instance the form already holds, never of handing the form a new options
+instance — which it accepts only alongside a new model
+([`FormidableOptions` is read once](options.md#formidableoptions-is-read-once)). The one to know
+about is `ValidationFaultMessage`: its issue is filed when the fault happens rather than rebuilt
+at each read, so a change reaches the next fault and leaves one already on screen as it was.
+
+Server-side, one string has no lever yet. Where a request binds its body to null, the endpoint
+filter answers with `"A request body is required."` in the 400 body. That is a response rather
+than something a form renders, so it takes a different kind of seam and does not have one today.
+
+**Read:** [Profiles](profiles.md) (localization and display names),
+[Engine options](options.md#defensivegatemessage).
 **Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor).
 
 ### I want to validate a nested object
@@ -735,6 +880,81 @@ does exist, carrying the rest of the path), but the page's own lambda runs first
 full), [Fields and collections](fields-and-collections.md).
 **Sample:** [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — teams holding
 members, nested one level inside a collection.
+
+### I want to wrap the validator without losing what it can do
+
+**Set:** derive from `DelegatingModelValidator<TModel>`, override every member whose behaviour
+changes, and pass the wrapper as the form's `Validator`.
+
+```csharp
+public sealed class StagedUploadsValidator(
+    IModelValidator<Brief> inner,
+    IReadOnlyList<Upload> staged)
+    : DelegatingModelValidator<Brief>(inner)
+{
+    // What the rules should judge: the model the form holds, plus the uploads the visitor has
+    // picked and the page has not committed yet.
+    private Brief Staged(Brief model) => model.WithAttachments([.. model.Attachments, .. staged]);
+
+    public override Task<ValidationReport> ValidateAsync(
+        Brief model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        base.ValidateAsync(Staged(model), profile, cancellationToken);
+
+    public override ValidationReport Validate(Brief model, ValidationProfile profile) =>
+        base.Validate(Staged(model), profile);
+
+    public override Task<RuleLevelResult> ValidateRuleAsync(
+        Brief model, ValidationProfile profile, RuleIdentity rule,
+        CancellationToken cancellationToken = default) =>
+        base.ValidateRuleAsync(Staged(model), profile, rule, cancellationToken);
+}
+```
+
+```razor
+<FormidableForm Model="Model" Validator="_validator">
+    @* the form's fields, unchanged *@
+</FormidableForm>
+```
+
+`IModelValidator<TModel>` is the seam a form validates through, and two capabilities sit beside it
+rather than inside it: `IRuleInspectingValidator<TModel>` answers what the rules demand of a field,
+and `IRuleLevelValidator<TModel>` runs them one rule at a time. The shipped FluentValidation
+adapter implements all three. A wrapper written against the seam alone compiles and validates
+correctly and presents neither of the other two, and nothing reports the difference, because the
+capability test a form makes reads the same for that wrapper as for a validator whose rules
+genuinely cannot be read. Three things go quiet. Required markers and `aria-required` stop
+appearing, since the requirement answer has no other source. `DiscloseLoadedValuesAsync` goes on
+disclosing a wrong saved value and stops confirming a good one, since confirming needs the
+validator's own list of the fields it has rules for. And every pass evaluates its whole profile for
+itself, since there are no per-rule verdicts left to share.
+
+`DelegatingModelValidator<TModel>` forwards all three interfaces to the validator it wraps, and
+each capability tester answers what that validator answers rather than reporting a capability
+because an interface is present. Where the wrapped validator implements neither optional
+interface, each degrades the way its own interface documents: inspection reports the empty answer,
+and rule-level selection and execution throw `NotSupportedException`.
+
+Override every entry point that validates, not one of them. `Validate`, `ValidateAsync` and
+`ValidateRuleAsync` all take a model, and which of them runs is the caller's choice: a form that
+finds the rule-level capability present validates through `ValidateRuleAsync`, rule by rule, and
+reaches neither of the other two. A wrapper staging its model at `ValidateAsync` alone therefore
+changes nothing that form sees.
+
+State the wrapper reads from outside the model needs telling. Staging a new upload writes nothing
+the form is watching: it raises no `EditContext` field-changed notification, so no live pass starts
+and the edit counter every verdict is stamped with does not move. The store goes on serving what it
+computed against the staged set before it, and the screen waits for an unrelated edit or a submit.
+Call `NotifyChanged()` on the field the staged state belongs to whenever that state changes, the
+same call a hand-wired control makes from its change handler:
+[use a native or third-party control](#i-want-to-use-a-native-or-third-party-control) has the
+shape.
+
+**Read:** [Component kit](component-kit.md#formidableformtmodel) (what a form resolves, and the
+rule that decides it),
+[Open a form on values the visitor did not type](#i-want-to-open-a-form-on-values-the-visitor-did-not-type),
+[Mark fields required when the rules cannot say so](#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
+**Sample:** no page. The worked examples are Formidable's own tests, in
+[`DelegatingModelValidatorTests.cs`](../tests/Formidable.Tests/DelegatingModelValidatorTests.cs).
 
 ### I want to unit-test my form
 
@@ -781,6 +1001,7 @@ which render the kit exactly this way.
 | A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
+| Required markers and `aria-required` vanished, and a loaded draft stopped confirming the values its rules pass, after the form was given its own `Validator`. | The validator passed in wins whole. Rule inspection and rule-level execution are optional interfaces beside `IModelValidator<TModel>`, so a wrapper implementing only that seam presents neither, and the capability test a form makes reads the same for it as for a validator whose rules cannot be read at all. | Derive the wrapper from `DelegatingModelValidator<TModel>`, which forwards all three interfaces and answers each tester with the wrapped validator's own answer. [Wrap the validator without losing what it can do](#i-want-to-wrap-the-validator-without-losing-what-it-can-do). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |
 | The server's error never appears, though client errors do. | The page posts from `OnValidSubmit`, so a rule only the server owns cannot speak until every client rule passes. | Expected ordering — clear the client errors and the server's verdict arrives last. Post without that gate if the server should answer first. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |

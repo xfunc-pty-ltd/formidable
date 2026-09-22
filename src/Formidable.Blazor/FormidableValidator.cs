@@ -56,6 +56,20 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     public FormidableOptions? Options { get; set; }
 
     /// <summary>Validator override; resolved from DI when omitted.</summary>
+    /// <remarks>
+    /// What is passed here is what the form validates through, whole: a capability the passed
+    /// validator does not present is one the form does not have, and that is easy to lose by
+    /// accident. Required markers, <c>aria-required</c>, the confirming half of
+    /// <see cref="DiscloseLoadedValuesAsync"/> and the per-rule verdict sharing all rest on two
+    /// capabilities that are optional interfaces beside <see cref="IModelValidator{TModel}"/> —
+    /// <see cref="IRuleInspectingValidator{TModel}"/> and <see cref="IRuleLevelValidator{TModel}"/>
+    /// — which <see cref="FluentValidationModelValidator{TModel}"/> implements and a wrapper
+    /// written against <see cref="IModelValidator{TModel}"/> alone does not. Such a wrapper
+    /// compiles and validates correctly, and the capability test that goes looking reads the same
+    /// for it as for a validator that never had them, so nothing reports the loss. Derive a
+    /// wrapper from <see cref="DelegatingModelValidator{TModel}"/> instead: it forwards all three
+    /// interfaces, leaving only the members whose behaviour changes to write.
+    /// </remarks>
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
 
@@ -116,6 +130,38 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+
+    /// <summary>
+    /// Invoked and awaited before focus is attempted, so the page can make the target reachable
+    /// first: dismissing a modal that covers it, expanding a collapsed section, switching to the
+    /// tab it sits on. Receives the field about to be focused. Distinct from
+    /// <see cref="FocusFallback"/>, which runs only after an attempt has already missed: this runs
+    /// whether or not the element is reachable, and the try-fallback-retry pipeline behind it is
+    /// unchanged. Same delegate shape as <see cref="FormidableSummary.PrepareFocus"/> and
+    /// <c>FormidableForm</c>'s parameter of the same name, so one page callback wires to all three.
+    /// </summary>
+    /// <remarks>
+    /// The callback must complete when the page is ready to be focused, not when it has begun
+    /// getting ready — a dialog is the case that makes the difference visible. Closing one runs a
+    /// transition, removes an overlay, and hands focus back to whatever opened it. That last step
+    /// is what takes a premature focus move straight back, leaving the visitor somewhere neither
+    /// they nor the page chose; the transition and the overlay are why a target focused ahead of
+    /// them is not yet one the visitor can use. So a dismissal callback completes on the dialog's
+    /// own closed event, not on the state change that starts the close.
+    /// <para>
+    /// It is invoked only when a move is actually about to be made: a component with
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> off, a host that registered no
+    /// <see cref="IFormidableFocusService"/>, and a blocked submit with no visible issue to land on
+    /// all skip it — a side effect as visible as closing a dialog must not fire for a move that
+    /// never happens. Once per move, before the first attempt: a fallback's retry does not run it
+    /// a second time. The one move this component makes is
+    /// <see cref="ValidateForSubmitAsync"/>'s, since applying server issues here never moves focus
+    /// at all; a throw surfaces out of that call, exactly as a throw from
+    /// <see cref="FocusFallback"/> does.
+    /// </para>
+    /// </remarks>
+    [Parameter]
+    public Func<FieldIdentifier, ValueTask>? PrepareFocus { get; set; }
 
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
@@ -343,8 +389,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <see cref="SubmitOutcome"/> untouched — the entry point a page's own
     /// <c>EditForm</c> submit handler calls in place of reaching through <see cref="Engine"/>.
     /// A blocked submit additionally moves focus to the first error, gated on
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> and recoverable through
-    /// <see cref="FocusFallback"/>, by the same decision <c>FormidableForm</c>'s own submit makes.
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>, preceded by <see cref="PrepareFocus"/> and
+    /// recoverable through <see cref="FocusFallback"/>, by the same decision
+    /// <c>FormidableForm</c>'s own submit makes.
     /// What it does NOT do is anything that belongs to owning the form element: the page keeps its
     /// own <c>EditForm</c>, its own handler, and its own routing of the outcome to whatever it
     /// shows next. Call from the renderer's synchronization context (a Blazor event handler or
@@ -383,7 +430,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
         if (!outcome.CanProceed && FocusFirstErrorOnInvalidSubmit)
         {
-            await FirstErrorFocus.MoveAsync(Services, engine, FocusFallback);
+            await FirstErrorFocus.MoveAsync(Services, engine, FocusFallback, PrepareFocus);
         }
 
         return outcome;

@@ -181,10 +181,11 @@ ruleset with the same name as the profile.
 ## Localization and display names
 
 FluentValidation's localization and `WithName(...)` display names pass through unchanged —
-Formidable adds no translation or renaming layer of its own. A rule's `WithName(...)` call lands
-on `ValidationIssue.DisplayName`, and from there in `SubmitOutcome.VisibleErrorSummary` — ready
-for a dialog or summary without any extra mapping step on your end. A localized message from
-FluentValidation's own resource pipeline takes the same route.
+Formidable puts no translation or renaming layer between a rule and the message or name it
+produces. A rule's `WithName(...)` call lands on `ValidationIssue.DisplayName`, and from there in
+`SubmitOutcome.VisibleErrorSummary` — ready for a dialog or summary without any extra mapping step
+on your end. A localized message from FluentValidation's own resource pipeline takes the same
+route.
 
 **Test:** `Submit_shows_only_revealed_fields_and_reports_their_display_names`
 (`tests/Formidable.Blazor.Tests/FormValidationEngineSubmitTests.cs`) pins a rule with

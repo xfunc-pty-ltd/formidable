@@ -233,9 +233,13 @@ both.
 
 — giving `formidable-summary__group formidable-summary__group--error`,
 `formidable-summary__group formidable-summary__group--warning`, and
-`formidable-summary__group formidable-summary__group--info`. Each item in a group is a
-`formidable-summary__item` wrapping a `formidable-summary__link` button that moves focus to the
-offending field.
+`formidable-summary__group formidable-summary__group--info`. Each entry in a group is a
+`formidable-summary__item` wrapping a `formidable-summary__link` button, which moves focus to the
+offending field unless the page gave the summary an
+[`OnItemActivated`](component-kit.md#deciding-what-a-click-does) of its own. A group that
+[`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item, and only
+when the page supplied an `OverflowTemplate`: `formidable-summary__overflow`, carrying what that
+template renders for the entries held back, and no button.
 
 One summary carries all three groups by default. A page that wants the blocking problems and the
 commentary in different places on the form renders a summary per band instead, with
