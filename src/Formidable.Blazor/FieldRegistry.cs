@@ -28,6 +28,25 @@ public sealed class FieldRegistry
     /// field disposed without keepRegistered removes the retained entry — the latest disposal's
     /// intent wins.
     /// </summary>
+    /// <remarks>
+    /// Calling this directly is supported, and is the route for a field a caller already holds as
+    /// a <see cref="FieldIdentifier"/> rather than as an accessor expression — which is the one
+    /// shape <see cref="FormidableFieldAnchor{TValue}"/> cannot express. Reach the registry
+    /// through <see cref="FormidableFormContext.Registry"/>. What the call buys is the field
+    /// counting as rendered, which is read in the places this type's own summary describes: the
+    /// submit channel stops suppressing its errors as unrevealed, and under
+    /// <see cref="LiveIssueDisclosure.EngagedAndVisible"/> the live channel stops filtering them
+    /// out as well. It also records the field as having registered at all, which is what makes it
+    /// eligible for the engagement prune when it later leaves, and what quiets
+    /// <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> for it. What
+    /// it does not buy is the lifecycle <see cref="FormidableComponentBase"/> runs around the
+    /// same call for the kit's own components — dispose the handle when the field leaves the
+    /// render tree, and take a fresh registration whenever the cascaded
+    /// <see cref="FormidableFormContext"/> is a new instance, since a host that swaps its model
+    /// rebuilds engine and registry together and the old registry is then one nothing consults.
+    /// Registration alone also computes no element id, so a caller wanting a summary click to
+    /// reach its control renders <see cref="FormidableFieldId.For(FieldIdentifier)"/> on it.
+    /// </remarks>
     public FieldRegistration Register(FieldIdentifier field, bool keepRegistered = false)
     {
         _counts[field] = _counts.TryGetValue(field, out var count) ? count + 1 : 1;

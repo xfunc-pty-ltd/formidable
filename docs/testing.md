@@ -113,7 +113,7 @@ public class SignupFormTests : BunitContext
 `IFormidableFocusService` is the one to register first: `FormidableSummary` injects it outright, so
 a form rendering a summary needs *something* there. A recording double also makes focus assertable,
 and which field a blocked submit moved to is worth pinning, since
-`FocusFirstErrorOnInvalidSubmit` moves it on every blocked submit by default.
+`FocusFirstErrorOnInvalidSubmit` moves it on a blocked submit unless something says otherwise.
 `IFormidableDomValueSync` matters as soon as a `FormidableInputNumber` or `FormidableInputDate` is
 on the form: both inject it and call it on blur. `IFormidableFieldOrderService` is what
 `FormidableForm` asks — after any render that changed its registered fields, or one a browser-side

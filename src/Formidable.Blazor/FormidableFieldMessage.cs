@@ -26,7 +26,11 @@ namespace Formidable.Blazor;
 /// its model and rebuilds its engine and registry — so any registration and the engine
 /// subscription always target the currently-active context.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
 {
     private FieldIdentifier _field;
@@ -159,7 +163,11 @@ internal static class FormidableMessageList
 /// <see cref="FormidableFieldAnchor{TValue}"/>) elsewhere in the form is what keeps the field
 /// revealed.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableFieldMessage<TValue> : FormidableMessageBase<TValue>
 {
 }

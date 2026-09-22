@@ -1,0 +1,72 @@
+@page "/dialog-submit"
+
+<PageTitle>Dialog-first submit</PageTitle>
+<h1>Dialog-first submit — announcing a blocked submit</h1>
+<p>Some forms answer a blocked submit with a dialog: everything that needs attention, in front of the visitor, in one place. The dialog is the page's own — the library ships no styling and no dialog. What it brings is the list inside it, and the ride from a name in that list to the field it belongs to.</p>
+<p>The two toggles below start in the combination this page wants, and that is what they are for: each one holds a value that will not give you what you want, put there so you can watch it not work rather than take the rule on trust. Flip one, walk the <em>Try it</em> step that names it, watch focus end up somewhere nobody chose, and flip it back. <a href="/summary-shape">Shaping the summary</a> has the other kind of toggle — parameters a real form could ship set either way, where what you are choosing is what the list says rather than whether it works. The summary in this dialog sets four of them at once; that page is where each is on its own terms.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "InvoiceRequest.cs", "DialogSubmit.razor", "DialogSubmit.razor.cs", "AnnouncementDialog.razor", "AnnouncementDialog.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Invoice reference</strong>: required, and shaped like <code>INV-0000</code>. Two rules on one field, so an empty box breaks both at once — the case a list of names has to collapse and a list of messages has to keep.</li>
+            <li><strong>Supplier</strong>, <strong>Supplier email</strong>, <strong>Cost centre</strong>, <strong>Description</strong>: required. <strong>Supplier email</strong> also has to be an address once there is anything in it, and <strong>Amount</strong> has to be above zero.</li>
+            <li><strong>Opening the dialog</strong>: <code>OnInvalidSubmit</code> is the page's own handler, and opening a dialog from it is what the handler is here to do. The line under the dialog's heading counts fields rather than complaints, from <code>context.Outcome.VisibleErrorSummary</code>, which is already the distinct names.</li>
+            <li><strong><code>context.SuppressFirstErrorFocus()</code></strong>: the form moves focus to the first error immediately after <code>OnInvalidSubmit</code> returns, inside the same submit call, and with the dialog over the form that caret lands in a box the overlay is covering. The handler says so at the moment it opens the dialog, which is where knowing it is possible at all — a form whose handler logs something instead wants that move to happen. The second toggle below skips the call, so the failure is something to watch rather than something to take on trust.</li>
+            <li><strong><code>PrepareFocus</code></strong>: runs before the summary attempts a focus move, so the page can clear the way first. Here the callback closes the dialog and waits for the close to finish, because the dialog hands focus back to the button that opened it on its way out, and that hand-back would take a premature move straight back.</li>
+            <li><strong><code>FocusFirstErrorAsync()</code></strong>: the first-error move a blocked submit makes for itself, asked for by the page instead — here at the moment the dialog goes. <em>Close</em> and <kbd>Escape</kbd> name no field, so no entry is clicked and the summary sends nobody anywhere, and without this call the dialog's hand-back leaves the visitor on the button they pressed, looking for the first problem by eye. Closing the announcement without choosing therefore lands them where the form would have put them had it never opened.</li>
+            <li><strong>The list</strong>: <code>ItemTemplate</code> makes each entry a field name instead of a message, <code>GroupByField</code> gives one entry per field, and <code>MaxItems</code> with <code>OverflowTemplate</code> caps the list at four and says how many are left. A dialog is a small space, and a form with thirty problems still has to fit inside one.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Leave every box empty and click <em>Submit</em>. The dialog opens over the form and takes focus itself.</li>
+            <li>Read the list. Six fields are wrong, four are named, and a line underneath says how many are left over. <strong>Invoice reference</strong>, which breaks two rules, is named once.</li>
+            <li>Click <strong>Invoice reference</strong>. The dialog fades out, focus lands in that box, and you can type straight away. The two messages under the box are both there — the dialog collapsed the pair, the field itself did not.</li>
+            <li>Untick <em>Wait for the dialog to finish closing before moving focus</em>, submit again, and click any name. The box takes focus for a moment; then the dialog finishes closing, hands focus back to <em>Submit</em>, and the caret is on the button instead of in the field you picked. Tick that toggle again before the next step.</li>
+            <li>Tick <em>Focus the first error automatically on a blocked submit</em> and submit. The dialog opens as before, but the Invoice reference box behind it is already wearing the focus border: a keystroke would go into a field you cannot see. Close the dialog and untick that toggle again.</li>
+            <li>Submit once more and press <kbd>Escape</kbd>: the dialog closes and the caret lands in <strong>Invoice reference</strong>, the first thing to fix. <em>Close</em> ends in the same box. Neither way out names a field, so nothing but the page asking would have moved focus off the button at all.</li>
+            <li>Fill the form in — <code>INV-2031</code>, a supplier, an address, a cost centre, an amount above zero, a description — and submit. No dialog this time; the status line below says it went.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<div class="toggles">
+    <label><input type="checkbox" @bind="_waitForClose" /> Wait for the dialog to finish closing before moving focus</label>
+    <label><input type="checkbox" @bind="_autoFocusFirstError" /> Focus the first error automatically on a blocked submit</label>
+</div>
+
+<FormidableForm @ref="_form" Model="_request" OnValidSubmit="HandleValid" OnInvalidSubmit="AnnounceAsync">
+    <div class="field"><label>Invoice reference <FormidableInputText @bind-Value="_request.Reference" /></label>
+        <FormidableFieldMessage For="() => _request.Reference" /></div>
+    <div class="field"><label>Supplier <FormidableInputText @bind-Value="_request.SupplierName" /></label>
+        <FormidableFieldMessage For="() => _request.SupplierName" /></div>
+    <div class="field"><label>Supplier email <FormidableInputText @bind-Value="_request.SupplierEmail" /></label>
+        <FormidableFieldMessage For="() => _request.SupplierEmail" /></div>
+    <div class="field"><label>Cost centre <FormidableInputText @bind-Value="_request.CostCentre" /></label>
+        <FormidableFieldMessage For="() => _request.CostCentre" /></div>
+    <div class="field"><label>Amount <FormidableInputNumber @bind-Value="_request.Amount" /></label>
+        <FormidableFieldMessage For="() => _request.Amount" /></div>
+    <div class="field"><label>Description <FormidableInputTextArea @bind-Value="_request.Description" /></label>
+        <FormidableFieldMessage For="() => _request.Description" /></div>
+
+    <div class="actions">
+        <button type="submit" @ref="_submitButton">Submit</button>
+    </div>
+
+    @* Inside the form on purpose: FormidableSummary reads the cascaded form context and throws
+       when it is rendered outside a FormidableForm or FormidableValidator ancestor. The summary
+       is inside the dialog for the other half of the reason — the entries a visitor can click
+       have to be the ones in front of the overlay. *@
+    <AnnouncementDialog @ref="_announcement" Heading="This form is not ready to send"
+                        ReturnFocusTo="_submitButton" OnDismissed="ReturnToFirstErrorAsync">
+        <p>@_blockedFields @(_blockedFields == 1 ? "field needs" : "fields need") attention. Pick one to go straight to it.</p>
+
+        <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4"
+                           PrepareFocus="DismissAnnouncementAsync">
+            <ItemTemplate Context="entry">@NameOf(entry.Issue)</ItemTemplate>
+            <OverflowTemplate Context="held">@held.Count more to fix</OverflowTemplate>
+        </FormidableSummary>
+    </AnnouncementDialog>
+</FormidableForm>
+
+<p role="status">@_status</p>

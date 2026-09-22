@@ -11,7 +11,11 @@ namespace Formidable.Blazor;
 /// even though the collection itself (e.g. a <c>List&lt;T&gt;</c> property) has no validated
 /// input of its own to register it.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<TValue>
 {
     /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>

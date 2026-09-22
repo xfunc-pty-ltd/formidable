@@ -96,12 +96,16 @@ relying on the old one implicitly:
   the `<FormidableValidator>` with `@ref` and call `ValidateForSubmitAsync()` on it, rather than
   reaching past it to `Engine` for the engine's own method, and a blocked submit lands the visitor
   on the first error exactly as it does under `<FormidableForm>`: the same
-  `FocusFirstErrorOnInvalidSubmit` switch, and the same `FocusFallback` seam for an error whose
-  element is not currently rendered. "First" here means first in the reading order above, not
-  first down the page. Focus parity is not order parity, and the two are separate boundaries with
-  separate causes. The one move that stays quiet is the server round trip: `ApplyServerIssues`
-  applies the verdict and focuses nothing, since the page owns both the `<form>` and whatever it
-  does after a rejection. Clicking a summary entry moves focus in either root.
+  `FocusFirstErrorOnInvalidSubmit` switch, the same
+  [`PrepareFocus`](component-kit.md#preparefocus) hook awaited ahead of that move, and the same
+  `FocusFallback` seam for an error whose element is not currently rendered. "First" here means
+  first in the reading order above, not first down the page. Focus parity is not order parity, and
+  the two are separate boundaries with separate causes. `FocusFirstErrorAsync()` is on the
+  validator too, for a page that would rather choose the moment than have the submit choose it.
+  The one move that stays quiet is the server
+  round trip: `ApplyServerIssues` applies the verdict and focuses nothing, since the page owns both
+  the `<form>` and whatever it does after a rejection. Clicking a summary entry moves focus in
+  either root.
 
 ## Sample
 

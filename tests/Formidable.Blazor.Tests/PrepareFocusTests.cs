@@ -8,7 +8,8 @@ namespace Formidable.Blazor.Tests;
 
 /// <summary>
 /// The pre-focus hook, on every path that moves focus: a blocked submit under either root, the
-/// focus a server apply makes, and a summary entry's click. What each test here has to
+/// focus a server apply makes, a summary entry's click, and the move a page asks for by calling
+/// <c>FocusFirstErrorAsync</c> on either root. What each test here has to
 /// discriminate is not that the callback ran but that it had FINISHED running when focus was
 /// asked for — a hook invoked and not awaited, or invoked after the attempt, is the shape a page
 /// dismissing a dialog cannot survive, and neither shows up in a call count.
@@ -141,7 +142,8 @@ public class PrepareFocusTests : BunitContext
 
     private IRenderedComponent<FormidableValidator<EngineOrder>> RenderAttached(
         EngineOrder order,
-        Func<FieldIdentifier, ValueTask>? prepareFocus = null)
+        Func<FieldIdentifier, ValueTask>? prepareFocus = null,
+        bool focusFirstErrorOnInvalidSubmit = true)
     {
         RegisterServices(withFocusService: true);
         var container = Render(builder =>
@@ -161,6 +163,10 @@ public class PrepareFocusTests : BunitContext
                         2, nameof(FormidableValidator<EngineOrder>.PrepareFocus), prepareFocus);
                 }
 
+                inner.AddComponentParameter(
+                    3,
+                    nameof(FormidableValidator<EngineOrder>.FocusFirstErrorOnInvalidSubmit),
+                    focusFirstErrorOnInvalidSubmit);
                 inner.CloseComponent();
             }));
             builder.CloseComponent();
@@ -206,6 +212,58 @@ public class PrepareFocusTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         Assert.Equal(description, Assert.Single(probe.Fields));
         Assert.Equal(description, Assert.Single(_focus.Requests));
+
+        await Services.DisposeAsync();
+    }
+
+    // The dialog sequence's far end. The page has closed whatever covered the form and asks for
+    // the move itself, and the hook is still what runs first — the same threading, because it is
+    // the same call the submit path makes.
+    [Fact]
+    public async Task A_page_asked_for_focus_waits_for_the_hook_to_finish()
+    {
+        var order = OrderFailingOnCustomerAlone();
+        var probe = ArmProbe();
+        var cut = RenderForm(
+            order, prepareFocus: probe.HookAsync, focusFirstErrorOnInvalidSubmit: false);
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+        Assert.Empty(probe.Fields);
+
+        await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync());
+
+        var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
+        Assert.Equal(customer, Assert.Single(probe.Fields));
+        Assert.Equal(customer, Assert.Single(_focus.Requests));
+        Assert.True(Assert.Single(probe.FinishedAtFocus));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task An_attached_page_asked_for_focus_waits_for_the_hook_to_finish()
+    {
+        var order = OrderFailingOnCustomerAlone();
+        var probe = ArmProbe();
+        var cut = RenderAttached(
+            order, prepareFocus: probe.HookAsync, focusFirstErrorOnInvalidSubmit: false);
+
+        await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync());
+
+        // Nothing has been submitted, so the engine has no disclosed issue and the move finds
+        // nothing to land on: the hook must not run for a move that never happens.
+        Assert.Empty(probe.Fields);
+        Assert.Empty(_focus.Requests);
+
+        await cut.InvokeAsync(() => cut.Instance.ValidateForSubmitAsync());
+        Assert.Empty(probe.Fields);
+
+        await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync());
+
+        var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
+        Assert.Equal(customer, Assert.Single(probe.Fields));
+        Assert.Equal(customer, Assert.Single(_focus.Requests));
+        Assert.True(Assert.Single(probe.FinishedAtFocus));
 
         await Services.DisposeAsync();
     }

@@ -18,9 +18,13 @@ namespace Formidable.Blazor;
 /// <remarks>
 /// Public only because a public component cannot inherit a less accessible base; its constructor
 /// is not accessible outside this assembly, so the components below it are the ones the kit ships.
-/// The supported extension points are unchanged by its existence:
-/// <see cref="FormidableInputBase{TValue}"/> for a validated control of your own, and
-/// <see cref="FormidableField{TValue}"/> for markup Formidable does not wrap.
+/// The supported ways to bring a control of your own to the engine are unchanged by its
+/// existence: <see cref="FormidableInputBase{TValue}"/> for a validated control, and
+/// <see cref="FormidableField{TValue}"/> for markup Formidable does not wrap. Registering a
+/// field is a narrower job than either, and has routes of its own —
+/// <see cref="FormidableFieldAnchor{TValue}"/>, or
+/// <see cref="FieldRegistry.Register(Microsoft.AspNetCore.Components.Forms.FieldIdentifier, bool)"/>
+/// called directly, whose remarks say what a caller then owns.
 /// </remarks>
 public abstract class FormidableComponentBase : ComponentBase, IDisposable
 {

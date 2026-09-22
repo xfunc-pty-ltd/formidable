@@ -19,6 +19,7 @@
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="Pages\*.razor;Pages\*.razor.cs" />
+        <EmbeddedResource Include="Components\*.razor;Components\*.razor.cs" />
         <EmbeddedResource Include="..\Formidable.Sample.Api\Controllers\OrdersController.cs" Link="ApiSource\OrdersController.cs" />
     </ItemGroup>
 </Project>

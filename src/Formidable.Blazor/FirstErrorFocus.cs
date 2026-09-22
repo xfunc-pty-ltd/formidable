@@ -7,9 +7,12 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Where a blocked submit sends the visitor. Both roots run this: <c>FormidableForm</c>, which
 /// owns its submit pipeline, and <c>FormidableValidator</c>, whose page owns the pipeline and
-/// asks for the move by hand. One decision site rather than two is the point: a visitor taken to
-/// a different field depending on which root the page happens to be built on would be a
-/// difference in behaviour that nothing about the two roots asks for.
+/// asks for the move by hand. Each also exposes it as <c>FocusFirstErrorAsync</c>, so a page that
+/// took the announcement over — a dialog, a banner — can ask for the same move at the moment it
+/// hands the form back. One decision site rather than one per caller is the point: a visitor taken
+/// to a different field depending on which root the page happens to be built on, or on whether the
+/// move was automatic or asked for, would be a difference in behaviour that nothing about those
+/// callers asks for.
 /// </summary>
 internal static class FirstErrorFocus
 {
@@ -21,7 +24,7 @@ internal static class FirstErrorFocus
 
     /// <summary>
     /// Best-effort: a consumer who never registered <see cref="IFormidableFocusService"/> (or
-    /// whose form has, unusually, no visible issue to focus right after a blocked submit) gets
+    /// whose form has no visible issue to focus at the moment the move is asked for) gets
     /// silence rather than an exception — the same tolerance <see cref="FormidableSummary"/>'s own
     /// click-to-focus applies.
     /// </summary>
@@ -32,19 +35,22 @@ internal static class FirstErrorFocus
     /// <see cref="FormidableSummary"/>, which regroups by severity and so leads with the error
     /// regardless. "First" is whatever order the engine reports its visible issues in, which is
     /// the page's own reading order under a root that resolves one and the engine's channel order
-    /// under a root that does not. The fallback to the first visible issue covers a blocked submit
-    /// that reaches this call with no error to find, which happens when the submit was superseded
-    /// before its own verdict landed: it reports blocked without writing one, leaving whatever
-    /// preceded it on screen. Anything a caller starts and awaits can be what supersedes it — a
-    /// second submit, or the pass <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/>
-    /// runs. Everything else that blocks is error-severity — the all-suppressed gate's
-    /// form-level issue and the incomplete-validation fault issue included. A miss on the
-    /// element itself (no element on the page carries the field's id: a virtualized row outside
-    /// the render window, or a control that renders no such id at all) is handled the same way
-    /// <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once
+    /// under a root that does not. The fallback to the first visible issue covers a call that
+    /// finds no error to land on while some other issue is still on screen. From a blocked submit
+    /// that means the submit was superseded before its own verdict landed: it reports blocked
+    /// without writing one, leaving whatever preceded it on screen, and anything a caller starts
+    /// and awaits can be what supersedes it — a second submit, or the pass
+    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> runs. Every other way a
+    /// submit blocks writes an error — the all-suppressed gate's form-level issue and the
+    /// incomplete-validation fault issue included. A page asking for the move itself reaches the
+    /// same state by simpler routes, since it chooses the moment: the errors were fixed while its
+    /// dialog was open, or the form carried nothing worse than advisories to begin with. A miss on
+    /// the element itself (no element on the page carries the field's id: a virtualized row
+    /// outside the render window, or a control that renders no such id at all) is handled the same
+    /// way <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once
     /// when a fallback is wired, retry once. With none wired, the miss reports a diagnostic
-    /// instead — see <see cref="ReportFallbackMiss"/> — since a blocked submit's visitor otherwise
-    /// gets no signal at all that the field they need is out of reach.
+    /// instead — see <see cref="ReportFallbackMiss"/> — since the visitor otherwise gets no
+    /// signal at all that the field they need is out of reach.
     /// </remarks>
     /// <param name="services">The root's own injected provider, for the focus service and the
     /// diagnostic's logger factory — both are optional registrations.</param>
@@ -57,7 +63,14 @@ internal static class FirstErrorFocus
     /// retry: the preparation was for this move, and a callback with a side effect as visible as
     /// closing a dialog must not run twice for one of them. Both the early returns above it stay
     /// early returns, so nothing prepares for a move that is not about to happen.</param>
-    internal static async ValueTask MoveAsync(
+    /// <returns><see langword="true"/> when an element took focus, and <see langword="false"/>
+    /// when nothing did: no <see cref="IFormidableFocusService"/> is registered, the engine
+    /// reports no visible issue to choose from, or the chosen field's element could not be
+    /// focused — no fallback wired, a fallback that declined, or a retry that missed again.
+    /// The roots' <c>FocusFirstErrorAsync</c> surfaces the answer, since the page that asked for
+    /// the move may have somewhere else to send the visitor; the paths that move focus of their
+    /// own accord discard it, having no second move to fall to.</returns>
+    internal static async ValueTask<bool> MoveAsync(
         IServiceProvider services,
         IFormValidationEngine engine,
         Func<FieldIdentifier, ValueTask<bool>>? fallback,
@@ -66,7 +79,7 @@ internal static class FirstErrorFocus
         var focusService = services.GetService<IFormidableFocusService>();
         if (focusService is null)
         {
-            return;
+            return false;
         }
 
         var issues = engine.GetVisibleIssues();
@@ -74,7 +87,7 @@ internal static class FirstErrorFocus
             ?? issues.FirstOrDefault();
         if (firstIssue is null)
         {
-            return;
+            return false;
         }
 
         if (prepare is not null)
@@ -84,21 +97,21 @@ internal static class FirstErrorFocus
 
         if (await focusService.FocusAsync(firstIssue.Field))
         {
-            return;
+            return true;
         }
 
         if (fallback is null)
         {
             ReportFallbackMiss(services, firstIssue.Issue);
-            return;
+            return false;
         }
 
         if (!await fallback(firstIssue.Field))
         {
-            return;
+            return false;
         }
 
-        await focusService.FocusAsync(firstIssue.Field);
+        return await focusService.FocusAsync(firstIssue.Field);
     }
 
     /// <summary>
@@ -110,15 +123,17 @@ internal static class FirstErrorFocus
     /// </summary>
     /// <param name="services">The root's own injected provider; a host with no logger factory
     /// registered gets the Trace line alone.</param>
-    /// <param name="issue">The unfocusable first error.</param>
+    /// <param name="issue">The issue whose field the move aimed at and could not focus: the
+    /// first error, or the first visible issue of any severity when the move found no
+    /// error.</param>
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
         System.Diagnostics.Trace.WriteLine(
-            $"Formidable: the blocked submit's first error at '{issue.Path}' has no rendered element to " +
-            $"focus, and no {FallbackParameterName} is wired to make it renderable.");
+            $"Formidable: the field a focus move aimed at, '{issue.Path}', has no rendered " +
+            $"element to focus, and no {FallbackParameterName} is wired to make it renderable.");
         ((ILoggerFactory?)services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable").LogWarning(
-            "Formidable: the blocked submit's first error at '{Path}' has no rendered element to focus, " +
-            "and no {Parameter} is wired to make it renderable.",
+            "Formidable: the field a focus move aimed at, '{Path}', has no rendered element to " +
+            "focus, and no {Parameter} is wired to make it renderable.",
             issue.Path, FallbackParameterName);
     }
 }

@@ -17,7 +17,11 @@ namespace Formidable.Blazor;
 /// swaps its model and rebuilds its engine and registry — so the registration always targets
 /// the currently-active registry.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
 {
     /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>

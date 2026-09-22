@@ -591,7 +591,8 @@ in the markup, which is the usual case, never reaches that.
 Every entry in `FormidableSummary` is a button that calls `IFormidableFocusService.FocusAsync`, which
 locates and focuses the DOM element carrying a field's deterministic id. The summary is not its
 only caller: `FormidableForm` moves focus through the same service on every blocked submit, unless
-`FocusFirstErrorOnInvalidSubmit="false"` says otherwise (see
+`FocusFirstErrorOnInvalidSubmit="false"` or the invalid-submit handler says otherwise, and on
+every move a page asks for by calling `FocusFirstErrorAsync()` (see
 [Component kit](component-kit.md#formidableformtmodel)). It aims at the first error rather than the
 first visible issue, because issue order follows the page and the topmost field may be carrying
 only a warning: a keyboard visitor whose submit was refused should arrive at the thing that refused
@@ -684,11 +685,11 @@ rather than swallowed: `focusField` returns `false` when no element carries the 
 not an error: it falls back to the focus element itself, which is always the size-aware scroll's
 minimum viable target. What happens next diverges by caller. `FormidableSummary`'s click-to-focus
 handler no-ops silently when `FocusAsync` reports a miss and no `FocusFallback` is set (or the
-fallback itself fails to recover it). `FormidableForm`'s own auto-focus reads the identical miss
-and retries it through its own `FocusFallback` parameter, the same name and delegate shape as the
-summary's and typically wired to the same callback. With none wired, though, it does not share the
-summary's silent no-op: a blocked submit's visitor has nowhere else to land, where a summary click
-simply has no effect, so the form reports a diagnostic instead (see
+fallback itself fails to recover it). The form's own moves read the identical miss
+and retry it through its own `FocusFallback` parameter, the same name and delegate shape as the
+summary's and typically wired to the same callback. With none wired, though, they do not share the
+summary's silent no-op: a visitor sent to a field nobody clicked has nowhere else to land, where a
+summary click simply has no effect, so the form reports a diagnostic instead (see
 [Component kit](component-kit.md#focusfallback)).
 
 The gap `FocusFallback` recovers, on either component, matters for two cases documented elsewhere.

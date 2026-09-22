@@ -49,7 +49,11 @@ namespace Formidable.Blazor;
 /// swaps its model and rebuilds its engine and registry.
 /// </para>
 /// </remarks>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBase
 {
     private FieldIdentifier _field;

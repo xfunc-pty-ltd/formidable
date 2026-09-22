@@ -27,17 +27,20 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] A blocked submit focuses the first error IN DOCUMENT ORDER on the page — the field that
       sits highest visually, not the field whose rule was declared first in the validator — with
       no click needed (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is
-      the one page that lets you turn it off)
+      the page that turns it off with that parameter, and Dialog-first submit is the page that
+      leaves it on and has its handler suppress the move for the submit that opens the dialog)
 - [ ] A blocked submit's summary slides open over roughly 0.2 s as its issues appear, rather than
       snapping into place; with the OS's reduce-motion setting on, it appears instantly instead
-- [ ] Hovering a summary row tints only the message text, a pill sized to hug it — never a
+      (Dialog-first submit is the exception: its summary rides in on the dialog, which fades over
+      the same 0.2 s and appears instantly under reduce-motion)
+- [ ] Hovering a summary row tints only the entry text, a pill sized to hug it — never a
       full-width bar across the row
 
 ## Navigation
 
 - [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields &
       collections, Async & server, Presentation, Model & data, Workout
-- [ ] All twenty links route to a live page; the active link is highlighted
+- [ ] All twenty-two links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
 - [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
       carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
@@ -365,6 +368,74 @@ Work top to bottom: the steps build on each other.
 - [ ] Untick the toggle and submit again: the summary appears but focus stays put — nothing
       moves until you click an entry yourself
 
+### Shaping the summary
+
+- [ ] Submit the empty form, then flip each toggle in turn: the toggles sit ABOVE the summary, so
+      the row you are working stays put while the list grows and shrinks below it
+- [ ] **Hover, both kinds of row:** hovering an entry pills the entry text and shows a pointer;
+      hovering the expander's label shows a pointer and NO pill. One is a route into the form, the
+      other acts on the list, and the two should not read as the same kind of thing
+- [ ] With the cap on and *Reveal what the cap held back* OFF, the error band simply ends after
+      three entries — no ellipsis, no faded row, no gap where a line used to be. It should read as
+      a list that ends, not as one that was cut off
+- [ ] Turn the reveal back on and look at the hairline rule above the line, closed and then open:
+      it should read as the end of the list in both, with air on each side and the revealed names
+      clearly INSIDE what it closes off rather than beyond it. It is the same rule as the dialog
+      page's, over a different composition — an expander with a list under it rather than a bare
+      count — so both are worth a look before it ships
+- [ ] Open the expander: the revealed names sit indented under the line, quieter than the entries
+      above them, and read as a note about the list rather than as more things to click
+- [ ] **Keyboard:** Tab after the last entry reaches the expander's label, Space or Enter opens
+      and closes it, and the browser's own triangle turns with it
+- [ ] **Colour check, both schemes:** the overflow line, its label and the revealed names are all
+      legible against the error band's tint in light AND dark mode, and all of them stay visibly
+      quieter than the entries
+- [ ] **With a screen reader running:** submit, then flip a toggle. The bands are live regions, so
+      what changed inside one is announced; focus stays on the toggle you flipped, and a band
+      whose contents did not change says nothing (flip grouping and listen to the advisory band)
+
+### Dialog-first submit
+
+- [ ] Submit the empty form: the dialog fades in over roughly 0.2 s, the page behind it dims,
+      and the panel itself takes focus. Reach *Submit* with the keyboard and press Enter and the
+      panel shows a focus ring as well; click *Submit* with the mouse and it takes focus without
+      one, the same `:focus-visible` rule the summary's own focus landings follow
+- [ ] **With a screen reader running**, that same submit announces the dialog: the heading, the
+      count line, and the four names under it. Nothing is announced before the submit, and
+      nothing announces twice. Then close it with <kbd>Escape</kbd> and listen to where focus
+      goes: the hand-back and the page's own move are two moves, so "Submit, button" ahead of
+      "Invoice reference, edit" is what that costs — judge whether the pair is worth what it buys
+- [ ] The list reads as four field NAMES, not four sentences, with `2 more to fix` under them.
+      Hovering a name pills the name; hovering the overflow line does nothing — it is a count,
+      not something to click, and it never takes a focus ring or a pointer cursor
+- [ ] `2 more to fix` sits under a hairline rule with air on both sides of it, and its text starts
+      at exactly the same left edge as the names above it — sight down that edge; the line should
+      not sit in from them. The rule should read as the end of the list, not as a box around it
+- [ ] Click **Invoice reference**: the dialog fades OUT, and only once it has gone does the
+      caret appear in that box. Watch the box, not the dialog — nothing should flicker into
+      focus early
+- [ ] Untick *Wait for the dialog to finish closing before moving focus*, submit, click a name:
+      this time you can SEE the box take focus and then lose it as the dialog finishes closing,
+      and focus ends on the Submit button. Tick that toggle again
+- [ ] Tick *Focus the first error automatically on a blocked submit* and submit: the Invoice
+      reference box behind the overlay is already wearing the focus border, and a keystroke
+      would land in a field you cannot see. Untick that toggle again
+- [ ] <kbd>Escape</kbd> closes the dialog and the caret ends in **Invoice reference** — the first
+      thing to fix, not the button you pressed; the *Close* button ends in the same box. Neither
+      names a field, so this is the page asking for the move rather than anything in the kit
+      making it. Watch the button on the way: the dialog hands focus back to it before the page
+      moves on, and you should not see it flash a ring as that passes through. Tab from the open
+      panel reaches the names and then *Close*
+- [ ] Focus is CONTAINED while the dialog is open, which is what its `aria-modal="true"` says:
+      Tab from *Close* comes back to the first name rather than reaching the form behind it, and
+      Shift+Tab from the first name goes to *Close* rather than out of the panel. Shift+Tab
+      immediately after the dialog opens, before touching anything, stays inside as well
+- [ ] **Colour check, both schemes:** the panel, the error band inside it, the names and the
+      overflow line are all legible over the dimmed page in light AND dark mode, and the
+      panel's shadow reads as a raised surface rather than a smudge
+- [ ] **With the OS's reduce-motion setting on:** the dialog appears and goes instantly, and
+      clicking a name still lands in the field rather than anywhere else
+
 ---
 
 ## Model & data
@@ -607,11 +678,15 @@ A reading check, not a browser check — do it from the repo.
 - [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, plus a
       symptom-to-fix troubleshooting table* linking to `docs/recipes.md`; follow the link and it
       resolves
-- [ ] `docs/recipes.md` opens with fourteen unnumbered `### I want to…` headings, then a
-      troubleshooting table of twelve rows
+- [ ] `docs/recipes.md` opens with nineteen unnumbered `### I want…` headings, then a
+      troubleshooting table of fifteen rows
 - [ ] Spot-check the recipe titled **"I want every summary entry to land somewhere"** against
       what you just saw on /workout, /vanilla, /collections and /disclosure — the ids, the
       containers and the outline story match the pages
+- [ ] Spot-check the recipe titled **"I want a modal dialog to announce a blocked submit"**
+      against what you just watched on /dialog-submit — the two rules the page's own toggles
+      break are things you saw go wrong when you flipped them, and the summary parameters it
+      names are the ones that page sets
 - [ ] Spot-check the recipe titled **"I want to validate while typing, on blur, or only at
       submit"** — its table of `UpdateOn` against what the live channel selects matches what
       /async and /field-state actually do, and the troubleshooting row *"A date input reports

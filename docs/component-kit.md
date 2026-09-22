@@ -210,17 +210,26 @@ goes.
 
 `ChildContent` is a typed fragment, `RenderFragment<FormidableFormContext>` — the shape
 `EditForm` gives its own body — so form markup reads the cascaded context as `context` without
-capturing the component with `@ref`: a reset button is
-`<button type="button" @onclick="() => context.Engine.ResetAsync()">Start over</button>`, inline.
-Two notes travel with that. An inline *read* of engine state refreshes when the form itself
-re-renders (a submit is one cause), not on every validation pass — ongoing state travels through
-`Engine.StateChanged`, which observing components subscribe to individually — so a live spinner
-or a disabled submit button still wants a small component subscribed to that event, the shape
-the `/field-state` page's visualizer ships. And nesting another typed fragment that also leaves
-its parameter name implicit (a `FormidableField`, a `Virtualize`) makes the Razor compiler ask
-for a `Context="..."` on one of the two: both declare the implicit `context` name, so the rename
-is owed whether or not either body ever reads it. It is a compile-time rename, the same one `EditForm` has always charged, and
-every shipped sample already names the inner fragment.
+capturing the component with `@ref`: a control the page draws itself marks its own field touched
+on blur with `@onblur="() => context.Engine.MarkTouched(field)"`, inline. Three notes travel with
+that. What the context reaches is always the engine's member, since everything it offers comes
+from the engine. A member declared on `FormidableForm` instead is not reachable that way:
+`ResetAsync` rebuilds the engine, which is why `ResetAsync` sits on the component, and why a
+reset button is the case that does want an `@ref` to the form. Where the engine and the component
+both declare a member, the engine's is what the context reaches, so
+`context.Engine.ApplyServerIssues(...)` is the quiet background apply rather than the form's own
+overload, which also moves focus to the first error. An inline *read* of engine state
+refreshes when the form itself re-renders (a submit is one cause), not on every validation pass —
+ongoing state travels through `Engine.StateChanged`, which observing components subscribe to
+individually — so a live spinner or a disabled submit button still wants a small component
+subscribed to that event, the shape the `/field-state` page's visualizer ships. And nesting
+another typed fragment that also leaves its parameter name implicit (a `FormidableField`, a
+`Virtualize`) makes the Razor compiler ask for a `Context="..."` on one of the two: both declare
+the implicit `context` name, so the rename is owed whether or not either body ever reads it. It
+is a compile-time rename, the same one `EditForm` has always charged, and either fragment can
+take it. The form's own can: `<FormidableForm Model="_order" Context="formidable">` names the
+form's body and leaves the nested fragment on `context`. Every shipped sample happens to name
+the inner one instead.
 
 Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset —
 rebuilds the `EditContext` and engine; a component consuming `FormidableForm` never manages that
@@ -311,8 +320,12 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
         }
         else
         {
-            await OnInvalidSubmit.InvokeAsync(outcome);
-            if (FocusFirstErrorOnInvalidSubmit)
+            // A fresh context per blocked submit, which is the whole of what keeps suppression
+            // from latching: the handler's answer lives on the object it was handed, and the next
+            // submit hands it a different one.
+            var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
+            await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+            if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
             {
                 await FocusFirstErrorAsync();
             }
@@ -325,10 +338,14 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
-Both branches hand their handler the same payload. `OnValidSubmit` is an
-`EventCallback<SubmitOutcome>`, exactly as `OnInvalidSubmit` has always been: a passing submit can
+Both branches hand their handler the outcome. `OnValidSubmit` is an
+`EventCallback<SubmitOutcome>` and hands it over directly: a passing submit can
 still carry advisories, and a handler that wants them shouldn't have to reach through `Engine` to
-find them. A parameterless handler still binds — Blazor's own `EventCallback<TValue>` conversion
+find them. `OnInvalidSubmit` is an `EventCallback<FormidableInvalidSubmitContext>` and wraps it,
+because a blocked submit is the one a handler may want to answer itself:
+`context.Outcome` is the same value, and `context.SuppressFirstErrorFocus()` is how the handler
+says it has taken over (see [`SuppressFirstErrorFocus`](#suppressing-the-automatic-focus) below).
+A parameterless handler still binds to either — Blazor's own `EventCallback<TValue>` conversion
 accepts an `Action` or a `Func<TResult>` wherever a typed callback is declared, the same way it does
 for `EditForm.OnValidSubmit` — which is why `OnValidSubmit="HandleValid"` over a `void
 HandleValid()` is still the shape every sample page uses. Take the parameter when the outcome is
@@ -373,8 +390,8 @@ channel [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) writ
 A field that is on the page and still out of reach — under a modal, inside a collapsed section —
 produces no miss at all to recover, so it is [`PrepareFocus`](#preparefocus) rather than the
 fallback that clears the way for it.
-Set `FocusFirstErrorOnInvalidSubmit="false"` to choose focus yourself from `OnInvalidSubmit`
-instead.
+Set `FocusFirstErrorOnInvalidSubmit="false"` to turn the automatic move off for every submit, and
+[ask for it yourself](#asking-for-the-first-error-move) when the page is ready.
 
 The same parameter governs a server's verdict. A rejected round trip is a blocked submit that
 arrived late, so `ApplyServerIssues` on the form focuses the same first-error target when the
@@ -388,6 +405,80 @@ focus.
 **Sample:** [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) — a toggle
 above the form flips the parameter, so a submit's automatic focus and the opt-out sit side by
 side.
+
+### Asking for the first-error move
+
+`FocusFirstErrorAsync()` makes the move on demand. It is the same move, not a second one: the
+submit path calls this method, so the field it lands on, the `PrepareFocus` awaited ahead of the
+attempt and the `FocusFallback` that recovers a miss are the same code with a different caller.
+`FocusFirstErrorOnInvalidSubmit` does not gate it — that parameter decides what a blocked submit
+does unasked, and this call is the page deciding. `FormidableValidator` carries the identical
+method for a page in [attach mode](#formidablevalidatortmodel-attaching-to-an-existing-form).
+
+```razor
+<FormidableForm @ref="_form" Model="_request" OnInvalidSubmit="AnnounceAsync">
+    @* the form's own fields and buttons *@
+</FormidableForm>
+```
+
+```csharp
+    // Wired to your dialog's own Close button and its Escape handler: the ways out that name no
+    // field, where nothing else is going to move focus to one.
+    private async Task CloseAnnouncementAsync()
+    {
+        await _announcement!.CloseAsync();
+        await _form!.FocusFirstErrorAsync();
+    }
+```
+
+It returns `true` when an element took focus and `false` when nothing did — no visible issue to
+land on, no `IFormidableFocusService` registered, or an element the focus miss and its fallback
+could not reach between them. That is a report on the move rather than on the form: a form with no
+issue on screen and a form whose one error is out of reach both answer `false`. Read
+`Engine.GetVisibleIssues()` to tell those apart; ignore the answer if there is nowhere else to
+send the visitor, since a `false` means the call moved nothing.
+
+Call it from the renderer's synchronization context, as with `SubmitAsync`, and after the form's
+first render — before that there is no engine and the call throws.
+
+### Suppressing the automatic focus
+
+A dialog that announces a blocked submit is the case `FocusFirstErrorOnInvalidSubmit` alone
+handles badly. The form's own move runs immediately after `OnInvalidSubmit` returns, inside the
+same submit call, so the caret lands in a box the overlay is covering. Turning the parameter off
+at the top of the markup fixes that submit and every other one, including the submits where no
+dialog opens.
+
+The handler declares it instead, at the moment it opens the dialog:
+
+```csharp
+    private async Task AnnounceAsync(FormidableInvalidSubmitContext context)
+    {
+        context.SuppressFirstErrorFocus();
+        await _announcement!.OpenAsync();
+    }
+```
+
+That is a statement about this submit. The form builds a fresh `FormidableInvalidSubmitContext`
+for every block, so nothing latches: a handler that suppresses one block and stays quiet on the
+next gets the automatic move back for that second one. `FirstErrorFocusSuppressed` reads what has
+been said so far, so a handler that delegates to a helper can see whether that helper already
+covered the form.
+
+It suppresses; it does not request. A form already carrying
+`FocusFirstErrorOnInvalidSubmit="false"` was not going to move focus on a blocked submit anyway,
+and the way to ask for a move is
+[`FocusFirstErrorAsync()`](#asking-for-the-first-error-move) — which is what the
+sequence ends with: suppress, open the dialog, close it, focus.
+
+Why the form cannot decide this for itself is worth stating, because "a handler exists" looks
+like it should be enough. It isn't: what breaks the move is the handler having *covered the form*,
+and a handler that logs telemetry or scrolls a banner into view has not. There is no dialog mode
+to key off, so forbidding the combination would block the uses the library cannot tell apart from
+it. The handler knows, so the handler says.
+
+**Sample:** [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor) — a toggle
+skips the suppressing call, so the failure it prevents is visible rather than described.
 
 ### Returning the form to pristine
 
@@ -539,7 +630,10 @@ subscription at all. `VerifyRowKey` on that path is the development-time row-key
 `FormidableComponentBase` is public only because a public component cannot
 inherit a less accessible base; its constructor is not, and it is not an extension point —
 `FormidableInputBase` below and `FormidableField` further down are still the two ways to bring a
-control of your own to the engine.
+control of your own to the engine. Registering a field is a narrower job than that, and it has
+its own supported route: see
+[`FormidableFieldAnchor`](#formidablefieldanchortvalue) for the component that does only that,
+and for what calling the registry yourself takes on.
 
 What an input contributes to that lifecycle is its `Register`: it resolves the field to a
 `FieldIdentifier`, computes the ids that address it, and registers it with the cascaded context's
@@ -1293,7 +1387,11 @@ One base method decides whether rendering a message list also registers the fiel
 /// <see cref="FormidableFieldAnchor{TValue}"/>) elsewhere in the form is what keeps the field
 /// revealed.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableFieldMessage<TValue> : FormidableMessageBase<TValue>
 {
 }
@@ -1546,8 +1644,7 @@ enters, and the computed `class` follows it. So a splatted `class` is merged rat
 replaced — the splatted value first, then `formidable-summary`.
 
 Each item is a button, and a click on it runs the component's own `ActivateAsync`, which moves
-focus to the offending field through `IFormidableFocusService` unless
-[`OnItemActivated`](#deciding-what-a-click-does) has been given something else to do:
+focus to the offending field through `IFormidableFocusService`:
 
 ```csharp
                 builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
@@ -1710,14 +1807,18 @@ is the `WithName(...)` value, or FluentValidation's own split of the property pa
 </FormidableSummary>
 ```
 
-The button around it stays the component's: its element, its `formidable-summary__link` class and
-what a click on it does are not template-able, so an entry you have reworded still takes the
-visitor to its field, still reads to assistive technology as the button its list item promises,
-and still matches a stylesheet written against
-[the class inventory](css-and-accessibility.md#the-structural-class-inventory). Something wanting
-different markup *around* the entries is a summary of your own —
-[Recipes](recipes.md#i-want-my-own-summary-markup) walks that, and this component is not in its
-way.
+The button around it stays the component's: its element and its `formidable-summary__link` class
+are not template-able, so an entry you have reworded still reads to assistive technology as the
+button its list item promises, and still matches a stylesheet written against
+[the class inventory](css-and-accessibility.md#the-structural-class-inventory). What a click on
+that button does stays the component's too, so rewording an entry changes what it reads as and
+nothing about where the click takes the visitor. Something wanting different markup *around* the
+entries is a summary of your own — [Recipes](recipes.md#i-want-my-own-summary-markup) walks that,
+and this component is not in its way.
+
+**Sample:** [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) — a toggle
+puts the template in and takes it away again over one blocked submit, so the same seven errors
+read as seven messages and then as seven field names.
 
 ### One entry per field
 
@@ -1744,6 +1845,10 @@ Every model-level issue shares one field identifier, so grouping collapses those
 holding both a validator fault and the all-suppressed gate's explanation renders one entry for the
 pair.
 
+**Sample:** [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) — its
+Ticket reference field breaks two rules, so grouping is the difference between listing that name
+once and listing it twice, and the warning band under it never moves.
+
 ### Capping the list
 
 `MaxItems` is the most entries a band renders, `null` (the default) meaning all of them. It counts
@@ -1754,39 +1859,38 @@ first four problems".
 ```razor
 <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4">
     <ItemTemplate Context="entry">@entry.Issue.DisplayName</ItemTemplate>
-    <OverflowTemplate Context="remaining">+ @remaining more to fix</OverflowTemplate>
+    <OverflowTemplate Context="held">+ @held.Count more to fix</OverflowTemplate>
 </FormidableSummary>
 ```
 
 The cap is per band, not per summary: a band is a list of its own with a heading of its own, and
 counting across the summary would let a run of warnings decide how many errors a visitor gets to
 read. A value at or above a band's entry count changes nothing. `0` is legal and renders that
-band's list with no entries in it, which is how a summary asks for nothing but the count. A
-negative value throws from `OnParametersSet`, for the reason an out-of-range `HeadingLevel` does:
-`MaxItems` is a number pages arrive at by arithmetic, and arithmetic that has gone below zero is a
-mistake worth seeing rather than a list that quietly empties itself.
+band's list with no entries in it, which is how a summary hands `OverflowTemplate` the band whole
+and lists none of it itself. A negative value throws from `OnParametersSet`, for the reason an
+out-of-range `HeadingLevel` does: `MaxItems` is a number pages arrive at by arithmetic, and
+arithmetic that has gone below zero is a mistake worth seeing rather than a list that quietly
+empties itself.
 
 `OverflowTemplate` is what a capped band renders in place of what it dropped. It receives the
-number that band held back — always one or more, since a band that suppressed nothing never
-reaches it — and the component supplies the `<li class="formidable-summary__overflow">` around it.
+entries that band held back — never an empty list, since a band that held nothing back never
+reaches the fragment — and the component supplies the `<li class="formidable-summary__overflow">`
+around it. A line that only counts them reads `Count`, as above. The entries are there for the
+summary that wants more than a number out of them: an expander revealing what did not fit, a
+tooltip listing it, a line that names the fields rather than counting them. Each entry is the same
+`VisibleIssue` `ItemTemplate` gets for a shown one, so you render a held-back entry exactly as you
+render a shown one.
+
+Each band offers its own and no other band's, so a summary showing errors and advisories together
+renders the fragment once for each band that held anything back.
+
 Leave it unset and a capped band renders **nothing** in place of what it dropped: no element, no
 sentence. "And 3 more" is a sentence with a language and a plural rule behind it, and the summary
 can pick neither; the line is yours, with your own plural rules.
 
-### Deciding what a click does
-
-`OnItemActivated` is an `EventCallback<VisibleIssue>` that replaces the focus move. Unset — the
-default — a click moves focus to the entry's field, running [`PrepareFocus`](#preparefocus) before
-the attempt and [`FocusFallback`](#focusfallback) after a miss. Set, the callback runs in place of
-that whole pipeline, and both of those parameters go with it: they are parameters of the move, not
-of the click.
-
-That is the reason to reach for it sparingly. A click that should still land on the field, once
-the page has made the field reachable, is `PrepareFocus`'s job — dismissing a dialog, expanding a
-section, switching tabs — and that keeps the attempt, the miss recovery and the retry.
-`OnItemActivated` is for a click that should do something genuinely else: record which entry was
-followed, navigate to the wizard step holding the field, hand it to a control the focus service
-cannot address.
+**Sample:** [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) — its
+overflow line is an expander that names what did not fit, and one more toggle takes the fragment
+away so the capped band ends in silence instead.
 
 ## `FormidableValidator<TModel>`, attaching to an existing form
 
@@ -1818,12 +1922,16 @@ private async Task HandleSubmit()
 ```
 
 A blocked submit through it lands the visitor on the first error, under the same
-`FocusFirstErrorOnInvalidSubmit` switch, and reaches a first error with no rendered element to
-focus through the same `FocusFallback` seam. Both parameters carry the names, defaults and
-delegate shape they carry on `FormidableForm`, so a page that wants one callback recovering both
-its summary's clicks and its submit's auto-focus writes that callback once and hands it to each.
+`FocusFirstErrorOnInvalidSubmit` switch, clears the way ahead of that move through the same
+[`PrepareFocus`](#preparefocus) seam, and reaches a first error with no rendered element to focus
+through the same `FocusFallback` seam. All three parameters carry the names, defaults and delegate
+shape they carry on `FormidableForm`, so a page that wants one callback recovering both its
+summary's clicks and its submit's auto-focus writes that callback once and hands it to each.
 
-That submit is the only focus move this component makes on its own. A `FormidableSummary` nested
+That submit is the only focus move this component makes unasked. It also carries
+`FocusFirstErrorAsync()`, the same method `FormidableForm` exposes and the same move that submit
+makes, for a page that would rather choose the moment — after closing the dialog it opened
+instead, say. A `FormidableSummary` nested
 inside it goes on moving focus when a visitor clicks an entry, exactly as it does under
 `FormidableForm`. What stays still is the server round trip: `ApplyServerIssues` here applies the
 verdict and focuses nothing, where `FormidableForm`'s moves, because a round trip is the page's
@@ -1924,7 +2032,11 @@ own registration:
 /// even though the collection itself (e.g. a <c>List&lt;T&gt;</c> property) has no validated
 /// input of its own to register it.
 /// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
+/// <typeparam name="TValue">
+/// The accessor's type, inferred from <see cref="FormidableMessageBase{TValue}.For"/>: the field's own value type, or
+/// <c>object</c> where a shared component forwards an
+/// <c>Expression&lt;Func&lt;object&gt;&gt;</c>.
+/// </typeparam>
 public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<TValue>
 {
     /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
@@ -2074,6 +2186,37 @@ handler does internally. The worked example — wrapping a plain `<select>`, inc
 label it correctly — is one of the seams below, in
 [The foreign-control pattern](#the-foreign-control-pattern).
 
+### Naming a field whose type your own component doesn't know
+
+`For` is `Expression<Func<TValue>>` and `TValue` is inferred from the accessor, so a shared
+component of your own that has to name a field of any type declares its parameter
+`Expression<Func<object>>` and forwards it:
+
+```razor
+@using System.Linq.Expressions
+
+<label>@Label <FormidableRequiredIndicator For="For" /></label>
+<FormidableFieldMessage For="For" />
+
+@code {
+    [Parameter, EditorRequired]
+    public Expression<Func<object>> For { get; set; } = default!;
+
+    [Parameter]
+    public string? Label { get; set; }
+}
+```
+
+That is supported, and the call site writes the accessor exactly as it would for a typed `For`:
+`<MyField For="() => _order.Description" />`. It works on all five components whose `TValue`
+comes from `For` alone — `FormidableField`, `FormidableFieldMessage`,
+`FormidableCollectionMessage`, `FormidableFieldAnchor` and `FormidableRequiredIndicator` — each
+of which resolves the accessor through `FieldIdentifier.Create`, which reads past the boxing
+conversion the compiler inserts when the member is a value type and lands on the field a typed
+`For` names. The typed inputs are the exception, and not by omission: an input's `TValue` is the
+type it binds, so `FormidableInputText` is a `FormidableInputBase<string?>` and its `For` is an
+`Expression<Func<string?>>` and nothing else.
+
 ## `FormidableFieldAnchor<TValue>`
 
 A registration-only marker for a field rendered by markup Formidable doesn't wrap and that isn't
@@ -2116,6 +2259,23 @@ Without something registering a field, a submit's verdict about it is never disc
 a `FormidableFieldAnchor` next to the raw control is the whole fix. See the Vanilla interop section
 below and [Disclosure](disclosure.md) for the fuller "FormidableFieldAnchor for raw and foreign
 controls" treatment.
+
+`FieldRegistry.Register` is public, and calling it yourself is supported for the case the anchor
+cannot express: a field you already hold as a `FieldIdentifier` rather than as an accessor
+expression. `FormidableFormContext.Registry` is the route to it, the `FieldRegistration` it
+returns is the handle, and disposing that handle unregisters — unless the call passed
+`keepRegistered: true`, the virtualized-row case, which leaves the field registered after the
+handle is disposed. What it buys is what the anchor buys: the field counts as rendered, so the
+submit channel stops suppressing its errors as unrevealed, and under
+`LiveIssueDisclosure.EngagedAndVisible` the live channel stops filtering them too. It also records
+the field as having registered at all, which is what makes it eligible for the engagement prune
+once it leaves, and what quiets `NeverRegisteredFieldDiagnostic` for it. What the anchor also does,
+and a bare call does not, is the lifecycle around it —
+`FormidableComponentBase` takes a new registration whenever the cascaded context instance is
+replaced, and a host that swaps its model rebuilds engine and registry together, so a handle held
+across that swap belongs to a registry nothing consults any more. A component calling the
+registry directly owns that re-registration, and owns rendering the field's
+`FormidableFieldId.For` id if a summary click is to reach the control.
 
 ## The foreign-control pattern
 
@@ -2201,20 +2361,20 @@ fallback end to end — its fallback scrolls by approximate row height and lets 
 centre the row exactly. A fixed post-scroll delay keeps the sample honest and simple; a
 production consumer might poll for the element instead.
 
-`FormidableForm` has the identical gap and the identical seam: a blocked submit's own auto-focus
-(see [above](#formidableformtmodel)) can miss the same way a summary click can, and its
+`FormidableForm` has the identical gap and the identical seam: every focus move the form itself
+makes (see [above](#formidableformtmodel)) can miss the same way a summary click can, and its
 `FocusFallback` parameter recovers it the same way:
 
 ```csharp
     /// <summary>
-    /// Invoked once when a blocked submit's auto-focused first error has no rendered element to
-    /// focus (e.g. a virtualized row outside the render window). Return <c>true</c> after making
-    /// the element renderable (scrolling its container, expanding a section) and the focus is
-    /// retried exactly once; return <c>false</c> to leave the miss as-is. Same delegate shape as
-    /// <see cref="FormidableSummary.FocusFallback"/> — a page wiring both typically passes the same
-    /// callback to each. When unset, a miss reports a diagnostic instead of the summary's silent
-    /// default: a form's blocked submit has nowhere else for the visitor to land, where the
-    /// summary's own click just leaves the click without effect.
+    /// Invoked once when the first error one of this form's own focus moves aimed at has no
+    /// rendered element to focus (e.g. a virtualized row outside the render window). Return
+    /// <c>true</c> after making the element renderable (scrolling its container, expanding a
+    /// section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
+    /// wiring both typically passes the same callback to each. When unset, a miss reports a
+    /// diagnostic instead of the summary's silent default: those moves have nowhere else for the
+    /// visitor to land, where the summary's own click just leaves the click without effect.
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -2228,7 +2388,10 @@ same `ScrollToSessionAsync` that recovers a summary click for an off-screen sess
 recovers the form's own auto-focus on a blocked submit, so a visitor who never clicks the summary
 at all still lands in the row that failed. The one place the two callers diverge is what happens
 with nothing wired: the summary stays silent (a miss just leaves the click without effect), but the
-form reports a diagnostic, because a blocked submit's visitor has nowhere else to go.
+form reports a diagnostic, because the moves a form makes have nowhere else for the visitor to
+land. That covers all three of them — the blocked submit, the one either `ApplyServerIssues`
+overload makes for a rejected round trip, and the one a page asks for with `FocusFirstErrorAsync()`
+— since none of them was a click that could simply have no effect.
 
 ## `PrepareFocus`
 
@@ -2245,16 +2408,16 @@ does. The delegate returns `ValueTask` rather than `ValueTask<bool>` because the
 to give: the kit awaits it and then runs the usual try, fall back once, retry pipeline unchanged
 behind it.
 
-**A dialog opened from `OnInvalidSubmit` needs `FocusFirstErrorOnInvalidSubmit="false"`.** The
-form's auto-focus runs immediately after that handler returns, inside the same submit call, so
-with the default left on the move happens the moment the dialog opens. It lands behind the
-overlay; wire a dismissing `PrepareFocus` to the form as well and that move runs the callback,
-closing the dialog the instant it appeared. Switch the auto-focus off and the only move left is
-the one the visitor asks for by clicking an entry, which is the move the hook is there to prepare:
+**A dialog opened from `OnInvalidSubmit` has to
+[suppress the form's own move](#suppressing-the-automatic-focus).** That move runs immediately
+after the handler returns, inside the same submit call, so left alone it happens the moment the
+dialog opens and lands behind the overlay. Worse, wire a dismissing `PrepareFocus` to the form as
+well and that move runs the callback, closing the dialog the instant it appeared. With the move
+suppressed, the moves left are the ones the visitor asks for, and clicking an entry is the one
+this hook is there to prepare:
 
 ```razor
-<FormidableForm Model="_order" OnValidSubmit="Save" OnInvalidSubmit="AnnounceAsync"
-                FocusFirstErrorOnInvalidSubmit="false">
+<FormidableForm Model="_order" OnValidSubmit="Save" OnInvalidSubmit="AnnounceAsync">
 
     @* the form's own fields and buttons *@
 
@@ -2265,6 +2428,12 @@ the one the visitor asks for by clicking an entry, which is the move the hook is
 ```
 
 ```csharp
+    private async Task AnnounceAsync(FormidableInvalidSubmitContext context)
+    {
+        context.SuppressFirstErrorFocus();
+        await _announcement!.OpenAsync();
+    }
+
     private async ValueTask DismissAnnouncementAsync(FieldIdentifier field)
     {
         if (_announcement is not null)
@@ -2289,21 +2458,24 @@ the dialog component's own closed event, and the move lands where it was meant t
 
 It runs once per move, ahead of the first attempt: a `FocusFallback` retry does not run it a
 second time, since the page already cleared the way for this move. It runs only when a move is
-actually about to be made, too. A host that registered no `IFormidableFocusService`, a blocked
-submit with no visible issue to land on, a root carrying
-`FocusFirstErrorOnInvalidSubmit="false"`, and a summary entry clicked while the summary carries an
-[`OnItemActivated`](#deciding-what-a-click-does) each leave it unrun, so a side effect as visible
-as closing a dialog is never paid for a focus that was never going to happen. The third case is
-the dialog shape above, where switching the root's auto-focus off leaves the summary's own hook as
-the one still doing the work; the fourth is that hook being taken out of the click altogether,
-which is why a dialog belongs here rather than in a click callback.
+actually about to be made, too. A host that registered no `IFormidableFocusService`, a move that
+finds no visible issue to land on, and a blocked submit whose move
+`FocusFirstErrorOnInvalidSubmit="false"` or a suppressing handler called off each leave it unrun,
+so a side effect as visible as closing a dialog is never paid for a focus that was never going to
+happen. That last case is the dialog shape above, where calling the root's move off leaves the
+summary's own hook as the only `PrepareFocus` still doing work.
 
 Exceptions are handled the way the path already handles a throwing `FocusFallback`, which leaves
-one rule to learn rather than a second. A throw surfaces out of `SubmitAsync`, out of
-`ValidateForSubmitAsync`, and out of a summary entry's click. It reaches no caller of either
+one rule to learn rather than a second. A throw surfaces out of whichever call asked for the
+move — `SubmitAsync`, `ValidateForSubmitAsync`, `FocusFirstErrorAsync` on either root, or a
+summary entry's click. It reaches no caller of either
 `ApplyServerIssues` overload and is left to become an unobserved task exception: applying server
 issues is synchronous by contract, so its focus move is fire-and-forget and there is no caller
 left holding it.
+
+[`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor) runs the whole shape, and
+carries a toggle for each of the two things that break it: the form's own move left unsuppressed,
+and a dismissal that reports ready before the dialog has finished closing.
 
 ## `AddFormidableBlazor()`
 

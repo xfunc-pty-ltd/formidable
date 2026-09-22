@@ -26,13 +26,12 @@ namespace Formidable.Blazor;
 /// are already showing renders an added region in the same pass as that region's first band.
 /// Inside a region, each non-empty severity group renders one band (errors, then warnings, then
 /// infos), each item a button that moves focus to the offending field via
-/// <see cref="IFormidableFocusService"/> unless <see cref="OnItemActivated"/> takes the click
-/// over. A band lists one entry per issue it holds, unless <see cref="GroupByField"/> collapses
-/// the issues sharing a field into a single entry or <see cref="MaxItems"/> caps how many
-/// entries that band renders; an entry reads as its own issue's message unless
-/// <see cref="ItemTemplate"/> supplies something else. Subscribes to the cascaded engine's
-/// <see cref="IFormValidationEngine.StateChanged"/> so the summary stays current through live
-/// edits, refreshes, and server-applied issues — not just at submit time.
+/// <see cref="IFormidableFocusService"/>. A band lists one entry per issue it holds, unless
+/// <see cref="GroupByField"/> collapses the issues sharing a field into a single entry or
+/// <see cref="MaxItems"/> caps how many entries that band renders; an entry reads as its own
+/// issue's message unless <see cref="ItemTemplate"/> supplies something else. Subscribes to the
+/// cascaded engine's <see cref="IFormValidationEngine.StateChanged"/> so the summary stays
+/// current through live edits, refreshes, and server-applied issues — not just at submit time.
 /// </summary>
 public sealed class FormidableSummary : FormidableComponentBase
 {
@@ -90,11 +89,10 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// of them is not yet one the visitor can use. So a dismissal callback completes on the
     /// dialog's own closed event, not on the state change that starts the close.
     /// <para>
-    /// Unless <see cref="OnItemActivated"/> takes the click over, it runs once per click, before
-    /// the first attempt: a fallback's retry does not run it a second time. A throw is treated
-    /// exactly as one from <see cref="FocusFallback"/> is — it faults the click handler's task and
-    /// the renderer surfaces it — so a page that wires both parameters gets one behaviour rather
-    /// than two.
+    /// This callback runs once per click, before the first attempt: a fallback's retry does not
+    /// run it a second time. A throw is treated exactly as one from <see cref="FocusFallback"/>
+    /// is — it faults the click handler's task and the renderer surfaces it — so a page that
+    /// wires both parameters gets one behaviour rather than two.
     /// </para>
     /// </remarks>
     [Parameter]
@@ -164,12 +162,13 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// </summary>
     /// <remarks>
     /// The button around the fragment is not a template and is not meant to become one: its
-    /// element, its <c>formidable-summary__link</c> class and what a click on it does stay this
-    /// component's, so an entry whose wording a page rewrote still reaches its field, still reads
-    /// to assistive technology as the button its list item promises, and still matches a
-    /// stylesheet written against the kit's structural class names. A summary that needs different
-    /// markup around the entries is a summary a page builds for itself out of
-    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> and
+    /// element and its <c>formidable-summary__link</c> class stay this component's, so an entry
+    /// whose wording a page rewrote still reads to assistive technology as the button its list
+    /// item promises, and still matches a stylesheet written against the kit's structural class
+    /// names. What a click on that button does stays this component's too, so rewording an entry
+    /// changes what it reads as and nothing about where the click takes the visitor. A summary
+    /// that needs different markup around the entries is a summary a page builds for itself out
+    /// of <see cref="IFormValidationEngine.GetVisibleIssues"/> and
     /// <see cref="IFormidableFocusService"/>, which this component does not stand in the way of.
     /// </remarks>
     [Parameter]
@@ -206,57 +205,53 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// <summary>
     /// The most entries a severity band renders, or <see langword="null"/> — the default — for as
     /// many as the band has. What it counts is entries, which is issues by default and fields
-    /// under <see cref="GroupByField"/>. Whatever the cap holds back is offered to
-    /// <see cref="OverflowTemplate"/> as a count.
+    /// under <see cref="GroupByField"/>. Whatever the cap holds back is what
+    /// <see cref="OverflowTemplate"/> receives.
     /// </summary>
     /// <remarks>
     /// The cap is per band, not per summary: a band is a list of its own with a heading of its
     /// own, and capping across the summary would let a run of warnings decide how many errors a
     /// visitor gets to read. A value at or above a band's entry count leaves that band exactly as
     /// an uncapped summary renders it. <c>0</c> is legal and renders the band's list with no
-    /// entries in it, which — with an <see cref="OverflowTemplate"/> — is how a summary asks for
-    /// nothing but the count, and without one is an empty list and nothing else. A negative value
-    /// throws from <see cref="OnParametersSet"/> instead of being read as <c>0</c>: this is a
-    /// number pages arrive at by arithmetic, and arithmetic that has gone below zero is a mistake
-    /// worth seeing rather than a list that quietly empties itself.
+    /// entries in it, which — with an <see cref="OverflowTemplate"/> — is how a summary hands that
+    /// fragment the band whole and lists none of it itself, and without one is an empty list and
+    /// nothing else. A negative value throws from <see cref="OnParametersSet"/> instead of being
+    /// read as <c>0</c>: this is a number pages arrive at by arithmetic, and arithmetic that has
+    /// gone below zero is a mistake worth seeing rather than a list that quietly empties itself.
     /// </remarks>
     [Parameter]
     public int? MaxItems { get; set; }
 
     /// <summary>
     /// Renders after a band's last shown entry when <see cref="MaxItems"/> held entries back,
-    /// receiving how many that band held back. The count is always one or more, because a band
-    /// that suppressed nothing does not reach the fragment at all. This component supplies the
-    /// list item and its <c>formidable-summary__overflow</c> class; the fragment supplies what
-    /// goes inside it.
+    /// receiving the entries that band held back: the ones it would have listed, minus the ones it
+    /// did list, in the order it would have listed them. That list is never empty, because a band
+    /// that held nothing back does not reach the fragment at all, so the list's <c>Count</c> is
+    /// always one or more and is the whole of what a line that only counts the remainder needs.
+    /// This component supplies the list item and its <c>formidable-summary__overflow</c> class;
+    /// the fragment supplies what goes inside it.
     /// </summary>
     /// <remarks>
+    /// The entries themselves, not their number, because a number answers only the questions that
+    /// are about how many. An expander that reveals what was dropped, a tooltip listing it, a line
+    /// that names the fields rather than counting them: each of those needs the entries. Each entry
+    /// is a <see cref="VisibleIssue"/>, the same field-and-issue pair <see cref="ItemTemplate"/> is
+    /// handed for a shown entry, so a page can render a held-back entry exactly as it renders a
+    /// shown one.
+    /// <para>
+    /// What a band held back is that band's own, because <see cref="MaxItems"/> is counted per
+    /// band: a band offers this fragment its own entries and no other band's, so a summary showing
+    /// more than one band renders this fragment once for each band that held anything back.
+    /// </para>
+    /// <para>
     /// Left unset, a capped band renders nothing whatever in place of what it dropped. That is
     /// deliberate rather than an omission: what stands in for dropped entries is a sentence, and
     /// a sentence has a language and a plural rule behind it that this component cannot pick. A
     /// page that wants the line writes it here, in its own words.
+    /// </para>
     /// </remarks>
     [Parameter]
-    public RenderFragment<int>? OverflowTemplate { get; set; }
-
-    /// <summary>
-    /// Replaces what clicking an entry DOES, receiving the clicked entry. Left unset — the
-    /// default — a click moves focus to that entry's field through
-    /// <see cref="IFormidableFocusService"/>, running <see cref="PrepareFocus"/> before the
-    /// attempt and <see cref="FocusFallback"/> after a miss. Set, the callback runs in place of
-    /// that whole pipeline, so neither <see cref="PrepareFocus"/> nor <see cref="FocusFallback"/>
-    /// runs for a clicked entry: both exist to serve a focus move this callback prevents.
-    /// </summary>
-    /// <remarks>
-    /// Reach for it when the click should do something genuinely other than take the visitor to
-    /// the field: recording which entry was followed, navigating to the wizard step that holds
-    /// the field, handing it to a control the focus service cannot address. A click that should
-    /// still land on the field, once the page has made it reachable, is
-    /// <see cref="PrepareFocus"/>'s job instead — that keeps the attempt, the miss recovery and
-    /// the retry, all of which a callback taking the click over has to rebuild for itself.
-    /// </remarks>
-    [Parameter]
-    public EventCallback<VisibleIssue> OnItemActivated { get; set; }
+    public RenderFragment<IReadOnlyList<VisibleIssue>>? OverflowTemplate { get; set; }
 
     /// <summary>
     /// Null: the summary speaks for the whole form rather than for one field, so it registers
@@ -423,7 +418,7 @@ public sealed class FormidableSummary : FormidableComponentBase
             {
                 builder.OpenElement(sequence++, "li");
                 builder.AddAttribute(sequence++, "class", "formidable-summary__overflow");
-                builder.AddContent(sequence++, OverflowTemplate, entries.Count - shown);
+                builder.AddContent(sequence++, OverflowTemplate, entries.GetRange(shown, entries.Count - shown));
                 builder.CloseElement();
             }
 
@@ -438,18 +433,15 @@ public sealed class FormidableSummary : FormidableComponentBase
     // What one band actually lists, before MaxItems caps it. GroupBy keeps the first occurrence of
     // each key in the order the keys first appeared, so a grouped band holds each field's first
     // issue in the position that issue already had, in whatever order GetVisibleIssues reported.
-    private IReadOnlyList<VisibleIssue> EntriesFor(IEnumerable<VisibleIssue> bandIssues) =>
+    // A List rather than the interface so a capped band can hand OverflowTemplate its tail as one
+    // right-sized copy: GetRange is that slice, and it keeps the order this list is already in.
+    private List<VisibleIssue> EntriesFor(IEnumerable<VisibleIssue> bandIssues) =>
         GroupByField
             ? bandIssues.GroupBy(v => v.Field).Select(g => g.First()).ToList()
             : bandIssues.ToList();
 
-    // The one thing a clicked entry does. OnItemActivated replaces the focus move outright rather
-    // than running beside it, which is what takes PrepareFocus and FocusFallback out of the click
-    // with it: both are parameters of the move, not of the click.
-    private Task ActivateAsync(VisibleIssue entry) =>
-        OnItemActivated.HasDelegate
-            ? OnItemActivated.InvokeAsync(entry)
-            : FocusWithFallbackAsync(entry.Field);
+    // The one thing a clicked entry does: take the visitor to the field that entry names.
+    private Task ActivateAsync(VisibleIssue entry) => FocusWithFallbackAsync(entry.Field);
 
     private bool Matches(ValidationSeverity severity) => Show switch
     {

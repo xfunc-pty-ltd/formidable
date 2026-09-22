@@ -30,7 +30,11 @@ public static class FormidableFieldId
     /// <see cref="For(FieldIdentifier)"/> instead.
     /// </summary>
     /// <typeparam name="TModel">The type owning the field.</typeparam>
-    /// <typeparam name="TValue">The field's value type.</typeparam>
+    /// <typeparam name="TValue">
+    /// The accessor's type: the field's own value type, or <c>object</c> where a caller forwards
+    /// an <c>Expression&lt;Func&lt;TModel, object&gt;&gt;</c>, whose boxing convert this method
+    /// reads past.
+    /// </typeparam>
     /// <param name="model">The field's owning instance.</param>
     /// <param name="accessor">A member-access expression naming the field, e.g. <c>o =&gt; o.Description</c>.</param>
     public static string For<TModel, TValue>(TModel model, Expression<Func<TModel, TValue>> accessor)

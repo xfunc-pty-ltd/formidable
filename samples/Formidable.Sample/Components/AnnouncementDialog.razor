@@ -1,0 +1,13 @@
+@* The page's own dialog. The library ships no styling and no dialog: what it needs from one is
+   a way to open it, a way to close it, and a close that reports back only once the dialog is
+   genuinely gone. *@
+<div class="announcement @(Open ? "announcement--open" : null)">
+    <div class="announcement__panel" role="alertdialog" aria-modal="true" aria-labelledby="@_headingId"
+         tabindex="-1" @ref="_panel" @onkeydown="HandleKeyAsync">
+        <h2 id="@_headingId">@Heading</h2>
+        @ChildContent
+        <div class="actions">
+            <button type="button" @onclick="DismissAsync">Close</button>
+        </div>
+    </div>
+</div>

@@ -295,6 +295,40 @@ public sealed class TwiceFailingFieldValidator : DraftSubmitValidator<EngineOrde
 }
 
 /// <summary>
+/// Fails three times at error severity and three times at warning severity, so a summary showing
+/// both bands has a band that can be capped on each side of the divide. That is what makes a cap's
+/// per-band behaviour answerable: with one entry per band nothing is held back anywhere, and with
+/// entries in only one band a summary that pooled every band's leftovers would still look right.
+/// Each band's three messages are distinct, so which entries a band held back is readable from the
+/// rendered text alone.
+/// </summary>
+public sealed class TwoBandedFieldValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+        RuleFor(x => x.Description).MinimumLength(5).WithMessage("Description is too short");
+        RuleFor(x => x.Customer).NotNull().WithMessage("A customer is required");
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Warning)
+            .WithMessage("Description could be clearer");
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Warning)
+            .WithMessage("Description repeats the heading");
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Warning)
+            .WithMessage("Description has no summary line");
+    }
+}
+
+/// <summary>
 /// Submit validator that fails <see cref="EngineOrder.Description"/> with a WARNING and
 /// <see cref="EngineCustomer.Name"/> with an error, for a page that renders the advisory-bearing
 /// field above the erroring one: the topmost visible issue is then an advisory, while the thing a

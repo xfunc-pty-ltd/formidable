@@ -19,7 +19,7 @@ public class FormidableFormComponentTests : BunitContext
 
     private IRenderedComponent<FormidableForm<EngineOrder>> RenderForm(
         EngineOrder order,
-        Action<SubmitOutcome>? onInvalid = null,
+        Action<FormidableInvalidSubmitContext>? onInvalid = null,
         Action? onValid = null,
         bool? focusFirstErrorOnInvalidSubmit = null,
         Action<EngineOrder>? onModelChanged = null,
@@ -37,7 +37,9 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 3,
                 nameof(FormidableForm<EngineOrder>.OnInvalidSubmit),
-                EventCallback.Factory.Create<SubmitOutcome>(this, outcome => onInvalid?.Invoke(outcome)));
+                EventCallback.Factory.Create<FormidableInvalidSubmitContext>(
+                    this,
+                    context => onInvalid?.Invoke(context)));
             builder.AddComponentParameter(
                 4,
                 nameof(FormidableForm<EngineOrder>.OnValidSubmit),
@@ -84,7 +86,7 @@ public class FormidableFormComponentTests : BunitContext
     public void Invalid_submit_invokes_callback_with_outcome_and_shows_messages()
     {
         SubmitOutcome? outcome = null;
-        var cut = RenderForm(new EngineOrder(), onInvalid: o => outcome = o);
+        var cut = RenderForm(new EngineOrder(), onInvalid: context => outcome = context.Outcome);
 
         cut.Find("form").Submit();
 
@@ -196,6 +198,48 @@ public class FormidableFormComponentTests : BunitContext
         Assert.Contains(
             loggerProvider.Entries,
             entry => entry.Level == LogLevel.Warning && entry.Message.Contains("FocusFallback"));
+
+        await Services.DisposeAsync();
+    }
+
+    // The move falls back to the first visible issue of ANY severity when it finds no error, so
+    // the field it reports a miss for is not always an error's. A page asking for the move is the
+    // short route into that state: nothing blocked, and the only thing on screen is a warning.
+    // What this pins is the diagnostic's honesty about severity rather than its wording — any
+    // rephrasing that still names the field and stops calling an advisory an error keeps it green.
+    [Fact]
+    public async Task A_focus_miss_on_an_advisory_reports_it_without_calling_it_an_error()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+
+        // Every error rule passes and the hyphen rule does not, so Description's warning is the
+        // whole of what is on screen and the submit itself goes through.
+        var order = new EngineOrder
+        {
+            Description = "ok-",
+            Customer = new EngineCustomer { Name = "Ada" },
+        };
+        var cut = RenderForm(order);
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.False(await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync()));
+
+        // Single, not Contains, and it carries two claims. That the diagnostic fired at all is
+        // what proves the move reached the advisory rather than finding nothing to aim at and
+        // returning early; that it fired ONCE is what proves the submit made no move of its own,
+        // since a blocked one under the default parameter would have missed and reported too.
+        var entry = Assert.Single(
+            loggerProvider.Entries,
+            e => e.Level == LogLevel.Warning && e.Message.Contains("FocusFallback"));
+        Assert.Contains(nameof(EngineOrder.Description), entry.Message);
+        Assert.DoesNotContain("error", entry.Message, StringComparison.OrdinalIgnoreCase);
 
         await Services.DisposeAsync();
     }
@@ -470,7 +514,9 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 4,
                 "OnInvalidSubmit",
-                EventCallback.Factory.Create<SubmitOutcome>(this, _ => invalidSeen = true));
+                EventCallback.Factory.Create<FormidableInvalidSubmitContext>(
+                    this,
+                    _ => invalidSeen = true));
             builder.CloseComponent();
         });
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();

@@ -133,6 +133,22 @@ public sealed class PageSmokes(SampleAppFixture app)
     }
 
     [E2EFact]
+    public async Task Smoke_summary_shape()
+    {
+        await using var session = await app.NewPageAsync("/summary-shape");
+        await Expect(session.Page.Locator("h1"))
+            .ToHaveTextAsync("Shaping the summary — deciding what the list says");
+    }
+
+    [E2EFact]
+    public async Task Smoke_dialog_submit()
+    {
+        await using var session = await app.NewPageAsync("/dialog-submit");
+        await Expect(session.Page.Locator("h1"))
+            .ToHaveTextAsync("Dialog-first submit — announcing a blocked submit");
+    }
+
+    [E2EFact]
     public async Task Smoke_localization()
     {
         await using var session = await app.NewPageAsync("/localization");

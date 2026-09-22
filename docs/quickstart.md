@@ -32,9 +32,15 @@ puts all of them within reach of every page:
 @using Formidable.Blazor
 ```
 
-Without it the compiler reads `<FormidableInputText>` as unknown markup and reports the
-`@bind-Value` on it as a binding-syntax error — a diagnostic that sends you to the Razor
-documentation when the only thing missing is the namespace.
+Without it every `<Formidable…>` element is read as unknown markup. Razor does say so, and it
+even names the fix, but it says it as a *warning*: `RZ10012`, one per element. Whether the build
+fails at all, and what it fails with, depends on what else the page does with those elements. A
+`@bind-Value` on one is reported as a binding-syntax error (`RZ9991`). A fragment body reading
+`context`, or whatever a `Context="…"` renamed it to, is reported as `CS0103` on that name, at
+the line that reads it. A page doing neither compiles clean, unless the project promotes warnings
+to errors, and then ships elements the browser treats as unknown: your own labels and headings
+inside them still render, and the components produce no output of their own. All three are the
+one missing line, and [Troubleshooting](recipes.md#part-2-troubleshooting) lists them by symptom.
 
 ## The page
 

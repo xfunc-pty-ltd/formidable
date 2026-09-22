@@ -496,6 +496,97 @@ summary at all still lands on a field the same way — wire the same callback to
 [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
 
+### I want a modal dialog to announce a blocked submit
+
+**Set:** open the dialog from `OnInvalidSubmit` and suppress the form's own focus move in the same
+handler, give the summary inside the dialog a `PrepareFocus` that dismisses it, and ask for the
+move yourself when the dialog closes.
+
+```razor
+<FormidableForm @ref="_form" Model="_request" OnValidSubmit="Save" OnInvalidSubmit="AnnounceAsync">
+
+    @* the form's own fields and buttons *@
+
+    <AnnouncementDialog @ref="_announcement" ReturnFocusTo="_submitButton"
+                        OnDismissed="ReturnToFirstErrorAsync"
+                        Heading="This form is not ready to send">
+        <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4"
+                           PrepareFocus="DismissAnnouncementAsync">
+            <ItemTemplate Context="entry">@NameOf(entry.Issue)</ItemTemplate>
+            <OverflowTemplate Context="held">@held.Count more to fix</OverflowTemplate>
+        </FormidableSummary>
+    </AnnouncementDialog>
+</FormidableForm>
+```
+
+```csharp
+    private async Task AnnounceAsync(FormidableInvalidSubmitContext context)
+    {
+        // Said where it is known: the dialog is about to cover the form.
+        context.SuppressFirstErrorFocus();
+        await _announcement!.OpenAsync();
+    }
+
+    // Whatever your dialog raises once the visitor has closed it with Close or Escape. Those are
+    // the ways out that name no field, so this is what leaves them on one.
+    private async Task ReturnToFirstErrorAsync() => await _form!.FocusFirstErrorAsync();
+```
+
+Three rules decide whether that works: two about *when* focus moves, and one about the ways out
+of the dialog that move it at all.
+
+**Suppressing the form's own move is not optional.** With nothing said,
+`FocusFirstErrorOnInvalidSubmit` has `FormidableForm` move focus to the first error immediately
+after the handler that opened the dialog, inside the same `SubmitAsync` call, and the caret lands
+in a field the overlay is covering. Wire a dismissing `PrepareFocus` to the form as well and the
+outcome is worse still: that move runs the callback, so the dialog closes the instant it appeared.
+Suppress it and the moves left are the ones the visitor asks for: clicking an entry, which is
+the move `PrepareFocus` is there to prepare, and the ways out the next rule covers.
+`FocusFirstErrorOnInvalidSubmit="false"` says the same thing about every submit the form will
+ever run, including the ones where no dialog opens; the handler says it about the submit in front
+of it. Attach mode has no such handler and needs none: `FormidableValidator` focuses inside
+`ValidateForSubmitAsync()` before that call returns to the page that would have opened the dialog,
+so set `FocusFirstErrorOnInvalidSubmit="false"` there and call `FocusFirstErrorAsync()` when you
+want the move.
+
+**Something has to focus the ways out that name no field.** A visitor who closes the dialog with
+*Close* or Escape has picked nothing, so no `PrepareFocus` runs and the summary moves nothing;
+without the `FocusFirstErrorAsync()` above, focus goes wherever the dialog returns it and the
+visitor is left to find the first problem by eye. It is the same move the submit would have made,
+so a visitor who closes the dialog without choosing lands where the form would have put them had
+the dialog never opened.
+
+**The dismissal has to finish before it reports back.** `PrepareFocus` is awaited, so what it
+completes on decides what the focus move lands in. A dialog does not disappear on the state change
+that starts its close: a transition finishes, an overlay and any scroll lock come off, and the
+dialog hands focus back to whatever opened it. That hand-back is what takes a premature move
+straight back, leaving the visitor on the button they pressed rather than the field they chose.
+Complete the callback on the dialog's own closed event.
+
+The dialog itself is yours: the library ships no dialog and no styling. What the kit brings is the
+list the dialog holds, and a dialog has room for a list of names rather than a list of complaints.
+[`ItemTemplate`](component-kit.md#formidablesummary) renders the field's name,
+[`GroupByField`](component-kit.md#one-entry-per-field) collapses a field failing two rules into one
+entry, and [`MaxItems`](component-kit.md#capping-the-list) with `OverflowTemplate` caps the list and
+hands the entries it dropped to a line of your own, counted here because a dialog has room for a
+number and not for a second list. `SubmitOutcome.VisibleErrorSummary` is already the distinct
+names, so a line counting fields needs no counting of its own — as long as the names and the
+fields agree. `VisibleErrorSummary` is distinct by name where `GroupByField` is distinct by field:
+two fields carrying one `WithName(...)` leave the count one short of the list, and one field whose
+two rules carry different names leaves it one long.
+
+`NameOf` above is the page's own one-liner, and it is needed because `Issue.DisplayName` is
+nullable: the engine's model-level issues carry none, so an entry rendering the name alone would
+render nothing for the defensive gate's explanation or for a validator fault. Fall back to the
+issue's `Path`, and for an issue naming no field at all, to
+[`ModelLevelDisplayName`](options.md#modelleveldisplayname) read off the engine's options —
+`Engine.Options` on the root you hold with `@ref`. That option is the name
+`VisibleErrorSummary` already lists such an entry under, so reading it is what keeps a re-voiced
+wording from having to be written twice.
+
+**Read:** [Component kit](component-kit.md#preparefocus).
+**Sample:** [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor).
+
 ### I want the summary ordered by where fields appear on screen
 
 **Set:** register your own `IFormidableFieldOrderService` ahead of `AddFormidableBlazor()`, which
@@ -585,10 +676,11 @@ visual order are the same answer.
 **Set:** nothing, in most cases — check first that
 [`FormidableSummary`](component-kit.md#formidablesummary) cannot be shaped into what you want,
 because it carries wiring a hand-rolled list has to rebuild. `ItemTemplate` decides what an entry
-says, `GroupByField` gives you one entry per field rather than per issue, `MaxItems` and
-`OverflowTemplate` cap the list and say what stands in for the rest, and `OnItemActivated` decides
-what a click does. Between them that is the field-name list, deduplicated and capped, with its own
-click behaviour.
+says, `GroupByField` gives you one entry per field rather than per issue, and `MaxItems` with
+`OverflowTemplate` caps the list and says what stands in for the rest. Between them that is the
+field-name list, deduplicated and capped. The click is none of their business: the component wires
+every entry to the focus service itself, and that wiring is part of what a hand-rolled list
+rebuilds.
 
 A surface those cannot reach — a dialog laid out as a grid, a status bar, a wizard's step
 indicator — reads the same two seams the component reads:
@@ -616,8 +708,10 @@ public partial class MissingFieldList : ComponentBase, IDisposable
             .Select(group => (Name: NameOf(group.First().Issue), Field: group.Key))
             .ToList();
 
-    private static string NameOf(ValidationIssue issue) =>
-        issue.DisplayName ?? (issue.Path.Length == 0 ? "This form" : issue.Path);
+    private string NameOf(ValidationIssue issue) =>
+        issue.DisplayName ?? (issue.Path.Length == 0
+            ? Context.Engine.Options.ModelLevelDisplayName
+            : issue.Path);
 
     private async Task GoToAsync(FieldIdentifier field) => await Focus.FocusAsync(field);
 
@@ -672,7 +766,12 @@ Five things the shipped component knows, which your own has to know too:
   nullable, and two issues on one field can carry different names, since `WithName` applies to the
   rule that declared it. The engine's own two model-level issues (the validator fault and the
   all-suppressed gate's explanation) carry none, and neither does an error mapped from a
-  `ProblemDetails` body, whose `errors` half is paths and messages only. Hence the fallback above.
+  `ProblemDetails` body, whose `errors` half is paths and messages only. Hence the two-step
+  fallback above: the issue's `Path`, and for an issue naming no field at all
+  [`ModelLevelDisplayName`](options.md#modelleveldisplayname), read from
+  `Context.Engine.Options` rather than written out here. That option is the name
+  `SubmitOutcome.VisibleErrorSummary` already lists such an entry under, so re-voicing that option
+  changes your list and the engine's own summary together.
 - **The order is the page's, under `FormidableForm`.** That root resolves where the fields sit and
   hands the answer to its engine, so entries arrive in the order a visitor reads them, with
   anything the page could not place last. `FormidableValidator` resolves no order, so a list
@@ -692,7 +791,10 @@ Five things the shipped component knows, which your own has to know too:
 
 **Read:** [Component kit](component-kit.md#formidablesummary),
 [CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region).
-**Sample:** no page. Every sample form uses `FormidableSummary` itself.
+**Sample:** [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) works
+`ItemTemplate`, `GroupByField`, `MaxItems` and `OverflowTemplate` over one fixed set of issues,
+which is the check this recipe opens with. No page rolls its own list: every sample form uses
+`FormidableSummary` itself.
 
 ### I want to use a native or third-party control
 
@@ -926,7 +1028,13 @@ genuinely cannot be read. Three things go quiet. Required markers and `aria-requ
 appearing, since the requirement answer has no other source. `DiscloseLoadedValuesAsync` goes on
 disclosing a wrong saved value and stops confirming a good one, since confirming needs the
 validator's own list of the fields it has rules for. And every pass evaluates its whole profile for
-itself, since there are no per-rule verdicts left to share.
+itself, since there are no per-rule verdicts left to share. Mostly that is a cost. It is also a
+difference in one place: confirming a field — the `formidable-valid` class, and the
+`FieldState.WouldPassSubmit` behind it — needs a completed submit-profile answer that still
+describes the model, and per-rule verdicts are what let a live pass leave one. Without them a live
+pass leaves nothing to confirm from, so on a form that has run nothing else, a field whose value a
+submit would accept wears no confirmation. Switching `TrackFormValidity` on closes that gap: its
+probe answers the whole profile on every edit, and the same fields are confirmed either way.
 
 `DelegatingModelValidator<TModel>` forwards all three interfaces to the validator it wraps, and
 each capability tester answers what that validator answers rather than reporting a capability
@@ -995,8 +1103,9 @@ which render the kit exactly this way.
 
 | Symptom | Why | Fix |
 |---|---|---|
-| A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. Both diagnostics describe binding syntax; neither mentions the namespace that is actually missing. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
-| A page won't build: `RZ9999` — `The child content element 'ChildContent' of component 'FormidableField' uses the same parameter name ('context') as enclosing child content element 'ChildContent' of component 'FormidableForm'`, with the same wording for a `Virtualize` inside a form, or a `FormidableValidator` inside an `EditForm`. | Both components take a typed `ChildContent`, and an unnamed typed fragment claims the implicit `context`. Nesting one inside another puts two claims on that one name. What collides is the declaration, not any use of it, so the diagnostic arrives whether or not either body ever reads `context` — `EditForm` has always charged the same rename. | Name the inner fragment: `Context="field"` on a `FormidableField`, `Context="gadget"` on a `Virtualize`, `Context="formidable"` on a `FormidableValidator` inside a consumer's own `EditForm`. Every shipped sample names the inner one. [Component kit](component-kit.md#formidableformtmodel). |
+| A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. The error describes binding syntax and never mentions the namespace; the diagnostic that does name it is `RZ10012`, which is a warning, and warnings are what a reader scrolls past to reach the errors. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
+| A page won't build: `CS0103` — `The name 'context' does not exist in the current context`, or that sentence naming whatever a `Context="…"` called it — on a line inside a `<FormidableForm>`, with `RZ10012` warnings elsewhere in the same build. Or: the project builds clean and the page's own labels and headings appear while every Formidable component renders nothing. | The same missing namespace as the row above, on a page with no `@bind-Value` to turn it into a Razor error. An unresolved `<FormidableForm>` is plain markup, so it declares no typed fragment and no `context` variable for its body to read, and the C# error lands on the line doing the reading rather than on the element. Where nothing reads one either, `RZ10012` is the only diagnostic there is — and unless the project promotes warnings to errors, a warning does not fail the build, so the elements ship as markup the browser treats as unknown: their children still render, and the components themselves produce no output. | Add `@using Formidable.Blazor` to `_Imports.razor`, as above. And read the build's warnings, not only its errors: `RZ10012` says `Found markup element with unexpected name 'FormidableForm'. If this is intended to be a component, add a @using directive for its namespace.` — it names the fix that the C# error cannot. [Quickstart](quickstart.md). |
+| A page won't build: `RZ9999` — `The child content element 'ChildContent' of component 'FormidableField' uses the same parameter name ('context') as enclosing child content element 'ChildContent' of component 'FormidableForm'`, with the same wording for a `Virtualize` inside a form, or a `FormidableValidator` inside an `EditForm`. | Both components take a typed `ChildContent`, and an unnamed typed fragment claims the implicit `context`. Nesting one inside another puts two claims on that one name. What collides is the declaration, not any use of it, so the diagnostic arrives whether or not either body ever reads `context` — `EditForm` has always charged the same rename. | Name either fragment: `Context="field"` on a `FormidableField`, `Context="gadget"` on a `Virtualize`, `Context="formidable"` on a `FormidableValidator` inside a consumer's own `EditForm` — or on the `FormidableForm` itself, which names the outer body and leaves the inner one on `context`. Every shipped sample names the inner one. [Component kit](component-kit.md#formidableformtmodel). |
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
 | A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |

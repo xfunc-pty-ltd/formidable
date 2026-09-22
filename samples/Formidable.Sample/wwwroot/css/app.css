@@ -899,3 +899,126 @@ fieldset:focus-visible,
 h1:focus {
     outline: none;
 }
+
+/* ---------- capped summary lists ---------- */
+
+/* The line a capped band renders in place of what it held back. Whatever a page puts on it is
+   about the LIST — a count of what is not listed, or an expander that names it — where an entry
+   is a route into the form. Styling it as quieter running text is what keeps
+   those two kinds apart without a second read, so a control that does live on this line reads
+   as acting on the list rather than as one more field to go and fix.
+
+   The BOX starts where an entry's TEXT starts, which is the list's own left edge: an entry's
+   pill reaches further left than that only because the entry button pays its negative margin
+   back as padding, so a left padding here would set this line in from every name above it.
+   Whatever the page puts inside then sits where its own content puts it — a bare count starts at
+   that edge, while a <summary> renders its disclosure marker inside the box and indents its label
+   by the marker. The rule and the space around it carry the separation, so the line reads as the
+   end of the list rather than as one more thing after it. */
+.formidable-summary__overflow {
+    margin: .5rem 0 0;
+    padding-top: .45rem;
+    border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    font-size: .85rem;
+    color: var(--muted);
+}
+
+/* Shaping the summary puts an expander on that line, and its trigger has to look like a control
+   while the line around it stays quieter than the entries. The pointer is scoped to the trigger
+   rather than to the line, so an overflow line that is only a count — Dialog-first submit's —
+   still offers nothing to click and takes no pointer. */
+.formidable-summary__overflow > .overflow-reveal > summary {
+    width: fit-content;
+    cursor: pointer;
+}
+
+/* The revealed names are a note about the list, not more entries: markers and an indent rather
+   than the pill treatment the entries above them carry. */
+.formidable-summary__overflow .overflow-reveal ul {
+    list-style: disc;
+    margin: .2rem 0 0;
+    padding-left: 1.5rem;
+}
+
+.formidable-summary__overflow .overflow-reveal li {
+    margin: .1rem 0;
+}
+
+/* ---------- the sample's own dialog ---------- */
+
+/* The overlay stays in the DOM so one class flip drives the fade in both directions, and so the
+   summary inside it is a live region that was already on the page when its contents arrived.
+   visibility does the hiding: it keeps the panel out of the tab order and out of the
+   accessibility tree while the dialog is closed, and it is transitionable, so the fade plays out
+   before the panel goes. */
+.announcement {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(26, 26, 46, .55);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .2s ease, visibility 0s linear .2s;
+}
+
+.announcement--open {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .2s ease, visibility 0s linear 0s;
+}
+
+.announcement__panel {
+    width: min(30rem, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 1.25rem 1.5rem 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: 0 1.2rem 2.5rem rgba(0, 0, 0, .35);
+    transform: translateY(.75rem);
+    transition: transform .2s ease;
+}
+
+.announcement--open .announcement__panel {
+    transform: none;
+}
+
+.announcement__panel > h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+}
+
+/* The panel takes focus when it opens, which is a programmatic move: the ring marks it for a
+   keyboard visitor and stays off a pointer one, the same rule the summary's focus landings use. */
+.announcement__panel:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+/* The dialog is the whole announcement, so its band needs no bottom margin of its own. */
+.announcement .formidable-summary:has(.formidable-summary__band) {
+    margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .announcement,
+    .announcement--open,
+    .announcement__panel {
+        transition: none;
+    }
+}
+
+/* ---------- toggle rows ---------- */
+
+.toggles {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    margin: 1rem 0 1.25rem;
+}

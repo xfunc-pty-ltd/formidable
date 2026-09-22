@@ -2,17 +2,18 @@ using System.Text.RegularExpressions;
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
 /// <summary>
-/// What a summary entry says and what clicking it does: <c>ItemTemplate</c>, <c>GroupByField</c>,
-/// <c>MaxItems</c>, <c>OverflowTemplate</c> and <c>OnItemActivated</c>. Every one of them is
-/// additive, so the first test here is the one that matters most — the whole rendering with none
-/// of them set, pinned against the markup as it stands rather than against anybody's
+/// What a summary entry says, and what clicking one does. Four parameters decide the first:
+/// <c>ItemTemplate</c>, <c>GroupByField</c>, <c>MaxItems</c> and <c>OverflowTemplate</c>. The
+/// second belongs to the component, and is pinned here on its own and again under
+/// <c>ItemTemplate</c>, which rewords an entry without touching it. Every one of those parameters
+/// is additive, so the first test here is the one that matters most — the whole rendering with
+/// none of them set, pinned against the markup as it stands rather than against anybody's
 /// reconstruction of it.
 /// </summary>
 /// <remarks>
@@ -228,17 +229,19 @@ public class FormidableSummaryDisplayTests : BunitContext
     }
 
     /// <summary>
-    /// Set, the template gets the number the band held back — two of the error band's three, and
-    /// nothing at all from the advisory bands, which suppressed nothing and so never reach it.
+    /// Set, the template gets the entries the band held back: the two of the error band's three
+    /// that fell off the end, in the order the band lists them, and nothing at all from the
+    /// advisory bands, which held nothing back and so never reach it. A line that wants only the
+    /// number reads <c>Count</c>, which is what the rendered text here is.
     /// </summary>
     [Fact]
-    public async Task An_overflow_template_receives_the_number_the_band_held_back()
+    public async Task An_overflow_template_receives_the_entries_the_band_held_back()
     {
-        var counts = new List<int>();
-        RenderFragment<int> overflow = suppressed => builder =>
+        var handed = new List<IReadOnlyList<VisibleIssue>>();
+        RenderFragment<IReadOnlyList<VisibleIssue>> overflow = held => builder =>
         {
-            counts.Add(suppressed);
-            builder.AddContent(0, $"and {suppressed} more");
+            handed.Add(held);
+            builder.AddContent(0, $"and {held.Count} more");
         };
 
         var form = RenderSummary((inner, sequence) =>
@@ -254,23 +257,65 @@ public class FormidableSummaryDisplayTests : BunitContext
         Assert.Equal("ul", overflowItem.ParentElement!.TagName.ToLowerInvariant());
         // The summary re-renders on every state change, so the template is invoked once per band
         // per render rather than once per band: what the list pins is that no invocation ever
-        // carried a number other than the two the error band held back, and the DOM pins that the
-        // advisory bands, which suppressed nothing, produced no overflow item of their own.
-        Assert.NotEmpty(counts);
-        Assert.All(counts, count => Assert.Equal(2, count));
+        // carried anything but the two entries the error band held back, in the order the band
+        // lists them, and the DOM pins that the advisory bands, which held nothing back, produced
+        // no overflow item of their own.
+        Assert.NotEmpty(handed);
+        Assert.All(handed, held => Assert.Equal(
+            ["Description is too short", "A customer is required"],
+            held.Select(entry => entry.Issue.Message).ToList()));
         Assert.Single(form.FindAll(".formidable-summary__overflow"));
 
         await Services.DisposeAsync();
     }
 
     /// <summary>
-    /// Zero is a cap, not a mistake: the band's list renders with no entries in it and the whole
-    /// band is offered to the overflow template. That is how a summary asks for the count alone.
+    /// Two bands capped at once, each reaching the template with what it held back itself and with
+    /// nothing another band held back. A cap that pooled the summary's leftovers instead of each
+    /// band's would hand both fragments the same set, and a summary with entries in only one band
+    /// could not tell the two apart.
     /// </summary>
     [Fact]
-    public async Task A_cap_of_zero_renders_an_empty_list_and_offers_the_whole_count()
+    public async Task Each_band_offers_the_template_the_entries_it_held_back_itself()
     {
-        RenderFragment<int> overflow = suppressed => builder => builder.AddContent(0, $"{suppressed} to fix");
+        // Registered after the constructor's validator, and the last registration is the one
+        // resolved. If it were not, the warning band would hold one entry rather than three, hold
+        // nothing back under this cap, and render no overflow item to assert against at all.
+        Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, TwoBandedFieldValidator>();
+
+        RenderFragment<IReadOnlyList<VisibleIssue>> overflow = held => builder =>
+            builder.AddContent(0, string.Join(" / ", held.Select(entry => entry.Issue.Message)));
+
+        var form = RenderSummary((inner, sequence) =>
+        {
+            inner.AddComponentParameter(sequence, nameof(FormidableSummary.MaxItems), (int?)1);
+            inner.AddComponentParameter(sequence + 1, nameof(FormidableSummary.OverflowTemplate), overflow);
+        });
+
+        Submit(form);
+
+        Assert.Equal(
+            "Description is too short / A customer is required",
+            form.Find("ul.formidable-summary__group--error li.formidable-summary__overflow").TextContent);
+        Assert.Equal(
+            "Description repeats the heading / Description has no summary line",
+            form.Find("ul.formidable-summary__group--warning li.formidable-summary__overflow").TextContent);
+        Assert.Equal(2, form.FindAll(".formidable-summary__overflow").Count);
+
+        await Services.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Zero is a cap, not a mistake: the band's list renders with no entries in it and the band
+    /// goes to the overflow template whole. That is how a summary hands its entries to the
+    /// fragment and lists none of them itself.
+    /// </summary>
+    [Fact]
+    public async Task A_cap_of_zero_renders_an_empty_list_and_offers_the_whole_band()
+    {
+        RenderFragment<IReadOnlyList<VisibleIssue>> overflow = held => builder => builder.AddContent(
+            0,
+            $"{held.Count} to fix: {string.Join(", ", held.Select(entry => entry.Issue.Message))}");
 
         var form = RenderSummary((inner, sequence) =>
         {
@@ -281,7 +326,9 @@ public class FormidableSummaryDisplayTests : BunitContext
         Submit(form);
 
         Assert.Empty(form.FindAll("li.formidable-summary__item"));
-        Assert.Equal("3 to fix", form.Find("ul.formidable-summary__group--error li.formidable-summary__overflow").TextContent);
+        Assert.Equal(
+            "3 to fix: Description is required, Description is too short, A customer is required",
+            form.Find("ul.formidable-summary__group--error li.formidable-summary__overflow").TextContent);
 
         await Services.DisposeAsync();
     }
@@ -290,7 +337,8 @@ public class FormidableSummaryDisplayTests : BunitContext
     [Fact]
     public async Task A_cap_above_the_entry_count_changes_nothing()
     {
-        RenderFragment<int> overflow = suppressed => builder => builder.AddContent(0, $"and {suppressed} more");
+        RenderFragment<IReadOnlyList<VisibleIssue>> overflow = held => builder =>
+            builder.AddContent(0, $"and {held.Count} more");
 
         var form = RenderSummary((inner, sequence) =>
         {
@@ -398,11 +446,12 @@ public class FormidableSummaryDisplayTests : BunitContext
     }
 
     /// <summary>
-    /// The control for the test below, stated here rather than assumed: with no activation
-    /// callback, a click asks the focus service for the clicked entry's field.
+    /// What a click on an entry does, with nothing wired to it: it asks the focus service for
+    /// that entry's own field, which is the move <c>ItemTemplate</c> rewords entries without
+    /// touching.
     /// </summary>
     [Fact]
-    public async Task Without_an_activation_callback_a_click_still_moves_focus()
+    public async Task A_click_on_an_entry_moves_focus_to_its_field()
     {
         var form = RenderSummary((_, _) => { });
 
@@ -411,79 +460,6 @@ public class FormidableSummaryDisplayTests : BunitContext
 
         var field = Assert.Single(_focus.Requests);
         Assert.Equal(nameof(EngineOrder.Customer), field.FieldName);
-
-        await Services.DisposeAsync();
-    }
-
-    /// <summary>
-    /// Set, the callback replaces the focus move outright — it receives the clicked entry whole,
-    /// field and issue together, and the focus service is not asked at all.
-    /// </summary>
-    [Fact]
-    public async Task An_activation_callback_replaces_the_focus_move()
-    {
-        var activated = new List<VisibleIssue>();
-        var form = RenderSummary((inner, sequence) =>
-            inner.AddComponentParameter(
-                sequence,
-                nameof(FormidableSummary.OnItemActivated),
-                EventCallback.Factory.Create<VisibleIssue>(this, activated.Add)));
-
-        Submit(form);
-        form.FindAll("button.formidable-summary__link")[2].Click();
-
-        var entry = Assert.Single(activated);
-        Assert.Equal(nameof(EngineOrder.Customer), entry.Field.FieldName);
-        Assert.Equal("A customer is required", entry.Issue.Message);
-        Assert.Empty(_focus.Requests);
-
-        await Services.DisposeAsync();
-    }
-
-    /// <summary>
-    /// And it takes the two focus-move parameters with it. Both exist to serve an attempt this
-    /// callback prevents, so a page wiring all three gets its callback and nothing else — which is
-    /// the reason the docs point a dialog at PrepareFocus instead of here.
-    /// </summary>
-    [Fact]
-    public async Task An_activation_callback_takes_the_prepare_hook_and_the_fallback_with_it()
-    {
-        _focus.Lands = false; // A miss is what would reach the fallback, if anything did.
-        var prepared = 0;
-        var recovered = 0;
-        var activated = 0;
-
-        var form = RenderSummary((inner, sequence) =>
-        {
-            inner.AddComponentParameter(
-                sequence,
-                nameof(FormidableSummary.OnItemActivated),
-                EventCallback.Factory.Create<VisibleIssue>(this, _ => activated++));
-            inner.AddComponentParameter(
-                sequence + 1,
-                nameof(FormidableSummary.PrepareFocus),
-                (Func<FieldIdentifier, ValueTask>)(_ =>
-                {
-                    prepared++;
-                    return ValueTask.CompletedTask;
-                }));
-            inner.AddComponentParameter(
-                sequence + 2,
-                nameof(FormidableSummary.FocusFallback),
-                (Func<FieldIdentifier, ValueTask<bool>>)(_ =>
-                {
-                    recovered++;
-                    return ValueTask.FromResult(true);
-                }));
-        });
-
-        Submit(form);
-        form.FindAll("button.formidable-summary__link")[0].Click();
-
-        Assert.Equal(1, activated);
-        Assert.Equal(0, prepared);
-        Assert.Equal(0, recovered);
-        Assert.Empty(_focus.Requests);
 
         await Services.DisposeAsync();
     }

@@ -101,7 +101,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// silent. A focus miss (e.g. no element carries the field's id yet) retries once through
     /// <see cref="FocusFallback"/> when one is wired, and otherwise reports a diagnostic. Set
     /// <see langword="false"/> to choose focus yourself from the returned
-    /// <see cref="SubmitOutcome"/>.
+    /// <see cref="SubmitOutcome"/>, and call <see cref="FocusFirstErrorAsync"/> for the same move
+    /// once the page is ready for it. This decides only what
+    /// <see cref="ValidateForSubmitAsync"/> does on its own: it never gates that call, which makes
+    /// the move whenever it is asked to.
     /// </summary>
     /// <remarks>
     /// What "first" means here is not what it means under <c>FormidableForm</c>. A component that
@@ -117,16 +120,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
     /// <summary>
-    /// Invoked once when a blocked submit's auto-focused first error has no rendered element to
-    /// focus (e.g. a virtualized row outside the render window, or a control that renders none of
-    /// the deterministic <see cref="FormidableFieldId"/> the focus service addresses a field by).
+    /// Invoked once when the first error one of this component's own focus moves aimed at has no
+    /// rendered element to focus (e.g. a virtualized row outside the render window, or a control
+    /// that renders none of the deterministic <see cref="FormidableFieldId"/> the focus service
+    /// addresses a field by).
     /// Return <c>true</c> after making the element renderable (scrolling its container, expanding
     /// a section) and the focus is retried exactly once; return <c>false</c> to leave the miss
     /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> and
     /// <c>FormidableForm</c>'s parameter of the same name — a page wiring more than one typically
     /// passes the same callback to each. When unset, a miss reports a diagnostic naming this
-    /// parameter, since a blocked submit's visitor otherwise gets no signal at all that the field
-    /// they need is out of reach.
+    /// parameter, since the visitor otherwise gets no signal at all that the field they need is
+    /// out of reach.
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -149,15 +153,15 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// them is not yet one the visitor can use. So a dismissal callback completes on the dialog's
     /// own closed event, not on the state change that starts the close.
     /// <para>
-    /// It is invoked only when a move is actually about to be made: a component with
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> off, a host that registered no
-    /// <see cref="IFormidableFocusService"/>, and a blocked submit with no visible issue to land on
+    /// It is invoked only when a move is actually about to be made: a blocked submit whose move
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> called off, a host that registered no
+    /// <see cref="IFormidableFocusService"/>, and a move that finds no visible issue to land on
     /// all skip it — a side effect as visible as closing a dialog must not fire for a move that
     /// never happens. Once per move, before the first attempt: a fallback's retry does not run it
-    /// a second time. The one move this component makes is
-    /// <see cref="ValidateForSubmitAsync"/>'s, since applying server issues here never moves focus
-    /// at all; a throw surfaces out of that call, exactly as a throw from
-    /// <see cref="FocusFallback"/> does.
+    /// a second time. Two moves reach it — <see cref="ValidateForSubmitAsync"/>'s and the one a
+    /// page asks for through <see cref="FocusFirstErrorAsync"/> — since applying server issues
+    /// here never moves focus at all; a throw surfaces out of whichever of the two made the move,
+    /// exactly as a throw from <see cref="FocusFallback"/> does.
     /// </para>
     /// </remarks>
     [Parameter]
@@ -430,11 +434,58 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
         if (!outcome.CanProceed && FocusFirstErrorOnInvalidSubmit)
         {
-            await FirstErrorFocus.MoveAsync(Services, engine, FocusFallback, PrepareFocus);
+            await FocusFirstErrorAsync();
         }
 
         return outcome;
     }
+
+    /// <summary>
+    /// Moves focus to the first error among the engine's visible issues. This is the move
+    /// <see cref="ValidateForSubmitAsync"/> makes under
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>, offered to a page that wants to choose the
+    /// moment instead: that path calls this very method, so which field the visitor lands on,
+    /// <see cref="PrepareFocus"/> being awaited ahead of the attempt, and
+    /// <see cref="FocusFallback"/> recovering a miss are not merely alike here — they are the
+    /// same code, and the only difference is who asked. Which also means it is not gated by
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>: that parameter decides what a blocked submit
+    /// does on its own, and this call is the page deciding.
+    /// </summary>
+    /// <remarks>
+    /// Attach mode needs nothing like the per-submit suppression <c>FormidableForm</c>'s
+    /// invalid-submit handler has, because the page owns the submit call outright: set
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> to <see langword="false"/> and call this when
+    /// it suits — once the dialog the page opened instead has closed, say — and that is the
+    /// whole sequence. What it adds over reaching through <see cref="Engine"/> for an issue and
+    /// focusing it by hand is <see cref="PrepareFocus"/> and <see cref="FocusFallback"/> threaded
+    /// in.
+    /// <para>
+    /// "First error" resolves exactly as the automatic move resolves it, which includes the case
+    /// where there is no error: a form showing nothing worse than advisories lands on the first of
+    /// those rather than on nothing. It is first in the engine's channel order rather than the
+    /// document order of the page, for the reason
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> gives. Call from the renderer's
+    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>).
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// <see langword="true"/> when an element took focus, and <see langword="false"/> when nothing
+    /// did — the engine reports no visible issue at all, no <see cref="IFormidableFocusService"/>
+    /// is registered, or the chosen field's element could not be focused: no
+    /// <see cref="FocusFallback"/> wired, a fallback that declined, or a retry that missed
+    /// again. It reports the move, not the form: a form with no issue on screen and a form
+    /// whose one error is out of reach both answer <see langword="false"/>, and a caller that
+    /// needs to tell those apart reads
+    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> through <see cref="Engine"/>. A
+    /// false answer means this call moved nothing, so a page with nowhere else to send the
+    /// visitor can ignore it.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// This component has no engine yet, because the call arrived before it bound to its cascaded
+    /// <see cref="EditContext"/>.
+    /// </exception>
+    public async Task<bool> FocusFirstErrorAsync() =>
+        await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
 
     /// <summary>
     /// Applies a server response's issues to this form's engine, forwarding

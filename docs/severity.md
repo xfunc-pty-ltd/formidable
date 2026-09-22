@@ -136,9 +136,12 @@ public sealed record SubmitOutcome(
 *Source: `src/Formidable.Blazor/SubmitOutcome.cs`*
 
 `FormidableForm<TModel>.SubmitAsync()` runs the submit pipeline and routes on exactly that flag:
-`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` otherwise — both handlers receive the full
-`SubmitOutcome`, so a passing submit's advisories are readable without a separate `Engine` read.
-So a model that's all warnings and infos, with no errors, submits successfully:
+`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` otherwise. Both handlers reach the full
+`SubmitOutcome`, so a passing submit's advisories are readable without a separate `Engine` read —
+`OnValidSubmit` is handed it directly, and `OnInvalidSubmit` reads it off the
+`FormidableInvalidSubmitContext` it is handed instead (see
+[Component kit](component-kit.md#suppressing-the-automatic-focus) for what else that context is
+for). So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
 <FormidableForm @ref="_form" Model="_listing">
@@ -235,11 +238,10 @@ both.
 `formidable-summary__group formidable-summary__group--warning`, and
 `formidable-summary__group formidable-summary__group--info`. Each entry in a group is a
 `formidable-summary__item` wrapping a `formidable-summary__link` button, which moves focus to the
-offending field unless the page gave the summary an
-[`OnItemActivated`](component-kit.md#deciding-what-a-click-does) of its own. A group that
-[`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item, and only
-when the page supplied an `OverflowTemplate`: `formidable-summary__overflow`, carrying what that
-template renders for the entries held back, and no button.
+offending field. A group that [`MaxItems` capped](component-kit.md#capping-the-list) ends in one
+further list item, and only when the page supplied an `OverflowTemplate`:
+`formidable-summary__overflow`, carrying what that template renders for the entries held back, and
+no button.
 
 One summary carries all three groups by default. A page that wants the blocking problems and the
 commentary in different places on the form renders a summary per band instead, with

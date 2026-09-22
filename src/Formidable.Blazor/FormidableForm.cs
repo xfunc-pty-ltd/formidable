@@ -113,11 +113,19 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
     /// <summary>
     /// Form content. Receives the same <see cref="FormidableFormContext"/> instance the form
-    /// cascades to it, so markup can reach the engine inline — a reset button's
-    /// <c>@onclick="() => context.Engine.ResetAsync()"</c>, a handler applying a server verdict —
-    /// without capturing the component with <c>@ref</c>. An inline READ of engine state
-    /// (<c>context.Engine.IsFormValid</c>, say) refreshes when the form itself re-renders — a
-    /// submit among the causes — not on every validation pass: ongoing state travels through
+    /// cascades to it, so markup can reach the engine inline without capturing the component with
+    /// <c>@ref</c>: a control the page draws itself marks its own field touched on blur with
+    /// <c>context.Engine.MarkTouched(field)</c>. What the context reaches is always the engine's
+    /// member, since everything it offers comes from the engine. A member this component declares
+    /// instead is out of reach that way, which is why <see cref="ResetAsync(TModel?)"/> is
+    /// declared here (returning the form to pristine rebuilds the engine) and why an inline reset
+    /// button does take an <c>@ref</c> to the form. Where the engine and this component both
+    /// declare a member, the engine's is what the context reaches:
+    /// <c>context.Engine.ApplyServerIssues(...)</c> is the quiet background apply, not
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> here, which also moves focus
+    /// to the first error. An inline READ of engine state (<c>context.Engine.IsFormValid</c>, say)
+    /// refreshes when the form itself re-renders — a submit among the causes — not on every
+    /// validation pass: ongoing state travels through
     /// <see cref="IFormValidationEngine.StateChanged"/>, which observing components subscribe to
     /// individually, so a live indicator still needs its own subscription to that event.
     /// Markup that nests no other typed fragment is unaffected; nesting one that also leaves its
@@ -125,7 +133,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// compiler ask for a <c>Context="..."</c> on one of the two, exactly as it does inside
     /// <c>EditForm</c>. What collides is the declaration rather than any use of it: both
     /// fragments claim the implicit <c>context</c> name, so the rename is owed whether or not
-    /// either body ever reads it.
+    /// either body ever reads it. Either fragment can take the rename, the form's own included:
+    /// <c>&lt;FormidableForm Model="_order" Context="formidable"&gt;</c> names this body and
+    /// leaves the nested fragment on <c>context</c>.
     /// </summary>
     [Parameter]
     public RenderFragment<FormidableFormContext>? ChildContent { get; set; }
@@ -142,15 +152,25 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter]
     public EventCallback<SubmitOutcome> OnValidSubmit { get; set; }
 
-    /// <summary>Invoked with the outcome when the submit pipeline blocks.</summary>
+    /// <summary>
+    /// Invoked when the submit pipeline blocks, with a context carrying the
+    /// <see cref="SubmitOutcome"/> the pipeline produced. The context is also how a handler that
+    /// has answered the block itself — by opening a dialog, most often — tells the form to
+    /// leave its own first-error focus move alone for this submit: see
+    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/>, and
+    /// <see cref="FocusFirstErrorAsync"/> for asking for that move later. A handler wanting only
+    /// the verdict reads <see cref="FormidableInvalidSubmitContext.Outcome"/>, and a parameterless
+    /// handler still binds, exactly as it does on <see cref="OnValidSubmit"/>.
+    /// </summary>
     [Parameter]
-    public EventCallback<SubmitOutcome> OnInvalidSubmit { get; set; }
+    public EventCallback<FormidableInvalidSubmitContext> OnInvalidSubmit { get; set; }
 
     /// <summary>
     /// On a blocked submit, best-effort auto-focuses the field carrying the first error among the
     /// form's visible issues via <see cref="IFormidableFocusService"/>, immediately after
-    /// <see cref="OnInvalidSubmit"/> runs — the first error rather than merely the first issue,
-    /// since a field above the failing one can carry nothing worse than an advisory, and landing
+    /// <see cref="OnInvalidSubmit"/> runs and unless that handler suppressed the move for this
+    /// submit — the first error rather than merely the first issue, since a field above the
+    /// failing one can carry nothing worse than an advisory, and landing
     /// there would bury the reason the submit blocked. First means topmost: issue order follows the
     /// page itself once <see cref="IFormidableFieldOrderService"/> has resolved it. The fallback to
     /// the first visible issue of any severity applies only when a blocked submit shows no error at
@@ -161,21 +181,26 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// field's id yet) retries once through <see cref="FocusFallback"/> when one is wired, and
     /// otherwise reports a diagnostic instead of the summary's silent default: a blocked submit's
     /// visitor has nowhere else to land, where <see cref="FormidableSummary"/>'s own click just
-    /// leaves the click without effect. Set <see langword="false"/> to choose focus yourself, e.g.
-    /// from <see cref="OnInvalidSubmit"/>.
+    /// leaves the click without effect. Set <see langword="false"/> to choose focus yourself, by
+    /// calling <see cref="FocusFirstErrorAsync"/> when the page is ready for it. This parameter
+    /// never gates that call, which makes the move whenever it is asked to. What it does gate are
+    /// the two moves the form makes unasked: the blocked submit's above, and the one either
+    /// <c>ApplyServerIssues</c> overload makes for a round trip that carried an error. A handler
+    /// that takes over one submit rather than all of them leaves this alone and calls
+    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> instead.
     /// </summary>
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
     /// <summary>
-    /// Invoked once when a blocked submit's auto-focused first error has no rendered element to
-    /// focus (e.g. a virtualized row outside the render window). Return <c>true</c> after making
-    /// the element renderable (scrolling its container, expanding a section) and the focus is
-    /// retried exactly once; return <c>false</c> to leave the miss as-is. Same delegate shape as
-    /// <see cref="FormidableSummary.FocusFallback"/> — a page wiring both typically passes the same
-    /// callback to each. When unset, a miss reports a diagnostic instead of the summary's silent
-    /// default: a form's blocked submit has nowhere else for the visitor to land, where the
-    /// summary's own click just leaves the click without effect.
+    /// Invoked once when the first error one of this form's own focus moves aimed at has no
+    /// rendered element to focus (e.g. a virtualized row outside the render window). Return
+    /// <c>true</c> after making the element renderable (scrolling its container, expanding a
+    /// section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
+    /// wiring both typically passes the same callback to each. When unset, a miss reports a
+    /// diagnostic instead of the summary's silent default: those moves have nowhere else for the
+    /// visitor to land, where the summary's own click just leaves the click without effect.
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -183,9 +208,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <summary>
     /// Invoked and awaited before focus is attempted, so the page can make the target reachable
     /// first: dismissing a modal that covers it, expanding a collapsed section, switching to the
-    /// tab it sits on. Receives the field about to be focused. It runs on both moves this form
-    /// makes — the blocked submit's auto-focus, and the one either <c>ApplyServerIssues</c>
-    /// overload makes for a round trip that carried an error. Distinct from
+    /// tab it sits on. Receives the field about to be focused. It runs on every move this form
+    /// makes — the blocked submit's auto-focus, the one either <c>ApplyServerIssues</c>
+    /// overload makes for a round trip that carried an error, and the one a page asks for by
+    /// calling <see cref="FocusFirstErrorAsync"/>. Distinct from
     /// <see cref="FocusFallback"/>, which runs only after an attempt has already missed: this runs
     /// whether or not the element is reachable, and the try-fallback-retry pipeline behind it is
     /// unchanged. Same delegate shape as <see cref="FormidableSummary.PrepareFocus"/> and
@@ -201,17 +227,19 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// them is not yet one the visitor can use. So a dismissal callback completes on the dialog's
     /// own closed event, not on the state change that starts the close.
     /// <para>
-    /// It is invoked only when a move is actually about to be made: a form with
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> off, a host that registered no
-    /// <see cref="IFormidableFocusService"/>, and a blocked submit with no visible issue to land on
-    /// all skip it — a side effect as visible as closing a dialog must not fire for a move that
-    /// never happens. Once per move, before the first attempt: a fallback's retry does not run it
-    /// a second time.
+    /// It is invoked only when a move is actually about to be made: a submit whose move
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> called off, one whose handler called it off
+    /// with <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/>, a host
+    /// that registered no <see cref="IFormidableFocusService"/>, and a move that finds no visible
+    /// issue to land on all skip it — a side effect as visible as closing a dialog must not fire
+    /// for a move that never happens. Once per move, before the first attempt: a fallback's retry
+    /// does not run it a second time.
     /// </para>
     /// <para>
     /// A throw is treated exactly as one from <see cref="FocusFallback"/> on the same path, so a
     /// page that wires both parameters gets one behaviour rather than two: from the submit path it
-    /// surfaces out of <see cref="SubmitAsync"/>, and from the server-apply path it reaches no
+    /// surfaces out of <see cref="SubmitAsync"/>, from a page's own request it surfaces out of
+    /// <see cref="FocusFirstErrorAsync"/>, and from the server-apply path it reaches no
     /// caller and is left to become an unobserved task exception, since either
     /// <c>ApplyServerIssues</c> overload is synchronous by contract and its focus move is
     /// therefore fire-and-forget.
@@ -823,8 +851,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
         else
         {
-            await OnInvalidSubmit.InvokeAsync(outcome);
-            if (FocusFirstErrorOnInvalidSubmit)
+            // A fresh context per blocked submit, which is the whole of what keeps suppression
+            // from latching: the handler's answer lives on the object it was handed, and the next
+            // submit hands it a different one.
+            var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
+            await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+            if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
             {
                 await FocusFirstErrorAsync();
             }
@@ -835,14 +867,46 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// This form's half of the move: hand <see cref="FirstErrorFocus"/> the pieces only a root can
-    /// supply — its own injected provider, its engine, its <see cref="FocusFallback"/> and its
-    /// <see cref="PrepareFocus"/> — and let the shared helper make every decision from there.
-    /// Which field the visitor lands on, what the page is given a chance to do before the move,
-    /// and what happens when that field has no element, are the same decisions in attach mode, so
-    /// they are made in one place rather than kept privately here.
+    /// Moves focus to the first error among the form's visible issues. This is the move a blocked
+    /// submit makes under <see cref="FocusFirstErrorOnInvalidSubmit"/>, offered to a page that
+    /// wants to choose the moment instead: the submit path calls this very method, so which field
+    /// the visitor lands on, <see cref="PrepareFocus"/> being awaited ahead of the attempt, and
+    /// <see cref="FocusFallback"/> recovering a miss are not merely alike here — they are the
+    /// same code, and the only difference is who asked. Which also means it is not gated by
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>: that parameter decides what a blocked submit
+    /// does on its own, and this call is the page deciding.
     /// </summary>
-    private async Task FocusFirstErrorAsync() =>
+    /// <remarks>
+    /// The sequence it completes is a dialog's. An <see cref="OnInvalidSubmit"/> handler that
+    /// opens one calls
+    /// <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> so no move lands
+    /// behind the overlay, and the page calls this from wherever the dialog closes, including the
+    /// paths a visitor takes to close it without picking anything. A summary entry inside the
+    /// dialog is already covered by the summary's own click-to-focus, so this is for the ways out
+    /// that name no field.
+    /// <para>
+    /// "First error" resolves exactly as the automatic move resolves it, which includes the case
+    /// where there is no error: a form showing nothing worse than advisories lands on the first of
+    /// those rather than on nothing. Call from the renderer's synchronization context (a Blazor
+    /// event handler or <c>InvokeAsync</c>).
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// <see langword="true"/> when an element took focus, and <see langword="false"/> when nothing
+    /// did — the form shows no visible issue at all, no <see cref="IFormidableFocusService"/> is
+    /// registered, or the chosen field's element could not be focused: no
+    /// <see cref="FocusFallback"/> wired, a fallback that declined, or a retry that missed
+    /// again. It reports the move, not the form: a form with no issue on screen and a form
+    /// whose one error is out of reach both answer <see langword="false"/>, and a caller that
+    /// needs to tell those apart reads
+    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> through <see cref="Engine"/>. A
+    /// false answer means this call moved nothing, so a page with nowhere else to send the
+    /// visitor can ignore it.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// This form has no engine yet, because the call arrived before its first render.
+    /// </exception>
+    public async Task<bool> FocusFirstErrorAsync() =>
         await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
 
     /// <summary>
