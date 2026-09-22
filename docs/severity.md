@@ -212,6 +212,11 @@ itself:
 `formidable-summary__item` wrapping a `formidable-summary__link` button that moves focus to the
 offending field.
 
+One summary carries all three groups by default. A page that wants the blocking problems and the
+commentary in different places on the form renders a summary per band instead, with
+`Show="SummaryFilter.Errors"` and `Show="SummaryFilter.Advisories"` — see
+[Component kit](component-kit.md#showing-one-severity-band) for what that costs in announcements.
+
 ## The warning lifetime
 
 Submit is the disclosure event for a warning or an info exactly as it is for an error.

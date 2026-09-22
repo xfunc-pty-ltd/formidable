@@ -6,9 +6,10 @@ namespace Formidable.Sample.E2E;
 
 /// <summary>
 /// The workout page's cross-cutting stories, each driven end to end in a real browser: every kind
-/// of summary entry landing on a real element, the async availability check lighting exactly one
-/// field, and <c>Normalize()</c> running before the model is posted. The composite page exists to
-/// demonstrate these seams together, so they are pinned together.
+/// of summary entry landing on a real element, a collection issue's click-to-focus scrolling to
+/// its message rather than the middle of a tall group, the async availability check lighting
+/// exactly one field, and <c>Normalize()</c> running before the model is posted. The composite
+/// page exists to demonstrate these seams together, so they are pinned together.
 /// </summary>
 [Collection("e2e")]
 public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
@@ -99,6 +100,113 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         await Expect(Field(page, "eventname")).ToHaveValueAsync("Dev Summit");
     }
 
+    [E2EFact]
+    public async Task Workout_attendee_warning_scrolls_to_the_message_not_the_fieldset()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+
+        // A submit reveals the attendees group's disclosure; from there the count-based warning
+        // updates live as rows are added, with no further submit needed.
+        await SubmitRegistrationAsync(page);
+        await Expect(Summary(page)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+
+        var addAttendee = page.GetByRole(AriaRole.Button, new() { Name = "Add attendee", Exact = true });
+        for (var i = 0; i < 11; i++)
+        {
+            await addAttendee.ClickAsync();
+        }
+
+        const string warning = "More than 10 attendees needs approval — submission is not blocked";
+        await Expect(SummaryEntry(page, warning)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+
+        // The resolved scroll target is the (short) message list, not the fieldset — eleven
+        // blank rows just prove the fieldset itself really is the tall thing a pre-fix centring
+        // would have used, so this pins the id-retargeting half of the fix (scroll target is the
+        // message, not the container), not the size-aware "tall" branch. That branch is pinned
+        // separately, on the model-level gate's form-wide fallback below.
+        var fieldsetHeight = await Field(page, "attendees")
+            .EvaluateAsync<double>("el => el.getBoundingClientRect().height");
+        var viewportHeight = await page.EvaluateAsync<double>("() => window.innerHeight");
+        Assert.True(fieldsetHeight > viewportHeight * 0.6);
+
+        await SummaryEntry(page, warning).ClickAsync();
+
+        // The scroll is smooth, so its resting position — not a mid-animation snapshot — is what
+        // proves where it landed: wait for window.scrollY to stop moving first.
+        await WaitForScrollToSettleAsync(page);
+
+        // The message list, addressed the way every collection message list is: the field's id
+        // with "-messages" appended, not a spelled-out id.
+        var top = await page.Locator("ul[id$='-attendees-messages']")
+            .EvaluateAsync<double>("el => el.getBoundingClientRect().top");
+        Assert.True(
+            top >= 0 && top < viewportHeight,
+            $"expected the attendees message list inside the viewport (0..{viewportHeight}), got top={top}");
+    }
+
+    [E2EFact]
+    public async Task Workout_hidden_issue_gate_top_aligns_the_tall_form()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+
+        // Everything the Submit profile asks for except Dietary notes, whose rule is
+        // unconditional — leaving it empty is the one failure this scenario needs.
+        await Field(page, "contactemail").FillAsync("workout-e2e-gate@example.com");
+        await Field(page, "eventname").FillAsync("Dev Summit");
+        await Field(page, "eventdate").FillAsync("2027-05-01");
+        await Field(page, "venueregion").FillAsync("South Australia");
+
+        await SubmitRegistrationAsync(page);
+        await Expect(SummaryEntry(page, "Dietary notes are required for catering"))
+            .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+
+        // Unticking removes the only failing field from the DOM without answering its rule, so
+        // the next submit has nothing visible left to blame it on.
+        await Field(page, "includecatering").UncheckAsync();
+        await SubmitRegistrationAsync(page);
+
+        const string gate =
+            "The form cannot be submitted because information that is not currently displayed is invalid.";
+        await Expect(SummaryEntry(page, gate)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+
+        // The model-level field renders no message list of its own, so the scroll target falls
+        // back to the focus target: the whole <form>, which spans far more than the viewport —
+        // the "tall" branch the size-aware alignment exists for. The blocked submit's own
+        // auto-focus (FocusFirstErrorOnInvalidSubmit) is what triggers it; no summary click is
+        // needed, which also sidesteps the debounced refresh the catering edit armed (see
+        // WorkoutLifecycles.Workout_suppression_and_the_gate for why a summary click there is
+        // dispatched rather than clicked).
+        await Expect(Field(page, "form")).ToBeFocusedAsync();
+        await WaitForScrollToSettleAsync(page);
+
+        var top = await Field(page, "form").EvaluateAsync<double>("el => el.getBoundingClientRect().top");
+        // "start" alignment rests the element's top at (near) the viewport's top; the pre-fix
+        // "center" alignment would rest a form this tall's top far above it, strongly negative.
+        Assert.True(
+            top is >= -5 and <= 50,
+            $"expected the form's top near the viewport's top (start-aligned), got top={top}");
+    }
+
     private static Task SubmitRegistrationAsync(IPage page) =>
         page.GetByRole(AriaRole.Button, new() { Name = "Submit registration", Exact = true }).ClickAsync();
+
+    // A smooth scrollIntoView animates over several frames, so reading the resting position
+    // immediately after the click that triggers it can catch it mid-flight. Poll window.scrollY
+    // until two consecutive reads agree.
+    private static async Task WaitForScrollToSettleAsync(IPage page)
+    {
+        var previous = double.NaN;
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            var current = await page.EvaluateAsync<double>("() => window.scrollY");
+            if (current == previous)
+            {
+                return;
+            }
+            previous = current;
+            await Task.Delay(50);
+        }
+    }
 }

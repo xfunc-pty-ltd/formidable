@@ -66,6 +66,10 @@ public class SubmitSeverityRenderingTests : BunitContext
         Services.AddFormidableBlazor();
         Services.AddSingleton<IValidator<TaggedListing>, TaggedListingValidator>();
         JSInterop.Mode = JSRuntimeMode.Loose;
+        // The form resolves field order after every render that changed the registered set; answer
+        // it explicitly rather than leaving it on the loose default, which is a null no answer.
+        JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")
+            .Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
 
         var model = new TaggedListing();
         var form = RenderWithMessageAndSummary(model);

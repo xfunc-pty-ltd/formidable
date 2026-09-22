@@ -11,7 +11,10 @@ internal sealed class FormidableFocusService : IFormidableFocusService, IDisposa
     public FormidableFocusService(IJSRuntime jsRuntime) => _module = new FormidableJsModule(jsRuntime);
 
     public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
-        _module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
+        _module.InvokeAsync<bool>(
+            "focusField",
+            FormidableFieldId.For(field),
+            FormidableFieldId.MessagesFor(field));
 
     // Both disposal shapes so either kind of container teardown releases the module - the
     // rationale and the semantics live with FormidableJsModule.

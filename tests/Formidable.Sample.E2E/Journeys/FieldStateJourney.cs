@@ -24,9 +24,11 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         var displayNameRow = page.Locator(".state-table tbody tr:has-text('Display name')");
 
         // Touched flips on blur alone — the page's MarkTouched splat (its whole lesson). With
-        // nothing typed and no rule to fail, touched alone already earns formidable-valid.
+        // nothing typed and no rule to fail, touched alone already earns formidable-valid. The
+        // row's cells sit one per line in the markup, so the assertions below tolerate the
+        // whitespace a normalized read leaves between them.
         await page.GetByLabel("Username", new() { Exact = true }).PressAsync("Tab");
-        await Expect(usernameRow).ToHaveTextAsync(new Regex("^UsernameTrueFalse"));
+        await Expect(usernameRow).ToHaveTextAsync(new Regex(@"^Username\s*True\s*False"));
         await Expect(page.GetByLabel("Username", new() { Exact = true }))
             .ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
 
@@ -36,7 +38,8 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         // on that same update.
         await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
         await TabAsync(page);
-        await Expect(usernameRow).ToHaveTextAsync(new Regex("^UsernameTrueTrue"), new() { Timeout = AsyncTimeoutMs });
+        await Expect(usernameRow).ToHaveTextAsync(
+            new Regex(@"^Username\s*True\s*True"), new() { Timeout = AsyncTimeoutMs });
         await Expect(page.GetByLabel("Username", new() { Exact = true }))
             .ToHaveClassAsync(new Regex(@"\bformidable-valid\b"), new() { Timeout = AsyncTimeoutMs });
 
@@ -44,7 +47,7 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         // on the page's other field, lands on the identical class: the alignment holds per field,
         // not just for the one already exercised above.
         await page.GetByLabel("Display name", new() { Exact = true }).PressAsync("Tab");
-        await Expect(displayNameRow).ToHaveTextAsync(new Regex("^Display nameTrueFalse"));
+        await Expect(displayNameRow).ToHaveTextAsync(new Regex(@"^Display name\s*True\s*False"));
         await Expect(page.GetByLabel("Display name", new() { Exact = true }))
             .ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
     }

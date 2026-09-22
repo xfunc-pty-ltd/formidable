@@ -27,12 +27,15 @@ public class FormidableSummaryTests : BunitContext
     {
         Services.AddFormidableBlazor();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
-        JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js").Setup<bool>("focusField", _ => true).SetResult(true);
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
     }
 
     private IRenderedComponent<FormidableForm<EngineOrder>> RenderWithSummary(
         EngineOrder order,
-        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null)
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null,
+        SummaryFilter show = SummaryFilter.All)
     {
         var cut = Render(builder =>
         {
@@ -47,9 +50,10 @@ public class FormidableSummaryTests : BunitContext
             builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
             {
                 inner.OpenComponent<FormidableSummary>(0);
+                inner.AddComponentParameter(1, "Show", show);
                 if (focusFallback is not null)
                 {
-                    inner.AddComponentParameter(1, "FocusFallback", focusFallback);
+                    inner.AddComponentParameter(2, "FocusFallback", focusFallback);
                 }
 
                 inner.CloseComponent();
@@ -103,6 +107,64 @@ public class FormidableSummaryTests : BunitContext
     }
 
     [Fact]
+    public async Task Errors_filter_shows_only_errors_and_announces_assertively()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order, show: SummaryFilter.Errors);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var summary = form.Find("div.formidable-summary");
+            Assert.Equal("alert", summary.GetAttribute("role"));
+            Assert.Single(form.FindAll("ul.formidable-summary__group--error"));
+            Assert.Empty(form.FindAll("ul.formidable-summary__group--warning"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Advisories_filter_shows_warnings_and_infos_and_announces_politely()
+    {
+        // Advisories is the one filter spanning two severities, so the order carries both: a
+        // hyphen draws the warning, an exclamation mark the info, and a null customer the error
+        // the filter has to leave out.
+        var order = new EngineOrder { Description = "a-b!", Customer = null };
+        var form = RenderWithSummary(order, show: SummaryFilter.Advisories);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var summary = form.Find("div.formidable-summary");
+            Assert.Equal("status", summary.GetAttribute("role"));
+            Assert.Single(form.FindAll("ul.formidable-summary__group--warning"));
+            Assert.Single(form.FindAll("ul.formidable-summary__group--info"));
+            Assert.Empty(form.FindAll("ul.formidable-summary__group--error"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_filter_that_matches_nothing_renders_nothing()
+    {
+        var order = new EngineOrder(); // errors only: Description + Customer both NotEmpty/NotNull
+        var form = RenderWithSummary(order, show: SummaryFilter.Infos);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        // The raw (unfiltered) engine state confirms the submit pass landed with visible
+        // issues; the assertion below then confirms the Infos filter matched none of them.
+        form.WaitForAssertion(() => Assert.NotEmpty(form.Instance.Engine!.GetVisibleIssues()));
+        Assert.Empty(form.FindAll("div.formidable-summary"));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Click_focuses_the_field_via_js()
     {
         var order = new EngineOrder();
@@ -139,6 +201,7 @@ public class FormidableSummaryTests : BunitContext
     {
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(false);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>
@@ -162,6 +225,7 @@ public class FormidableSummaryTests : BunitContext
     {
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>
@@ -185,6 +249,7 @@ public class FormidableSummaryTests : BunitContext
     {
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(false);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>

@@ -14,6 +14,7 @@ public sealed class ServerJourney(SampleAppFixture app)
 {
     // Read from RoundTripOrderValidator and the page's own status line: the shipped text is the
     // contract a reader sees, so the test quotes it rather than matching loosely.
+    private const string DescriptionRequired = "Description is required";
     private const string SkuRequired = "SKU is required";
     private const string HyphenAdvisory = "Hyphens make order references harder to read aloud";
     private const string Accepted = "Server accepted the order.";
@@ -93,6 +94,23 @@ public sealed class ServerJourney(SampleAppFixture app)
         await SendAsync(page);
         await Expect(MessagesFor(page, "sku"))
             .ToHaveTextAsync([SkuRequired], new() { Timeout = AsyncTimeoutMs });
+    }
+
+    [E2EFact]
+    public async Task A_rejected_round_trip_focuses_the_first_problem()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        // Both Description and the one seeded line's SKU fail on an empty submit; Description
+        // sits first in ServerRoundTrip.razor's markup, so applying the server's verdict should
+        // focus it — the same first-in-document-order contract a blocked client submit already
+        // has.
+        await SendAsync(page);
+
+        await Expect(MessagesFor(page, "description")).ToHaveTextAsync(
+            [DescriptionRequired], new() { Timeout = AsyncTimeoutMs });
+        await Expect(Field(page, "description")).ToBeFocusedAsync();
     }
 
     [E2EFact]

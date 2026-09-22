@@ -10,7 +10,9 @@
             <li>Everything the kit colours flows through CSS custom properties in the SAMPLE's stylesheet — invalid borders, messages, the summary accent, even the pending spinner all read the same handful of tokens.</li>
             <li>Recolouring is overriding those tokens on any ancestor element — zero library involvement; the kit never sees a colour.</li>
             <li>That is a different seam from renaming: the <a href="/bootstrap">Bootstrap page</a> uses <code>FormidableCssClasses</code> to remap the state class NAMES onto another library's classes. Token override recolours; class-name remap re-targets whose stylesheet applies.</li>
-            <li><strong>Title</strong> — required (error). <strong>Description</strong> — an exclamation mark draws a warning. <strong>Tags</strong> — more than five draws an info. Same validator as Severity levels.</li>
+            <li><strong>Title</strong> — required (error).</li>
+            <li><strong>Description</strong> — an exclamation mark draws a warning.</li>
+            <li><strong>Tags</strong> — more than five draws an info. Same validator as Severity levels.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -32,11 +34,13 @@
     <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
         <FormidableSummary />
 
-        <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" /></label>
+        @* OnInput commits each keystroke, so a message can never appear at blur — where it
+           would push the Submit button out from under a pointer already on its way down. *@
+        <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Title" /></div>
-        <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" /></label>
+        <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Description" /></div>
-        <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" /></label>
+        <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Tags" /></div>
 
         <div class="actions"><button type="submit">Submit</button></div>

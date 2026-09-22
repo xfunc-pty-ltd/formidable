@@ -52,13 +52,36 @@
     </FormidableField>
 
     <table class="state-table">
-        <thead><tr><th>Field</th><th>Touched</th><th>Modified</th><th>Validating</th><th>Errors</th><th>Warnings</th></tr></thead>
+        <thead>
+            <tr>
+                <th>Field</th>
+                <th>Touched</th>
+                <th>Modified</th>
+                <th>Validating</th>
+                <th>Errors</th>
+                <th>Warnings</th>
+            </tr>
+        </thead>
         <tbody>
             <FormidableField For="() => _handle.Username" Context="field">
-                <tr><td>Username</td><td>@field.State.IsTouched</td><td>@field.State.IsModified</td><td>@field.State.IsValidating</td><td>@field.State.HasErrors</td><td>@field.State.HasWarnings</td></tr>
+                <tr>
+                    <td>Username</td>
+                    <td>@field.State.IsTouched</td>
+                    <td>@field.State.IsModified</td>
+                    <td>@field.State.IsValidating</td>
+                    <td>@field.State.HasErrors</td>
+                    <td>@field.State.HasWarnings</td>
+                </tr>
             </FormidableField>
             <FormidableField For="() => _handle.DisplayName" Context="field">
-                <tr><td>Display name</td><td>@field.State.IsTouched</td><td>@field.State.IsModified</td><td>@field.State.IsValidating</td><td>@field.State.HasErrors</td><td>@field.State.HasWarnings</td></tr>
+                <tr>
+                    <td>Display name</td>
+                    <td>@field.State.IsTouched</td>
+                    <td>@field.State.IsModified</td>
+                    <td>@field.State.IsValidating</td>
+                    <td>@field.State.HasErrors</td>
+                    <td>@field.State.HasWarnings</td>
+                </tr>
             </FormidableField>
         </tbody>
     </table>

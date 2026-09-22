@@ -15,8 +15,16 @@ public class FormidableOptionsResolutionTests : BunitContext
     private static readonly TimeSpan ConfiguredDebounce = TimeSpan.FromMilliseconds(42);
     private static readonly TimeSpan ParameterDebounce = TimeSpan.FromMilliseconds(77);
 
-    public FormidableOptionsResolutionTests() =>
+    public FormidableOptionsResolutionTests()
+    {
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
+
+        // RenderForm's FormidableForm carries no fields at all, but the model-level field is
+        // still offered to the order service on its first render — so every test through here
+        // needs the module answered, not just the ones that care about ordering.
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+    }
 
     [Fact]
     public void Configured_defaults_apply_when_the_Options_parameter_is_omitted()

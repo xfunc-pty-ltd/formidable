@@ -19,7 +19,11 @@ public partial class Workout : IDisposable
     private static readonly bool IsHostedDemo = false;
 #endif
 
-    private const float SessionRowHeight = 96f;
+    // Matches app.css's fixed .scroll-panel .field height (102px) plus the field's own
+    // 16px bottom margin — the true pitch from one row's top to the next, measured in a
+    // real browser. The session title varies row to row, but at this panel's width it
+    // never wraps, so the same fixed row height as Virtualized applies here too.
+    private const float SessionRowHeight = 118f;
 
     private static readonly string[] SessionTracks =
         ["Keynote", "Workshop", "Panel", "Lightning talks", "Lab"];

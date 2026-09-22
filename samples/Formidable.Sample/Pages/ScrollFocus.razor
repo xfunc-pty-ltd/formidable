@@ -7,7 +7,7 @@
 <TeachingPanel CodeFiles="@(new[] { "ScrollFocus.razor", "ScrollFocus.razor.cs" })">
     <Rules>
         <ul>
-            <li>A blocked submit auto-focuses the first visible issue by default (<code>FormidableForm.FocusFirstErrorOnInvalidSubmit</code>) — untick the toggle above the form to turn that off and choose focus yourself instead.</li>
+            <li>A blocked submit auto-focuses the first error by default (<code>FormidableForm.FocusFirstErrorOnInvalidSubmit</code>) — untick the toggle above the form to turn that off and choose focus yourself instead.</li>
             <li>The summary lists every visible issue. Clicking an entry scrolls its element into view (centred) and focuses it.</li>
             <li>The focus service targets elements in the DOM — and on this page, everything IS in the DOM, so every entry works with no fallback.</li>
             <li>Contrast the Virtualized page: its rows leave the DOM when scrolled out of the render window, so it needs a <code>FocusFallback</code> to bring one back before focusing it. Here there is nothing to bring back.</li>

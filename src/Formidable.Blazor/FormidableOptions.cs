@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Components.Forms;
+
 namespace Formidable.Blazor;
 
 /// <summary>Engine configuration. Profiles are assigned meaning here — at the point of use.</summary>
@@ -121,6 +123,32 @@ public sealed class FormidableOptions
     /// <see cref="FormidableSummary"/>, which already announces on its own.
     /// </summary>
     public string? InlineMessageRole { get; set; }
+
+    /// <summary>
+    /// Re-sorts the order visible issues are reported in. Defaults to <see langword="null"/>,
+    /// which reports them in the document order of the rendered fields — today's behavior,
+    /// unchanged, and what most forms want.
+    /// </summary>
+    /// <remarks>
+    /// A pipeline stage rather than a replacement for
+    /// <see cref="IFormidableFieldOrderService"/>: the service answers where the fields are, and
+    /// this answers what order to report them in. It receives the fields already in document order
+    /// and returns them re-sorted, so a consumer who only wants to move one group ahead of another
+    /// can do that without describing the whole form. It runs once per order resolution — the same
+    /// cadence as the service, behind the same registry-version guard — not per render and not per
+    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> call, so its result is baked into the
+    /// ordinal map and costs nothing to read.
+    /// It is synchronous by design. Anything that needs to measure the DOM has to be async, and
+    /// async ordering already has a home in the service; an async delegate here would duplicate it
+    /// without adding reach.
+    /// Reordering is all it can do. A field it leaves out of its result is appended in document
+    /// order rather than dropped — an issue that is never reported is an issue a visitor cannot
+    /// act on, and hiding one is what disclosure is for, with its own diagnostic.
+    /// Because the map is rebuilt when the registered field set changes, a sort criterion that
+    /// changes on its own — a runtime "group by severity" toggle, say — is not picked up until the
+    /// next registration change.
+    /// </remarks>
+    public Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>? OrderIssues { get; set; }
 
     /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
     public FormidableCssClasses CssClasses { get; set; } = new();

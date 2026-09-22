@@ -13,6 +13,7 @@ public sealed class FieldRegistry
     private readonly Dictionary<FieldIdentifier, int> _counts = [];
     private readonly HashSet<FieldIdentifier> _kept = [];
     private readonly HashSet<FieldIdentifier> _everRegistered = [];
+    private int _version;
 
     /// <summary>
     /// Registers a rendered field. Dispose the returned handle when the field leaves the
@@ -26,11 +27,26 @@ public sealed class FieldRegistry
     {
         _counts[field] = _counts.TryGetValue(field, out var count) ? count + 1 : 1;
         _everRegistered.Add(field);
+        _version++;
         return new FieldRegistration(this, field, keepRegistered);
     }
 
     /// <summary>True when the field is currently rendered (or retained via keep-registered).</summary>
     public bool IsRevealed(FieldIdentifier field) => _counts.ContainsKey(field) || _kept.Contains(field);
+
+    /// <summary>
+    /// Changes whenever a field registers or unregisters. A host polls this to learn when the
+    /// rendered field set moved — the registry deliberately raises no event, so nothing here can
+    /// re-enter a render that is still in progress.
+    /// </summary>
+    internal int Version => _version;
+
+    /// <summary>
+    /// The fields currently in the render tree, in no particular order. A field retained only by
+    /// keep-registered is absent: it has left the DOM, so there is no element of its own to
+    /// locate.
+    /// </summary>
+    internal IReadOnlyCollection<FieldIdentifier> RevealedFields => _counts.Keys;
 
     /// <summary>
     /// True when the field has been registered at least once since the engine was built, whether
@@ -48,6 +64,8 @@ public sealed class FieldRegistry
         {
             return;
         }
+
+        _version++;
 
         if (count <= 1)
         {

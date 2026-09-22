@@ -92,6 +92,7 @@ public class FormidableFormComponentTests : BunitContext
         Services.AddFormidableBlazor();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var order = new EngineOrder { Description = "ok" }; // only Customer fails
         var cut = RenderForm(order);
 
@@ -110,6 +111,7 @@ public class FormidableFormComponentTests : BunitContext
         Services.AddFormidableBlazor();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var cut = RenderForm(new EngineOrder(), focusFirstErrorOnInvalidSubmit: false);
 
         await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
@@ -125,6 +127,7 @@ public class FormidableFormComponentTests : BunitContext
         Services.AddFormidableBlazor();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var cut = RenderForm(order);
 
@@ -433,6 +436,95 @@ public class FormidableFormComponentTests : BunitContext
             "Server rejected this description",
             cut.Instance.Engine!.EditContext.GetValidationMessages(
                 new FieldIdentifier(order, nameof(EngineOrder.Description))));
+    }
+
+    // A rejected round trip is a blocked submit that arrived late, so applying its verdict
+    // focuses the same way — see the two SubmitAsync focus tests above for the mirrored pair.
+    [Fact]
+    public async Task Applying_server_issues_focuses_the_first_problem()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "server says no")]));
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description))),
+            module.Invocations["focusField"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Applying_server_issues_does_not_focus_when_the_parameter_is_off()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        var order = new EngineOrder();
+        var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "server says no")]));
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    // An accepted resubmission carries nothing to reject, so it must not steal focus onto some
+    // unrelated issue an EARLIER, unrelated submit left visible on the page — only what THIS
+    // apply itself rejected is grounds to move focus. FocusFirstErrorOnInvalidSubmit is switched
+    // on only after the (deliberately unfocused) first submit, so the stale error's own
+    // visibility is not itself a confound.
+    [Fact]
+    public async Task Applying_an_empty_verdict_does_not_focus_a_stale_visible_issue()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        var order = new EngineOrder();
+        var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
+
+        cut.Find("form").Submit();
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.Engine!.HasSubmitted));
+        Assert.NotEmpty(cut.Instance.Engine!.GetVisibleIssues());
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        cut.Render(parameters => parameters.Add(p => p.FocusFirstErrorOnInvalidSubmit, true));
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(Array.Empty<ValidationIssue>()));
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    // An advisory blocks nothing, so an apply carrying only advisories rejected nothing either —
+    // the same "nothing to reject" case as an empty apply, just with a warning attached.
+    [Fact]
+    public async Task Applying_advisory_only_server_issues_does_not_focus_anything()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+
+        await cut.InvokeAsync(() => cut.Instance.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "a gentle nudge", ValidationSeverity.Warning)]));
+
+        Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
     }
 
     // Both forwards and SubmitAsync run through the engine the form builds on its first parameter

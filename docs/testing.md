@@ -77,20 +77,22 @@ has one; `new FluentValidationModelValidator<T>(...)` is the shortcut when it do
 
 ### The form, under bUnit
 
-The kit renders under [bUnit](https://bunit.dev) like any other component set. Two of its services
-talk to JavaScript, so a component test supplies its own stand-ins for them: register the doubles
-*before* `AddFormidableBlazor()`, which respects registrations that are already there.
+The kit renders under [bUnit](https://bunit.dev) like any other component set. Three of its
+services talk to JavaScript, so a component test supplies its own stand-ins for them: register the
+doubles *before* `AddFormidableBlazor()`, which respects registrations that are already there.
 
 ```csharp
 public class SignupFormTests : BunitContext
 {
     private readonly RecordingFocusService _focus = new();       // your recording doubles
     private readonly RecordingDomValueSync _domSync = new();
+    private readonly RecordingFieldOrderService _order = new();
 
     public SignupFormTests()
     {
         Services.AddSingleton<IFormidableFocusService>(_focus);
         Services.AddSingleton<IFormidableDomValueSync>(_domSync);
+        Services.AddSingleton<IFormidableFieldOrderService>(_order);
         Services.AddFormidableBlazor();
         Services.AddSingleton<IValidator<Signup>>(new SignupValidator());
     }
@@ -113,15 +115,25 @@ a form rendering a summary needs *something* there. A recording double also make
 and which field a blocked submit moved to is worth pinning, since
 `FocusFirstErrorOnInvalidSubmit` moves it on every blocked submit by default.
 `IFormidableDomValueSync` matters as soon as a `FormidableInputNumber` or `FormidableInputDate` is
-on the form: both inject it and call it on blur. Formidable's own
+on the form: both inject it and call it on blur. `IFormidableFieldOrderService` is what
+`FormidableForm` asks, after any render that changed its registered fields, for the document order
+its summary lists issues in — so a double is how a test states an order without a document, and
+how issue order or the field a blocked submit focused becomes assertable. Formidable's own
 [`RecordingDomValueSync`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingDomValueSync.cs) is a
-twenty-line class recording every call, and a focus double is the same shape over `FocusAsync`.
+twenty-line class recording every call,
+[`RecordingFieldOrderService`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingFieldOrderService.cs)
+is the same shape with an answer to hand back, and a focus double is the same shape again over
+`FocusAsync`.
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
-`JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. That is what Formidable's
-own `FocusServiceTests` do, because there the service *is* the thing under test. For a form test,
-the interface doubles are less machinery.
+`JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan every call the form
+makes, `orderFields` included. Strict mode is bUnit's default, and an unplanned call throws
+`JSRuntimeUnhandledInvocationException` — which derives from `Exception`, not `JSException`, so
+the form's own tolerance for a failed interop call never catches it. Render a form with fields
+and no plan for `orderFields`, and the render itself throws. That is what Formidable's own
+`FocusServiceTests` do, because there the service *is* the thing under test.
+For a form test, the interface doubles are less machinery.
 
 ### Waiting for the answer
 

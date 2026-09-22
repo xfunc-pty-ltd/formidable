@@ -698,6 +698,16 @@ the EditContext's message store. A warning or an info lands on the same field as
 visible in Formidable's own message components and in the summary, blocking nothing, and never
 written to the store, which carries errors only. The page writes no advisory plumbing of its own.
 
+**A rejection moves focus, the way a blocked submit does.** `FormidableForm.ApplyServerIssues`
+is a submit's verdict arriving late, so a payload carrying an error lands the visitor on the first
+error on the page — the target a blocked client submit gets, under the same
+`FocusFirstErrorOnInvalidSubmit` switch (see
+[Component kit](component-kit.md#formidableformtmodel)). A payload with no error in it moves
+nothing, since nothing about it was rejected. `Engine.ApplyServerIssues(...)` is the quiet path
+for an apply nobody just asked for, and `FormidableValidator`'s forwarders are quiet for the
+reason attach mode has no automatic focus at all: the page owns the `<form>`, so it owns what
+happens after a rejection.
+
 The sample deliberately skips client-side submit validation so the round-trip is visible end to
 end — press Send and the server's 400 lands on the exact fields:
 

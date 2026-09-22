@@ -78,6 +78,25 @@ public class FocusServiceTests : BunitContext
     }
 
     [Fact]
+    public async Task Focus_passes_the_message_list_as_the_scroll_target()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        var order = new EngineOrder();
+        var service = Services.GetRequiredService<IFormidableFocusService>();
+        var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await service.FocusAsync(field);
+
+        var arguments = module.Invocations["focusField"].Single().Arguments;
+        Assert.Equal(FormidableFieldId.For(field), arguments[0]);
+        Assert.Equal(FormidableFieldId.MessagesFor(field), arguments[1]);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
     public async Task AddFormidableBlazor_registers_core_and_focus_services()
     {
         Services.AddFormidableBlazor();

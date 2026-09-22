@@ -275,6 +275,102 @@ pass runs `SubmitProfile` form-wide, cancelling whatever pass was in flight, and
 superseded in turn. It sets `HasSubmitted` true, which is what arms the refresh for every edit
 that follows.
 
+### One edit after a submit runs the draft rules twice
+
+Once a form has been submitted, an edit takes both branches of the flowchart at once: it starts
+a live pass and it arms the refresh. `ValidationProfile.Submit` is the default rules *plus* the
+`Submit` ruleset, so an async rule written in `ConfigureDraftRules()` — the uniqueness check at
+the top of this page — runs in both. The sample's
+[`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes it visible. Set the
+delay slider to 2000 ms, submit, then type: the check resolves, and a second one starts.
+
+The engine does not collapse that into one run, because the two passes answer different
+questions and own different channels. The live pass answers "is the value on screen acceptable
+right now?", and its verdict is what surfaces a problem on a field that was clean at submit
+time. The refresh answers "are the messages the submit put on screen still true?", and its
+verdict reaches only the fields already disclosed at submit time. Neither report can be
+rewritten into the other. The live report is missing every `Submit`-ruleset rule; the refresh's
+report has both halves mixed together and no record of which ruleset produced which issue, so
+it cannot be split back apart. Substituting one for the other is how a submit-time message goes
+stale: it stays on screen after the value it accuses has been fixed.
+
+Two things reduce the cost, and both of them are yours rather than the engine's:
+
+- [`LiveDebounce`](options.md#livedebounce) collapses a burst of keystrokes into a single live
+  pass. It leaves the refresh's own cadence alone, as described under
+  [The live pass starts](#the-live-pass-starts): it reduces live passes, not refresh passes, so
+  it never takes a post-submit edit below the two runs described here.
+- Memoize inside the rule when the check is genuinely expensive, keyed on the value the rule is
+  checking. The rule has that value in scope and the engine deliberately does not: it hands the
+  validator a profile and takes back a report, with no rule-level seam to cache at. That makes
+  the remedy the validator's, and it is a small one.
+
+The key is the value itself: a second pass over an unchanged value reuses the first pass's answer
+instead of making the call again. The two runs are about one `RefreshDebounce` apart — 300 ms by
+default — so the window only has to be long enough to catch a duplicate that is milliseconds
+old.
+
+Here is the same uniqueness check as a validator that calls a real directory service
+(`IUsernameDirectory` below is the consumer's own lookup, whatever it is) and remembers its last
+answer. It is a second validator over the same `Handle` model, not the sample's own
+`HandleValidator` quoted above:
+
+```csharp
+using System.Diagnostics;
+using FluentValidation;
+using Formidable;
+
+public class UniqueHandleValidator : DraftSubmitValidator<Handle>
+{
+    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(1);
+    private readonly IUsernameDirectory _directory;
+    private (string Username, bool Free, long Timestamp)? _last;
+
+    public UniqueHandleValidator(IUsernameDirectory directory) => _directory = directory;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(h => h.Username)
+            .MustAsync((username, token) => IsFreeAsync(username, token))
+            .WithMessage("That username is taken")
+            .When(h => !string.IsNullOrEmpty(h.Username));
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(h => h.Username)
+            .NotEmpty()
+            .WithMessage("A username is required");
+
+    private async Task<bool> IsFreeAsync(string username, CancellationToken cancellationToken)
+    {
+        if (_last is { } last
+            && last.Username == username
+            && Stopwatch.GetElapsedTime(last.Timestamp) < CacheWindow)
+        {
+            return last.Free;
+        }
+
+        var free = await _directory.IsFreeAsync(username, cancellationToken);
+        _last = (username, free, Stopwatch.GetTimestamp());
+        return free;
+    }
+}
+```
+
+Three things decide whether that is safe on a given rule:
+
+- **The check has to be pure.** Its answer may depend on the value and nothing else. A rule that
+  reads another field, the clock, or a row a colleague is editing at the same time has no
+  business remembering its last answer.
+- **The validator's lifetime is the cache's lifetime.** A scoped validator caches per visitor,
+  which is what the example above assumes. A singleton shares one cache across everyone, which
+  is a correctness question before it is a performance one.
+- **Keep the window short.** It exists to swallow a duplicate seconds old at most, not to stand
+  in for a data cache with its own invalidation story.
+
+One more run is opt-in. `FormidableOptions.TrackFormValidity` probes the whole model under
+`SubmitProfile` on every field change — or once per window when `LiveDebounce` is set, at the
+same cadence as the live pass it rides alongside — so a form with it switched on runs that same
+draft rule three times per post-submit edit rather than twice.
+
 ## Which fields show "checking…"
 
 A spinner in the wrong place teaches the wrong thing. Light the whole form up for one field's

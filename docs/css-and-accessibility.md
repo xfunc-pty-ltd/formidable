@@ -360,14 +360,26 @@ submit. Content and role change together in the same render, so a follow-up edit
 last error can flip the region from `alert` to `status` as part of the same update that removes
 the message.
 
+The role is per summary, not per form, which matters as soon as a page splits the bands with
+`Show` (see [Component kit](component-kit.md#showing-one-severity-band)). Each summary computes
+`hasError` over the issues *it* renders, so an `Errors` summary announces as `alert` whenever it
+has anything and an `Advisories` one always as `status`. That is two live regions on the page, and
+a submit that produces both kinds announces twice. One combined summary announces once, at the
+urgency of the worst thing in it — which is the reason `All` is the default.
+
 ### Focus service
 
 Every entry in `FormidableSummary` is a button that calls `IFormidableFocusService.FocusAsync`, which
 locates and focuses the DOM element carrying a field's deterministic id. The summary is not its
-only caller: `FormidableForm` moves focus to the first visible issue through the same service on
-every blocked submit, unless `FocusFirstErrorOnInvalidSubmit="false"` says otherwise (see
-[Component kit](component-kit.md#formidableformtmodel)). Both callers treat a miss the same way,
-which the service's own contract explains:
+only caller: `FormidableForm` moves focus through the same service on every blocked submit, unless
+`FocusFirstErrorOnInvalidSubmit="false"` says otherwise (see
+[Component kit](component-kit.md#formidableformtmodel)). It aims at the first error rather than the
+first visible issue, because issue order follows the page and the topmost field may be carrying
+only a warning: a keyboard visitor whose submit was refused should arrive at the thing that refused
+it, not at an advisory above it. In the rare case where a submit blocks with no error on screen at
+all, it falls back to the first visible issue, so focus still moves rather than being left wherever
+the submit button was. Both callers treat a miss the same way, which the service's own contract
+explains:
 
 ```csharp
 namespace Formidable.Blazor;
@@ -380,9 +392,12 @@ namespace Formidable.Blazor;
 public interface IFormidableFocusService
 {
     /// <summary>
-    /// Moves focus to the rendered element for <paramref name="field"/>, scrolling it into view.
-    /// Returns <c>true</c> when the element was found and focused, <c>false</c> when no element
-    /// with the field's id exists in the DOM — e.g. a virtualized row outside the render window.
+    /// Moves focus to the rendered element for <paramref name="field"/>. The scroll that brings it
+    /// into view prefers the field's message list when one is rendered, so clicking a
+    /// collection-level issue shows the message that was clicked rather than the middle of the
+    /// group; it falls back to the focus target itself when no message list exists. Returns
+    /// <c>true</c> when the element was found and focused, <c>false</c> when no element with the
+    /// field's id exists in the DOM — e.g. a virtualized row outside the render window.
     /// </summary>
     /// <param name="field">The field whose rendered element should receive focus.</param>
     ValueTask<bool> FocusAsync(FieldIdentifier field);
@@ -392,24 +407,34 @@ public interface IFormidableFocusService
 *Source: `src/Formidable.Blazor/IFormidableFocusService.cs`*
 
 The shipped implementation is a thin JS-interop wrapper: it computes the field's
-`FormidableFieldId`, passes just that id string across the interop boundary, and returns whatever
-the JS side reports:
+`FormidableFieldId` for the focus target and its `MessagesFor` id for the scroll target, and
+passes both id strings across the interop boundary, returning whatever the JS side reports:
 
 ```csharp
     public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
-        _module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
+        _module.InvokeAsync<bool>(
+            "focusField",
+            FormidableFieldId.For(field),
+            FormidableFieldId.MessagesFor(field));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFocusService.cs`*
 
 ```javascript
-export function focusField(id) {
+export function focusField(id, scrollId) {
     const element = document.getElementById(id);
     if (!element) {
         return false;
     }
 
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    const scrollTarget = (scrollId && document.getElementById(scrollId)) || element;
+
+    // Centring works for an input, but a tall container's centre is the middle of its
+    // contents, which is nowhere near the message that was clicked. 60% is comfortably above
+    // an ordinary field wrapper and comfortably below a container spanning the viewport, so it
+    // separates the two without being sensitive to small layout changes.
+    const tall = scrollTarget.getBoundingClientRect().height > window.innerHeight * 0.6;
+    scrollTarget.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "center" });
     element.focus({ preventScroll: true });
     return true;
 }
@@ -417,9 +442,20 @@ export function focusField(id) {
 
 *Source: `src/Formidable.Blazor/wwwroot/formidable.js`*
 
-`document.getElementById(id)` is the entire lookup, and a miss is reported rather than
-swallowed: `focusField` returns `false` when no element carries the id, and `FocusAsync`
-propagates that bool straight back to its caller. The silent no-op lives one layer up, in
+Focus and scroll come apart there, deliberately. Focus always lands on the field's own element,
+because that is what a keyboard visitor has to be able to type into. The scroll prefers the
+field's message list, so an issue with no input of its own — a collection-level rule, whose
+element is the container holding every row — brings the message that named the problem into view
+instead of the middle of the group. Then the target's own height decides the alignment: taller
+than 60% of the viewport and it aligns to its top, smaller and it centres. Centring is right for a
+field wrapper and wrong for a container that fills the screen, whose centre is somewhere down
+among its rows.
+
+`document.getElementById(id)` locates both targets, and a miss on the focus target is reported
+rather than swallowed: `focusField` returns `false` when no element carries the focus id, and
+`FocusAsync` propagates that bool straight back to its caller. A miss on the scroll id alone is
+not an error — it falls back to the focus element itself, which is always the size-aware
+scroll's minimum viable target. The silent no-op lives one layer up, in
 `FormidableSummary`'s click-to-focus handler, when `FocusAsync` reports a miss and no
 `FocusFallback` is set (or the fallback itself fails to recover it). The no-op matters for two
 cases documented elsewhere. The first is a field scrolled out of a `Virtualize` window with no

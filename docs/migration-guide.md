@@ -62,6 +62,17 @@ relying on the old one implicitly:
   automatically; a raw/foreign control needs a `<FormidableFieldAnchor>` alongside it to opt back
   in to being counted as revealed. Sections that were always fully rendered are unaffected either
   way.
+- **Attach mode lists issues in the engine's order, not the page's.** Under `<FormidableForm>`,
+  a summary reports issues in the document order of the fields that render them, because the form
+  resolves where those fields sit and hands its engine the answer. `<FormidableValidator>` renders
+  no `<form>` of its own and resolves nothing, so a summary inside your own `EditForm` lists the
+  fault issue first, then submit errors, then advisories, then live issues — close to the order
+  the validator declares its rules in. Nothing misbehaves; the reading order is simply the
+  validator's. The same boundary covers the automatic focus moves: a blocked submit and a
+  rejected server round trip both land the visitor on the first error under `FormidableForm`, and
+  neither does in attach mode, where the page owns its own submit handler. Clicking a summary
+  entry still moves focus either way. Move the page to `<FormidableForm>` if the reading order
+  matters to it (see [Component kit](component-kit.md#the-order-entries-appear-in)).
 
 ## Sample
 

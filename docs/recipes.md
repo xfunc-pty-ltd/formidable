@@ -419,13 +419,14 @@ Assert.Contains(report.Errors, i => i.Path == "Title");
 ```csharp
 Services.AddSingleton<IFormidableFocusService>(_focus);      // your recording double
 Services.AddSingleton<IFormidableDomValueSync>(_domSync);    // ditto
-Services.AddFormidableBlazor();                              // respects both
+Services.AddSingleton<IFormidableFieldOrderService>(_order); // ditto
+Services.AddFormidableBlazor();                              // respects all three
 Services.AddSingleton<IValidator<Signup>>(new SignupValidator());
 ```
 
-Those two services are the only pieces of the kit that talk to JavaScript, and doubling them makes
-focus assertable as a side benefit. `FormidableSummary` injects the focus service outright, so a
-form rendering one needs it present either way.
+Those three are the only kit services a rendered form resolves that talk to JavaScript, and
+doubling them makes focus and issue order assertable as a side benefit. `FormidableSummary`
+injects the focus service outright, so a form rendering one needs it present either way.
 
 Assert through bUnit's `WaitForAssertion`, since a verdict lands a render later than the event that
 asked for it, and call the form's own methods — `SubmitAsync()`, `ResetAsync()`,

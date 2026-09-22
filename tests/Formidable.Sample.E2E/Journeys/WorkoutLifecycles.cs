@@ -31,9 +31,10 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     // thing about a collection row that is the row's own.
     private const string LastSessionTitle = "Session 150:";
 
-    // Virtualize is told a row is 96px while a real row is taller, so the panel's scrollHeight
-    // grows as rows replace spacers and one jump to the bottom lands short of it. Re-pushing the
-    // scroll on each poll converges on the true end without waiting a fixed time for it.
+    // ItemSize is pinned to match the real row height, but scrollHeight can still shift by a
+    // pixel or two as placeholder spacers are replaced by rendered rows before layout settles.
+    // Re-pushing the scroll on each poll is a defensive convergence check, not a single jump
+    // that assumes scrollHeight is already final.
     private const string ScrollLastSessionIntoView = $$"""
         () => {
             const panel = document.querySelector('.scroll-panel');
@@ -135,10 +136,17 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
             .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToHaveCountAsync(0);
 
-        await SummaryEntry(page, HiddenIssueGate).ClickAsync();
-
         // A model-level entry has no input to land on, so it lands on the form the page gave the
-        // model-level id to.
+        // model-level id to — the submit's own auto-focus answers for it first, since the gate is
+        // the only error there is to take the visitor to.
+        await Expect(Field(page, "form")).ToBeFocusedAsync();
+
+        // The summary entry takes the same route. Dispatched rather than clicked, because that
+        // focus scrolls the whole form into view and waiting the scroll out would hand the window
+        // to the refresh the catering edit armed — and a refresh retires a gate no refresh
+        // synthesizes, leaving the entry to be clicked gone from under the click.
+        await page.EvaluateAsync("() => document.activeElement?.blur()");
+        await SummaryEntry(page, HiddenIssueGate).DispatchEventAsync("click");
         await Expect(Field(page, "form")).ToBeFocusedAsync();
     }
 

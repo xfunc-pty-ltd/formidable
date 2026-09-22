@@ -49,8 +49,14 @@ pre-publish polish wave.
   that ARIA role to every field- and collection-level message list, closing the
   summary-less announcement gap.
 - `FormidableForm<TModel>.FocusFirstErrorOnInvalidSubmit` (`bool`, default `true`) — on a
-  blocked submit, focuses the first visible issue's element automatically; set `false` to
-  choose focus yourself from `OnInvalidSubmit`.
+  blocked submit, focuses the first error's element automatically, falling back to the
+  first visible issue only when a blocked submit shows no error at all, so a warning
+  above the failing field never collects the focus a refused submit owes the visitor. It
+  also gates `FormidableForm.ApplyServerIssues` (both overloads), which focuses that same
+  first error when the payload it applies carries one, since a rejected round trip is a
+  blocked submit arriving late; a clean or advisory-only payload moves nothing, and
+  `IFormValidationEngine.ApplyServerIssues` stays quiet, which is the path for a
+  background apply. Set `false` to choose focus yourself from `OnInvalidSubmit`.
 - `FormidableForm<TModel>.ResetAsync(TModel? newModel = null)` — returns a form to
   pristine. Omitted, rebuilds over the same model instance (touched/modified state,
   message store, advisory buckets, `HasSubmitted`, and any pending refresh all cleared).
@@ -74,10 +80,33 @@ pre-publish polish wave.
 - `FormidableInputSelect<TValue>` honors `UpdateOn.OnBlur` — commits on `change`, defers
   the validation notification to `blur`; `OnInput` coerces to `OnChange` since a
   `<select>` has no distinct input event.
+- `FormidableSummary.Show` (`SummaryFilter`, default `All`) — renders one severity band
+  instead of the combined list, so a page can put its errors and its advisories in different
+  places; `Advisories` covers warnings and infos together, and a filter matching nothing
+  renders nothing. Each summary computes its own announcement role from what it shows.
+- `IFormValidationEngine.GetVisibleIssues()` reports issues in the document order of the
+  fields that render them — so `FormidableSummary` lists them in reading order within each
+  severity group, and a blocked submit's focus lands on the topmost problem.
+  `FormidableForm` resolves that order after any render that changed its registered field
+  set, by asking the new `IFormidableFieldOrderService`; a field with no element on the
+  page sorts last, and until a resolve lands (or in `FormidableValidator`'s attach mode,
+  which resolves none) the channel order stands: fault, submit errors, advisories, then
+  live. The service is registered by `AddFormidableBlazor()` alongside the focus and
+  DOM-sync services — a public interface over an internal JS-backed implementation for the
+  same reason its two siblings are: a bUnit test substitutes a fake instead of standing up
+  module interop.
+- The scroll behind a focus move — a blocked submit's own, or a click on a
+  `FormidableSummary` entry — prefers the field's own message list over the focus element,
+  and aligns a target taller than 60% of the viewport to its top instead of centring it, so
+  a collection-level issue shows the message that named the problem rather than the middle
+  of the rows below it.
 - A "Testing your forms" section in `docs/testing.md` (drive `IModelValidator<T>` with no
   Blazor; bUnit-render `FormidableForm` with recording doubles for the JS-backed
   services; async-flush guidance for pending-state assertions) and a "validate a nested
   object" recipe in `docs/recipes.md`.
+- An explanation in `docs/async-validation.md` of why one edit after a submit runs a draft
+  rule twice, with the consumer-side remedies: `LiveDebounce` for the live pass, and a
+  worked value-keyed memoization inside the rule for a genuinely expensive check.
 
 ### Changed
 

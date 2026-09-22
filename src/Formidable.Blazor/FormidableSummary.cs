@@ -6,11 +6,12 @@ namespace Formidable.Blazor;
 
 /// <summary>
 /// Renders a live, severity-grouped summary of every currently-visible validation issue across
-/// the form, backed by <see cref="IFormValidationEngine.GetVisibleIssues"/> — the same fault-first,
+/// the form, backed by <see cref="IFormValidationEngine.GetVisibleIssues"/> — the same
 /// submit-then-live-deduped view <c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>
-/// use per-field, but for the whole form at once. Renders nothing while the form has no visible
-/// issues; otherwise a region with one list per non-empty severity group (errors, then warnings,
-/// then infos), each item a button that moves focus to the offending field via
+/// use per-field, but for the whole form at once, and in the order that view reports: where the
+/// fields sit on the page, once the host has resolved that. Renders nothing while the form has no
+/// visible issues; otherwise a region with one list per non-empty severity group (errors, then
+/// warnings, then infos), each item a button that moves focus to the offending field via
 /// <see cref="IFormidableFocusService"/>. The region carries <c>role="alert"</c> when any visible
 /// issue is error-severity, and the politer <c>role="status"</c> when the visible issues are
 /// advisories only — an errors-free submit that surfaces only warnings/infos should not interrupt
@@ -38,6 +39,15 @@ public sealed class FormidableSummary : FormidableComponentBase
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
     /// <summary>
+    /// Which severity band this summary renders. Defaults to <see cref="SummaryFilter.All"/> —
+    /// today's single combined summary. Set to render one severity band on its own (e.g. a
+    /// page that shows errors and advisories as two separate summaries); a filter that matches
+    /// nothing renders nothing, the same as a clean form.
+    /// </summary>
+    [Parameter]
+    public SummaryFilter Show { get; set; } = SummaryFilter.All;
+
+    /// <summary>
     /// Null: the summary speaks for the whole form rather than for one field, so it registers
     /// nothing — it reads the engine's already-visible issues and has no field of its own to
     /// reveal.
@@ -55,6 +65,11 @@ public sealed class FormidableSummary : FormidableComponentBase
         }
 
         var visibleIssues = Context.Engine.GetVisibleIssues();
+        if (Show != SummaryFilter.All)
+        {
+            visibleIssues = [.. visibleIssues.Where(v => Matches(v.Issue.Severity))];
+        }
+
         if (visibleIssues.Count == 0)
         {
             return;
@@ -99,6 +114,15 @@ public sealed class FormidableSummary : FormidableComponentBase
 
         builder.CloseElement();
     }
+
+    private bool Matches(ValidationSeverity severity) => Show switch
+    {
+        SummaryFilter.Errors => severity == ValidationSeverity.Error,
+        SummaryFilter.Advisories => severity != ValidationSeverity.Error,
+        SummaryFilter.Warnings => severity == ValidationSeverity.Warning,
+        SummaryFilter.Infos => severity == ValidationSeverity.Info,
+        _ => true,
+    };
 
     private async Task FocusWithFallbackAsync(FieldIdentifier field)
     {

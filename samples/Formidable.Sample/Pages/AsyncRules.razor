@@ -7,9 +7,11 @@
 <TeachingPanel CodeFiles="@(new[] { "Handle.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Username</strong> and <strong>Display name</strong> — checked for uniqueness asynchronously while you type (a delay stands in for the server — 600&nbsp;ms by default, adjustable below). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
+            <li><strong>Username</strong> — checked for uniqueness asynchronously while you type (a delay stands in for the server — 600&nbsp;ms by default, adjustable below). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
+            <li><strong>Display name</strong> — checked for uniqueness the same way, independently of Username. Taken display names: <code>Administrator</code>, <code>Root User</code>, <code>Formidable</code>.</li>
             <li><strong>Username</strong> — also required at submit.</li>
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
+            <li>After a submit, one edit runs the check twice: the Submit profile includes the draft rules, so the live pass runs it and the refresh runs it again. The two answer different channels — the live pass answers the field being edited, the refresh keeps the submit's own messages current — so neither can stand in for the other.</li>
             <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke.</li>
         </ul>
     </Rules>
@@ -20,7 +22,8 @@
             <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
             <li>Clear Username and submit — the required rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the pending state lingers long enough to watch supersession cancel a stale check mid-flight.</li>
-            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke, only one pass starts after you pause.</li>
+            <li>Submit, then type with the delay still high — the check lands, and a second one starts as the refresh comes due.</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Because you already submitted in the step above, pausing now starts two passes: the 300&nbsp;ms refresh and the batched 400&nbsp;ms live pass, refresh first.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

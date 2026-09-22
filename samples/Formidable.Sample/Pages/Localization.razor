@@ -15,6 +15,7 @@
     </Rules>
     <TryIt>
         <ol>
+            <li>The language select above reflects whatever culture is stored in <code>formidable.culture</code> from a previous visit — if it is not already showing <em>English (Australia)</em>, switch to it first.</li>
             <li>Submit the empty form in English — FluentValidation's own default answers for Full Name ("'Full Name' must not be empty."), and the resx message answers for Age.</li>
             <li>Switch the language to <em>Deutsch</em>; the page reloads. Submit empty again — both messages arrive in German, one from FluentValidation, one from the resx.</li>
             <li>Type <code>12</code> into Age and submit — the range message appears in whichever language is active.</li>

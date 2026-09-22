@@ -6,9 +6,10 @@ namespace Formidable.Sample.E2E;
 
 /// <summary>
 /// The <c>DisclosureOverride</c> makes the summary speak for rows Virtualize has never rendered —
-/// proven by counting entries against rendered inputs, not just reading one message — and clicking
-/// a late entry exercises <c>FocusFallback</c>: the panel scrolls, the row materializes, and the
-/// summary's retry lands focus on it.
+/// proven by counting entries against rendered inputs, not just reading one message — every
+/// rendered row occupies the same pitch regardless of whether it is showing a message, and
+/// clicking a late entry exercises <c>FocusFallback</c>: the panel scrolls, the row materializes,
+/// and the summary's retry lands focus on it.
 /// </summary>
 [Collection("e2e")]
 public sealed class VirtualizedJourney(SampleAppFixture app)
@@ -27,12 +28,27 @@ public sealed class VirtualizedJourney(SampleAppFixture app)
         await Expect(Summary(page)).ToContainTextAsync("Serial is required");
 
         // More entries disclosed than inputs rendered: the override's whole point. The panel is
-        // 20rem tall against a 96px row height, so only a handful of rows are ever in the DOM at
-        // once — far fewer than the 28 empty serials (every 7th of 200 rows) the override reveals.
+        // 20rem tall against a 118px row height, so only a handful of rows are ever in the DOM
+        // at once — far fewer than the 28 empty serials (every 7th of 200 rows) the override
+        // reveals.
         var entries = await page.Locator(".formidable-summary__link").CountAsync();
         var rendered = await page.Locator("form input").CountAsync();
         Assert.True(entries > rendered,
             $"expected disclosure past the rendered window, got {entries} entries over {rendered} inputs");
+
+        // Virtualize takes one ItemSize for the whole collection, so a row with a message and a
+        // clean row must occupy the same space, or Virtualize's own window and the fallback's
+        // index * ItemSize scroll estimate below drift apart. The currently-rendered window mixes
+        // both kinds (one of the 28 empty serials is in view), so consecutive tops are checked
+        // directly rather than trusting the fallback click below to catch a regression indirectly.
+        var pitches = await page.EvaluateAsync<double[]>(@"
+            (() => {
+                const rows = [...document.querySelectorAll('.scroll-panel .field')];
+                return rows.slice(1).map((row, i) => row.getBoundingClientRect().top - rows[i].getBoundingClientRect().top);
+            })()");
+        Assert.True(pitches.Length > 3, $"expected several rendered rows to compare, got {pitches.Length}");
+        Assert.True(pitches.Max() - pitches.Min() <= 1,
+            $"expected every rendered row to occupy the same pitch, got a {pitches.Max() - pitches.Min():0.##}px spread across [{string.Join(", ", pitches)}]");
 
         // A LATE entry's element does not exist yet: FocusFallback scrolls, the summary
         // retries once, and focus lands on a row Virtualize has now materialized.

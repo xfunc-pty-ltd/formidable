@@ -42,4 +42,22 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
         // The aligned provider's modified-gated leg: a native input earns formidable-valid too.
         await Expect(nickname).ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
     }
+
+    /// <summary>
+    /// The page renders Nickname above Colour; the validator declares Colour first. A blocked
+    /// submit follows the page: the summary leads with Nickname and the auto-focus lands there.
+    /// </summary>
+    [E2EFact]
+    public async Task Blocked_submit_leads_with_the_first_field_on_the_page()
+    {
+        await using var session = await app.NewPageAsync("/vanilla");
+        var page = session.Page;
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
+
+        await Expect(Summary(page)).ToBeVisibleAsync();
+        await Expect(Summary(page).Locator("button.formidable-summary__link").First)
+            .ToHaveTextAsync("Nickname is required");
+        await Expect(page.Locator("[id$='-nickname']")).ToBeFocusedAsync();
+    }
 }

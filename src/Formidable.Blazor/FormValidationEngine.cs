@@ -55,6 +55,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private HashSet<FieldIdentifier> _advisoryVisible = [];
     private List<(FieldIdentifier Field, ValidationIssue Issue)> _appliedServerIssues = [];
     private ValidationIssue? _faultIssue;
+    private IReadOnlyDictionary<FieldIdentifier, int>? _fieldOrder;
 
     /// <summary>The result every issue read shares when a field has nothing to say.</summary>
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
@@ -253,11 +254,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <inheritdoc />
     /// <remarks>
-    /// Channel-major rather than field-major, because the summary groups by severity and the order
-    /// within a group is the order issues arrive here: the fault issue first, then every field's
-    /// submit errors, then every field's advisories, then the live channel — each channel after the
-    /// errors minus whatever is already showing for the same field, exactly as
-    /// <see cref="GetIssues"/> filters them.
+    /// Collected channel by channel — the fault issue first, then every field's submit errors, then
+    /// every field's advisories, then the live channel, each channel after the errors minus
+    /// whatever is already showing for the same field, exactly as <see cref="GetIssues"/> filters
+    /// them — and then sorted by field, if <see cref="SetFieldOrder"/> has been given a page to
+    /// sort by. What the summary shows within a severity group is that final order, so the sort is
+    /// what makes it the page's rather than the validator's; collecting channel by channel is still
+    /// what decides which issues are in it at all.
     /// </remarks>
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
@@ -303,7 +306,14 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             }
         }
 
-        return result;
+        if (_fieldOrder is null)
+        {
+            return result;
+        }
+
+        // OrderBy is a stable sort, so several issues on one field keep the order the
+        // validator produced them in.
+        return result.OrderBy(v => _fieldOrder.TryGetValue(v.Field, out var ordinal) ? ordinal : int.MaxValue).ToList();
     }
 
     /// <summary>
@@ -410,6 +420,25 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>The model-level identifier issues with an empty path resolve to.</summary>
     internal FieldIdentifier ModelLevelField => new(_model, string.Empty);
+
+    /// <summary>
+    /// Supplies the order visible issues are reported in — the document order of the rendered
+    /// fields, resolved by the host. Fields absent from the map sort after every mapped field:
+    /// an unrendered field cannot be scrolled to, so where it lands does not matter. The
+    /// model-level field is not one of those absentees: it is offered to the resolver like any
+    /// other field, and because its element is this form's own <c>&lt;form&gt;</c> — which
+    /// contains every field on the page — document order puts it first. Passing <c>null</c>
+    /// restores validator order.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately silent: it takes effect on the next render of whatever reads issues, and every
+    /// pass, edit and server apply raises <see cref="StateChanged"/> already. Notifying from here
+    /// would put a full re-render round behind every registration change instead — which on a page
+    /// whose registered set churns as it scrolls (a virtualized collection) is a steady stream of
+    /// them, and one that can re-order a summary out from under a click.
+    /// </remarks>
+    /// <param name="order">Field-to-ordinal map, or <c>null</c>.</param>
+    internal void SetFieldOrder(IReadOnlyDictionary<FieldIdentifier, int>? order) => _fieldOrder = order;
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {

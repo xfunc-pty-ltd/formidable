@@ -8,7 +8,10 @@ namespace Formidable.Sample.Pages;
 
 public partial class Virtualized
 {
-    private const float RowHeight = 96f;
+    // Matches app.css's fixed .scroll-panel .field height (102px) plus the field's own
+    // 16px bottom margin — the true pitch from one row's top to the next, measured in a
+    // real browser. Every row is that same height whether or not it is showing a message.
+    private const float RowHeight = 118f;
 
     [Inject] private IJSRuntime Js { get; set; } = default!;
 

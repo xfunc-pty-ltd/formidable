@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
@@ -24,6 +25,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private FormidableFormContext? _context;
     private string _modelLevelFieldId = string.Empty;
     private bool _renderModeChecked;
+    private int _fieldOrderVersion = -1;
 
     /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
     [Parameter, EditorRequired]
@@ -70,12 +72,20 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     public EventCallback<SubmitOutcome> OnInvalidSubmit { get; set; }
 
     /// <summary>
-    /// On a blocked submit, best-effort auto-focuses the first visible issue's field via
-    /// <see cref="IFormidableFocusService"/>, immediately after <see cref="OnInvalidSubmit"/> runs.
-    /// Default <see langword="true"/>. The service is resolved lazily and may be unregistered; a
-    /// null service or a focus miss (e.g. no element carries the field's id yet) is silent, the
-    /// same best-effort contract <see cref="FormidableSummary"/>'s click-to-focus already has. Set
-    /// <see langword="false"/> to choose focus yourself, e.g. from <see cref="OnInvalidSubmit"/>.
+    /// On a blocked submit, best-effort auto-focuses the field carrying the first error among the
+    /// form's visible issues via <see cref="IFormidableFocusService"/>, immediately after
+    /// <see cref="OnInvalidSubmit"/> runs — the first error rather than merely the first issue,
+    /// since a field above the failing one can carry nothing worse than an advisory, and landing
+    /// there would bury the reason the submit blocked. First means topmost: issue order follows the
+    /// page itself once <see cref="IFormidableFieldOrderService"/> has resolved it. The fallback to
+    /// the first visible issue of any severity applies only when a blocked submit shows no error at
+    /// all. This also gates the focus move
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> makes when the payload it
+    /// applies carries an error. Default <see langword="true"/>. The service is resolved lazily and
+    /// may be unregistered; a null service or a focus miss (e.g. no element carries the field's id
+    /// yet) is silent, the same best-effort contract <see cref="FormidableSummary"/>'s
+    /// click-to-focus already has. Set <see langword="false"/> to choose focus yourself, e.g. from
+    /// <see cref="OnInvalidSubmit"/>.
     /// </summary>
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
@@ -123,6 +133,171 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// Resolves where the form's fields actually sit on the page and hands the engine that order,
+    /// so a blocked submit reports its issues — and focuses the first error among them — in the
+    /// order a visitor reads the form, rather than the order the validator declares its rules.
+    /// The request is not only the registered fields: the model-level field the form's own
+    /// <c>&lt;form&gt;</c> element carries rides along too, so a gate or fault issue sorts among
+    /// the rest instead of always trailing them.
+    /// The browser is the only source for this, so it is answered by
+    /// <see cref="IFormidableFieldOrderService"/> after the render that produced the elements.
+    /// The registry's version is what decides whether there is anything to re-resolve: it moves
+    /// only when a field registers or unregisters, so every later render stops at that check.
+    /// A resolve that cannot be had — no service registered, or an interop boundary that is
+    /// gone, disconnected or never loaded — leaves the engine on whatever order it already had
+    /// (validator order, until a resolve has landed) rather than failing a render, and a failed one
+    /// clears the version guard so the next render tries again. That tolerance is deliberately
+    /// wider than the focus service's, which swallows nothing: an ordering pass runs on every
+    /// render rather than on a click, so an exception escaping here would take the form down
+    /// instead of costing one focus move. It does not extend to a consumer's own
+    /// <see cref="IFormidableFieldOrderService"/> throwing something else, which surfaces.
+    /// </summary>
+    /// <param name="firstRender">Whether this is the component's first render.</param>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_engine is null)
+        {
+            return;
+        }
+
+        var version = _engine.Registry.Version;
+        if (version == _fieldOrderVersion)
+        {
+            return;
+        }
+
+        var orderService = Services.GetService<IFormidableFieldOrderService>();
+        if (orderService is null)
+        {
+            return;
+        }
+
+        _fieldOrderVersion = version;
+
+        // The model-level field's id rides on this form's own <form> element, which contains
+        // every field in it — so document order puts it first, which is where a verdict about
+        // the form as a whole belongs. It is asked about like any other: an element that is not
+        // there is simply not in the answer. The form never puts it in the registry itself (the
+        // id is written straight onto the <form> element, not through FieldRegistry.Register),
+        // but nothing stops a consumer's own field component from targeting the same identifier,
+        // so the check is against the request being built, not the registry: a duplicate in the
+        // request would come back as a duplicate, confusing entry in the resolved map.
+        var fields = _engine.Registry.RevealedFields.ToList();
+        if (!fields.Contains(_engine.ModelLevelField))
+        {
+            fields.Add(_engine.ModelLevelField);
+        }
+
+        if (fields.Count == 0)
+        {
+            _engine.SetFieldOrder(null);
+            return;
+        }
+
+        IReadOnlyList<FieldIdentifier>? ordered;
+        try
+        {
+            ordered = await orderService.OrderAsync(fields);
+        }
+        catch (Exception exception) when (IsInteropFailure(exception))
+        {
+            // Ordering is presentation: an interop boundary that is gone, disconnected, or never
+            // loaded costs the page the reading order it would have had, and nothing else. Keeping
+            // the order already in force keeps the form working, where letting this escape a
+            // lifecycle method would take the whole component down with it. Only the interop
+            // family is caught — a consumer implementation failing on its own terms is a bug of
+            // theirs to see, not one for this to hide.
+            _fieldOrderVersion = -1;
+            return;
+        }
+
+        if (ordered is null)
+        {
+            // No order could be resolved at all, which is not the same answer as a page that
+            // placed none of these fields — so it is retried rather than taken as an order.
+            _fieldOrderVersion = -1;
+            return;
+        }
+
+        if (_engine.Options.OrderIssues is { } reorder)
+        {
+            ordered = ApplyOrderDelegate(ordered, reorder);
+        }
+
+        var order = new Dictionary<FieldIdentifier, int>();
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            order[ordered[i]] = i;
+        }
+
+        // No render is forced from here. The order takes effect on the next render of whatever
+        // reads issues, and everything that puts an issue on screen — a pass landing, an edit, a
+        // server apply — raises the engine's own notification as part of doing so.
+        _engine.SetFieldOrder(order);
+    }
+
+    /// <summary>
+    /// Whether an exception from the order service is the interop boundary failing rather than the
+    /// implementation behind it: the JS side throwing or the runtime being unreachable
+    /// (<see cref="JSException"/>, <see cref="JSDisconnectedException"/>), the runtime already
+    /// disposed, or the call cancelled — an interop timeout on a server circuit arrives as the
+    /// last of those.
+    /// </summary>
+    private static bool IsInteropFailure(Exception exception) =>
+        exception is JSException or JSDisconnectedException or ObjectDisposedException
+            or OperationCanceledException;
+
+    /// <summary>
+    /// Runs the consumer's re-sort over the resolved document order, then appends anything it left
+    /// out, in the order it was given them. A delegate reorders; it does not decide what is
+    /// reported, so a field missing from its answer keeps its place at the end rather than losing
+    /// its issues. Internal rather than private so the append guarantee is testable directly,
+    /// without a render.
+    /// </summary>
+    /// <remarks>
+    /// A delegate's answer can only ever be a permutation of what it was handed, never a
+    /// substitute for it: a field repeated in <paramref name="reorder"/>'s result keeps only its
+    /// first position, and a field that was never in <paramref name="ordered"/> is dropped from
+    /// the answer rather than kept — otherwise a delegate padding its result out to the same
+    /// length with fields of its own would satisfy the "nothing missing" check while silently
+    /// pushing real fields out of the map.
+    /// </remarks>
+    internal static IReadOnlyList<FieldIdentifier> ApplyOrderDelegate(
+        IReadOnlyList<FieldIdentifier> ordered,
+        Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>> reorder)
+    {
+        var reordered = reorder(ordered);
+        if (reordered is null)
+        {
+            return ordered;
+        }
+
+        var candidates = new HashSet<FieldIdentifier>(ordered);
+        var seen = new HashSet<FieldIdentifier>();
+        var result = new List<FieldIdentifier>(ordered.Count);
+        foreach (var field in reordered)
+        {
+            if (candidates.Contains(field) && seen.Add(field))
+            {
+                result.Add(field);
+            }
+        }
+
+        if (seen.Count < ordered.Count)
+        {
+            foreach (var field in ordered)
+            {
+                if (seen.Add(field))
+                {
+                    result.Add(field);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Disposes the current engine, if any, and builds a fresh engine and <c>EditContext</c> over
     /// <paramref name="model"/> — including a brand new <see cref="FormidableFormContext"/>
     /// instance, not merely a new engine reference inside the old one. That is what
@@ -146,6 +321,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             renderDispatch: work => InvokeAsync(work));
         _context = new FormidableFormContext(_engine);
         _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+
+        // The new engine has its own registry, whose version starts over — and its own fields to
+        // locate, since the swapped-in model's identifiers are not the old ones.
+        _fieldOrderVersion = -1;
     }
 
     /// <summary>
@@ -233,7 +412,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             await OnInvalidSubmit.InvokeAsync(outcome);
             if (FocusFirstErrorOnInvalidSubmit)
             {
-                await FocusFirstVisibleIssueAsync();
+                await FocusFirstErrorAsync();
             }
         }
 
@@ -247,7 +426,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// rather than an exception here — the same tolerance <see cref="FormidableSummary"/>'s own
     /// click-to-focus applies.
     /// </summary>
-    private async Task FocusFirstVisibleIssueAsync()
+    /// <remarks>
+    /// The first ERROR in document order, not merely the first issue: a field high on the page can
+    /// carry an advisory while the thing actually blocking the submit sits below it, and taking the
+    /// visitor to the advisory would both bury the reason and disagree with
+    /// <see cref="FormidableSummary"/>, which regroups by severity and so leads with the error
+    /// regardless. The fallback to the first visible issue covers the one way a blocked submit
+    /// reaches this call with no error to find: superseded by a second submit before its own
+    /// verdict landed, it reports blocked without writing one, leaving whatever preceded it on
+    /// screen. Everything else that blocks is error-severity — the all-suppressed gate's
+    /// form-level issue and the incomplete-validation fault issue included.
+    /// </remarks>
+    private async Task FocusFirstErrorAsync()
     {
         var focusService = Services.GetService<IFormidableFocusService>();
         if (focusService is null)
@@ -255,7 +445,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
-        var firstIssue = RequireEngine().GetVisibleIssues().FirstOrDefault();
+        var issues = RequireEngine().GetVisibleIssues();
+        var firstIssue = issues.FirstOrDefault(v => v.Issue.Severity == ValidationSeverity.Error)
+            ?? issues.FirstOrDefault();
         if (firstIssue is null)
         {
             return;
@@ -265,32 +457,87 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// Best-effort focus after a server-applied verdict, gated on
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> AND on <paramref name="appliedIssues"/>
+    /// actually carrying an error: a rejected round trip is a blocked submit that arrived late,
+    /// so it lands the user on the first error the same way <see cref="SubmitAsync"/>
+    /// would — but a clean or advisory-only apply rejected nothing, so it must not steal focus
+    /// onto some unrelated issue still visible from an earlier submit. Fire-and-forget on
+    /// purpose — both <c>ApplyServerIssues</c> overloads stay synchronous, so focus cannot make
+    /// applying issues asynchronous — and an interop failure (see <see cref="IsInteropFailure"/>,
+    /// which covers a disconnected circuit as well as a thrown or unreachable JS boundary) from
+    /// that unawaited call is swallowed here rather than left to become an unobserved task
+    /// exception.
+    /// </summary>
+    /// <param name="appliedIssues">The issues this apply just carried.</param>
+    private void FocusAfterServerIssues(IReadOnlyCollection<ValidationIssue> appliedIssues)
+    {
+        if (!FocusFirstErrorOnInvalidSubmit
+            || !appliedIssues.Any(issue => issue.Severity == ValidationSeverity.Error))
+        {
+            return;
+        }
+
+        // Fire-and-forget: focus is best-effort and must not make applying issues asynchronous.
+        _ = FocusQuietlyAsync();
+
+        async Task FocusQuietlyAsync()
+        {
+            try
+            {
+                await FocusFirstErrorAsync();
+            }
+            catch (Exception exception) when (IsInteropFailure(exception))
+            {
+            }
+        }
+    }
+
+    /// <summary>
     /// Applies a server response's issues to this form's engine, forwarding
     /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
     /// contract whole: the payload is the server's current verdict and replaces what the previous
     /// call applied, each issue lands at the severity it carries, and applying any also sets
     /// <see cref="IFormValidationEngine.HasSubmitted"/>, since the payload is treated as a submit
-    /// result. A page holding the form with <c>@ref</c> has everything the round trip needs here,
-    /// without reaching through <see cref="Engine"/> for it. Call from the renderer's
-    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
-    /// validation state and triggers renders.
+    /// result. A rejected round trip is a blocked submit that arrived late: when
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> is <see langword="true"/> and this apply
+    /// carries at least one error, applying also focuses the first error on the page —
+    /// not necessarily the one just applied — the same way a blocked client submit does. A clean
+    /// or advisory-only apply (an accepted resubmission, say) moves nothing: nothing about THIS
+    /// apply was rejected, even if an earlier one left something else on the page still visible.
+    /// Call <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/>
+    /// via <see cref="Engine"/> instead for a background apply that must stay quiet — the
+    /// engine-level method never moves focus. A page holding the form with <c>@ref</c> has
+    /// everything the round trip needs here, without reaching through <see cref="Engine"/> for
+    /// it. Call from the renderer's synchronization context (a Blazor event handler or
+    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
     /// </summary>
     /// <param name="issues">The server's current verdict. Enumerated exactly once.</param>
-    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) =>
-        RequireEngine().ApplyServerIssues(issues);
+    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        var issueList = issues as IReadOnlyList<ValidationIssue> ?? issues.ToList();
+        RequireEngine().ApplyServerIssues(issueList);
+        FocusAfterServerIssues(issueList);
+    }
 
     /// <summary>
     /// Applies a deserialized validation ProblemDetails body — the shape an HTTP 400 from
     /// Formidable.AspNetCore arrives in — by flattening it with
     /// <see cref="FormidableValidationProblem.ToIssues"/>. Equivalent to the sequence overload in
-    /// every respect, including the <see cref="IFormValidationEngine.HasSubmitted"/> side effect;
-    /// this is the whole client half of the round trip in one call.
+    /// every respect, including the <see cref="IFormValidationEngine.HasSubmitted"/> side effect
+    /// and the error-gated focus after applying — call
+    /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> via
+    /// <see cref="Engine"/> instead for a quiet background apply; this is the whole client half of
+    /// the round trip in one call.
     /// </summary>
     /// <param name="problem">The deserialized response body.</param>
     public void ApplyServerIssues(FormidableValidationProblem problem)
     {
         ArgumentNullException.ThrowIfNull(problem);
-        RequireEngine().ApplyServerIssues(problem.ToIssues());
+        var issues = problem.ToIssues();
+        RequireEngine().ApplyServerIssues(issues);
+        FocusAfterServerIssues(issues);
     }
 
     /// <summary>

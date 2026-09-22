@@ -449,18 +449,37 @@ button:focus-visible {
 
 /* ---------- summary (links excluded from the secondary-button rules above) ---------- */
 
+/* Neutral: FormidableSummary.Show can render a summary carrying only one severity band, so the
+   card itself must not imply "error" before its contents say so — the colour lives on each
+   group below instead. */
 .formidable-summary {
-    background: var(--summary-bg);
-    border-left: 3px solid var(--error);
+    background: var(--field-bg);
+    border: 1px solid var(--border);
     border-radius: var(--radius-card);
-    padding: .8rem 1rem;
+    padding: .5rem;
     margin-bottom: 1.1rem;
 }
 
 .formidable-summary__group {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: .45rem .7rem .45rem .65rem;
+    border-radius: var(--radius-card);
+}
+
+.formidable-summary__group--error {
+    background: var(--summary-bg);
+    border-left: 3px solid var(--error);
+}
+
+.formidable-summary__group--warning {
+    background: color-mix(in srgb, var(--warn) 10%, var(--bg));
+    border-left: 3px solid var(--warn);
+}
+
+.formidable-summary__group--info {
+    background: color-mix(in srgb, var(--info) 10%, var(--bg));
+    border-left: 3px solid var(--info);
 }
 
 .formidable-summary__group + .formidable-summary__group {
@@ -520,6 +539,16 @@ fieldset > label:has(> select) {
     border-radius: var(--radius-card);
     padding: .5rem .75rem;
     margin-bottom: 1rem;
+}
+
+/* Virtualize takes one ItemSize for the whole collection, so every row has to occupy exactly
+   that much space regardless of content — a row that only grows once its message renders
+   throws off the scrollbar's math and makes a FocusFallback scroll (index * ItemSize) land
+   short past the first grown row. Fixing the height, always tall enough for one message line,
+   keeps a clean row and a messaged row identical. */
+.scroll-panel .field {
+    height: 102px;
+    box-sizing: border-box;
 }
 
 p[role=status] {
@@ -599,6 +628,16 @@ em[role=status] {
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* The global inline-code rule above gives every <code> its own padding/border/background —
+   right for prose, wrong inside a <pre>, where CSS fragmentation applies that left padding to
+   only the first line's text fragment and nudges it out of alignment with the rest. */
+.teaching__code pre code {
+    padding: 0;
+    border: none;
+    background: none;
+    border-radius: 0;
 }
 
 /* When the reader opens the code, grow the card into the empty space right of the

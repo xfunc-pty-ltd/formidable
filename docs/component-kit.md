@@ -270,7 +270,7 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
             await OnInvalidSubmit.InvokeAsync(outcome);
             if (FocusFirstErrorOnInvalidSubmit)
             {
-                await FocusFirstVisibleIssueAsync();
+                await FocusFirstErrorAsync();
             }
         }
 
@@ -299,15 +299,33 @@ The last of those needs [`TrackFormValidity`](options.md#trackformvalidity) turn
 anything; the other two are always current.
 
 A blocked submit also moves keyboard focus, by default: `FocusFirstErrorOnInvalidSubmit`
-(default `true`) resolves the first entry `Engine.GetVisibleIssues()` would show and focuses its
+(default `true`) resolves the first error in `Engine.GetVisibleIssues()` and focuses its
 element via `IFormidableFocusService` — the same service `FormidableSummary`'s click-to-focus
 uses, so a form with no summary rendered still lands a visitor on the problem instead of leaving
-focus wherever the submit button was. The call is best-effort in both directions a consumer might
-trip on: an app that never registered `IFormidableFocusService` (only `AddFormidable()`, not
-`AddFormidableBlazor()`) gets silence rather than a resolution failure, and a focus miss — no
-element carries the field's id yet — is silent too, exactly like the summary's own click-to-focus.
+focus wherever the submit button was. The first error, not simply the first entry:
+[issue order follows the page](#the-order-entries-appear-in), so a field above the failing one may
+carry nothing worse than a warning, and landing there would bury the reason the submit blocked —
+and disagree with `FormidableSummary`, which groups by severity and leads with the error
+regardless. It falls back to the first visible
+issue when there is no error to find at all. A blocked submit reaches that state exactly one way:
+superseded by a second submit before its own verdict landed, it reports blocked without writing a
+verdict, leaving whatever preceded it on screen. Everything else that blocks is error-severity —
+the all-suppressed gate and the incomplete-validation fault issue included.
+The call is best-effort in both directions a consumer might trip on: an app that never
+registered `IFormidableFocusService` (only `AddFormidable()`, not `AddFormidableBlazor()`) gets
+silence rather than a resolution failure, and a focus miss — no element carries the field's id
+yet — is silent too, exactly like the summary's own click-to-focus.
 Set `FocusFirstErrorOnInvalidSubmit="false"` to choose focus yourself from `OnInvalidSubmit`
 instead.
+
+The same parameter governs a server's verdict. A rejected round trip is a blocked submit that
+arrived late, so `ApplyServerIssues` on the form focuses the same first-error target when the
+payload it applies carries an error — not necessarily the issue just applied, since the page may
+already be showing one above it. A payload with no error in it moves nothing: an accepted
+resubmission rejected nothing, whatever an earlier one left on screen. Reach through `Engine`
+(`_form!.Engine!.ApplyServerIssues(issues)`) when an apply has to stay quiet, such as a
+background poll refreshing a verdict nobody just asked for — the engine-level method never moves
+focus.
 
 **Sample:** [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) — a toggle
 above the form flips the parameter, so a submit's automatic focus and the opt-out sit side by
@@ -1085,6 +1103,66 @@ virtualized container's window, for instance, has no DOM element yet to focus ev
 summary entry is genuinely still there. `FocusFallback` is the escape hatch for that gap,
 covered once the seams that need it are in view — see [FocusFallback](#focusfallback) below.
 
+### The order entries appear in
+
+Entries follow the page. Within each severity group, issues are listed in the document order of
+the fields that render them, so the first error a visitor reads about is the topmost one rather
+than whichever rule the validator happened to declare first. Two issues on one field keep the
+order the validator produced them in.
+
+`FormidableForm` is what supplies that order. After any render that changed the set of registered
+fields, it asks `IFormidableFieldOrderService` where those fields' elements actually sit and hands
+the answer to its engine, which sorts `GetVisibleIssues()` by it. The browser is the only thing
+that knows where an element is, so the shipped implementation is JS-backed — and public for the
+same reason `IFormidableFocusService` and `IFormidableDomValueSync` are, so a bUnit test can fake
+the seam instead of standing up module interop (see [Testing](testing.md#the-form-under-bunit)).
+
+Two edges of that contract are worth knowing, both deliberate:
+
+- **A field the page cannot place sorts last.** The form asks about the fields currently in the
+  render tree, and the service answers only for the ids it finds in the DOM, so anything outside
+  both sorts after everything placed: a control that renders no id of its own, the model-level
+  entry the all-suppressed gate produces, and a row held only by
+  [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it
+  has left the DOM. There is nowhere on the page to send a visitor for any of them anyway.
+- **Before the first resolution, the order is the engine's own.** A resolve lands after the render
+  that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel:
+  the fault issue, then submit errors, then advisories, then the live channel. The same is true of
+  a host that never resolves an order at all — `FormidableValidator` in attach mode, or an app
+  that registered no order service — which keeps the summary working and costs it only the
+  reading order (see [Migration guide](migration-guide.md#what-to-check-after-migrating)).
+
+### Showing one severity band
+
+`Show` picks which severities a summary renders. It defaults to `SummaryFilter.All` — the single
+combined list above — and the other four members (`Errors`, `Advisories`, `Warnings`, `Infos`)
+narrow it, `Advisories` meaning warnings and infos together, exactly as
+`ValidationReport.Advisories` does. A page that wants the blocking problems apart from the
+commentary renders two:
+
+```razor
+<FormidableSummary Show="SummaryFilter.Errors" />
+
+<fieldset>
+    ...
+</fieldset>
+
+<p>Worth a look before you send this:</p>
+<FormidableSummary Show="SummaryFilter.Advisories" />
+```
+
+A filter that matches nothing renders nothing, the same as a clean form — so the advisory summary
+disappears on its own while there is nothing to say, and the heading above it is the page's to
+hide alongside it.
+
+Each summary reads the same visible issues and filters them independently, which has two
+consequences worth planning around. A default summary rendered alongside a filtered one shows
+those issues twice — nothing coordinates between them, so pick one shape per form. And each
+computes its own `role` from what it actually shows, so two summaries are two live regions and two
+announcements: an `Errors` summary announces as `alert` whenever it has anything, an `Advisories`
+one always as the politer `status` (see
+[CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region)).
+
 ## `FormidableValidator<TModel>`, attaching to an existing form
 
 A form that must attach to an `EditForm` it doesn't own — an existing page already built around a
@@ -1097,7 +1175,13 @@ Attach mode owns the engine, not the form, so the verbs that come with owning an
 with `FormidableForm`: `SubmitAsync`, `ResetAsync`, `FocusFirstErrorOnInvalidSubmit`, the typed
 submit callbacks and the `Model` parameter whose swap rebuilds everything all belong to the
 component that renders the `<form>`. A page in attach mode keeps its own `EditForm`'s handlers for
-that half. One gap needs markup rather than a different call: `FormidableValidator` renders no
+that half. Two behaviours follow focus for the same reason: nothing resolves where the fields
+sit, so a summary here lists issues in the engine's own channel order rather than the page's, and
+an `ApplyServerIssues` here stays quiet where the form's moves focus. Both are the consequence of
+not rendering the `<form>` — see
+[Migration guide](migration-guide.md#what-to-check-after-migrating).
+
+One gap needs markup rather than a different call: `FormidableValidator` renders no
 `<form>` element of its own — it attaches to whatever `EditForm` the page already owns — so it has
 nowhere to put the model-level gate id automatically. A page in attach mode still wants the all-suppressed
 defensive gate's summary entry to land somewhere, so it renders that id itself, on the `EditForm`
@@ -1405,13 +1489,14 @@ production consumer might poll for the element instead.
 
 The one-call registration for a Blazor client — everything `AddFormidable()` registers (see
 [Server integration](server-integration.md) for the server-side registration this
-mirrors) plus the two JS-backed services, focus and DOM value sync:
+mirrors) plus the three JS-backed services: focus, DOM value sync, and field order:
 
 ```csharp
     /// <summary>
     /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-    /// plus <see cref="IFormidableFocusService"/> and <see cref="IFormidableDomValueSync"/>. The
-    /// one-call registration for Blazor consumers. Existing registrations are respected.
+    /// plus <see cref="IFormidableFocusService"/>, <see cref="IFormidableDomValueSync"/> and
+    /// <see cref="IFormidableFieldOrderService"/>. The one-call registration for Blazor consumers.
+    /// Existing registrations are respected.
     /// </summary>
     public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
     {
@@ -1419,6 +1504,7 @@ mirrors) plus the two JS-backed services, focus and DOM value sync:
         services.AddFormidable();
         services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
         services.TryAddScoped<IFormidableDomValueSync, FormidableDomValueSync>();
+        services.TryAddScoped<IFormidableFieldOrderService, FormidableFieldOrderService>();
         return services;
     }
 ```
@@ -1428,6 +1514,13 @@ mirrors) plus the two JS-backed services, focus and DOM value sync:
 `TryAddScoped` means a consumer that has already registered its own `IFormidableFocusService` (a
 custom focus/scroll behavior) keeps it — `AddFormidableBlazor()` never overwrites an existing
 registration.
+
+That is also what makes all three testable. Each is a public interface over an internal JS-backed
+implementation, so a bUnit test registers its own stand-in first and `AddFormidableBlazor()`
+leaves it alone: a focus double makes which field a blocked submit moved to assertable, a DOM
+value sync double keeps a number or date input off interop entirely, and an
+`IFormidableFieldOrderService` double is how a test states a document order without a document
+(see [Testing](testing.md#the-form-under-bunit)).
 
 An overload takes an `Action<FormidableOptions>` and registers the configured instance as the
 app-wide default, which every form that omits its own `Options` parameter then uses:
@@ -1547,7 +1640,7 @@ visibility gate. What's new is `ScrollToRowAsync`, the code-behind method wired 
 above:
 
 ```csharp
-    private const float RowHeight = 96f;
+    private const float RowHeight = 118f;
 ```
 
 ```csharp

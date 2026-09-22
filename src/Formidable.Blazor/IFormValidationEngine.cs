@@ -63,9 +63,12 @@ public interface IFormValidationEngine
     IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field);
 
     /// <summary>
-    /// All currently-visible issues across the form: the fault issue first (model-level),
-    /// then submit-pass entries, then live-pass entries not already present for the same
-    /// field with the same message.
+    /// All currently-visible issues across the form: the fault issue (model-level), submit-pass
+    /// entries, and live-pass entries not already present for the same field with the same
+    /// message. Ordered by where each field sits on the page once the host has resolved that —
+    /// so entries for different channels interleave by field, and anything the host could not
+    /// place, the model-level fault included, sorts last. Until then, and for a host that never
+    /// resolves an order, they arrive in that channel order: fault, submit, live.
     /// </summary>
     IReadOnlyList<VisibleIssue> GetVisibleIssues();
 

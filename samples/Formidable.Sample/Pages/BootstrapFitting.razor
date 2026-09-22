@@ -10,7 +10,8 @@
 <TeachingPanel CodeFiles="@(new[] { "BootstrapFitting.razor", "BootstrapFitting.razor.cs", "QuickContact.cs" })">
     <Rules>
         <ul>
-            <li><strong>Name</strong> — required; <strong>Email</strong> — required and valid (one message at a time). Identical validator to Quickstart.</li>
+            <li><strong>Name</strong> — required.</li>
+            <li><strong>Email</strong> — required and valid (one message at a time). Identical validator to Quickstart.</li>
             <li>The seam: <code>CssClasses = new() { Invalid = "is-invalid", Valid = "is-valid" }</code> — Formidable puts Bootstrap's own state classes on the inputs; Bootstrap's stylesheet does the rest.</li>
             <li>Message and summary components keep their <code>formidable-*</code> structural classes — your stylesheet styles those (here the site theme still does).</li>
             <li>Dark mode: the wrapper's <code>data-bs-theme</code> attribute is toggled to match your OS by page script — Bootstrap's own theming hook; the kit is not involved.</li>

@@ -24,9 +24,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       accordion containing the page's real source
 - [ ] Buttons sit in a spaced actions row; nothing touches a message
 - [ ] Valid submit produces a status line with breathing room below the buttons
-- [ ] A blocked submit focuses the first visible error automatically, with no click needed
-      (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is the one page
-      that lets you turn it off)
+- [ ] A blocked submit focuses the first error IN DOCUMENT ORDER on the page — the field that
+      sits highest visually, not the field whose rule was declared first in the validator — with
+      no click needed (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is
+      the one page that lets you turn it off)
 
 ## Navigation
 
@@ -57,8 +58,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Panel states the 60-char Title rule; 61 chars shows it live
 - [ ] Save draft: blocked by format only; Submit: completeness kicks in
 - [ ] Valid submit: status line confirms
-- [ ] Type into both fields, submit (blocked or not), then click *Reset*: the typed values and
-      any errors both clear — the SAME form, pristine again, no page reload
+- [ ] Type into both fields, submit (blocked or not), then click *Reset*: the errors clear and
+      the form returns to pristine — but the typed values in both boxes STAY exactly as typed;
+      `ResetAsync()` never writes model properties, and it is the SAME form, no page reload
 
 ### Custom profiles
 
@@ -100,6 +102,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] `Great synth!` + blur: amber warning live; 6 tags + blur: purple-blue info live
 - [ ] Submit with Title: proceeds, status counts advisories; without: only the error blocks
 - [ ] Summary groups error → warning → info with matching link colours
+- [ ] Each severity band carries its own background tint and border-left (not one shared
+      red-tinted box): with all three severities showing at once, the info band never sits on
+      an error-coloured field, in both light and dark
 
 ---
 
@@ -123,6 +128,8 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] FIRST submit lists all 28 missing serials without scrolling
 - [ ] Far entry click: panel scrolls, row renders, focus lands
 - [ ] Fix a serial, scroll away, submit: its entry disappears; others remain
+- [ ] Scroll the whole panel slowly, top to bottom: rows sit flush against each other with no
+      blank gap or overlap, whether or not the row carries a message
 
 ### Wrapping a foreign control
 
@@ -179,12 +186,15 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       server file, not a paraphrase (it shows the `[ApiController]`/`[HttpPost]` twin of the
       minimal-API mapping)
 - [ ] Empty send: the 400 lands inline, one message per field; summary click focuses
+- [ ] That same empty send also moves focus on its own, no click needed — it lands on
+      Description, the first field with an error on the page
 - [ ] Fix one field, send again: every remaining error shows ONE message (no duplicates)
 - [ ] Description with a hyphen (e.g. `Q3-restock`) while a SKU line is still empty, then send:
       the 400 carries the server's hyphen advisory as well as the SKU error, and the advisory
       shows on Description in warning styling — no separate advisory list anywhere on the page.
       Fill the SKU and send again: accepted — and the hyphen advisory stays, because the client's
-      own rule still fails it. Remove the hyphen too, click away from the field, and it goes
+      own rule still fails it; this accepted send carries no error, so it moves focus nowhere.
+      Remove the hyphen too, click away from the field, and it goes
 - [ ] A whitespace-only SKU line: dropped by the pre-send Normalize; no misattributed errors
 - [ ] Switch to *MVC controller* and repeat the empty send: identical messages land on the
       identical fields — the hosting style makes no difference to the 400 shape
@@ -214,6 +224,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       all recolour at once
 - [ ] Focus a field and change the accent: focus ring and spinner colours follow
 - [ ] Type `!` in Description, blur, then recolour warning: the advisory follows too
+- [ ] Type seven comma-separated tags into Tags, leaving Title empty, then click Submit
+      IMMEDIATELY with no intervening Tab: the missing-Title error discloses in the summary on
+      that first click. The "more than five tags" info commits and renders WHILE you type, not
+      at blur, so nothing shifts the Submit button out from under the pointer at click time
 
 ### Scroll & focus
 
@@ -339,6 +353,9 @@ steps build on each other.
       required", the summary lists it, and clicking that entry focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
       attendees needs approval — submission is not blocked" appears above the list
+- [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
+      the page scrolls so the warning message itself lands in view near the top of the
+      viewport, not centred with the message off-screen above or below it
 - [ ] Restore the rest of the form to the state that submitted successfully (real Contact
       email, catering ticked with a dietary note, **Venue region** still filled) and submit:
       the warning does NOT block — accepted with 11 attendees

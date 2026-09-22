@@ -7,7 +7,8 @@
 <TeachingPanel CodeFiles="@(new[] { "VanillaInterop.razor", "VanillaInterop.razor.cs", "GadgetOrder.cs" })">
     <Rules>
         <ul>
-            <li><strong>Nickname</strong> (a native <code>InputText</code>) and <strong>Colour</strong> (a Formidable input) — both required, validated live, in the same form.</li>
+            <li><strong>Nickname</strong> (a native <code>InputText</code>) — required, validated live.</li>
+            <li><strong>Colour</strong> (a Formidable input) — required, validated live.</li>
             <li>The css provider gives native InputBase components the same state classes, so both inputs style identically with zero extra wiring.</li>
             <li>The rest is rendered by hand, one concern at a time: <code>FormidableFieldAnchor</code> registers it so its issues disclose, the field's own id on the input is what the summary's click-to-focus looks for, and <code>aria-describedby</code> plus <code>aria-invalid</code> give a screen reader the same message pairing and error state a Formidable input emits — the page reads that state off the engine, so it appears and clears with the message beside it.</li>
         </ul>

@@ -44,6 +44,10 @@ public sealed class EngineOrderValidator : DraftSubmitValidator<EngineOrder>
             .Must(d => !d.Contains('-'))
             .WithSeverity(Severity.Warning)
             .WithMessage("Avoid hyphens");
+        RuleFor(x => x.Description)
+            .Must(d => !d.Contains('!'))
+            .WithSeverity(Severity.Info)
+            .WithMessage("Exclamation marks read as shouting");
     }
 }
 
@@ -126,6 +130,24 @@ public sealed class ThrowingValidator : DraftSubmitValidator<EngineOrder>
 }
 
 /// <summary>
+/// Submit validator whose Submit ruleset fails <see cref="EngineOrder.Description"/> with an
+/// ordinary field error, and whose Draft ruleset throws when <see cref="Throw"/> is true —
+/// unlike <see cref="ThrowingValidator"/>, which never fails a submit at all. Exists to stage a
+/// live-pass fault landing ALONGSIDE a field error a prior submit already made visible, since
+/// the fault issue does not clear or replace what a submit put in the visible set.
+/// </summary>
+public sealed class FaultAndFieldErrorValidator : DraftSubmitValidator<EngineOrder>
+{
+    public bool Throw { get; set; }
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Description).Must(_ => Throw ? throw new InvalidOperationException("rule blew up") : true);
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+}
+
+/// <summary>
 /// Draft validator whose <see cref="EngineOrder.Description"/> rule blocks on <see cref="Gate"/>
 /// (mirrors the sample's async uniqueness check) while the customer-name and item-SKU rules fail
 /// synchronously — so a live pass can be held in flight, across the refresh debounce if need be,
@@ -191,6 +213,54 @@ public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
     }
 
     public void Reset() => CustomerNameGate = new TaskCompletionSource();
+}
+
+/// <summary>
+/// Submit validator whose rules are declared in an order no page would render them in: a
+/// form-level rule first, then two <see cref="EngineOrder.Description"/> rules, then the
+/// customer's name last. Every rule fails on a default order, so a test can hand the engine any
+/// field order it likes and still tell the two apart — and the two description messages are what
+/// pin that ordering by field keeps one field's issues in the order the validator produced them.
+/// </summary>
+public sealed class DeclarationOrderValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x).Must(_ => false).WithMessage("The order is incomplete");
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+        RuleFor(x => x.Description).MinimumLength(5).WithMessage("Description is too short");
+        RuleFor(x => x.Customer!.Name)
+            .NotEmpty().WithMessage("Customer name is required")
+            .When(x => x.Customer is not null);
+    }
+}
+
+/// <summary>
+/// Submit validator that fails <see cref="EngineOrder.Description"/> with a WARNING and
+/// <see cref="EngineCustomer.Name"/> with an error, for a page that renders the advisory-bearing
+/// field above the erroring one: the topmost visible issue is then an advisory, while the thing a
+/// blocked submit has to take the visitor to is still the error below it.
+/// </summary>
+public sealed class AdvisoryAboveErrorValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description)
+            .Must(_ => false)
+            .WithSeverity(Severity.Warning)
+            .WithMessage("Description could be clearer");
+        RuleFor(x => x.Customer!.Name)
+            .NotEmpty().WithMessage("Customer name is required")
+            .When(x => x.Customer is not null);
+    }
 }
 
 /// <summary>

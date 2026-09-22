@@ -7,7 +7,8 @@
 <TeachingPanel CodeFiles="@(new[] { "TrimmedNote.cs", "Normalize.razor", "Normalize.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces. <strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed the same way.</li>
+            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims <strong>Title</strong> and collapses runs of internal whitespace to single spaces.</li>
+            <li><strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed by <strong>Normalize()</strong> the same way.</li>
             <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
             <li>Client code has no automatic hook unless you ask for one — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
             <li>The engine listens for field-change notifications, not the model itself — code that mutates the model tells the engine which fields changed (<code>EditContext.NotifyFieldChanged</code>, one call per changed field), the same wiring a foreign control uses. <em>Normalize now</em> does exactly that, so a message already on screen re-judges the cleaned value immediately.</li>
