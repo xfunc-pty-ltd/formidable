@@ -41,13 +41,13 @@ public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
     /// <param name="validatorName">The component validator's type name as the runtime reports it (<c>NotEmptyValidator`2</c>).</param>
     /// <remarks>
     /// Runs from the base constructor, before a derived constructor body (field initializers have
-    /// run). The default writes a Debug-output line in a debug build of this library and nothing
-    /// in the release build the package ships; override it to report elsewhere or to stay silent.
+    /// run). The default writes a <see cref="System.Diagnostics.Trace"/> line, which the release
+    /// build the package ships keeps; override it to report elsewhere or to stay silent.
     /// Child and collection rule contents are not inspected: the check covers leaf property
     /// validators only.
     /// </remarks>
     protected virtual void OnOverlappingRuleAxes(string propertyName, string validatorName) =>
-        System.Diagnostics.Debug.WriteLine(
+        System.Diagnostics.Trace.WriteLine(
             $"Formidable: '{propertyName}' has {validatorName} rules in both the draft and submit axes; " +
             "draft handles malformed-ness, submit handles presence - overlapping rules produce double messages.");
 

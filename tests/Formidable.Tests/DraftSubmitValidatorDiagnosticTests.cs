@@ -1,8 +1,12 @@
+using System.Diagnostics;
 using FluentValidation;
 using Formidable.Tests.Fixtures;
 
 namespace Formidable.Tests;
 
+// The pin added below attaches its own TraceListener, which is process-global state - see
+// ProcessGlobalStateCollection for how far it reaches and who owes membership.
+[Collection(ProcessGlobalStateCollection.Name)]
 public class DraftSubmitValidatorDiagnosticTests
 {
     private sealed class OverlappingValidator : DraftSubmitValidator<TestOrder>
@@ -55,14 +59,55 @@ public class DraftSubmitValidatorDiagnosticTests
     // the shipped fixture — display names, error codes, severities and collection child rules —
     // is what puts a realistic shape through its enumeration. Whether the scan REPORTS is pinned
     // by the two tests above, which can observe it because they override the hook; the default
-    // hook writes to Debug output, whose call site a release build removes outright, so a test
-    // asserting silence through it would be vacuous in exactly the configuration that ships.
+    // hook writes to Trace, which a release build of this library keeps, so the pin below reads
+    // that channel directly instead of through an override.
     [Fact]
     public void Existing_fixture_validator_constructs_through_the_overlap_scan()
     {
         var exception = Record.Exception(() => new TestOrderValidator());
 
         Assert.Null(exception);
+    }
+
+    private sealed class UnoverriddenOverlapValidator : DraftSubmitValidator<TestOrder>
+    {
+        protected override void ConfigureDraftRules() =>
+            RuleFor(x => x.Description).NotEmpty();
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(x => x.Description).NotEmpty();
+    }
+
+    // The two tests above observe the scan through an override; this one observes the default
+    // hook itself, which is the shape every consumer who never overrides it gets. A release build
+    // of this library keeps the Trace call site, so a listener attached for the duration of the
+    // constructor call is enough to read it back.
+    [Fact]
+    public void Default_hook_writes_the_overlap_message_to_Trace()
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+        try
+        {
+            _ = new UnoverriddenOverlapValidator();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        Assert.Contains(listener.Lines, line => line.Contains("has") && line.Contains("rules in both the draft and submit axes"));
+    }
+
+    private sealed class CapturingTraceListener : TraceListener
+    {
+        public List<string> Lines { get; } = [];
+
+        public override void Write(string? message)
+        {
+        }
+
+        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
     }
 
     private sealed class CollectionRulesValidator : DraftSubmitValidator<TestOrder>
