@@ -53,7 +53,7 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 
 | Package | Depends on | Contents |
 |---|---|---|
-| `Formidable` | FluentValidation +<br>`Microsoft.Extensions.DependencyInjection.Abstractions` | Validation profiles, `ProfiledValidator<T>` / `DraftSubmitValidator<T>`, the `IModelValidator` seam, `ValidationIssue` / `ValidationReport`, `INormalizableModel`, model introspection. No Blazor dependency. |
+| `Formidable` | FluentValidation +<br>`Microsoft.Extensions.`<br>`DependencyInjection.Abstractions` | Validation profiles, `ProfiledValidator<T>` / `DraftSubmitValidator<T>`, the `IModelValidator` seam, `ValidationIssue` / `ValidationReport`, `INormalizableModel`, model introspection. No Blazor dependency. |
 | `Formidable.Blazor` | `Formidable` +<br>`Microsoft.AspNetCore.Components.Web` | The validation engine (EditContext integration, field registry, validation flows) and the headless component kit (`FormidableForm`, `FormidableField`, `FormidableFieldMessage`, `FormidableSummary`, …). |
 | `Formidable.AspNetCore` | `Formidable` + ASP.NET Core | Minimal-API endpoint filter and MVC `[Validate]` action filter, returning `ValidationProblemDetails` in the same path format the Blazor client consumes. |
 
