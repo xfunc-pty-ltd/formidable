@@ -95,7 +95,7 @@ arm it: a field change once a submit has happened, and any move in the rendered 
 at this duration whether or not `LiveDebounce` is set, and a burst of field-set changes collapses to
 one pass, since they share a single timer.
 
-[Async validation](async-validation.md#after-a-submit-an-edit-also-arms-a-refresh) has why the two
+[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has why the two
 arm sites are not symmetric. This timer and `LiveDebounce`'s both come from the DI container's
 `TimeProvider` where one is registered, so a test can land either window with `Advance`. See
 [Testing](testing.md#faking-the-clock).
@@ -112,7 +112,7 @@ Reach for it when live rules are expensive enough that one per keystroke is the 
 refresh as well.
 
 The two timers arm independently;
-[Async validation](async-validation.md#livedebounce-after-a-submit) has what setting one wider
+[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has what setting one wider
 costs.
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps the
@@ -126,7 +126,7 @@ immediate default for a 400 ms window.
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work. On a
 validator the engine can take rule by rule, the probe shares the verdict store; on any other, each
 probe is one whole `SubmitProfile` validation on top of the live pass.
-[Async validation](async-validation.md#the-trackformvalidity-probe) has the sharing, the cadence
+[Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the sharing, the cadence
 and what overlapping probes do.
 
 ```razor

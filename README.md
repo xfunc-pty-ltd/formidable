@@ -246,6 +246,7 @@ The deep dives, grouped the way the concepts stack.
 | Project | [Migration guide](docs/migration-guide.md) | Moving an existing FluentValidation and `EditForm` integration across. |
 | Project | [Troubleshooting](docs/troubleshooting.md) | Symptom, cause and fix, ordered build-time to run-time. |
 | Project | [Testing](docs/testing.md) | The tests you write over a form you built, and this repo's own suite: its two tiers and the gate a release has to pass. |
+| Project | [How the engine works](docs/how-the-engine-works.md) | For contributors, and for anyone curious about the machinery: the engine in its own vocabulary. Nobody needs it to use the library. |
 | Project | [Releasing](docs/releasing.md) | The maintainer's runbook for cutting a version. |
 | Project | [Manual checklist](samples/MANUAL-CHECKLIST.md) | The eyes-on walkthrough of the sample app, one check per behaviour. |
 | Project | [Changelog](CHANGELOG.md) | What shipped, release by release. |

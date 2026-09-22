@@ -9,8 +9,7 @@ page follows where one demonstrates it. Chasing a symptom instead of a goal?
 ### I want to validate while typing, on blur, or only at submit
 
 **Set:** `UpdateOn` on the input — `InputUpdateMode.OnChange` (the default),
-`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`. It decides when the value commits and when
-the engine hears about it.
+`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`.
 
 ```razor
 <FormidableInputText @bind-Value="Model.Nickname"
@@ -29,34 +28,30 @@ about it then.
 above answers as the visitor types. A `<select>` has no meaningful `input` event distinct from
 `change`, so `OnInput` there behaves like the default.
 
-**`OnBlur`** commits the value on `change` like the default, but the commit only arms a notification
-and the next `blur` delivers it. However many commits pile up, one blur delivers one. That suits a
-control whose `change` event fires more than once per logical edit (a native date input, once per
-segment).
+**`OnBlur`** commits the value on `change` like the default, but the next `blur` delivers the
+notification, one blur for however many commits piled up. That suits a control whose `change` event
+fires more than once per logical edit (a native date input, once per segment).
 
 ```razor
 <FormidableInputDate @bind-Value="Model.EventDate"
                      UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
-No `UpdateOn` mode changes what submit and the refresh validate. What `UpdateOn` decides is when a
-commit reaches the engine, and post-submit each commit is also what re-arms the refresh.
+No `UpdateOn` mode changes what Submit, or the whole-form re-check that follows a post-submit edit,
+validates. What `UpdateOn` decides is when a commit reaches the engine; after a submit each commit
+also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 
 | | A rule the live channel selects (by default, every one) | A rule it doesn't (`LiveProfile` narrowed past it) |
 |---|---|---|
-| `UpdateOn="InputUpdateMode.OnChange"` (default) | On the element's `change` event: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
-| `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke: each one starts its own live pass, and the pass that wins writes the verdict. | Not before submit. At submit — and after that, typing re-answers the submit profile after 300 ms of quiet. |
-| `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change: the blur delivers one notification for however many `change` commits preceded it, so a multi-segment control never starts a live pass mid-edit — and a blur with no commit before it starts nothing. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
+| `UpdateOn="InputUpdateMode.OnChange"` (default) | On the element's `change` event: the commit starts a check and the message lands on that field. | Not before submit. At submit; then, after each commit, in the whole-form re-check 300 ms later. |
+| `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke, and you see the answer for what you last typed. | Not before submit. At submit; then in the whole-form re-check 300 ms after the typing stops. |
+| `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change, so a multi-segment control never starts a check mid-edit; a blur with no commit before it starts nothing. | Not before submit. At submit; then, after each blur-commit, in the whole-form re-check 300 ms later. |
 
 Which column a rule falls in is a configuration choice rather than a property of the bucket it was
 declared in: [`FormidableOptions.LiveProfile`](profiles.md#the-client-lifecycle) draws the line.
-
-What keeps the left column from nagging is engagement rather than rule selection: a field nobody has
-engaged keeps no live verdict, however loudly its rule fails.
-
-The refresh answers the submit channel alone, re-answering the fields a submit revealed there rather
-than widening the set. On the default profiles the live channel answers those same fields alongside,
-so an engaged one speaks anyway.
+What keeps the left column from nagging is engagement rather than rule selection: a field you have
+not changed shows no live message, however loudly its rule fails (a load of values disclosed with
+`DiscloseLoadedValuesAsync` counts as a change for the fields it fills).
 
 **Read more:**
 
@@ -97,14 +92,13 @@ public class BriefValidator : DraftSubmitValidator<Brief>
 Options.LiveProfile = ValidationProfile.Draft;
 ```
 
-Buckets are the authoring axis: draft rules ask "is this value malformed?" and treat an empty value
-as fine, submit rules ask "is this value present?" and treat default values as missing. Buckets also
-decide what a lenient draft save enforces, since a "save draft" button asks the validator for
-`ValidationProfile.Draft` directly. `LiveProfile` is the runtime axis, and it alone decides which of
-those rules the live channel evaluates.
+Buckets are the authoring axis: draft rules ask whether a value is malformed and treat an empty one
+as fine, submit rules ask whether it is present, and a lenient draft save enforces the draft bucket
+alone. `LiveProfile` is the runtime axis, and it alone decides which of those rules the live channel
+runs.
 
 The trade is real: the field the visitor just emptied says nothing until they press a button and are
-told they cannot. Hold the message back where the rule is expensive rather than merely strict. The
+told they cannot. Hold the message back where the rule is expensive rather than merely strict; the
 next recipe is that case in full.
 
 **Read more:**
@@ -130,10 +124,10 @@ Options.LiveProfile = ValidationProfile.Draft;
 ```
 
 `ValidationProfile.Draft` is the usual choice: the default rules alone, leaving every
-`"Submit"`-ruleset rule to the submit button and the refresh behind it.
+`"Submit"`-ruleset rule to the submit button and the whole-form re-check after it.
 
-Reach for this on cost rather than strictness. A live pass runs on every committed change, so a rule
-that calls a server or walks a long collection is worth keeping off it.
+Reach for this on cost rather than strictness. The live channel checks on every committed change, so
+a rule that calls a server or walks a long collection is worth keeping off it.
 
 **Keeping one rule live while the rest wait.** That rule needs membership in the narrow profile as
 well as in `"Submit"`, without existing twice:
@@ -180,17 +174,15 @@ app.MapGroup("/api/signups").Validate<Signup>(
         ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
 ```
 
-**What the shared rule costs.** Where the validator has a rule-level seam, a post-submit edit runs
-that rule once across its live pass and the refresh behind it. The engine reuses verdicts by *rule*,
-and one declared rule stays one however many names reach it. The FluentValidation adapter over an
-`AbstractValidator` has that seam, unless `ClassLevelCascadeMode.Stop` opts it out.
+**What it costs.** Narrowing changes which checks run a rule, not what the form enforces at submit.
+After a submit, one edit still runs a shared rule once, however many profile names reach it (a rule
+reached through `Include()` or `SetValidator` is the exception and may run again); only a validator
+with a class-level cascade stop, or one that is not FluentValidation's `AbstractValidator`, re-runs
+every rule on each check.
 
-**What narrowing costs.** It changes which passes run a rule, not what the form enforces at submit.
-`TrackFormValidity`'s probe evaluates `SubmitProfile` whatever `LiveProfile` says, so it runs the
-rules the live pass never selected.
-
-Narrowing's other cost is the `Valid` state class, which means a submit would pass. A narrowed live
-pass cannot answer that, so no field wears a confirmation border on the strength of one.
+With `TrackFormValidity` on, narrowing saves nothing: the rules the live channel skipped still run
+at each check to keep `IsFormValid` honest. And no field wears the `Valid` class on the strength of
+a narrowed check, because that class means a submit would pass.
 
 **Read more:**
 
@@ -198,7 +190,7 @@ pass cannot answer that, so no field wears a confirmation border on the strength
 - [Options](options.md#liveprofile)
 - [`TrackFormValidity`](options.md#trackformvalidity)
 - [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)
-- [the verdict store](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)
+- [why a rule runs once per edit](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
 - [what puts green on a field](css-and-accessibility.md#need-to-know)
 
 Sample:
@@ -210,9 +202,9 @@ Sample:
 
 **Set:** put the `MustAsync` rule in the draft bucket, honour the `CancellationToken` it hands you,
 and render the indicator from `field.State.IsValidating` inside a `FormidableField` (kit inputs also
-append the `Pending` class on their own). The bucket is about meaning rather than timing: a live
-pass evaluates both buckets by default, and a uniqueness check belongs in the draft bucket if a
-draft save should answer it too.
+append the `Pending` class on their own). The bucket is about meaning rather than timing: the live
+channel runs both buckets by default, and a uniqueness check belongs in the draft bucket if a draft
+save should answer it too.
 
 ```csharp
 protected override void ConfigureDraftRules() =>
@@ -229,20 +221,20 @@ protected override void ConfigureDraftRules() =>
 </FormidableField>
 ```
 
-The element renders whether or not a check is in flight, and only the text inside it comes and goes.
-A live region announces reliably when assistive technology was told about it before the content
-arrived.
+Render the element always and let only the text inside it come and go, so assistive technology knows
+about the live region before the content arrives.
 
 The `UpdateOn="InputUpdateMode.OnInput"` above is what makes the check answer as the user types.
-`IFormidableEngine.IsValidating` is the form-wide flag, true while any pass runs;
-`field.State.IsValidating` is narrower, scoped to the fields the pass concerns. A newer live pass
-supersedes an older one, which is why the rule has to honour its token.
+`field.State.IsValidating` is scoped to the fields the check concerns (as you type, the one you
+changed); `IFormidableEngine.IsValidating` is the form-wide flag, true while any check but
+`TrackFormValidity`'s runs. You only ever see the answer for what you last typed, because a newer
+check cancels the older one, which is why the rule has to honour its token.
 
 **Read more:**
 
 - [Async validation](async-validation.md)
-- [which fields show "checking…"](async-validation.md#which-fields-show-checking)
-- [holding the answer so a repeat costs nothing](async-validation.md#memoizing-an-async-rule)
+- [which fields show "checking…"](async-validation.md#where-does-checking-show-and-where-doesnt-it)
+- [remember a slow check's answer](#i-want-a-slow-async-check-to-remember-its-answer)
 - [why the element renders empty](css-and-accessibility.md#formidablesummary-as-a-live-region)
 - [Options](options.md) (`RefreshDebounce`)
 - [CSS and accessibility](css-and-accessibility.md) (`Pending`)
@@ -251,6 +243,86 @@ Samples:
 
 - [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor)
 - [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor)
+
+### I want a slow async check to remember its answer
+
+**Set:** hold an `AsyncRuleMemo<TKey, bool>` as a field on the validator, with a window of seconds,
+and write the rule with `MustAsyncMemoized` where `MustAsync` would go (`IUsernameDirectory`
+below is your own lookup).
+
+```csharp
+using FluentValidation;
+using Formidable;
+
+public class UniqueHandleValidator : DraftSubmitValidator<Handle>
+{
+    private readonly AsyncRuleMemo<string, bool> _free = new(TimeSpan.FromSeconds(10));
+    private readonly IUsernameDirectory _directory;
+
+    public UniqueHandleValidator(IUsernameDirectory directory) => _directory = directory;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(h => h.Username)
+            .MustAsyncMemoized(_free, (username, token) => _directory.IsFreeAsync(username!, token))
+            .WithMessage("That username is taken")
+            .When(h => !string.IsNullOrEmpty(h.Username));
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(h => h.Username)
+            .NotEmpty()
+            .WithMessage("A username is required");
+}
+```
+
+`MustAsyncMemoized` is `MustAsync` with a lookup in front of it, so everything after it chains the
+same way; a `null` value skips the memo and reaches the check directly. On the memoized path the
+check runs under `CancellationToken.None`, since its answer belongs to every caller waiting on it: a
+caller that gives up stops waiting while the call carries on.
+
+There is deliberately no overload handing the check the model, since the memo keys its answers by
+the value alone. A check that needs more than the value belongs on `MustAsync` directly.
+
+Three things decide whether a memo is safe on a rule, and the first goes wrong silently:
+
+- **Hold the memo on the validator.** Built inside the rule's own lambda it is rebuilt on every
+  call and never hits.
+- **Keep the check pure with respect to its key.** A coupon check that really asks "is this code
+  valid *for me*", keyed on the code alone, answers the second customer with the first's answer.
+- **Size the window to the pause it has to survive**; the sample's `MemoizedHandleValidator` uses
+  ten seconds.
+
+The container's lifetime for the validator is the memo's (`AddValidatorsFromAssembly` registers
+scoped unless told otherwise): scoped keeps it inside the circuit or request that built it, and a
+singleton hands every visitor the same held answers. `Invalidate(key)` and `Clear()` answer news that
+a value the memo still holds as available has just been taken; both govern future lookups only.
+
+`MustAsyncMemoized` reaches every property type but a nullable value type (`int?`, `Guid?` and
+the rest), where inference fails and the compiler reports CS0411. Unwrap it and call `GetAsync`
+directly:
+
+```csharp
+        RuleFor(t => t.SeatNumber)
+            .MustAsync((seat, token) => seat is null
+                ? Task.FromResult(true)
+                : _seatFree.GetAsync(
+                    seat.Value,
+                    (key, ct) => _seating.IsFreeAsync(key, ct),
+                    token));
+```
+
+A validator could hold its own last answer in a field instead; the memo adds joining a check
+already running (two checks around the same moment share one round trip) and a bounded set rather
+than one slot (a `RuleForEach` visiting every row hits on all of them).
+
+**Read more:**
+
+- [why the same value gets checked twice](async-validation.md#why-did-the-same-value-get-checked-twice-and-how-do-i-stop-it)
+- [an async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator)
+
+Sample:
+
+- [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) supplies `MemoizedHandleValidator`
+  in place of the sample's plain `HandleValidator`
 
 ### I want to validate on the server and show its verdict
 
@@ -272,17 +344,16 @@ if (!response.IsSuccessStatusCode)
 }
 ```
 
-A 400 can come from a proxy or a gateway rather than from the endpoint. What those send is no
-verdict, often not JSON at all, in which case the deserialize throws rather than returning one. Pass
-`problem.ToIssues()` instead when the page wants the flattened issues for something of its own; the
-two overloads are otherwise identical. Each apply replaces the previous server verdict rather than
-adding to it.
+The guard above is half of it. A 400 from a proxy or a gateway is no verdict, often not JSON at
+all, and the deserialize throws on such a body rather than returning `null`, so the parse itself
+belongs inside a `try`. Pass `problem.ToIssues()` instead when the page wants the flattened issues
+for something of its own. Each apply replaces the previous server verdict rather than adding to it.
 
 **Normalize before posting** when the model implements `INormalizableModel`: the filters normalize
 too, so cleaning first keeps the paths in the response lined up with the rows on screen. Call
 `model.Normalize()` yourself, or set
-[`FormidableOptions.NormalizeOnSubmit`](options.md#normalizeonsubmit) and the submit pass does it
-before the profile runs.
+[`FormidableOptions.NormalizeOnSubmit`](options.md#normalizeonsubmit) and the submit normalizes
+before it validates.
 
 **Read more:**
 
@@ -313,16 +384,15 @@ await _form!.DiscloseLoadedValuesAsync();
 <!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs` -->
 
 Writing model properties notifies nothing, so without that last line a loaded form looks pristine
-however good or bad its contents are. The call validates the whole model under `SubmitProfile`, then
-answers field by field on whether the field holds a value. A good value is confirmed, a wrong one
-discloses its message, and a field holding nothing stays silent and unstyled. `FormidableValidator`
-carries the same method on the same terms.
+however good or bad its contents are. The call confirms a good value, discloses a wrong one, and
+leaves a field holding nothing silent and unstyled; `FormidableValidator` carries the same method on
+the same terms.
 
 **Fill the instance rather than replacing it.** A new instance reaches the form as a `Model`
 parameter, and a parameter arrives on the form's next render. The call would then run against the
-engine still bound to the old object, find every field of it empty, and do nothing at all. Where the
-values genuinely do arrive as a new instance, bind it with `@bind-Model` and call from the render
-that follows the swap.
+old object the form is still bound to, find every field of it empty, and do nothing at all. Where
+the values genuinely do arrive as a new instance, bind it with `@bind-Model` and call from the
+render that follows the swap.
 
 **Read more:**
 
@@ -356,8 +426,7 @@ wrapper presenting only the `IModelValidator<TModel>` seam, and the rule shapes 
 
 The override answers before the validator's own rules are read, and it declares in both directions.
 `Required` marks a field the rules cannot be read to demand, `NotRequired` unmarks one they can. It
-decides the marker and the input's `aria-required` together, so the two cannot disagree. It is
-invoked on every ask, once per bound component per render, so keep it a cheap pure read.
+decides the marker and the input's `aria-required` together, so the two cannot disagree.
 
 **What the rules cannot say.** `FieldRequirement.NotRequired` means "not known to be required"
 rather than "proven optional", and the shapes below draw no mark:
@@ -402,21 +471,20 @@ RuleFor(t => t.AccommodationType).NotEmpty().WithMessage("Choose an accommodatio
 }
 ```
 
-If relevance is decided by *UI state* alone, leave the rule unconditional. Visibility is
-render-registration, so the rule keeps running and counting toward validity while the field is off
-screen. Its message is suppressed until a submit finds the field rendered, and
-`FormidableOptions.SuppressedIssueDiagnostic` reports each suppressed error. When every failing
-field is hidden, the engine blocks anyway and reports one model-level explanation rather than a
-silent no-op submit.
+If relevance is decided by *UI state* alone, leave the rule unconditional: the rule keeps running
+and counting toward validity while the field is off screen, its message waits for a submit that
+finds the field rendered, and `FormidableOptions.SuppressedIssueDiagnostic` reports each error held
+back. When every failing field is hidden, the form blocks anyway and explains itself with one
+model-level message rather than failing silently.
 
-**Reach past the registry with `DisclosureOverride`:** it answers for an issue whose field nothing
-renders, and at submit `true` reveals that field while `false` withholds the issue's own
+**Reach past what is rendered with `DisclosureOverride`:** it answers for an issue whose field
+nothing renders, and at submit `true` reveals that field while `false` withholds the issue's own
 contribution to revealing it. For rows a `Virtualize` container disposes, `KeepRegistered` holds an
 already-showing error open, and an override on the collection covers rows it has never rendered.
 
 **Read more:**
 
-- [Disclosure](disclosure.md)
+- [Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)
 - [Options](options.md)
 
 Samples:
@@ -438,10 +506,8 @@ RuleFor(l => l.Tags).Must(tags => tags.Count <= 5)
 ```
 
 `SubmitOutcome.CanProceed` counts error-severity issues only, so a report of warnings and infos
-submits successfully. The same rule holds on the server: a report without errors passes the filters
-untouched. `FormidableFieldMessage` and `FormidableSummary` render every severity, each message and
-each summary band classed by the severity it carries. The `EditContext`'s message store receives
-errors only, so a native `ValidationMessage` shows nothing for an advisory.
+submits successfully, and the same rule holds on the server. `FormidableFieldMessage` and
+`FormidableSummary` render every severity, while a native `ValidationMessage` shows errors only.
 
 **Read more:**
 
@@ -469,11 +535,9 @@ private string TeamsId => FormidableFieldId.For(Model, m => m.Teams);
 </div>
 ```
 
-A collection is one case that needs this by hand. Its rule fails against the list rather than
-against any one input, so nothing renders its id automatically. The model-level field behind the
-all-suppressed gate is reachable the same way: an id and `tabindex="-1"` on the element that takes
-focus. `FormidableForm` puts both on the `<form>` it renders; attach mode's `FormidableValidator`
-renders no `<form>`, so a page using it renders that id by hand.
+A collection needs this by hand, since its rule fails against the list rather than against any one
+input, and so does the model-level field on a page using `FormidableValidator`, which renders no
+`<form>` to carry the id that `FormidableForm` puts on its own.
 
 **For a field a summary click cannot reach**, give `FormidableSummary` a `FocusFallback`: make the
 element reachable, return `true`, and the summary retries the focus once. `FormidableForm` takes the
@@ -527,30 +591,22 @@ yourself once the dialog closes.
     private async Task ReturnToFirstErrorAsync() => await _form!.FocusFirstErrorAsync();
 ```
 
-**Suppressing the form's own move is not optional.** Left alone, `FocusFirstErrorOnInvalidSubmit`
-has the form move focus to the first error the moment the handler returns, inside the same submit
-call. The caret lands in a field the overlay is covering. Attach mode needs no handler for any of
-it, because the page owns the submit call: set `FocusFirstErrorOnInvalidSubmit="false"` on
+**Suppressing the form's own move is not optional:** left alone, the form moves focus to the first
+error the moment the handler returns, and the caret lands in a field the overlay is covering. In
+attach mode the page owns the submit call, so set `FocusFirstErrorOnInvalidSubmit="false"` on
 `FormidableValidator` and call `FocusFirstErrorAsync()` once the dialog has closed.
 
-**Close and Escape name no field.** Neither runs a `PrepareFocus`, so the summary moves nothing.
-Without the `FocusFirstErrorAsync()` above, focus goes wherever the dialog returns it, and the
-visitor hunts for the first problem by eye.
+**The dismissal has to finish before it reports back:** `PrepareFocus` is awaited, and a dialog is
+not gone on the state change that starts its close, so complete the callback on the dialog's own
+closed event.
 
-**The dismissal has to finish before it reports back:** `PrepareFocus` is awaited, so what the
-callback completes on decides where the focus move lands. A dialog does not disappear on the state
-change that starts its close. A transition finishes, an overlay comes off, and the dialog hands
-focus back to whatever opened it: that hand-back takes a premature move straight back. Complete
-the callback on the dialog's own closed event.
+The dialog itself is yours: the library ships none, and no styling either. `ItemTemplate` says what
+an entry reads, `GroupByField` gives one entry per field, and `MaxItems` with `OverflowTemplate`
+caps the list and stands a line of your own in for the rest.
 
-The dialog itself is yours: the library ships none, and no styling either. What the kit brings is
-the list inside it: `ItemTemplate` says what an entry reads, and `GroupByField` gives one entry per
-field. `MaxItems` with `OverflowTemplate` caps the list and stands a line of your own in for the
-rest.
-
-**`NameOf` above is the page's own helper**, because `Issue.DisplayName` is nullable: the engine's
-model-level issues carry none, and neither does an error the server sent. Fall back to the issue's
-`Path`, and to `ModelLevelDisplayName` where there is no path, read off `Engine.Options`.
+**`NameOf` above is the page's own helper**, because `Issue.DisplayName` is nullable: a model-level
+issue carries none, and neither does an error the server sent. Fall back to the issue's `Path`, and
+to `ModelLevelDisplayName` where there is no path, read off `Engine.Options`.
 
 **Read more:**
 
@@ -624,20 +680,20 @@ builder.Services.AddScoped<IFormidableFieldOrderService, VisualOrderService>();
 builder.Services.AddFormidableBlazor();
 ```
 
-The shipped service sorts by `compareDocumentPosition`, which is the order the *markup* declares.
-That is the right answer almost always, and the wrong one exactly where the layout disagrees with
-the markup: a two-column form, or a `flex` container whose children carry `order`. Only the browser
-can say where those fields really sit, and asking it is async — which is why this seam is a service
-rather than a delegate.
+The shipped service sorts by document order, the order the *markup* declares. That is the right
+answer almost always, and the wrong one exactly where the layout disagrees with the markup: a
+two-column form, or a `flex` container whose children carry `order`. Only the browser can say where
+those fields really sit, and asking it is async, which is why this seam is a service rather than a
+delegate.
 
 **Answer `null` where you could not resolve an order at all.** An empty list says something
-different — none of these fields are on the page — and the form takes that as settled. `null` says
-ask again on a later render.
+different (none of these fields are on the page) and the form takes that as settled. `null` says ask
+again on a later render.
 
 **Decide deliberately where the model-level field goes.** It arrives like any other, with an empty
-`FieldName` and its id on the `<form>` element. `compareDocumentPosition` puts it first for free,
-since the form contains everything in it. A rect comparison can tie it with the first field instead,
-so put it at the front yourself to keep the shipped behaviour.
+`FieldName` and its id on the `<form>` element, which document order puts first for free. A rect
+comparison can tie it with the first field instead, so put it at the front yourself to keep the
+shipped behaviour.
 
 An order that does not depend on the layout (blocking fields first, one section ahead of another)
 is `FormidableOptions.OrderIssues` instead. It re-sorts what the shipped service already resolved,
@@ -733,24 +789,23 @@ public partial class MissingFieldList : ComponentBase, IDisposable
 
 What the shipped component knows, yours has to know too:
 
-- **`GetVisibleIssues()` is the whole answer.** It is the submit-then-live-deduped view the kit's
-  message components read per field, computed on every ask. Each issue arrives paired with the
-  `FieldIdentifier` it resolved to, the model-level identifier included.
-- **`Issue.DisplayName` is the user-facing name, and it is nullable.** The engine's model-level
-  issues carry none, and neither does an error the server sent. Hence the two-step fallback above,
-  ending at `ModelLevelDisplayName` read from `Context.Engine.Options`, so re-voicing that option
-  changes your list and the engine's own summary together.
-- **The order is the page's, under `FormidableForm`.** That root resolves where the fields sit, so
-  entries arrive in the order a visitor reads them. `FormidableValidator` resolves no order, so a
-  list inside someone else's `EditForm` arrives in validator order.
-- **Focus goes through `IFormidableFocusService`.** Its currency is the `FieldIdentifier`, so the
-  entry you rendered already holds what the click needs. What you do not get free is
-  `FormidableSummary`'s miss recovery: reading the `false` and retrying once the element is
-  reachable is yours.
+- **`GetVisibleIssues()` is the whole answer.** It is the view the kit's message components read
+  per field, computed on every ask, each issue paired with the `FieldIdentifier` it resolved to,
+  the model-level identifier included.
+- **`Issue.DisplayName` is the user-facing name, and it is nullable.** A model-level issue carries
+  none, and neither does an error the server sent. Hence the two-step fallback above, ending at
+  `ModelLevelDisplayName` read from `Context.Engine.Options`, so re-voicing that option changes
+  your list and the shipped summary together.
+- **The order is the page's under `FormidableForm`,** which resolves where the fields sit.
+  `FormidableValidator` resolves no order, so a list inside someone else's `EditForm` arrives in
+  validator order.
+- **Focus goes through `IFormidableFocusService`,** whose currency is the `FieldIdentifier` your
+  entry already holds. `FormidableSummary`'s miss recovery is not free: reading the `false` and
+  retrying once the element is reachable is yours.
 - **Subscribe to `StateChanged`, and keep the announcing element persistent.** The engine raises it
-  on every pass, refresh and server apply; without the subscription the list is only as fresh as
-  whatever else re-rendered. A live region announces reliably only when the element carrying the
-  role was already in the DOM, so render the `<ul>` and its role from the first paint.
+  whenever validation or field state changes; without the subscription the list is only as fresh
+  as whatever else re-rendered. Render the `<ul>` and its role from the first paint, so assistive
+  technology knows the element before anything arrives in it.
 
 **Read more:**
 
@@ -789,9 +844,9 @@ itself, as every native `InputBase` descendant does, and only needs registering.
 
 **A native date or number input needs no seam at all:** where the model is genuinely a `DateOnly` or
 a `decimal`, reach for `FormidableInputDate`/`FormidableInputNumber` with
-`UpdateOn="InputUpdateMode.OnBlur"`. A `change` per typed segment then never starts a pass mid-edit.
-Both convert through `CultureInfo.InvariantCulture`, so the model gets the typed value with no
-culture in the way.
+`UpdateOn="InputUpdateMode.OnBlur"`. A `change` per typed segment then never starts a check
+mid-edit. Both convert through `CultureInfo.InvariantCulture`, so the model gets the typed value
+with no culture in the way.
 
 **Where the model is a string holding one**, splat the type onto `FormidableInputText` and parse
 that string by hand (the pattern `/workout`'s own date fields use).
@@ -801,9 +856,8 @@ this seam exists for. That means one that is not a plain `<input>` or `<textarea
 does not bind through `value`; a plain checkbox binds through `checked`, so it needs the seam too.
 
 Native `InputBase` components inside a `FormidableForm` pick up the configured state classes on
-their own, pending included, because the engine installs its `FieldCssClassProvider` on the shared
-`EditContext`. They pick up neither the id nor the aria attributes, so a page renders those itself,
-and matching a UI library's own class names is `FormidableOptions.CssClasses`.
+their own, pending included, but neither the id nor the aria attributes, so a page renders those
+itself; matching a UI library's own class names is `FormidableOptions.CssClasses`.
 
 **Read more:**
 
@@ -847,9 +901,9 @@ Compose a selection with `ValidationProfile.Named(name, includeDefaultRules, rul
 channels: the live channel follows whichever instance `SubmitProfile` holds. An engaged field then
 answers the custom profile between submits, with no second setting to keep in step.
 
-**Switch profiles at runtime on the options instance the form already holds.** Each pass reads the
-profile properties as it selects its rules, so the assignment takes effect from the next pass.
-Handing the form a wholly new `FormidableOptions` throws unless `Model` changes with it.
+**Switch profiles at runtime on the options instance the form already holds:** the assignment takes
+effect from the next check, and handing the form a wholly new `FormidableOptions` throws unless
+`Model` changes with it.
 
 Server-side, minimal APIs take a `ValidationProfile` value directly while
 `[Validate(Profile = "…")]` takes a name. Any name other than `Draft` or `Submit` (matched
@@ -883,9 +937,7 @@ RuleFor(o => o.Description).NotEmpty().WithName("Order description");
 ```
 
 `WithName(...)` display names land on `ValidationIssue.DisplayName`, and from there in
-`SubmitOutcome.VisibleErrorSummary`, ready for a dialog without extra mapping. WebAssembly fixes its
-culture at startup, so a language switch means storing the choice and applying it before the host
-runs.
+`SubmitOutcome.VisibleErrorSummary`, ready for a dialog without extra mapping.
 
 Three strings a form puts on screen come from the engine rather than from a rule. All three ship in
 English:
@@ -894,10 +946,11 @@ English:
   is hidden.
 - **`ModelLevelDisplayName`** is the name a model-level entry is listed under in
   `SubmitOutcome.VisibleErrorSummary`.
-- **`ValidationFaultMessage`** is what a pass that threw before it could finish leaves on the form.
+- **`ValidationFaultMessage`** is what the form shows when a validator throws during a live check
+  or the whole-form re-check (a submit or a load throws to your own code instead).
 
-Nothing else the kit renders on a form is the library's own words. Every other message on a form was
-written by a rule, or came back from your server.
+Nothing else the kit renders on a form is the library's own words: every other message was written
+by a rule, or came back from your server.
 
 One piece of the library's English renders where no form does: the paragraph `FormidableForm` puts
 in a form's place on a statically rendered page with no render mode. It speaks to whoever built the
@@ -914,10 +967,9 @@ _options = new FormidableOptions
 };
 ```
 
-Assign these on the options instance the form already holds, since each is read where the engine
-uses it. `ValidationFaultMessage` is the one to know about. Its issue is filed when the fault
-happens rather than rebuilt at each read, so a change reaches the next fault and leaves one already
-on screen as it was.
+Assign these on the options instance the form already holds, since each is read where it is used. A
+change to `ValidationFaultMessage` reaches the next fault and leaves one already on screen as it
+was.
 
 **Server-side, one string takes a different seam.** The endpoint filter fills an otherwise-empty 400
 with `"A request body is required."` where the platform refuses a request whose body bound to null.
@@ -969,31 +1021,30 @@ public class AddressValidator : AbstractValidator<Address>
 <FormidableFieldMessage For="() => Model.ShippingAddress.Street" />
 ```
 
-Depth needs no special handling. Formidable walks the reported path down the live graph and keys the
-issue to the object it reaches: `() => Model.ShippingAddress.Region.Code` is one field, owned by the
+Depth needs no special handling: the reported path is walked down the live graph and the issue keyed
+to the object it reaches, so `() => Model.ShippingAddress.Region.Code` is one field, owned by the
 `Region` instance. Give that nested object a value the markup can reach
-(`public Address ShippingAddress { get; set; } = new();`) since the page's own binding dereferences
+(`public Address ShippingAddress { get; set; } = new();`), since the page's own binding dereferences
 it while rendering.
 
 **What goes wrong when the nested object is replaced.** A field is an owner object plus a member
-name. A component resolves its owner once, when it binds; the engine resolves afresh at every pass.
-So after `Model.ShippingAddress = new Address()` the next pass files `ShippingAddress.Street` under
-the new instance, while the components rendering that field go on asking under the old.
+name. A component resolves its owner once, when it binds; the form resolves afresh at every check.
+So after `Model.ShippingAddress = new Address()` the next check answers for `ShippingAddress.Street`
+under the new instance, while the components rendering that field go on asking under the old.
 
 An ask under the old owner comes back clean. The field's messages go, and `aria-invalid` and
 `aria-describedby` go with them. A field the visitor had already touched can end up wearing the
 valid class. The required marker and `aria-required` go too, at the next requirement derivation
-rather than at that pass.
+rather than at that check.
 
 The rule that failed still blocks the submit, so a form with nothing else failing shows the
 defensive gate rather than a field anyone can fix.
 
 **The habit that avoids it: keep both sides naming one object.** `@key` the markup around the nested
 object by that object, so replacing it rebuilds the components inside against the new owner.
-Swapping the whole `Model` rebuilds the engine, the registry and every binding.
-
-`FormidableForm.ResetAsync()` rebinds too, over the model already bound, but none of the state the
-old engine was holding survives it. So it answers a "start over" button, not a nested swap.
+Swapping the whole `Model` rebuilds the engine, the registry and every binding, and
+`FormidableForm.ResetAsync()` rebinds over the model already bound with none of the old state
+surviving, so it answers a "start over" button, not a nested swap.
 
 **A safety net.** Until a repair is in place, turning `VerifyRowKeys` on throws on the divergence
 rather than leaving it to be spotted on screen.
@@ -1046,34 +1097,37 @@ public sealed class StagedUploadsValidator(
 </FormidableForm>
 ```
 
-Two capabilities sit beside the `IModelValidator<TModel>` seam a form validates through.
-`IRuleInspectingValidator<TModel>` reads what the rules demand of a field;
+Two capabilities sit beside the `IModelValidator<TModel>` seam a form validates through:
+`IRuleInspectingValidator<TModel>` reads what the rules demand of a field, and
 `IRuleLevelValidator<TModel>` runs a chosen set of them. `DelegatingModelValidator<TModel>` forwards
 all three interfaces and answers each capability tester with the wrapped validator's own answer.
-
 Wrap a validator that has neither and the wrapper presents neither: inspection reports the empty
-answer, and rule-level selection and execution throw `NotSupportedException`.
+answer, and the members that select or run rules one set at a time throw `NotSupportedException`.
 
 **Three things go quiet where a validator presents neither.** Required markers and `aria-required`
 reach only the fields `RequiredOverride` declares. `DiscloseLoadedValuesAsync` goes on disclosing a
-wrong saved value and stops confirming a good one. And every pass evaluates its whole profile for
-itself, with no per-rule verdicts left to share.
+wrong saved value and stops confirming a good one. And no rule's answer is reused between checks, so
+after a submit a rule can run twice for one edit.
 
-**Only inspection's half is reported.** A validator that cannot report its rules gets one line when
-the engine is built, naming what will not render. It goes out at Information level, on the `Trace`
-and `ILogger` channels suppressions use. It names the state rather than the mistake, since the two
-read alike. The rule-level half has no line.
+The same missing reuse is why a field a submit would accept wears no green after an edit until a
+submit, a load of values, or the whole-form re-check (after a submit, or after a change to which
+fields are on screen) has answered for it, unless `TrackFormValidity` is on.
+
+**Only inspection's half is reported.** A validator that cannot report its rules gets one
+Information-level line when the engine is built, naming what will not render, on the `Trace` and
+`ILogger` channels suppressions use; it names the state rather than the mistake, since the two read
+alike. The other capability has no line.
 
 **Override every entry point that validates.** `Validate`, `ValidateAsync` and `ValidateRulesAsync`
-all take a model, and which runs is the caller's choice. A form that finds the rule-level capability
-present validates through `ValidateRulesAsync`, a set of rules at a time, and reaches neither of the
+all take a model, and which runs is the caller's choice. A form that can take the validator rule by
+rule validates through `ValidateRulesAsync`, a set of rules at a time, and reaches neither of the
 other two. A wrapper staging its model at `ValidateAsync` alone therefore changes nothing that form
 sees.
 
 **State the wrapper reads from outside the model needs telling.** Staging a new upload raises no
-`EditContext` field-changed notification. No live pass starts, and the edit counter every verdict is
-stamped with does not move. The store goes on serving what it computed against the previous staged
-set. Call `NotifyChanged()` on the field the staged state belongs to whenever that state changes.
+field-changed notification, so the form goes on judging the model as it was until the next edit,
+submit, load of values, or change to which fields are on screen. Call `NotifyChanged()` on the field
+the staged state belongs to whenever that state changes.
 
 **Read more:**
 

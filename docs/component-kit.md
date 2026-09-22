@@ -164,7 +164,7 @@ miss looks like.
 
 The fallback to the first visible issue of any severity applies only where a blocked submit shows no
 error at all. That takes a
-[second submit or a draft load](async-validation.md#submit-sits-above-all-of-it) landing before this
+[second submit or a draft load](async-validation.md#what-happens-if-i-press-submit-while-a-check-is-running) landing before this
 submit's verdict did. Every other block writes an error-severity issue, the all-suppressed gate's
 explanation included. A validator fault during a submit propagates to the caller rather than
 blocking at all.

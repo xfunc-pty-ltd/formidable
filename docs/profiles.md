@@ -132,7 +132,7 @@ custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
   `ValidationProfile.Submit`). The debounced refresh that follows it answers for that same profile.
   The refresh executes only the rules no pass has answered for the current edit, and serves stored
   verdicts for the rest (see
-  [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
+  [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)).
 - **Live passes** run `LiveProfile` (`FormidableOptions.LiveProfile`). It is nullable and defaults
   to `null`, which means the live channel evaluates the submit profile itself, whichever instance
   `SubmitProfile` currently holds. Point `LiveProfile` somewhere narrower and the live channel

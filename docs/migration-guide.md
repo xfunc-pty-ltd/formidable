@@ -34,7 +34,7 @@ The rest of that layer is plumbing the library owns instead, so migrating it is 
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle: swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you. `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written pass over a loaded record, marking its fields touched and running validation so the form does not open looking pristine | `DiscloseLoadedValuesAsync()` on either root. One call validates the whole model under the submit profile, then confirms the fields holding good values, discloses the ones holding wrong values, and leaves the empty ones silent. See [Component kit](component-kit.md#saying-what-loaded-values-have-earned) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure. Whether a submit shows a field's error is a side effect of something having registered it while mounted, not code you write per form. The live pass between submits answers to engagement instead. See [Disclosure](disclosure.md) |
-| A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. Both notice when the rendered field set changes, prune the departed row's live issues, and schedule a reconciling refresh, so removing the row is the whole edit. `NotifyFieldSetChanged()` is there for a call site that cannot wait for that refresh. See [Collections and row identity](collections-and-row-identity.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
+| A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. Both notice when the rendered field set changes, prune the departed row's live issues, and schedule a reconciling refresh, so removing the row is the whole edit. `NotifyFieldSetChanged()`, on `FormidableValidator` alone, runs that prune at once for a call site that reads `Engine` before the automatic prune has run; the refresh stays on its timer either way. See [Collections and row identity](collections-and-row-identity.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine. There's no second store to keep synchronized. See [Server integration](server-integration.md#the-store-as-a-compatibility-bridge) |
 | Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a pass is currently running | `<FormidableValidator>` exposes the engine as `Engine` and forwards both `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same engine pipeline in one line. The validator's apply is quiet, where `FormidableForm`'s own overloads treat an error-carrying apply like a blocked submit and move focus. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
 
@@ -56,6 +56,14 @@ A second difference, after the markup shape: the validator's child content is a 
 handing the markup the cascaded `FormidableFormContext`, and so is `EditForm`'s. The Razor compiler
 asks you to name one of the two implicit `context` parameters. Add `Context="formidable"` to the
 `<FormidableValidator>` element and move on.
+
+`TModel="..."` goes on the `<FormidableValidator>` element too. There is no `Model` parameter to
+infer the type from, so the compiler stops with `RZ10001` unless a typed `Validator=` names it
+instead.
+
+Build the `Options` you pass once and hold it: a different `FormidableOptions` instance arriving
+without a new `EditContext` throws, because the engine reads `Options` once (see
+[Options](options.md#formidableoptions-is-read-once)).
 
 `<FormidableForm>` is the alternative for new forms, or for forms you're willing to restructure. It
 renders its own `EditForm` and owns the `EditContext` outright, which is what unlocks automatic
@@ -106,6 +114,19 @@ on the old one implicitly.
   speaking whether or not anything registered it, unless `FormidableOptions.LiveDisclosure` opts it
   into the same visibility test.
 
+### Attach mode submits through `OnSubmit`, not `OnValidSubmit`
+
+Wire the `EditForm`'s `OnSubmit` to the handler that calls `ValidateForSubmitAsync()`, and drop
+`OnValidSubmit` and `OnInvalidSubmit`. Those two run `EditContext.Validate()` before choosing a
+handler, and nothing here answers it. The engine subscribes to `OnFieldChanged` alone, never to
+`OnValidationRequested`, so that call runs no rule and `OnValidSubmit` can fire with the model
+still wrong.
+
+`FormidableForm` wires `OnSubmit` on the `EditForm` it renders for the same reason. Its own
+`OnValidSubmit` and `OnInvalidSubmit` are parameters run after its submit pass, so under that root
+the two names stay, handed a `SubmitOutcome` and a `FormidableInvalidSubmitContext` in place of the
+`EditContext`.
+
 ### Attach mode leaves `novalidate` to you
 
 `<FormidableForm>` renders `novalidate` on the `<form>` it owns, by deliberate default, so the
@@ -126,14 +147,25 @@ off where the browser's constraint UI is what the page wants. See
 `FormidableForm` points the `<form>` it owns at the model-level message list's id, so a
 `FormidableModelMessage` describes the form without anything being wired.
 
-`<FormidableValidator>` renders the same component but reaches no `<form>`, so a page rendering that
-component writes the attribute on its own `EditForm` (`FormidableFieldId.MessagesFor` of the
-model-level field, beside the gate id it already writes there).
+Under `<FormidableValidator>`, `FormidableModelMessage` renders the same list with the same id, but
+the validator reaches no `<form>`, so a page rendering it writes the attribute on its own `EditForm`:
+`FormidableFieldId.MessagesFor` of the model-level field.
+
+The model-level field's own id, with `tabindex="-1"`, goes on that same `EditForm`, so the
+all-suppressed gate's summary entry has somewhere to land. The element carrying that id is also the
+first one the displaced-click guard looks for here; a page offering neither it nor a `<form>` around
+a registered field gets a diagnostic and no guard (see
+[Component kit](component-kit.md#the-click-a-disclosure-displaces)).
 
 It is the same split the sections around it describe, and it has its own cause: what a Formidable
 component renders travels into attach mode, and what `FormidableForm`'s own `<form>` element carries
 does not. See
 [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form).
+
+`inert` for a Blazor Web App's
+[prerender window](hosting-models.md#what-happens-inside-the-prerender-window) follows the same
+split: `FormidableForm` renders it on its own `<form>` for that window, so under the validator the
+page writes it.
 
 ### Attach mode lists issues in the engine's order, not the page's
 
@@ -141,12 +173,16 @@ Under `<FormidableForm>`, a summary reports issues in the document order of the 
 them, because the form resolves where those fields sit and hands its engine the answer.
 
 `<FormidableValidator>` renders no `<form>` of its own and resolves nothing. A summary inside your
-own `EditForm` lists the fault issue first, then submit errors, then advisories, then live issues —
-close to the order the validator declares its rules in.
+own `EditForm` still groups by severity, and within each band the entries keep the engine's channel
+order: the fault issue, then the submit channel's entries, then the live channel's. The submit
+channel's entries sit close to the order the validator declares its rules in; nothing in that order
+follows the page.
 
-Nothing misbehaves; the reading order is simply the validator's. Move the page to `<FormidableForm>`
+Nothing misbehaves; the reading order is simply the engine's. Move the page to `<FormidableForm>`
 if the reading order matters to it (see
 [Component kit](component-kit.md#the-order-entries-appear-in)).
+`FormidableOptions.OrderIssues` re-sorts an order only `FormidableForm` resolves, so under the
+validator it does nothing (see [`OrderIssues`](options.md#orderissues)).
 
 ### Attach mode moves focus on a blocked submit, as long as you submit through the component
 
@@ -161,6 +197,13 @@ A blocked submit then lands the visitor on the first error exactly as it does un
 "First" here means first in the reading order above, not first down the page. Focus parity is not
 order parity, and the two are separate boundaries with separate causes. `FocusFirstErrorAsync()` is
 on the validator too, for a page that would rather choose the moment than have the submit choose it.
+
+A component nested inside the validator asks for the first-error move through the cascaded
+`FormidableFormContext`'s `FocusFirstErrorAsync()`, with no `@ref` to reach for (see
+[Component kit](component-kit.md#asking-for-the-first-error-move)). A page that opens a dialog on a
+blocked submit sets `FocusFirstErrorOnInvalidSubmit="false"` and calls `FocusFirstErrorAsync()` once
+the dialog has closed; there is no `OnInvalidSubmit` and no per-submit suppression on the validator
+(see [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form)).
 
 The one move that stays quiet is the server round trip. The validator's `ApplyServerIssues` applies
 the verdict and focuses nothing, since the page owns both the `<form>` and whatever it does after a

@@ -39,8 +39,8 @@ public interface IRuleLevelValidator<in TModel>
     /// <summary>
     /// Whether this instance can select rules and execute a chosen set of them — the tester
     /// beside the doers, which throw <see cref="NotSupportedException"/> when it is
-    /// <see langword="false"/> rather than silently under-validate. Callers check it once and
-    /// route capability-less validators to whole-profile validation.
+    /// <see langword="false"/> rather than silently under-validate. Callers check it at each use
+    /// and route capability-less validators to whole-profile validation.
     /// </summary>
     bool CanValidateByRule { get; }
 
