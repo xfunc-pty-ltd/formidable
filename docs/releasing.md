@@ -20,8 +20,8 @@ memory of the steps.
   close to the release rather than long in advance.
 - An environment secret named `NUGET_USER` is configured **on the `nuget-org` environment**
   (Settings → Environments → `nuget-org` → Environment secrets), holding the nuget.org username the
-  policy above belongs to. The `publish` job exchanges this for a one-hour publish key via OIDC, so
-  nothing long-lived is stored.
+  policy above belongs to (nuget.org's own caution: the profile name, not an email address). The
+  `publish` job exchanges this for a one-hour publish key via OIDC, so nothing long-lived is stored.
 
 All of this is on you: the workflow can't do any of it, and it all needs to be in place before the
 first tag is pushed. Until the environment exists the `publish` job does not start at all, which is
