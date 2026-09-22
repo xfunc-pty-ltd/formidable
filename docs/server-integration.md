@@ -52,7 +52,7 @@ Blazor dependency.
 |---|---|---|
 | Where it goes | `Validate<TModel>(profile?)` on a route handler or a route group | `[Validate]` on an action method or on a controller class |
 | The profile | a `ValidationProfile` value, fixed at the call site | a `Profile` string, resolved once per request |
-| What it validates | the endpoint's first `TModel` argument | every action argument whose type has a registered validator, or exactly the types you name |
+| What it validates | the endpoint's first non-null `TModel` argument | every action argument whose type has a registered validator, or exactly the types you name |
 | `errors` and `advisories` | one shared mapper: the same paths in the report's own order, the same messages, an empty message kept empty | the same dictionary, from the same mapper |
 | The envelope around them | `TypedResults.ValidationProblem` | the app's own `ProblemDetailsFactory` |
 | `traceId` | written only under `AddProblemDetails()` | written whatever the host configured |
@@ -329,9 +329,10 @@ the 400 and the handler never runs. Warnings and infos never block on their own,
 value, unmodified, and the report itself is not lost
 ([below](#what-is-the-report-in-httpcontextitems-for)).
 
-`Validate<TModel>()` validates the endpoint's first `TModel` argument. `[Validate]` validates every
-action argument whose type has a registered validator, or exactly the types you name, and aggregates
-every issue into one report before deciding: one 400 for the whole action, not one per argument.
+`Validate<TModel>()` validates the endpoint's first non-null `TModel` argument. `[Validate]` validates
+every action argument whose type has a registered validator, or exactly the types you name, and
+aggregates every issue into one report before deciding: one 400 for the whole action, not one per
+argument.
 
 ### What stops them from validating at all?
 
@@ -578,7 +579,7 @@ at a time, or every handler in a route group at once.
 Both overloads default to `ValidationProfile.Submit` and install the same filter. The group overload
 just attaches it to every endpoint the group defines, checking each handler's own signature for a
 `TModel` parameter rather than sharing one answer across the whole group. Where a handler declares
-more than one parameter of that type, only the first one is validated.
+more than one parameter of that type, only the first one that bound non-null is validated.
 
 The filter normalizes, validates, then decides. Normalize runs only where `TModel` implements
 `INormalizableModel`. An error-severity issue short-circuits to the 400 above; warnings and infos
@@ -634,10 +635,11 @@ came back, a 400 stands on the response, and nothing has been written yet. Anyth
 downstream filter's own 400, a response already on the wire) passes through untouched.
 
 MVC lands somewhere else. For a nullable parameter under `[ApiController]`, and for any body
-parameter on a plain `Controller`, it binds `null` and runs the action with `ModelState` still
-valid, so `[Validate]` has nothing to validate and says nothing. Minimal APIs decide more strictly
-than MVC does for a non-nullable parameter, and that difference is the platform's rather than either
-adapter's.
+parameter on a plain `Controller`, it binds `null` and runs the action, so `[Validate]` has nothing
+to validate and says nothing. `ModelState` stays valid for the nullable parameter and, on a plain
+`Controller`, carries the platform's own required-body errors for a non-nullable one. Minimal APIs
+decide more strictly than MVC does for a non-nullable parameter, and that difference is the
+platform's rather than either adapter's.
 
 ## `[Validate]` on MVC
 

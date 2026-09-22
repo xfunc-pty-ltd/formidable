@@ -60,8 +60,9 @@ empty value as missing.
 `DraftSubmitValidator<T>` also runs a diagnostic once, at construction. For every property whose
 same-kind rule appears in both the draft rules and the `"Submit"` ruleset, it invokes
 `OnOverlappingRuleAxes` for that (property, validator) pair. That overlap is usually a sign the
-malformed/missing convention was broken by accident. The default implementation is a `Debug`-output
-warning; override it to route elsewhere or suppress it.
+malformed/missing convention was broken by accident. The default implementation writes a
+`Debug`-output line in a debug build of the library and nothing in the released package; override it
+to route the report elsewhere.
 
 That's the whole decision most forms make: derive from `DraftSubmitValidator<T>`, override two
 methods, done. What follows is for the forms that need a third moment, and how the client decides

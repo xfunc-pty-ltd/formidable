@@ -308,7 +308,7 @@ Blazor applies last-write-wins. That settles every row below but `@onblur`, whic
 | `class` | Merges: the splatted value first, the computed state class after. A consumer writing `class="form-control"` keeps it and still gets whichever state class applies, plus `formidable-pending` while a check is running for the field. |
 | `aria-describedby` | Merges: the splatted ids first, the messages id appended, so a persistent hint keeps its association as issues come and go. |
 | `id` | Dropped. The rendered id is always the deterministic one, because the message list, `aria-describedby` and `IFormidableFocusService` all address the field by it. |
-| `@onblur` | Chains rather than being claimed: the consumer's handler runs first and is awaited, then the kit's own blur work follows. |
+| `@onblur` | Chains rather than being claimed where the kit binds `blur` at all (`UpdateOn="OnBlur"`, or a control that syncs its DOM value on blur): the consumer's handler runs first and is awaited, then the kit's own blur work follows. |
 
 | When | What you see |
 |---|---|
@@ -642,7 +642,7 @@ Nothing else is declared, because the field it speaks for is fixed:
 
 | When | What you see |
 |---|---|
-| It stands anywhere under the root | Nothing to pair it with: it registers nothing, and the model-level field is always disclosed. |
+| It stands anywhere under the root | Nothing to pair it with: it registers nothing, and the model-level field counts as rendered for as long as the form is on the page. |
 | A [`FormidableSummary`](#formidablesummary) is on the form too | The same model-level issues twice, since the summary lists them. Render this on a form with no summary. |
 | The root is `FormidableValidator` | The same list; the `aria-describedby` pointing at it is [the page's to write](#formidablevalidatortmodel-attaching-to-an-existing-form) on its `EditForm`. |
 
