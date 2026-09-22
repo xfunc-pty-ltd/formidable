@@ -251,7 +251,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
 
         cut.Find("input").Blur();
 
-        Assert.Equal(new[] { "splat", "sync", "notify" }, log);
+        cut.WaitForAssertion(() => Assert.Equal(new[] { "splat", "sync", "notify" }, log));
     }
 
     /// <summary>

@@ -442,6 +442,7 @@ public class FormidableSummaryDisplayTests : BunitContext
 
         buttons[0].Click();
 
+        form.WaitForAssertion(() => Assert.Single(_focus.Requests));
         var field = Assert.Single(_focus.Requests);
         Assert.Equal(nameof(EngineOrder.Description), field.FieldName);
 
@@ -461,6 +462,7 @@ public class FormidableSummaryDisplayTests : BunitContext
         Submit(form);
         form.FindAll("button.formidable-summary__link")[2].Click();
 
+        form.WaitForAssertion(() => Assert.Single(_focus.Requests));
         var field = Assert.Single(_focus.Requests);
         Assert.Equal(nameof(EngineOrder.Customer), field.FieldName);
 

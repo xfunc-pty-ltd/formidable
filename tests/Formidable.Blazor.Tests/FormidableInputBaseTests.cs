@@ -152,7 +152,7 @@ public class FormidableInputBaseTests : BunitContext
         Assert.Equal(0, notifications);
 
         form.Find("input").Blur();
-        Assert.Equal(1, notifications);
+        form.WaitForAssertion(() => Assert.Equal(1, notifications));
 
         form.Find("input").Blur();
         Assert.Equal(1, notifications);
@@ -175,7 +175,7 @@ public class FormidableInputBaseTests : BunitContext
 
         form.Find("input").Blur();
 
-        Assert.Equal(1, notifications);
+        form.WaitForAssertion(() => Assert.Equal(1, notifications));
     }
 
     [Fact]

@@ -159,6 +159,7 @@ public class FormidableInputBindingTests : BunitContext
             ("Action", record => record),
         ];
 
+        IRenderedComponent<FormidableForm<EngineOrder>>? lastForm = null;
         foreach (var (name, build) in shapes)
         {
             var order = new EngineOrder();
@@ -170,9 +171,10 @@ public class FormidableInputBindingTests : BunitContext
                 ("onblur", build(() => log.Add(name))));
 
             form.Find("input").Blur();
+            lastForm = form;
         }
 
-        Assert.Equal(shapes.Select(shape => shape.Name), log);
+        lastForm!.WaitForAssertion(() => Assert.Equal(shapes.Select(shape => shape.Name), log));
     }
 
     // The same chain, reached through the other shapes a splat can carry: a plain delegate rather
@@ -193,7 +195,7 @@ public class FormidableInputBindingTests : BunitContext
         form.Find("input").Change(new string('x', 11));
         form.Find("input").Blur();
 
-        Assert.Equal(["consumer"], log);
+        form.WaitForAssertion(() => Assert.Equal(["consumer"], log));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
@@ -263,6 +265,6 @@ public class FormidableInputBindingTests : BunitContext
 
         form.Find("input").Blur();
 
-        Assert.Equal(["consumer"], log);
+        form.WaitForAssertion(() => Assert.Equal(["consumer"], log));
     }
 }

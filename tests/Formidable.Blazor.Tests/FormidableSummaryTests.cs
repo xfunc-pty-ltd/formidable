@@ -453,7 +453,7 @@ public class FormidableSummaryTests : BunitContext
 
         form.FindAll("button.formidable-summary__link")[0].Click();
 
-        Assert.Equal(1, fallbackCalls);
+        form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
         JSInterop.VerifyInvoke("focusField", 2);
 
         await Services.DisposeAsync();
@@ -479,7 +479,7 @@ public class FormidableSummaryTests : BunitContext
 
         form.FindAll("button.formidable-summary__link")[0].Click();
 
-        Assert.Equal(0, fallbackCalls);
+        form.WaitForAssertion(() => Assert.Equal(0, fallbackCalls));
         JSInterop.VerifyInvoke("focusField", 1);
 
         await Services.DisposeAsync();
@@ -505,7 +505,7 @@ public class FormidableSummaryTests : BunitContext
 
         form.FindAll("button.formidable-summary__link")[0].Click();
 
-        Assert.Equal(1, fallbackCalls);
+        form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
         JSInterop.VerifyInvoke("focusField", 1);
 
         await Services.DisposeAsync();

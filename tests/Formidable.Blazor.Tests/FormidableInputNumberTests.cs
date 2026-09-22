@@ -225,7 +225,7 @@ public class FormidableInputNumberTests : BunitContext
         form.Find("input").Blur();
 
         var expectedId = FormidableFieldId.For(new FieldIdentifier(booking, nameof(Booking.Seats)));
-        Assert.Equal([(expectedId, "3")], domSync.Calls);
+        form.WaitForAssertion(() => Assert.Equal([(expectedId, "3")], domSync.Calls));
         Assert.Equal(0, notifications);
     }
 

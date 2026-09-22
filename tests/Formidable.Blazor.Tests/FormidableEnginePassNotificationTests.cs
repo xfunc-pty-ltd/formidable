@@ -67,7 +67,7 @@ public class FormidableEnginePassNotificationTests : BunitContext
         engine.StateChanged += (_, _) => rounds++;
         var rendersBefore = bystander.RenderCount;
 
-        cut.Find("input").Change("typed");
+        await cut.Find("input").ChangeAsync("typed");
         Assert.True(engine.IsValidating, "the edit should have started a pass");
 
         // Quiescence is taken from a StateChanged handler rather than from the rendered markup or
