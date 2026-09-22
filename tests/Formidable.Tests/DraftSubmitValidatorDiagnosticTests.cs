@@ -56,11 +56,11 @@ public class DraftSubmitValidatorDiagnosticTests
     }
 
     // The overlap scan runs from the base constructor over every rule the validator declares, so
-    // the shipped fixture — display names, error codes, severities and collection child rules —
-    // is what puts a realistic shape through its enumeration. Whether the scan REPORTS is pinned
-    // by the two tests above, which can observe it because they override the hook; the default
-    // hook writes to Trace, which a release build of this library keeps, so the pin below reads
-    // that channel directly instead of through an override.
+    // the shipped fixture (display names, error codes, severities and collection child rules) is
+    // what puts a realistic shape through its enumeration. Whether the scan REPORTS is pinned by
+    // the two tests above, which can observe it because they override the hook; the pin below
+    // reads the default hook's own message instead, through the listeners channel both
+    // Debug.WriteLine and Trace.WriteLine write to.
     [Fact]
     public void Existing_fixture_validator_constructs_through_the_overlap_scan()
     {
@@ -79,9 +79,13 @@ public class DraftSubmitValidatorDiagnosticTests
     }
 
     // The two tests above observe the scan through an override; this one observes the default
-    // hook itself, which is the shape every consumer who never overrides it gets. A release build
-    // of this library keeps the Trace call site, so a listener attached for the duration of the
-    // constructor call is enough to read it back.
+    // hook itself, by attaching a listener for the duration of the constructor call. What it
+    // proves is that the default hook reports through the listeners channel with the overlap
+    // sentence intact; it cannot tell Trace.WriteLine apart from Debug.WriteLine, because a
+    // Debug test build routes both to the same collection (Debug.Listeners is Trace.Listeners).
+    // Debug.WriteLine's call site carries [Conditional("DEBUG")] and compiles away entirely in a
+    // Release build; that Trace.WriteLine's call site survives Release is measured on the built
+    // assembly, not asserted by this test.
     [Fact]
     public void Default_hook_writes_the_overlap_message_to_Trace()
     {
