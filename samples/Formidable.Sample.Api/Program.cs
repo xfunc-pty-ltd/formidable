@@ -17,6 +17,26 @@ app.UseCors();
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
 orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, lines = order.Lines.Count }));
 
+// The workout page's coupon story needs a rejection only the server can make - the client
+// validator stays silent about codes it cannot know - so the handler owns the code list.
+var registrations = app.MapGroup("/api/registrations").Validate<EventRegistration>();
+registrations.MapPost("/", (EventRegistration registration) =>
+{
+    var coupon = registration.CouponCode;
+    var recognised = string.Equals(coupon, "WELCOME10", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(coupon, "SPEAKER", StringComparison.OrdinalIgnoreCase);
+
+    if (!string.IsNullOrEmpty(coupon) && !recognised)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["CouponCode"] = ["Coupon code is not recognised"]
+        });
+    }
+
+    return Results.Ok(new { accepted = true, attendees = registration.Attendees.Count });
+});
+
 app.MapControllers();
 
 app.Run();

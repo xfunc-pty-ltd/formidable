@@ -20,6 +20,7 @@ public static class SharedValidatorRegistration
         services.AddScoped<IValidator<TrimmedNote>, TrimmedNoteValidator>();
         services.AddScoped<IValidator<ReviewedPost>, ReviewedPostValidator>();
         services.AddScoped<IValidator<LocalizedProfile>, LocalizedProfileValidator>();
+        services.AddScoped<IValidator<EventRegistration>, EventRegistrationValidator>();
 
         return services;
     }

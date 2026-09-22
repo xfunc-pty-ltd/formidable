@@ -47,3 +47,45 @@ Content-Type: application/json
     { "sku": "" }
   ]
 }
+
+### Registrations - valid coupon (200)
+POST {{host}}/api/registrations/
+Content-Type: application/json
+
+{
+  "contactEmail": "attendee@example.com",
+  "eventName": "Formidable Conf",
+  "eventDate": "2026-09-01",
+  "ticketTier": "General admission",
+  "venueRegion": "Southern",
+  "dietaryNotes": "None",
+  "couponCode": "WELCOME10"
+}
+
+### Registrations - unrecognised coupon (400): server-only rejection
+POST {{host}}/api/registrations/
+Content-Type: application/json
+
+{
+  "contactEmail": "attendee@example.com",
+  "eventName": "Formidable Conf",
+  "eventDate": "2026-09-01",
+  "ticketTier": "General admission",
+  "venueRegion": "Southern",
+  "dietaryNotes": "None",
+  "couponCode": "BOGUS"
+}
+
+### Registrations - model-invalid (400): empty ContactEmail/EventName, from the filter
+POST {{host}}/api/registrations/
+Content-Type: application/json
+
+{
+  "contactEmail": "",
+  "eventName": "",
+  "eventDate": "2026-09-01",
+  "ticketTier": "General admission",
+  "venueRegion": "Southern",
+  "dietaryNotes": "None",
+  "couponCode": ""
+}

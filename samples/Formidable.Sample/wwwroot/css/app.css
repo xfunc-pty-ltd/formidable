@@ -46,6 +46,12 @@
         --info: #a5b4fc;
         --summary-bg: rgba(248, 113, 113, .09);
     }
+
+    /* Native picker chrome (calendar glyphs) follows color-scheme, not the theme tokens - the
+       tokens still paint the field's own background and text. */
+    form input[type="date"] {
+        color-scheme: dark;
+    }
 }
 
 /* ---------- base ---------- */
