@@ -1,19 +1,16 @@
 # Quickstart
 
 Five minutes from here you have a Blazor form that blocks an empty submit and clears each message
-as soon as the visitor fixes the field and moves on. It needs an interactive page: every page in a
-standalone WebAssembly app is interactive already, and a page in a Blazor Web App needs a render
-mode of its own.
+as soon as the visitor fixes the field and moves on.
+
+The form needs an interactive page. Every page in a standalone WebAssembly app is interactive
+already. In a Blazor Web App, the page holding the form needs a render mode of its own.
 
 **You'll learn**
 
 - How a FluentValidation validator drives a Blazor form.
 - Where a message appears: at its own field, and in the summary.
 - What clears a message without a second submit.
-
-> [!NOTE]
-> Which render mode, what prerendering changes, and where each template puts its page files:
-> [Hosting models](hosting-models.md).
 
 ## Install
 
@@ -125,13 +122,18 @@ builder.Services.AddScoped<IValidator<Signup.Contact>, Signup.ContactValidator>(
 
 The first line registers the services the engine and the kit resolve. The second makes your
 validator resolvable as `IValidator<Contact>`, which is how Formidable finds it. That is one line
-per validator. The model and the validator are nested in the page class here, so they are named
-through it and the `using` is the page's own namespace.
+per validator.
+
+The model and the validator are nested in the page class here. They are named through it, which is
+why the `using` is the page's own namespace.
 
 > [!NOTE]
+> [Hosting models](hosting-models.md#which-template-am-i-in) says where each template puts its
+> page files, and gives the render-mode line, the registration project and the prerender window
+> for every supported shape.
 > A Blazor Web App made with `-int Auto` or `-int WebAssembly` has two projects. The server builds
 > the form too whenever a page prerenders or runs on its circuit, so both registrations go in
-> **both** `Program.cs` files: [Hosting models](hosting-models.md#the-server-builds-the-form-too).
+> **both** `Program.cs` files.
 
 ## Run it
 
@@ -140,15 +142,18 @@ once: the summary lists them, and each message repeats where its own field rende
 
 ![The summary listing Name is required and Email is required, with each message repeated under its own field](assets/tutorial/stage1-blocked-submit.png)
 
-The repo ships this form at every stage under `samples/Formidable.Tutorial`. Run it to compare your
-work against a working copy. Every screenshot here comes from it, which is why each one carries a
-`Stage N` heading.
+> [!NOTE]
+> The screenshot is plain on purpose: Formidable ships no CSS of its own, and the look is yours.
+> The repo ships this form at every stage under `samples/Formidable.Tutorial`. Run it to compare
+> your work against a working copy. Every screenshot here comes from it, which is why each one
+> carries a `Stage N` heading. Stage 2 adds a small stylesheet, and `samples/Formidable.Sample`
+> dresses its own form in full on [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor).
 
-Now type a name and leave the field. Its message goes at once, with no second submit, because a
-live pass answered for the field you changed. Fill the email in properly and submit again: the
-page says `Saved.`, so the handler ran.
+Now type a name and leave the field. Its message goes at once, with no second submit. A live pass
+answered for the field you changed.
 
-Empty a field and press **Submit** once more, and that line goes. Clearing it is what the form's
+Fill the email in properly and submit again. The page says `Saved.`, so the handler ran. Empty a
+field and press **Submit** once more, and that line goes. Clearing it is what the form's
 `OnInvalidSubmit` does here.
 
 ## Recap

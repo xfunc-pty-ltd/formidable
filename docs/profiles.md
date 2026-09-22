@@ -128,28 +128,28 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
 [Options](options.md)):
 
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
-  `ValidationProfile.Submit`). The debounced refresh that follows it answers for the same
-  profile too, executing only the rules no pass has answered for the current edit and serving
-  stored verdicts for the rest
+  `ValidationProfile.Submit`). The debounced refresh that follows it answers for that same
+  profile. The refresh executes only the rules no pass has answered for the current edit, and
+  serves stored verdicts for the rest
   (see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
-- **Live passes** run `LiveProfile` (`FormidableOptions.LiveProfile`), which is nullable and
-  defaults to `null`: the live channel then evaluates the submit profile itself, whichever
-  instance that property currently holds. Point it somewhere narrower and the live channel
-  evaluates that profile instead.
+- **Live passes** run `LiveProfile` (`FormidableOptions.LiveProfile`). It is nullable and
+  defaults to `null`, which means the live channel evaluates the submit profile itself,
+  whichever instance `SubmitProfile` currently holds. Point `LiveProfile` somewhere narrower
+  and the live channel evaluates that profile instead.
 
 Following the submit profile is what lets a live message say what a submit would actually
 complain about, presence rules included. What keeps that from nagging is not the rule selection
-but the engaged set: a live pass files a verdict only for the fields something has engaged, so a
+but the engaged set. A live pass files a verdict only for the fields something has engaged, so a
 field nobody has reached stays silent however loudly its rule is failing underneath (see
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)).
 
-Narrowing `LiveProfile` is the second, blunter lever, and it is worth reaching for when a submit
-rule is genuinely too expensive to run on every change — a uniqueness check against a server, say.
-It cannot tell an untouched field from an engaged one, so it silences the field the visitor is
-working in along with the rest.
+Narrowing `LiveProfile` is the blunter lever beside the engaged set, and it is worth reaching
+for when a submit rule is genuinely too expensive to run on every change, such as a uniqueness
+check against a server. Narrowing cannot tell an untouched field from an engaged one, so it
+silences the field the visitor is working in along with the rest.
 
 Saving a draft doesn't go through the engine's submit pipeline at all, whatever the live channel
-is doing — it's a separate, lenient validation call straight against the injected
+is doing. The save is a separate, lenient validation call straight against the injected
 `IModelValidator<T>` with the `Draft` profile:
 
 ```csharp

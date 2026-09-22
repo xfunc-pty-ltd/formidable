@@ -1,7 +1,21 @@
 # Hosting models
 
-Where a form gets built, how often, and when the browser joins in depend on the app's template and
-the page's render mode.
+Formidable runs in full on a standalone WebAssembly app and on every interactive Blazor Web App
+render mode. What differs is the settings each one needs, and what happens before the browser
+takes over.
+
+## Which hosting models are supported?
+
+**Tier 1 — a standalone WebAssembly app.** Formidable's sample app is one, and the browser suite
+drives it end to end. A manual checklist walks what a headless browser cannot judge.
+
+**Tier 2 — a Blazor Web App page under `InteractiveServer`, `InteractiveWebAssembly` or
+`InteractiveAuto`.** All three are verified working with exactly the settings below.
+
+The browser suite reaches a Web App on a server circuit, with a prerender window and without
+one. It does not reach `InteractiveWebAssembly` or `InteractiveAuto`, and neither does the
+checklist. Both of those are driven by hand. An issue found on a Tier 2 hosting model is fixed
+in a later version.
 
 ## Which template am I in?
 
@@ -15,61 +29,80 @@ Each project has a `Program.cs` of its own, and each one is a container a form r
 namespace column is the one that shows up in a registration: a model and validator nested in the
 page class are named through the page's own namespace.
 
+## Use exactly these settings
+
+Every shape below needs `AddFormidableBlazor()` and an `IValidator<T>` for the form's model.
+A render-mode line goes at the top of the page file. Which `Program.cs` takes the two
+registrations changes with the shape.
+
+| Page | Render-mode line | Register in | Prerender window |
+|---|---|---|---|
+| A standalone WebAssembly app | none: every page is interactive already | the app's one `Program.cs` | no |
+| Blazor Web App, on the server's circuit | `@rendermode InteractiveServer` | every `Program.cs` the app has | yes |
+| Blazor Web App, on the server's circuit, no prerendering | `@rendermode @(new InteractiveServerRenderMode(prerender: false))` | every `Program.cs` the app has | no |
+| Blazor Web App, on the WebAssembly runtime | `@rendermode InteractiveWebAssembly` | every `Program.cs` the app has | yes |
+| Blazor Web App, on the WebAssembly runtime, no prerendering | `@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))` | the `.Client` project alone | no |
+| Blazor Web App, on whichever runtime is ready | `@rendermode InteractiveAuto` | every `Program.cs` the app has | yes |
+| Blazor Web App, on whichever runtime is ready, no prerendering | `@rendermode @(new InteractiveAutoRenderMode(prerender: false))` | every `Program.cs` the app has | no |
+
+Registering in every project is never wrong, because a form resolves from whichever container
+builds it. One shape needs the client project alone: `InteractiveWebAssembly` with prerendering
+off has no prerender pass and no circuit behind it. `InteractiveAuto` with prerendering off
+reads like the same escape and is not, because its first visit runs on the server's circuit.
+
+The prerender window is the gap between the server's HTML and a page that is listening.
+`FormidableForm` renders `inert` on its own `<form>` for that window, so a visitor cannot
+operate it there. On a page whose whole job is a form, prefer a row with no window. What the
+window costs there is a form on screen that nobody can use yet.
+
+`InteractiveServer` runs the component on the server, and `InteractiveAuto` does the same on a
+first visit. Every event the form answers there makes a network round trip. Formidable's engine
+is a field of the form component, so on a circuit it sits in server memory for every visitor
+holding the page open. A WebAssembly runtime runs the component in the browser, where neither
+of those applies.
+
 ## Does the page need a render mode?
 
 On a Blazor Web App, yes. Every page in a standalone WebAssembly app is interactive from the
 moment it loads. A Blazor Web App server-renders its pages statically until one says otherwise.
+The page holding the form takes any of `@rendermode InteractiveServer`,
+`@rendermode InteractiveWebAssembly` or `@rendermode InteractiveAuto`.
 
-So the page holding the form needs a render mode of its own, at the top of the file. Any of
-`@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` and
-`@rendermode InteractiveAuto` answers that requirement.
-
-Leave the line off and `FormidableForm` refuses to render, asking for a render mode in its own
-words. The message stands where the form would have been, and the rest of the page paints as it
-always does. A form there could be filled in, but its submit would never reach the validation
+A statically rendered page with no render mode gets a paragraph where the form would have been,
+asking for a render mode in the component's own words. The rest of the page paints as it always
+does. A form on such a page could be filled in, but its submit would never reach the validation
 pipeline.
 
 ## The server builds the form too
 
-A standalone WebAssembly app has one `Program.cs`, and it is the container every form resolves
-from. A Web App created with `dotnet new blazor -int Auto` or `-int WebAssembly` has a server
-project and a `.Client` project, each with a `Program.cs` of its own. Two routes take the form
-through the server's container.
+Two routes take a form through a Blazor Web App's server container. Prerendering builds it there
+before any runtime has started, and it is on unless a page turns it off. A render mode that runs
+on the server's circuit builds it there too. `InteractiveServer` does that on every visit.
+`InteractiveAuto` does it on a first visit while the WebAssembly runtime downloads.
 
-Prerendering builds it there before any runtime has started, and it is on unless a page turns it
-off. A render mode that runs on the server's circuit builds it there too. `InteractiveServer` does
-that on every visit, and `InteractiveAuto` does it on a first visit while the WebAssembly runtime
-downloads.
+So the server project needs `AddFormidableBlazor()` and the same validator registrations the
+client project makes. Register on the client alone and the server has no validator to resolve.
+Building the form then throws `No IModelValidator<Contact> is registered`, with the form's own
+model type where `Contact` is. The message names a call the client project already makes.
 
-So the server project needs `AddFormidableBlazor()` and the same validator registrations the client
-project makes. Register on the client alone and the server has no validator to resolve. Building
-the form then throws `No IModelValidator<Contact> is registered`, naming a call the client project
-already makes.
+One page shape escapes both routes, and only one: `InteractiveWebAssembly` with prerendering
+off. A Web App created with `-int Server` has one project and one container, so the question
+never comes up.
 
-One page shape escapes both routes, and only one:
-
-```razor
-@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-```
-
-It has no prerender pass and no circuit to fall back to, so the browser builds the form alone. A
-Web App created with `-int Server` has one project and one container, so the question never comes
-up.
-
-## The form is built twice per visit
+## How often is the form built?
 
 Prerendering renders the page once on the server, and again when interactivity starts. A single
-visit therefore constructs the engine twice and resolves the validator twice. With
-`TrackFormValidity` on, the probe the engine runs at construction runs on the prerendered pass too.
-A validator with a slow async rule pays for that on a render that is about to be replaced.
+visit therefore constructs the engine twice and resolves the validator twice. Where the two
+builds land follows the render mode: both on the server under `InteractiveServer`, and under
+`InteractiveAuto` on a first visit; one on each side under `InteractiveWebAssembly`.
+
+With `TrackFormValidity` on, the probe the engine runs at construction runs on the prerendered
+pass too. A validator with a slow async rule pays for that on a render that is about to be
+replaced.
 
 None of this is a fault to fix, but a team counting validator constructions should know why the
-number is two. Writing the render mode the long way is what turns prerendering off, and the count
-goes to one:
-
-```razor
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
-```
+number is two. Turning prerendering off takes it to one, built wherever the page's render mode
+runs.
 
 ## What happens inside the prerender window?
 
@@ -94,9 +127,8 @@ as unavailable as it is writes its own rule:
 form[inert] { opacity: .6; }
 ```
 
-Where the form is the whole point of the page, take the window away instead:
-`@rendermode @(new InteractiveServerRenderMode(prerender: false))` gives the form no prerender
-pass at all, at the cost of painting a moment later.
+Where the form is the whole point of the page, take the window away instead. A render mode with
+prerendering off gives the form no prerender pass at all, at the cost of painting a moment later.
 
 > [!NOTE]
 > `inert` refuses a visitor, not a request. A post that reaches the server without coming from the
@@ -122,6 +154,7 @@ assemblies for that one culture. An app offering a language choice has to apply 
 there, rather than from a page afterwards. A Blazor Server host takes its culture from the request
 and needs no boot-time step at all.
 
-Formidable ships nothing for this, deliberately, and the sample writes the few lines in the open.
+Formidable ships nothing for this, deliberately. The sample app that ships with the library
+writes the few lines in the open.
 
 **Read more:** [Culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot)

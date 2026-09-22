@@ -55,9 +55,11 @@ a test in the suite; a pattern with no shipped sample or test is left out rather
 | A hand-rolled base validator class with an enum or string flag selecting which rule subset to run, reinvented per project because FluentValidation has no first-class notion of "which lifecycle stage is this" | `DraftSubmitValidator<T>` ships that base class once, over `ProfiledValidator<T>`, with `ValidationProfile` as the selector: nothing to reinvent per project | [/profiles](../samples/Formidable.Sample/Pages/Profiles.razor) |
 
 Every mechanism above has a deep dive of its own when you want the full picture:
-[progressive disclosure](disclosure.md), [collections and row
-identity](collections-and-row-identity.md), [server integration](server-integration.md), and the
-rest of the list in the [README](../README.md#documentation).
+
+- [Progressive disclosure](disclosure.md)
+- [Collections and row identity](collections-and-row-identity.md)
+- [Server integration](server-integration.md)
+- The rest of the list, in the [README](../README.md#documentation)
 
 Those land better once you've built something with it, though. Start with a working form.
 

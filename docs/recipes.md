@@ -22,13 +22,14 @@ protected override void ConfigureDraftRules() =>
     RuleFor(m => m.Nickname).MaximumLength(20).WithMessage("20 characters max");
 ```
 
-`OnInput` plus a draft-bucket rule validates on every keystroke; the default `OnChange` waits for
-blur. Either way, `UpdateOn` changes nothing about what submit and the refresh validate — it
-only decides when a commit reaches the engine, and post-submit each commit is also what re-arms
-the refresh.
+**`OnChange`**, the default, commits the value on the element's `change` event, and the engine
+hears about it then.
 
-A third mode answers a different question: not *when* but *how many times before it matters*.
-`OnBlur` commits the value on `change` like the default, but the commit only arms a
+**`OnInput`** commits the value on the element's `input` event instead, so the draft-bucket rule
+above answers as the visitor types. A `<select>` has no meaningful `input` event distinct from
+`change`, so `OnInput` there behaves like the default.
+
+**`OnBlur`** commits the value on `change` like the default, but the commit only arms a
 notification and the next `blur` delivers it. However many commits pile up, one blur delivers
 one. That suits a control whose `change` event fires more than once per logical edit — a native
 date input, once per segment.
@@ -38,14 +39,17 @@ date input, once per segment.
                      UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
+No `UpdateOn` mode changes what submit and the refresh validate. What `UpdateOn` decides is when a
+commit reaches the engine, and post-submit each commit is also what re-arms the refresh.
+
 | | A rule the live channel selects (by default, every one) | A rule it doesn't (`LiveProfile` narrowed past it) |
 |---|---|---|
-| `UpdateOn="InputUpdateMode.OnChange"` (default) | When the field loses focus after a change: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
+| `UpdateOn="InputUpdateMode.OnChange"` (default) | On the element's `change` event: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
 | `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke: each one starts its own live pass, and the pass that wins writes the verdict. | Not before submit. At submit — and after that, typing re-answers the submit profile after 300 ms of quiet. |
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change: the blur delivers one notification for however many `change` commits preceded it, so a multi-segment control never starts a live pass mid-edit — and a blur with no commit before it starts nothing. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
 
 Which column a rule falls in is a configuration choice rather than a property of the bucket it was
-declared in: `FormidableOptions.LiveProfile` draws the line.
+declared in: [`FormidableOptions.LiveProfile`](profiles.md#the-client-lifecycle) draws the line.
 
 What keeps the left column from nagging is engagement rather than rule selection: a field nobody
 has engaged keeps no live verdict, however loudly its rule fails.
@@ -54,15 +58,21 @@ The refresh answers the submit channel alone, re-answering the fields a submit r
 rather than widening the set. On the default profiles the live channel answers those same fields
 alongside, so an engaged one speaks anyway.
 
-**Read more:** [Profiles](profiles.md), [Options](options.md),
-[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule),
-[narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates).
-Samples: [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor),
-[`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor),
-[`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`OnBlur` on the
-typed `FormidableInputDate`),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
-pattern, both date fields).
+**Read more:**
+
+- [Profiles](profiles.md)
+- [Options](options.md)
+- [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)
+- [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates)
+
+Samples:
+
+- [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor)
+- [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)
+- [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`OnBlur` on the
+  typed `FormidableInputDate`)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
+  pattern, both date fields)
 
 ### I want presence rules to wait for submit while formats answer live
 
@@ -97,11 +107,17 @@ The trade is real: the field the visitor just emptied says nothing until they pr
 are told they cannot. Hold the message back where the rule is expensive rather than merely
 strict — the next recipe is that case in full.
 
-**Read more:** [Profiles](profiles.md), [Options](options.md#liveprofile).
-Samples: [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) does the
-narrowing; [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) and
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) are the contrast, left on the
-defaults so their presence rules answer live.
+**Read more:**
+
+- [Profiles](profiles.md)
+- [Options](options.md#liveprofile)
+
+Samples:
+
+- [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) does the narrowing
+- [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) and
+  [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) are the contrast, left on the
+  defaults so their presence rules answer live
 
 ### I want to narrow what the live channel validates
 
@@ -164,23 +180,31 @@ app.MapGroup("/api/signups").Validate<Signup>(
         ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
 ```
 
-**The cost, honestly.** On a validator with a rule-level seam (the FluentValidation adapter over
-an `AbstractValidator`, unless `ClassLevelCascadeMode.Stop` opts it out), a post-submit edit runs
-a shared rule once across its live pass and the refresh behind it. The engine reuses verdicts by
-*rule*, and one declared rule stays one however many names reach it.
+**What the shared rule costs.** Where the validator has a rule-level seam, a post-submit edit runs
+that rule once across its live pass and the refresh behind it. The engine reuses verdicts by
+*rule*, and one declared rule stays one however many names reach it. The FluentValidation adapter
+over an `AbstractValidator` has that seam, unless `ClassLevelCascadeMode.Stop` opts it out.
 
-Narrowing moves who pays for what it dropped: `TrackFormValidity`'s probe evaluates
-`SubmitProfile` whatever `LiveProfile` says, so it runs the rules the live pass never selected. A
-narrowed live pass supplies no answer to the `Valid` state class either, so no field wears a
-confirmation border on the strength of one.
+**What narrowing costs.** It changes which passes run a rule, not what the form enforces at
+submit. `TrackFormValidity`'s probe evaluates `SubmitProfile` whatever `LiveProfile` says, so it
+runs the rules the live pass never selected.
 
-**Read more:** [Profiles](profiles.md), [Options](options.md#liveprofile),
-[`TrackFormValidity`](options.md#trackformvalidity),
-[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule),
-[the verdict store](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not),
-[what puts green on a field](css-and-accessibility.md#need-to-know).
-Sample: [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) — `LiveProfile` at
-`Draft` over an empty draft bucket, so the server is the only judge.
+Narrowing's other cost is the `Valid` state class, which means a submit would pass. A narrowed
+live pass cannot answer that, so no field wears a confirmation border on the strength of one.
+
+**Read more:**
+
+- [Profiles](profiles.md)
+- [Options](options.md#liveprofile)
+- [`TrackFormValidity`](options.md#trackformvalidity)
+- [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)
+- [the verdict store](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)
+- [what puts green on a field](css-and-accessibility.md#need-to-know)
+
+Sample:
+
+- [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) — `LiveProfile` at
+  `Draft` over an empty draft bucket, so the server is the only judge
 
 ### I want an async check with a pending indicator
 
@@ -214,12 +238,18 @@ The `UpdateOn="InputUpdateMode.OnInput"` above is what makes the check answer as
 `field.State.IsValidating` is narrower, scoped to the fields the pass concerns. A newer live pass
 supersedes an older one, which is why the rule has to honour its token.
 
-**Read more:** [Async validation](async-validation.md),
-[which fields show "checking…"](async-validation.md#which-fields-show-checking),
-[why the element renders empty](css-and-accessibility.md#formidablesummary-as-a-live-region),
-[Options](options.md) (`RefreshDebounce`), [CSS and accessibility](css-and-accessibility.md)
-(`Pending`). Samples: [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor),
-[`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor).
+**Read more:**
+
+- [Async validation](async-validation.md)
+- [which fields show "checking…"](async-validation.md#which-fields-show-checking)
+- [why the element renders empty](css-and-accessibility.md#formidablesummary-as-a-live-region)
+- [Options](options.md) (`RefreshDebounce`)
+- [CSS and accessibility](css-and-accessibility.md) (`Pending`)
+
+Samples:
+
+- [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor)
+- [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor)
 
 ### I want to validate on the server and show its verdict
 
@@ -253,12 +283,17 @@ too, so cleaning first keeps the paths in the response lined up with the rows on
 [`FormidableOptions.NormalizeOnSubmit`](options.md#normalizeonsubmit) and the submit pass does it
 before the profile runs.
 
-**Read more:** [Server integration](server-integration.md),
-[reading the rejection body](server-integration.md#reading-the-rejection-body),
-[Severity](severity.md).
-Samples: [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor),
-[`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+**Read more:**
+
+- [Server integration](server-integration.md)
+- [reading the rejection body](server-integration.md#reading-the-rejection-body)
+- [Severity](severity.md)
+
+Samples:
+
+- [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor)
+- [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want to open a form on values the visitor did not type
 
@@ -288,13 +323,18 @@ engine still bound to the old object, find every field of it empty, and do nothi
 the values genuinely do arrive as a new instance, bind it with `@bind-Model` and call from the
 render that follows the swap.
 
-**Read more:** [Component kit](component-kit.md#saying-what-loaded-values-have-earned).
-Sample: [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor).
+**Read more:**
+
+- [Component kit](component-kit.md#saying-what-loaded-values-have-earned)
+
+Sample:
+
+- [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor)
 
 ### I want to mark fields required when the rules cannot say so
 
 **Set:** `FormidableOptions.RequiredOverride`, returning a `FieldRequirement` for the fields you
-are declaring and `null` for everything else.
+are declaring and `null` for everything else. Most forms need none of it.
 
 ```csharp
     _options = new FormidableOptions
@@ -308,17 +348,19 @@ are declaring and `null` for everything else.
     };
 ```
 
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) reads the
+validator's own rules, and what it can read is presence written as FluentValidation's `NotEmpty()`
+or `NotNull()`. `RequiredOverride` covers what reading misses: a validator written by hand, a
+wrapper presenting only the `IModelValidator<TModel>` seam, and the rule shapes below.
+
 The override answers before the validator's own rules are read, and it declares in both
 directions. `Required` marks a field the rules cannot be read to demand, `NotRequired` unmarks one
 they can. It decides the marker and the input's `aria-required` together, so the two cannot
 disagree. It is invoked on every ask, once per bound component per render, so keep it a cheap pure
 read.
 
-**What the rules cannot say.**
-[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) reads the
-validator's own rules, and what it can read is presence written as FluentValidation's `NotEmpty()`
-or `NotNull()`. `FieldRequirement.NotRequired` means "not known to be required" rather than
-"proven optional", and the shapes below draw no mark:
+**What the rules cannot say.** `FieldRequirement.NotRequired` means "not known to be required"
+rather than "proven optional", and the shapes below draw no mark:
 
 - Presence written as a predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`.
 - Any field of a validator that cannot be inspected at all.
@@ -334,8 +376,11 @@ A rule tagged into those rulesets demands its field whenever the holding rule is
 other rule inside the child, tagged into a set the call does not name or not tagged at all, draws
 no mark anywhere, because FluentValidation runs it under no profile.
 
-**Read more:** [Options](options.md#requiredoverride),
-[Component kit](component-kit.md#formidablerequiredindicatortvalue).
+**Read more:**
+
+- [Options](options.md#requiredoverride)
+- [Component kit](component-kit.md#formidablerequiredindicatortvalue)
+- [wrapping the validator](#i-want-to-wrap-the-validator-without-losing-what-it-can-do)
 
 ### I want to reveal fields conditionally without losing their rules
 
@@ -369,10 +414,16 @@ renders, and at submit `true` reveals that field while `false` withholds the iss
 contribution to revealing it. For rows a `Virtualize` container disposes, `KeepRegistered` holds an
 already-showing error open, and an override on the collection covers rows it has never rendered.
 
-**Read more:** [Disclosure](disclosure.md), [Options](options.md).
-Samples: [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor),
-[`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+**Read more:**
+
+- [Disclosure](disclosure.md)
+- [Options](options.md)
+
+Samples:
+
+- [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)
+- [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want to advise without blocking
 
@@ -392,10 +443,15 @@ untouched. `FormidableFieldMessage` and `FormidableSummary` render every severit
 each summary band classed by the severity it carries. The `EditContext`'s message store receives
 errors only, so a native `ValidationMessage` shows nothing for an advisory.
 
-**Read more:** [Severity](severity.md),
-[the warning lifetime](severity.md#the-warning-lifetime).
-Samples: [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+**Read more:**
+
+- [Severity](severity.md)
+- [the warning lifetime](severity.md#the-warning-lifetime)
+
+Samples:
+
+- [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want every summary entry to land somewhere
 
@@ -423,12 +479,17 @@ renders no `<form>`, so a page using it renders that id by hand.
 element reachable, return `true`, and the summary retries the focus once. `FormidableForm` takes
 the identical parameter for its own blocked-submit auto-focus, so wire the same callback to both.
 
-**Read more:** [CSS and accessibility](css-and-accessibility.md#deterministic-ids),
-[Component kit](component-kit.md#focusfallback).
-Samples: [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor),
-[`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor),
-[`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+**Read more:**
+
+- [CSS and accessibility](css-and-accessibility.md#deterministic-ids)
+- [Component kit](component-kit.md#focusfallback)
+
+Samples:
+
+- [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor)
+- [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor)
+- [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want a modal dialog to announce a blocked submit
 
@@ -492,13 +553,18 @@ the rest.
 model-level issues carry none, and neither does an error the server sent. Fall back to the issue's
 `Path`, and to `ModelLevelDisplayName` where there is no path, read off `Engine.Options`.
 
-**Read more:** [`PrepareFocus`](component-kit.md#preparefocus),
-[suppressing the automatic focus](component-kit.md#suppressing-the-automatic-focus),
-[asking for the first-error move](component-kit.md#asking-for-the-first-error-move),
-[`FormidableSummary`](component-kit.md#formidablesummary),
-[one entry per field](component-kit.md#one-entry-per-field),
-[`ModelLevelDisplayName`](options.md#modelleveldisplayname).
-Sample: [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor).
+**Read more:**
+
+- [`PrepareFocus`](component-kit.md#preparefocus)
+- [suppressing the automatic focus](component-kit.md#suppressing-the-automatic-focus)
+- [asking for the first-error move](component-kit.md#asking-for-the-first-error-move)
+- [`FormidableSummary`](component-kit.md#formidablesummary)
+- [one entry per field](component-kit.md#one-entry-per-field)
+- [`ModelLevelDisplayName`](options.md#modelleveldisplayname)
+
+Sample:
+
+- [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor)
 
 ### I want the summary ordered by where fields appear on screen
 
@@ -578,8 +644,11 @@ An order that does not depend on the layout — blocking fields first, one secti
 — is `FormidableOptions.OrderIssues` instead. It re-sorts what the shipped service already
 resolved, and costs no JavaScript of your own.
 
-**Read more:** [the order entries appear in](component-kit.md#the-order-entries-appear-in),
-[`OrderIssues`](options.md#orderissues).
+**Read more:**
+
+- [the order entries appear in](component-kit.md#the-order-entries-appear-in)
+- [`OrderIssues`](options.md#orderissues)
+
 Sample: no page. Every sample form lays its fields out top to bottom, where document order and
 visual order are the same answer.
 
@@ -685,13 +754,18 @@ What the shipped component knows, yours has to know too:
   whatever else re-rendered. A live region announces reliably only when the element carrying the
   role was already in the DOM, so render the `<ul>` and its role from the first paint.
 
-**Read more:** [`FormidableSummary`](component-kit.md#formidablesummary),
-[the order entries appear in](component-kit.md#the-order-entries-appear-in),
-[the summary as a live region](css-and-accessibility.md#formidablesummary-as-a-live-region),
-[`ModelLevelDisplayName`](options.md#modelleveldisplayname).
-Sample: [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) works
-`ItemTemplate`, `GroupByField`, `MaxItems` and `OverflowTemplate` over one fixed set of issues.
-No page rolls its own list.
+**Read more:**
+
+- [`FormidableSummary`](component-kit.md#formidablesummary)
+- [the order entries appear in](component-kit.md#the-order-entries-appear-in)
+- [the summary as a live region](css-and-accessibility.md#formidablesummary-as-a-live-region)
+- [`ModelLevelDisplayName`](options.md#modelleveldisplayname)
+
+Sample:
+
+- [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) works `ItemTemplate`,
+  `GroupByField`, `MaxItems` and `OverflowTemplate` over one fixed set of issues. No page rolls
+  its own list.
 
 ### I want to use a native or third-party control
 
@@ -734,15 +808,20 @@ their own, pending included, because the engine installs its `FieldCssClassProvi
 `EditContext`. They pick up neither the id nor the aria attributes, so a page renders those
 itself, and matching a UI library's own class names is `FormidableOptions.CssClasses`.
 
-**Read more:** [the foreign-control pattern](component-kit.md#the-foreign-control-pattern),
-[`FormidableFieldAnchor`](component-kit.md#formidablefieldanchortvalue),
-[`UpdateOn`](options.md#updateon-per-input-not-a-formidableoptions-property),
-[the `FieldCssClassProvider` bridge](css-and-accessibility.md#the-fieldcssclassprovider-bridge),
-[`CssClasses`](options.md#cssclasses).
-Samples: [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor),
-[`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
-[`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor),
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+**Read more:**
+
+- [the foreign-control pattern](component-kit.md#the-foreign-control-pattern)
+- [`FormidableFieldAnchor`](component-kit.md#formidablefieldanchortvalue)
+- [`UpdateOn`](options.md#updateon-per-input-not-a-formidableoptions-property)
+- [the `FieldCssClassProvider` bridge](css-and-accessibility.md#the-fieldcssclassprovider-bridge)
+- [`CssClasses`](options.md#cssclasses)
+
+Samples:
+
+- [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor)
+- [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor)
+- [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor)
+- [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want profiles of my own
 
@@ -780,11 +859,17 @@ Server-side, minimal APIs take a `ValidationProfile` value directly while
 case-insensitively) becomes the default rules plus the same-named ruleset, while a blank name, or
 one joining several with `,` or `;`, is refused.
 
-**Read more:** [Profiles](profiles.md), [how the engine reads options](options.md#need-to-know),
-[`FormidableOptions` is read once](options.md#formidableoptions-is-read-once),
-[profile string mapping](server-integration.md#profile-string-mapping).
-Sample: [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) picks a
-profile at runtime, with the live channel following `SubmitProfile` as it moves.
+**Read more:**
+
+- [Profiles](profiles.md)
+- [how the engine reads options](options.md#need-to-know)
+- [`FormidableOptions` is read once](options.md#formidableoptions-is-read-once)
+- [profile string mapping](server-integration.md#profile-string-mapping)
+
+Sample:
+
+- [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) picks a profile at
+  runtime, with the live channel following `SubmitProfile` as it moves
 
 ### I want localized messages
 
@@ -850,14 +935,19 @@ app.MapPost("/orders", (Order order) => Results.Ok(order))
 
 Pass nothing and the English default stands.
 
-**Read more:** [localization and display names](profiles.md#localization-and-display-names),
-[`DefensiveGateMessage`](options.md#defensivegatemessage),
-[`ModelLevelDisplayName`](options.md#modelleveldisplayname),
-[`ValidationFaultMessage`](options.md#validationfaultmessage),
-[`FormidableOptions` is read once](options.md#formidableoptions-is-read-once),
-[culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot),
-[a body bound to null](server-integration.md#a-body-bound-to-null).
-Sample: [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor).
+**Read more:**
+
+- [localization and display names](profiles.md#localization-and-display-names)
+- [`DefensiveGateMessage`](options.md#defensivegatemessage)
+- [`ModelLevelDisplayName`](options.md#modelleveldisplayname)
+- [`ValidationFaultMessage`](options.md#validationfaultmessage)
+- [`FormidableOptions` is read once](options.md#formidableoptions-is-read-once)
+- [culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot)
+- [a body bound to null](server-integration.md#a-body-bound-to-null)
+
+Sample:
+
+- [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor)
 
 ### I want to validate a nested object
 
@@ -889,13 +979,13 @@ by the `Region` instance. Give that nested object a value the markup can reach �
 `public Address ShippingAddress { get; set; } = new();` — since the page's own binding
 dereferences it while rendering.
 
-**Replacing the nested object later takes one more habit.** A field is an owner object plus a
-member name. A component resolves its owner once, when it binds; the engine resolves afresh at
-every pass. So after `Model.ShippingAddress = new Address()` the next pass
-files `ShippingAddress.Street` under the new instance, while the components rendering that field
-go on asking under the old.
+**What goes wrong when the nested object is replaced.** A field is an owner object plus a member
+name. A component resolves its owner once, when it binds; the engine resolves afresh at every
+pass. So after `Model.ShippingAddress = new Address()` the next pass files
+`ShippingAddress.Street` under the new instance, while the components rendering that field go on
+asking under the old.
 
-Under the old owner nothing is wrong. The field's messages go, and `aria-invalid` and
+An ask under the old owner comes back clean. The field's messages go, and `aria-invalid` and
 `aria-describedby` go with them. A field the visitor had already touched can end up wearing the
 valid class. The required marker and `aria-required` go too, at the next requirement derivation
 rather than at that pass.
@@ -903,22 +993,28 @@ rather than at that pass.
 The rule that failed still blocks the submit, so a form with nothing else failing shows the
 defensive gate rather than a field anyone can fix.
 
-**Keep both sides naming one object.** `@key` the markup around the nested object by that object,
-so replacing it rebuilds the components inside against the new owner. Swapping the whole `Model`
-rebuilds the engine, the registry and every binding.
+**The habit that avoids it: keep both sides naming one object.** `@key` the markup around the
+nested object by that object, so replacing it rebuilds the components inside against the new
+owner. Swapping the whole `Model` rebuilds the engine, the registry and every binding.
 
 `FormidableForm.ResetAsync()` rebinds too, over the model already bound, but none of the state the
 old engine was holding survives it. So it answers a "start over" button, not a nested swap.
 
-Until a repair is in place, turning `VerifyRowKeys` on throws on the divergence rather than
-leaving it to be spotted on screen.
+**A safety net.** Until a repair is in place, turning `VerifyRowKeys` on throws on the divergence
+rather than leaving it to be spotted on screen.
 
-**Read more:** [Collections and row identity](collections-and-row-identity.md) (path resolution
-and the render-before-notify rule), [`VerifyRowKeys`](options.md#verifyrowkeys),
-[returning the form to pristine](component-kit.md#returning-the-form-to-pristine),
-[the defensive gate](disclosure.md).
-Sample: [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — teams holding
-members, nested inside a collection.
+**Read more:**
+
+- [Collections and row identity](collections-and-row-identity.md) (path resolution and the
+  render-before-notify rule)
+- [`VerifyRowKeys`](options.md#verifyrowkeys)
+- [returning the form to pristine](component-kit.md#returning-the-form-to-pristine)
+- [the defensive gate](disclosure.md)
+
+Sample:
+
+- [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — teams holding
+  members, nested inside a collection
 
 ### I want to wrap the validator without losing what it can do
 
@@ -986,11 +1082,14 @@ is stamped with does not move. The store goes on serving what it computed agains
 staged set. Call `NotifyChanged()` on the field the staged state belongs to whenever that state
 changes.
 
-**Read more:** [what a form resolves](component-kit.md#need-to-know),
-[`TrackFormValidity`](options.md#trackformvalidity) (green before a submit),
-[opening a form on saved values](#i-want-to-open-a-form-on-values-the-visitor-did-not-type),
-[marking fields required](#i-want-to-mark-fields-required-when-the-rules-cannot-say-so),
-[a native or third-party control](#i-want-to-use-a-native-or-third-party-control).
+**Read more:**
+
+- [what a form resolves](component-kit.md#need-to-know)
+- [`TrackFormValidity`](options.md#trackformvalidity) (green before a submit)
+- [opening a form on saved values](#i-want-to-open-a-form-on-values-the-visitor-did-not-type)
+- [marking fields required](#i-want-to-mark-fields-required-when-the-rules-cannot-say-so)
+- [a native or third-party control](#i-want-to-use-a-native-or-third-party-control)
+
 Sample: no page. The worked examples are Formidable's own tests,
 `DelegatingModelValidatorTests.cs`.
 
@@ -1023,7 +1122,11 @@ Assert through bUnit's `WaitForAssertion`, since a verdict lands a render later 
 asked for it, and call the form's own methods — `SubmitAsync()`, `ResetAsync()`,
 `ApplyServerIssues(...)` — through `InvokeAsync`, since all three trigger renders.
 
-**Read more:** [Testing](testing.md#testing-your-forms) (the same ground in full, including how to
-pin a pending state), [Component kit](component-kit.md).
+**Read more:**
+
+- [Testing](testing.md#testing-your-forms) (the same ground in full, including how to pin a
+  pending state)
+- [Component kit](component-kit.md)
+
 Sample: no page. The worked examples are Formidable's own component tests, such as
 `FormidableFormComponentTests.cs`, which render the kit exactly this way.

@@ -15,15 +15,17 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a><!-- publish-day: verify -->
 </p>
 
-Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between —
-deciding which rules run while someone is still typing, which messages they have earned the
-right to see, and what to do when the server disagrees with the browser — is the layer I kept
+Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between decides
+which rules run while someone is still typing, which messages they have earned the right to
+see, and what to do when the server disagrees with the browser. That is the layer I kept
 rebuilding by hand, one client form at a time, slightly differently each time. Formidable is
 that layer, built once and covered by tests.
 
 It runs one real client project's forms today. Exactly one: a number I'd rather give you
 straight than round up. What that buys you is a library that met a deadline before it met a
-README, so the awkward parts were found by shipping rather than by guessing.
+README, so the awkward parts were found by shipping rather than by guessing. You can run two
+apps out of this repo: the [sample](#run-the-sample-locally) (22 pages, one feature each) and
+`samples/Formidable.Tutorial`, which grows a single signup form across six stages.
 
 If you'd rather see it than read about it, there is a [live demo](#live-demo) and a
 [five-minute quickstart](#5-minute-quickstart) below.
@@ -57,7 +59,7 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
 
 A shared contracts assembly (your models and validators) references `Formidable` only and
 stays free of Blazor and ASP.NET Core dependencies. A Blazor client adds `Formidable.Blazor`;
-an API adds `Formidable.AspNetCore`. Neither leaf package depends on the other — both depend
+an API adds `Formidable.AspNetCore`. Neither leaf package depends on the other: both depend
 only on `Formidable`.
 
 ## 5-minute quickstart
@@ -70,7 +72,7 @@ carrying `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` o
 > Which render mode a page needs, and why `FormidableForm` refuses to render without one:
 > [Hosting models](docs/hosting-models.md#does-the-page-need-a-render-mode).
 
-Install the Blazor package — it carries the core `Formidable` package with it:
+Install the Blazor package, which carries the core `Formidable` package with it:
 
 ```bash
 dotnet add package Formidable.Blazor
@@ -145,7 +147,7 @@ The rest of the file holds the model, the validator, and the form together:
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage1.razor` -->
 
-Two registrations in `Program.cs` finish it, `using` directives included — the model and
+Two registrations in `Program.cs` finish it, `using` directives included. The model and
 validator are nested in the page class, so they are named through it:
 
 ```csharp
@@ -172,11 +174,13 @@ registers its field and applies the validation CSS classes, and `FormidableField
 `FormidableSummary` render whatever the validator reports — `Saved.` appears once a submit
 lands, and `OnInvalidSubmit` clears it the moment a later one is blocked.
 
-The same four pieces taken slowly, with each line explained and a run at the end, are in
-[Quickstart](docs/quickstart.md); the sample app's
-[Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor), which is its home page, is
-this same form grown up a little, with the model in a shared project and the handler in a
-code-behind.
+Two places take this form further:
+
+- **[Quickstart](docs/quickstart.md)** takes the same four pieces slowly, with each line
+  explained and a run at the end.
+- **[The sample's Quickstart page](samples/Formidable.Sample/Pages/Quickstart.razor)**, the
+  app's home page, is this same form grown up a little, with the model in a shared project and
+  the handler in a code-behind.
 
 ## Server validation in two lines
 

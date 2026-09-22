@@ -210,60 +210,25 @@ render from.
 
 ## Rendering
 
-`FormidableFieldMessage` (and its collection-level sibling, `FormidableCollectionMessage`) render
-every current issue for a field as a list item, whatever its severity, with a class built
-straight from it:
+`FormidableFieldMessage` renders every current issue for a field as a list item, whatever its
+severity, and its collection-level sibling `FormidableCollectionMessage` does the same for a
+collection. `FormidableSummary` groups the whole form's currently-visible issues by severity:
+errors, then warnings, then infos, one list per non-empty group. Each group sits inside its own
+band wrapper, `formidable-summary__band` plus `formidable-summary__band--{severity}`, and the
+band can carry a heading of its own (see [Component kit](component-kit.md#heading-each-band)).
 
-```csharp
-builder.OpenElement(sequence++, "li");
-builder.AddAttribute(
-    sequence++,
-    "class",
-    FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
-```
+What a stylesheet keys on is the severity in the class. A message item carries
+`formidable-message` and one of `formidable-message--error`, `formidable-message--warning` or
+`formidable-message--info`. A summary group carries `formidable-summary__group` and one of
+`formidable-summary__group--error`, `formidable-summary__group--warning` or
+`formidable-summary__group--info`. Style each in your own stylesheet; Formidable ships no CSS
+of its own (see [CSS and accessibility](css-and-accessibility.md)).
 
-<!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
-
-`ErrorItemClass`/`WarningItemClass`/`InfoItemClass` are the three constant strings —
-`"formidable-message formidable-message--error"` and so on. `FormidableCss.SelectBySeverity` is
-the one shared switch every per-issue class in the kit picks its constant through, and it
-allocates nothing to choose among them. So a rendered message carries
-`formidable-message formidable-message--error`, `formidable-message formidable-message--warning`,
-or `formidable-message formidable-message--info`. Style each in your own stylesheet; Formidable
-ships no CSS of its own (see [CSS and accessibility](css-and-accessibility.md)).
-
-`FormidableSummary` groups the whole form's currently-visible issues by severity — errors, then
-warnings, then infos — one list per non-empty group, the same convention applied to the group
-itself:
-
-```csharp
-foreach (var group in groups)
-{
-```
-
-```csharp
-builder.OpenElement(sequence++, "ul");
-builder.AddAttribute(
-    sequence++,
-    "class",
-    FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
-```
-
-<!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
-Elided in between is each group's
-band wrapper and optional heading; see [Component kit](component-kit.md#heading-each-band) for
-both.
-
-— giving `formidable-summary__group formidable-summary__group--error`,
-`formidable-summary__group formidable-summary__group--warning`, and
-`formidable-summary__group formidable-summary__group--info`. Each entry in a group is a
-`formidable-summary__item` wrapping a `formidable-summary__link` button, which moves focus to the
-offending field.
-
-A group that [`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item,
-and only when the page supplied an `OverflowTemplate`. That item is
-`formidable-summary__overflow`, carrying what the template renders for the entries held back, and
-no button.
+Each entry in a group is a `formidable-summary__item` wrapping a `formidable-summary__link`
+button, which moves focus to the offending field. A group that
+[`MaxItems` capped](component-kit.md#capping-the-list) ends in one further list item, and only
+when the page supplied an `OverflowTemplate`. That item is `formidable-summary__overflow`,
+carrying what the template renders for the entries held back, and no button.
 
 One summary carries all three groups by default. A page that wants the blocking problems and the
 commentary in different places renders a summary per band instead, with
@@ -272,11 +237,22 @@ commentary in different places renders a summary per band instead, with
 
 ## The warning lifetime
 
+On a field the visitor has committed a change to, a warning or an info appears on the field's own
+row at that edit, exactly as an error would. What waits for the next submit is a warning on a
+field nobody has engaged, or one whose rule the form's `LiveProfile` narrows past.
+
+A warning that was showing when the user last submitted keeps refreshing live as they keep
+editing. It clears the moment they fix it, and comes back if they break it again, since fixing
+it ends the message rather than the watch. Neither direction waits for a second submit.
+
+The live channel answers as the user edits. It files a whole verdict, advisories and errors
+alike, for every field the visitor has *engaged*, and by default it evaluates the same rules a
+submit would (see [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)).
+
 On the submit channel, submit is the disclosure event for a warning or an info exactly as it is
-for an error. `ValidateForSubmitAsync` decides which currently-rendered fields carry a visible
-issue of any severity. Each field it names joins a watched set: an error site on the error side,
-an advisory site on the advisory one. A field watched on either count keeps its advisories
-refreshed.
+for an error. A submit names the currently-rendered fields carrying a visible issue of any
+severity, and each one joins a watched set: an error site on the error side, an advisory site on
+the advisory one. A field watched on either count keeps its advisories refreshed.
 
 The watched set only grows while the form stays short of a passing submit. A later blocked submit
 adds to it, a server apply adds to it, and nothing takes a field back out.
@@ -287,22 +263,10 @@ again. On the default `LiveProfile` that edit's own live pass rebuilds this chan
 so with no `LiveDebounce` set neither direction waits out a debounce at all. The refresh never
 goes looking for newly warning-worthy fields outside the set.
 
-A warning that was showing when the user last submitted keeps refreshing live as they keep
-editing. It clears the moment they fix it, and comes back if they break it again: fixing it ends
-the message rather than the watch.
-
 A field that was an error site at submit picks up a newly-appearing warning too, because it is
-already in the watched set — whether or not it carried a warning at submit time. Only a field with
-no visible issue of any severity at submit is left outside that refresh when it starts failing a
-warning-severity rule — the same way a newly-failing error field is.
-
-The live channel answers for it instead, on its own terms. It files a whole verdict, advisories
-and errors alike, for every field the visitor has *engaged*, and by default it evaluates the same
-rules a submit would (see
-[Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)). So a newly-failing warning on
-a field the visitor has committed a change to appears on that field's own row without waiting for
-anything. What genuinely waits for the next submit is a warning on a field nobody has engaged, or
-one whose rule the form's `LiveProfile` narrows past.
+already in the watched set. That holds whether or not it carried a warning at submit time. Only a
+field with no visible issue of any severity at submit is left outside that refresh when it starts
+failing a warning-severity rule — the same way a newly-failing error field is.
 
 A passing submit is where the two watched sets part company. It clears the error watches outright,
 so an error the visitor fixed stops being watched at all. It re-freezes the advisory watches to
