@@ -31,3 +31,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true
+
+  commit-style:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Conventional commit subjects
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          bad=0
+          while IFS= read -r s; do
+            if ! printf '%s' "$s" | grep -qE '^(feat|fix|docs|test|refactor|perf|style|build|chore|ci)(\((core|blazor|aspnetcore|sample|e2e|docs|build)\))?!?: .{1,72}$'; then
+              echo "not conventional: $s"; bad=1
+            fi
+          done < <(git log --no-merges --format=%s "origin/${{ github.base_ref }}..HEAD")
+          exit $bad
