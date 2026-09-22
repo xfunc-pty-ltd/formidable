@@ -122,7 +122,8 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
   defaults to `ValidationProfile.Draft`).
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
   `ValidationProfile.Submit`). The debounced refresh that follows it answers for the same
-  profile too, reusing what a live pass already found rather than re-running it where it can
+  profile too, executing only the rules no pass has answered for the current edit and serving
+  stored verdicts for the rest
   (see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
 
 Saving a draft doesn't go through the engine's submit pipeline at all — it's a separate, lenient

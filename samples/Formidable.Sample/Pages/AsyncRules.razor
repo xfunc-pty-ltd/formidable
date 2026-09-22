@@ -11,10 +11,10 @@
             <li><strong>Display name</strong> — checked for uniqueness the same way, independently of Username. Taken display names: <code>Administrator</code>, <code>Root User</code>, <code>Formidable</code>.</li>
             <li><strong>Username</strong> — also required at submit.</li>
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
-            <li>Editing after a submit runs each check once: the refresh reruns only what the Submit profile adds beyond the live pass — here, just the required check — so the uniqueness check the live pass already answered does not run again.</li>
+            <li>Editing after a submit runs each check once: the refresh runs only the rules still owed an answer at the current edit — here, just the required check — so the uniqueness check the live pass already answered is not re-run.</li>
             <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
             <li><strong>Validator override</strong> — <code>FormidableForm</code>'s <code>Validator</code> parameter resolves from DI when left unset, which is what every other page here does; this page supplies <code>MemoizedHandleValidator</code> directly instead, which is why the memoizing shows up here rather than on <code>/field-state</code>.</li>
-            <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce sets when one starts. After a submit, the same edit also arms the refresh, and the refresh waits for the debounced live pass to answer before it runs — ticking the box costs nothing extra there either.</li>
+            <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce sets when one starts. After a submit, the same edit also arms the refresh; whichever of the two runs first pays for the check, and the other reuses its answer instead of running it again — ticking the box costs nothing extra there either.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -25,7 +25,7 @@
             <li>Clear Username and submit — the required rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the slider only changes how long the check itself takes, not when it starts or how often; watch the pending state hold for the full two seconds before the verdict lands.</li>
             <li>Submit, then type again — one "checking…" cycle, not two, even though editing after a submit also arms the background refresh (see above).</li>
-            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Pausing lands only one check here too: the debounced live pass answers first, and the refresh that follows reuses its report instead of paying for its own round trip — the same saving an ordinary post-submit edit gets without debounce ticked at all.</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Pausing lands only one check here too: the refresh window is the narrower one, so the refresh pays the single round trip, and the debounced live pass that follows finds the check already answered and skips its own — the same saving an ordinary post-submit edit gets without debounce ticked at all.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

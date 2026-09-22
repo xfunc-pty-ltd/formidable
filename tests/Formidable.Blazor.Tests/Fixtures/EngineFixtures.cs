@@ -397,16 +397,12 @@ public sealed class GatedChannelSeparatingValidator : DraftSubmitValidator<Engin
 /// running it once leaves, so an execution counter is the only thing that can tell the two apart.
 /// The draft bucket fails <see cref="EngineCustomer.Name"/> beyond four characters and the submit
 /// bucket requires <see cref="EngineOrder.Description"/>, so each bucket also carries a message
-/// naming which one produced it. <see cref="ExtraRuleSetName"/> is registered with no rules of its
-/// own: a live profile naming it selects exactly what the draft bucket alone selects while still
-/// naming something the submit profile does not, which is what makes such a pair unsubtractable
-/// without changing a single verdict.
+/// naming which one produced it.
 /// </summary>
 public sealed class RuleRunCountingValidator : DraftSubmitValidator<EngineOrder>
 {
     public const string DraftMessage = "Customer name must be four characters or fewer";
     public const string SubmitMessage = "Description is required";
-    public const string ExtraRuleSetName = "Extra";
 
     public int DraftRuleRuns;
     public int SubmitRuleRuns;
@@ -429,8 +425,6 @@ public sealed class RuleRunCountingValidator : DraftSubmitValidator<EngineOrder>
                 return description.Length > 0;
             })
             .WithMessage(SubmitMessage);
-
-    protected override void ConfigureAdditionalProfiles() => Profile(ExtraRuleSetName, () => { });
 }
 
 /// <summary>
@@ -468,6 +462,24 @@ public sealed class GatedRuleRunCountingValidator : DraftSubmitValidator<EngineO
             .WithMessage(RuleRunCountingValidator.SubmitMessage);
 
     public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>
+/// Hides an inner validator's rule-level capability behind the bare
+/// <see cref="IModelValidator{TModel}"/> surface — the wrapper implements nothing else, so an
+/// engine's capability test fails and every pass takes the whole-profile fallback. Exists to pin
+/// that the fallback stays verdict-correct while paying full-profile execution, and that no
+/// store or scheduling machinery is consulted on its behalf.
+/// </summary>
+public sealed class CapabilityHidingModelValidator<TModel>(IModelValidator<TModel> inner)
+    : IModelValidator<TModel>
+{
+    public Task<ValidationReport> ValidateAsync(
+        TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        inner.ValidateAsync(model, profile, cancellationToken);
+
+    public ValidationReport Validate(TModel model, ValidationProfile profile) =>
+        inner.Validate(model, profile);
 }
 
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>

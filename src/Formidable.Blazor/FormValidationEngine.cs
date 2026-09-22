@@ -34,16 +34,13 @@ namespace Formidable.Blazor;
 /// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
 /// _version gates issue maps with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
-/// A fourth mechanism covers the report a refresh reuses: _editStamp mutates synchronously on the
-/// caller's context as each field change arrives, and _retainedLiveReport mutates on the
-/// dispatcher from a live pass's verdict apply — so it is written only by a pass that is still
-/// the current one, exactly as the issue maps beside it are.
-/// A fifth covers whether a debounced live window is currently armed: _liveDebounceWindowArmed
-/// mutates synchronously on the caller's context when an edit first arms it, and on the
-/// dispatcher both when the window's own fire re-arms it (still in flight behind a submit or
-/// refresh) and when that fire instead closes the window outright — the same dispatcher
-/// <see cref="RunRefreshPassAsync"/> itself runs on, which is what lets its deferral check read
-/// the window's current arming without a race.
+/// A fourth mechanism covers the per-rule verdict store: _editStamp mutates synchronously on the
+/// caller's context as each field change arrives, while the store itself is read on the
+/// dispatcher as a pass decides what is left to execute and written only in a pass's verdict
+/// apply — version- and generation-gated, on the dispatcher, in the same dispatch as the issue
+/// maps beside it — and its generation mutates with the rendered-field-set change, also on the
+/// dispatcher. A pass in flight across such a change can therefore neither read a store that is
+/// mutating under it nor write verdicts computed against a page that has since moved.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -82,25 +79,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <summary>The result every issue read shares when a field has nothing to say.</summary>
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
-    // The margin HandleFieldChanged adds to a refresh's own arming so it lands after a debounced
-    // live pass's window closes rather than racing it - which is what lets that refresh reuse the
-    // live pass's report instead of paying for the full profile a second time. Racing it is not
-    // actually reachable even without the margin: RunRefreshPassAsync defers any refresh that
-    // still comes due against a window with fields left in it, regardless of which of the three
-    // arm sites scheduled it (see LiveDebounceWindowArmedWithScope). The margin exists so this
-    // one arming reaches the right due time directly, rather than by way of that defer-and-re-arm
-    // round trip.
-    private static readonly TimeSpan RefreshAfterLiveDebounceMargin = TimeSpan.FromMilliseconds(50);
-
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
-
-    // Whether the live-debounce timer is currently armed and has not fired since it was last
-    // armed or re-armed - the one thing an ITimer itself does not expose. RunRefreshPassAsync
-    // reads this alongside _pendingDebouncedLiveFields to tell an open window apart from an empty
-    // one: the timer alone says a window is open, not that anything is left in it, since
-    // OnRenderedFieldsChanged's own prune can empty the accumulator without touching the timer.
-    private bool _liveDebounceWindowArmed;
 
     private CancellationTokenSource? _passCts;
 
@@ -115,27 +95,28 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private int _version;
     private int _formValidityStamp;
 
-    // Counts field changes, so a report can be asked whether it still answers for the model. A
-    // refresh reuses a live pass's report only while the two stamps agree. What moves this is a
-    // notification, not a mutation: a model changed without one moves the counter no more than an
-    // untouched model does, so the agreement it reports is only ever as good as the notifications
-    // it is given. InvalidateRetainedLiveReport covers the one silent change the engine can see
-    // unaided — the rendered field set moving — and nothing covers the rest.
+    // Counts field changes, so a stored rule verdict can be asked whether it still answers for
+    // the model. A pass stamps every verdict it writes with the count it read as it began, and a
+    // later pass reuses one only while the two stamps agree. What moves this is a notification,
+    // not a mutation: a model changed without one moves the counter no more than an untouched
+    // model does, so the agreement it reports is only ever as good as the notifications it is
+    // given. The store clear in OnRenderedFieldsChanged covers the one silent change the engine
+    // can see unaided — the rendered field set moving — and nothing covers the rest.
     private int _editStamp;
 
-    // One value rather than a report, a stamp and a profile side by side: the three are only ever
-    // written together and only ever read together, and holding them apart is what would let an
-    // invalidation drop the report while leaving the stamp and profile standing beside a null.
-    private RetainedLiveReport? _retainedLiveReport;
+    // Every rule's most recent verdict, keyed by the rule's own identity — which is what makes
+    // reuse bidirectional and order-independent: whichever pass ran a rule last at the current
+    // stamp has answered it for every later pass at that stamp, whatever profile either ran.
+    // An edit leaves the entries in place and merely strands their stamps; only a
+    // rendered-field-set change empties the dictionary, so its size stays bounded by rule count.
+    private readonly Dictionary<RuleIdentity, RuleVerdict> _ruleVerdicts = [];
 
-    // The subtraction of the live profile from the submit profile, cached against the exact pair
-    // it was computed from. Both are settable options, so the pair is re-read on every refresh and
-    // compared by reference: ValidationProfile equality is by name alone, and two differently
-    // shaped profiles sharing a name would otherwise keep a subtraction that no longer describes
-    // them.
-    private ValidationProfile? _deltaSubmitProfile;
-    private ValidationProfile? _deltaLiveProfile;
-    private ProfileDeltaResult _deltaResult;
+    // Names the rendered field set the stored verdicts were computed against, the one staleness
+    // the edit counter cannot see. OnRenderedFieldsChanged bumps it as it clears the store, and
+    // a pass writes verdicts only while the generation it captured at its own begin still
+    // stands — a pass in flight across a field-set change would otherwise put back, verbatim,
+    // exactly what the clear just removed.
+    private int _storeGeneration;
 
     // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
     // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
@@ -589,10 +570,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <see cref="FormidableOptions.LiveDebounce"/> window — no pass in flight yet — leaves the same
     /// accumulator emptied of it, so the window's own eventual fire finds nothing left to answer for
     /// once every field it opened for has gone; a fire that finds nothing at all starts no pass. The
-    /// report a live pass left behind for a refresh to reuse goes too: the counter that report is
-    /// checked against counts edits, a rendered-field-set move is not one, so a report taken
-    /// before the move would pass that check while answering for a page — and, when a collection
-    /// row was what left, a model — that no longer exists. Then a submitted form schedules a
+    /// stored rule verdicts go too: the stamp they are checked against counts edits, a
+    /// rendered-field-set move is not one, so a verdict taken before the move would read as
+    /// fresh while answering for a page — and, when a collection row was what left, a model —
+    /// that no longer exists. Then a submitted form schedules a
     /// refresh, the one pass that recomputes the submit channel against the model as it stands.
     /// That channel still speaks only for the sticky submit-time visible set, never for what is
     /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
@@ -667,7 +648,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // just removed, for a field the window opened for that no longer has anywhere to answer.
         _pendingDebouncedLiveFields.RemoveWhere(field => !IsRendered(field));
 
-        InvalidateRetainedLiveReport();
+        // The verdict store empties whole, and the generation moves with it. The edit counter
+        // cannot see this particular change — it counts field changes, and a change to which
+        // fields are on the page changes which issues may be disclosed, and possibly the model
+        // behind them, without a notification ever arriving — so being dropped outright is the
+        // only thing that stops the next pass reusing verdicts computed against the page as it
+        // stood before the move. The generation bump extends the same argument to a pass already
+        // in flight: its verdict apply checks the generation it captured at begin and declines
+        // to write, so the clear cannot be undone by work that predates it.
+        _ruleVerdicts.Clear();
+        _storeGeneration++;
 
         if (HasSubmitted)
         {
@@ -677,10 +667,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {
-        // First, before anything here can start a pass: a live pass reads this counter as it
-        // begins, and a post-submit refresh reuses that pass's report only while the two still
-        // agree. Bumping it after a pass had already started would let that pass's report claim
-        // to answer for an edit it never saw.
+        // First, before anything here can start a pass: a pass reads this counter as it begins
+        // and stamps every verdict it writes with what it read, and a later pass reuses a
+        // verdict only while the two stamps agree. Bumping it after a pass had already started
+        // would let that pass's verdicts claim to answer for an edit they never saw.
         _editStamp++;
 
         MarkTouched(e.FieldIdentifier);
@@ -692,12 +682,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // engagement is the engine's record of what the user has actually changed.
         _engagedFields.Add(e.FieldIdentifier);
 
-        // Read once and reused below for the refresh's own due time: options are mutated in place,
-        // so a single read here is what keeps the two armings answering for the same value rather
-        // than one that could change between them.
-        var liveDebounce = _options.LiveDebounce;
-
-        if (liveDebounce is { } debounce)
+        if (_options.LiveDebounce is { } debounce)
         {
             _pendingDebouncedLiveFields.Add(e.FieldIdentifier);
             ScheduleLiveDebounce(debounce);
@@ -714,20 +699,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         if (HasSubmitted || SubmitInFlight)
         {
+            // Armed at plain RefreshDebounce, whatever the live window's own width: verdict
+            // reuse is keyed by rule and stamp rather than by which pass ran first, so a refresh
+            // landing ahead of a still-open live window simply does the work and leaves that
+            // window's pass nothing to execute — the same total cost in the other order.
             _pendingRefreshFields.Add(e.FieldIdentifier);
-
-            // A refresh armed by this same edit only ever has something to reuse once the
-            // debounced live pass it just armed (or accumulated into) has had a chance to run: the
-            // report it retains is what the reuse guard in RunRefreshPassAsync checks, and a
-            // refresh due before that pass has even started finds nothing there yet - it can only
-            // pay for the full profile, the exact duplicate work the split exists to avoid. Falling
-            // back to RefreshDebounce alone here (dueTime: null) would let the refresh race that
-            // pass instead of following it.
-            var refreshDueTime = liveDebounce is { } liveWindow
-                && liveWindow + RefreshAfterLiveDebounceMargin > _options.RefreshDebounce
-                    ? liveWindow + RefreshAfterLiveDebounceMargin
-                    : (TimeSpan?)null;
-            ScheduleRefresh(refreshDueTime);
+            ScheduleRefresh();
         }
     }
 
@@ -755,20 +732,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// verdict from going permanently stale.
     /// </summary>
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
-
-    /// <summary>
-    /// Whether a debounced live window is still armed with something left for it to answer: the
-    /// live-debounce timer has not fired since it was last armed, and the accumulator it will
-    /// hand to the live pass it eventually starts is not empty. Read only where
-    /// <see cref="RunRefreshPassAsync"/> reads it, at the moment the refresh's own timer fires —
-    /// <see cref="OnRenderedFieldsChanged"/>'s prune of <c>_pendingDebouncedLiveFields</c> can land
-    /// at any point between when a window arms and when either timer comes due, so only a read
-    /// taken at the refresh's own fire time can answer for the window as it currently stands. An
-    /// armed window with nothing left in it must not hold a refresh back: nothing is coming to
-    /// answer for it, so waiting would only delay the very thing this exists to speed up.
-    /// </summary>
-    private bool LiveDebounceWindowArmedWithScope =>
-        _liveDebounceWindowArmed && _pendingDebouncedLiveFields.Count > 0;
 
     /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
@@ -845,16 +808,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// only if this pass is still the current one, and end the pass exactly once however it left.
     /// Live, submit and refresh differ in what they hand in, not in how they run — a skeleton
     /// hand-rolled per kind is one where a single copy can quietly stop raising a notification, or
-    /// stop clearing a flag, that the other two still do.
+    /// stop clearing a flag, that the other two still do. How the validation step itself runs is
+    /// a capability split: a validator that can validate rule by rule gets the verdict store —
+    /// only the rules with no fresh verdict at this pass's stamp execute, and the report handed
+    /// downstream is ASSEMBLED, every selected rule's issues in declaration order whether served
+    /// from the store or just executed, so downstream never sees less than a whole-profile
+    /// answer. Any other validator gets the whole profile in one call — correct, unoptimised. A
+    /// pass whose every selected rule is fresh executes nothing and still runs this entire
+    /// lifecycle, publishing its assembled verdict like any other.
     /// </summary>
-    /// <param name="kind">Which lifecycle this is; it also decides the fault policy below.</param>
-    /// <param name="profile">
-    /// The profile the model is validated under, or <see langword="null"/> when the caller has
-    /// already established that nothing this pass would run is left to run. A null profile asks
-    /// the validator nothing and hands <paramref name="applyVerdict"/> an empty report; every
-    /// other part of the lifecycle is unchanged, so such a pass still supersedes whatever came
-    /// before it, still publishes under the same version guard, and still retires exactly once.
+    /// <param name="kind">
+    /// Which lifecycle this is; it also decides the fault policy below, and whether freshness is
+    /// consulted at all — a submit runs its full selection by fiat, repopulating the store on
+    /// the way through.
     /// </param>
+    /// <param name="profile">The profile the model is validated under.</param>
     /// <param name="external">
     /// The caller's own cancellation token, linked into the pass. Only a submit has one; live and
     /// refresh pass <see cref="CancellationToken.None"/>, which is what lets one cancellation filter
@@ -875,35 +843,63 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </returns>
     private async Task<ValidationReport?> RunPassAsync(
         PassKind kind,
-        ValidationProfile? profile,
+        ValidationProfile profile,
         CancellationToken external,
         Func<HashSet<FieldIdentifier>?> beginScope,
         Action<ValidationReport> applyVerdict)
     {
         var pass = BeginPass(kind, external);
+
+        // Captured synchronously with the begin, on the caller's own context, before anything
+        // here awaits: the stamp names the model state this pass's verdicts will answer for —
+        // recording it any later would let a verdict claim an edit the validation never saw —
+        // and the generation names the rendered field set they are computed against, which is
+        // what the verdict apply below checks before it writes the store.
+        var editStamp = _editStamp;
+        var generation = _storeGeneration;
+
         try
         {
             await SetValidating(true, pass, beginScope()).ConfigureAwait(false);
 
             var report = ValidationReport.Empty;
-            if (profile is not null)
+            Dictionary<RuleIdentity, RuleVerdict>? executed = null;
+            try
             {
-                try
+                if (_validator is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule)
+                {
+                    // The store is only ever touched on the dispatcher, so the decision about
+                    // what is left to execute rides one dispatch of its own — the same channel
+                    // every other store mutation uses — rather than racing a clear or a write
+                    // from off it. A selection error (a typo'd ruleset name, say) surfaces here
+                    // exactly as a whole-profile validation surfaces it, through the fault
+                    // policy below.
+                    List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan = null!;
+                    await _renderDispatch(() =>
+                    {
+                        plan = BuildRulePlan(ruleLevel, profile, kind, editStamp);
+                        return Task.CompletedTask;
+                    }).ConfigureAwait(false);
+
+                    (report, executed) = await ExecuteRulePlanAsync(ruleLevel, profile, plan, editStamp, pass.Token)
+                        .ConfigureAwait(false);
+                }
+                else
                 {
                     report = await _validator.ValidateAsync(_model, profile, pass.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (!external.IsCancellationRequested)
-                {
-                    return null; // superseded by a newer pass, rather than cancelled by the caller
-                }
-                catch (Exception exception) when (kind != PassKind.Submit)
-                {
-                    // A submit is the one pass someone is awaiting, so a validator that throws under
-                    // it has somewhere to surface: the caller's own try/catch. A live or refresh pass
-                    // is fire-and-forget, so its fault has to become form state and an event instead.
-                    await ReportFaultAsync(pass, exception).ConfigureAwait(false);
-                    return null;
-                }
+            }
+            catch (OperationCanceledException) when (!external.IsCancellationRequested)
+            {
+                return null; // superseded by a newer pass, rather than cancelled by the caller
+            }
+            catch (Exception exception) when (kind != PassKind.Submit)
+            {
+                // A submit is the one pass someone is awaiting, so a validator that throws under
+                // it has somewhere to surface: the caller's own try/catch. A live or refresh pass
+                // is fire-and-forget, so its fault has to become form state and an event instead.
+                await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                return null;
             }
 
             await _renderDispatch(() =>
@@ -914,6 +910,23 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 }
 
                 _faultIssue = null;
+
+                // The store write, gated one notch further than the channel writes around it:
+                // the version says this pass is still the current one, and the generation says
+                // the rendered field set its verdicts were computed against is still the one on
+                // the page. A pass that crossed a field-set change still publishes its verdict —
+                // the channels have their own reconciliation — but the store must not take back
+                // entries the change's clear just removed. A faulted pass never reaches this
+                // dispatch, and a superseded one stops at the version gate above, so neither
+                // writes anything, store included.
+                if (executed is not null && generation == _storeGeneration)
+                {
+                    foreach (var (rule, verdict) in executed)
+                    {
+                        _ruleVerdicts[rule] = verdict;
+                    }
+                }
+
                 applyVerdict(report);
 
                 // The pass ends here, not only in the finally below: retiring it before
@@ -941,6 +954,78 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 await SetValidating(false, pass).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Decides, rule by rule, what a capability pass has left to execute: the profile's whole
+    /// selection in declaration order, each rule paired with its fresh stored verdict where one
+    /// exists — or with nothing, meaning the pass must run it. A submit pairs every rule with
+    /// nothing by fiat: it is the disclosure event, and its full run is also what repopulates
+    /// the store so the passes behind it start from answered rules. Runs on the dispatcher (the
+    /// caller marshals), because the store is read here and mutates only there.
+    /// </summary>
+    private List<(RuleIdentity Rule, RuleVerdict? Fresh)> BuildRulePlan(
+        IRuleLevelValidator<TModel> ruleLevel,
+        ValidationProfile profile,
+        PassKind kind,
+        int editStamp)
+    {
+        var selection = ruleLevel.SelectRules(profile);
+        var plan = new List<(RuleIdentity, RuleVerdict?)>(selection.Count);
+
+        foreach (var rule in selection)
+        {
+            var fresh = kind != PassKind.Submit
+                && _ruleVerdicts.TryGetValue(rule, out var verdict)
+                && verdict.IsFreshFor(editStamp, profile)
+                    ? verdict
+                    : (RuleVerdict?)null;
+            plan.Add((rule, fresh));
+        }
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Runs a capability pass's plan: executes the rules with no fresh verdict, sequentially —
+    /// the order FluentValidation itself runs rules in — under the pass's own token, and
+    /// assembles the report downstream consumes from every selected rule's issues in declaration
+    /// order, served from the store or just computed. The verdicts for what actually executed
+    /// are returned beside the report, stamped with the pass's begin stamp, for the
+    /// version-and-generation-gated apply to write; nothing here touches the store itself, so a
+    /// superseded or faulted pass's work simply evaporates with its locals.
+    /// </summary>
+    private async Task<(ValidationReport Report, Dictionary<RuleIdentity, RuleVerdict> Executed)> ExecuteRulePlanAsync(
+        IRuleLevelValidator<TModel> ruleLevel,
+        ValidationProfile profile,
+        List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan,
+        int editStamp,
+        CancellationToken token)
+    {
+        var executed = new Dictionary<RuleIdentity, RuleVerdict>();
+        List<ValidationIssue>? issues = null;
+
+        foreach (var (rule, fresh) in plan)
+        {
+            IReadOnlyList<ValidationIssue> ruleIssues;
+            if (fresh is { } verdict)
+            {
+                ruleIssues = verdict.Issues;
+            }
+            else
+            {
+                var result = await ruleLevel.ValidateRuleAsync(_model, profile, rule, token).ConfigureAwait(false);
+                ruleIssues = result.Report.Issues;
+                executed[rule] = new RuleVerdict(ruleIssues, editStamp, result.IsProfileScoped, profile);
+            }
+
+            if (ruleIssues.Count > 0)
+            {
+                (issues ??= []).AddRange(ruleIssues);
+            }
+        }
+
+        return (issues is null ? ValidationReport.Empty : new ValidationReport(issues), executed);
     }
 
     /// <summary>
@@ -982,20 +1067,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return; // submit is the higher-intent operation; live/refresh passes never supersede it
         }
 
-        // Read as the pass begins rather than when its verdict lands. The report answers for the
-        // model the validator actually saw, and an edit arriving mid-pass moves the model on
-        // without the report following it. Recording the earlier stamp makes such a report simply
-        // fail a refresh's currency check; recording the later one would let it answer for a state
-        // it never validated.
-        var editStamp = _editStamp;
-
-        // Snapshotted beside the stamp, and for the same reason: the report answers for the
-        // engaged set as this pass reads it. A field engaged after this line, under an open
-        // debounce window, made an edit this report predates — its own window's fire answers it,
-        // and with no debounce the engaging edit's own pass supersedes this one outright.
+        // Snapshotted as the pass begins rather than when its verdict lands: the report answers
+        // for the engaged set as this pass reads it. A field engaged after this line, under an
+        // open debounce window, made an edit this report predates — its own window's fire
+        // answers it, and with no debounce the engaging edit's own pass supersedes this one
+        // outright. (The edit stamp the verdicts are filed under is captured the same way, at
+        // the shared pass skeleton's own begin.)
         var engagedSnapshot = new HashSet<FieldIdentifier>(_engagedFields);
 
-        // Captured alongside the stamp, and handed to the pass rather than read again later: the
+        // Captured beside the snapshot, and handed to the pass rather than read again later: the
         // option holds a mutable instance a consumer may swap at any moment, so the profile this
         // pass ran under is only knowable by remembering it here.
         var liveProfile = _options.LiveProfile;
@@ -1007,15 +1087,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             () => new HashSet<FieldIdentifier>(triggeringFields),
             report =>
             {
-                // Retained whole, not per field: a live pass validates the entire model under the
-                // live profile and merely writes its verdict field by field, so the report is a
-                // complete answer for every rule that profile selects. That is what lets a
-                // post-submit refresh run only the rules the live profile leaves out instead of
-                // running the shared ones a second time for the same model state.
-                _retainedLiveReport = new RetainedLiveReport(report, editStamp, liveProfile);
-
                 // Every engaged field, not just the fields that triggered this pass: each live
-                // pass validates the whole model under the same LiveProfile, so this report is a
+                // pass answers the whole model under the same LiveProfile — executing what is
+                // stale, assembling the rest from the store — so this report is a
                 // complete answer for every field the user has committed a change to — a
                 // superseded pass's fields included, since they were engaged before this pass
                 // began. A field the report says nothing about gets an empty verdict, not a
@@ -1466,19 +1540,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         issue.Severity == ValidationSeverity.Error ? _submitIssues : _submitAdvisories;
 
     /// <summary>
-    /// Arms (or re-arms) the refresh timer. <paramref name="dueTime"/> defaults to
-    /// <see cref="FormidableOptions.RefreshDebounce"/> — the caller passes an explicit value only
-    /// where the arming needs to account for a debounced live pass it could reuse a report from
-    /// (see <see cref="HandleFieldChanged"/>); the field-set-change and in-flight-deferral callers
-    /// leave it at the default; the former has already invalidated whatever report there was to
-    /// reuse, and the latter is not answering for any particular edit. A refresh armed at the
-    /// default due time that comes due while a window is still open is not a correctness gap:
-    /// <see cref="RunRefreshPassAsync"/> defers any refresh that comes due against a window with
-    /// fields still in it, from whichever of the three callers armed it, and re-arms it in turn —
-    /// the explicit due time above only spares that one caller the extra defer-and-re-arm round
-    /// trip.
+    /// Arms (or re-arms) the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>,
+    /// from every arm site alike — an edit, a field-set change, an in-flight deferral's re-arm.
+    /// A refresh that comes due while a debounced live window is still open is not a race worth
+    /// scheduling around: whichever pass runs first executes the stale rules and stamps their
+    /// verdicts, and the other finds nothing left to do.
     /// </summary>
-    private void ScheduleRefresh(TimeSpan? dueTime = null)
+    private void ScheduleRefresh()
     {
         if (_disposed)
         {
@@ -1492,7 +1560,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             state: null,
             dueTime: Timeout.InfiniteTimeSpan,
             period: Timeout.InfiniteTimeSpan);
-        _refreshTimer.Change(dueTime ?? _options.RefreshDebounce, Timeout.InfiniteTimeSpan);
+        _refreshTimer.Change(_options.RefreshDebounce, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -1510,8 +1578,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             // Dispose could still reach here; re-arming a disposed ITimer throws.
             return;
         }
-
-        _liveDebounceWindowArmed = true;
 
         _liveTimer ??= _timeProvider.CreateTimer(
             _ => _ = _renderDispatch(RunDebouncedLivePassAsync),
@@ -1560,25 +1626,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
             // Options mutate in place, and this fire can land after a consumer has since cleared
             // LiveDebounce out from under an already-open window. There is no duration left to
-            // re-arm with, and holding the window open regardless is what starves every refresh
-            // behind LiveDebounceWindowArmedWithScope forever, since nothing but this same timer
-            // would ever close it again. The accumulator empties with the window: a field only
-            // ever accumulated here, never yet handed to a pass, is the same speculative entry the
-            // departed-field prune in OnRenderedFieldsChanged discards on identical reasoning — its
-            // next edit, or a submit, revalidates it fresh, so nothing here needs to survive the
-            // debounce feature being turned off while it was mid-window.
+            // re-arm with, so the window closes here instead of throwing, and the accumulator
+            // empties with it: a field only ever accumulated here, never yet handed to a pass,
+            // is the same speculative entry the departed-field prune in OnRenderedFieldsChanged
+            // discards on identical reasoning — its next edit, or a submit, revalidates it
+            // fresh, so nothing here needs to survive the debounce feature being turned off
+            // while it was mid-window.
             _pendingDebouncedLiveFields.Clear();
-            _liveDebounceWindowArmed = false;
             return Task.CompletedTask;
         }
 
         var fields = new HashSet<FieldIdentifier>(_pendingDebouncedLiveFields);
         _pendingDebouncedLiveFields.Clear();
-
-        // The window closes here, whether or not anything survived the snapshot: a refresh
-        // reading _liveDebounceWindowArmed after this point must find no window in its way, the
-        // same as if none had ever opened.
-        _liveDebounceWindowArmed = false;
 
         if (_options.TrackFormValidity)
         {
@@ -1604,42 +1663,6 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         return RunLivePassAsync(fields);
     }
 
-    /// <summary>
-    /// Drops the retained live report whole — report, stamp and profile together — so the next
-    /// post-submit refresh validates the whole submit profile rather than reusing it. The edit
-    /// counter cannot see this particular change: it counts field changes, and a change to which
-    /// fields are on the page changes which of that report's issues may be disclosed without
-    /// touching the model at all.
-    /// </summary>
-    /// <remarks>
-    /// The rendered field set moving is the only silent change this covers, because it is the
-    /// only one the engine observes for itself. A model whose contents change with no field
-    /// notification behind them still needs one — see
-    /// <see cref="OnRenderedFieldsChanged"/>'s own remarks for why no engine-side mechanism can
-    /// stand in for it.
-    /// </remarks>
-    private void InvalidateRetainedLiveReport() => _retainedLiveReport = null;
-
-    /// <summary>
-    /// What the submit profile runs beyond the live profile, computed once per profile pair.
-    /// Recomputing per refresh would be cheap but not free, and the answer can only change when a
-    /// caller swaps one of the two options.
-    /// </summary>
-    private ProfileDeltaResult CurrentProfileDelta()
-    {
-        var submit = _options.SubmitProfile;
-        var live = _options.LiveProfile;
-
-        if (!ReferenceEquals(submit, _deltaSubmitProfile) || !ReferenceEquals(live, _deltaLiveProfile))
-        {
-            _deltaResult = ProfileDelta.Compute(submit, live);
-            _deltaSubmitProfile = submit;
-            _deltaLiveProfile = live;
-        }
-
-        return _deltaResult;
-    }
-
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -1650,82 +1673,26 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
-        if (SubmitInFlight || LiveInFlight || LiveDebounceWindowArmedWithScope)
+        if (SubmitInFlight || LiveInFlight)
         {
             // Defer and re-arm — the edit must still be revalidated once the pass in flight
-            // finishes, or the open window closes. Submit is the higher-intent operation and is
-            // never superseded; a live pass is waited out for a different reason: starting here
-            // would cancel it (see BeginPass) and this pass would then discard its own verdict for
-            // any field that was not an error site at the last submit, so a single edit's answer
-            // would be lost on both channels at once. A live pass not yet started is waited out
-            // for the reason the whole profile split exists: this refresh has nothing retained to
-            // reuse until that pass answers, so running now would only pay for the full submit
-            // profile and then repeat every rule the two profiles share once the live pass follows
-            // moments later. One of the three arm sites already schedules the refresh's own due
-            // time to fall after such a window closes; the field-set-change and in-flight-deferral
-            // re-arms do not — they always use plain RefreshDebounce — which is what lets a re-arm
-            // land inside a window this check is the only thing standing between it and that
-            // duplicate work. Waiting can in principle be starved by passes or windows that never
+            // finishes. Submit is the higher-intent operation and is never superseded; a live
+            // pass is waited out for a different reason: starting here would cancel it (see
+            // BeginPass) and this pass would then discard its own verdict for any field that was
+            // not an error site at the last submit, so a single edit's answer would be lost on
+            // both channels at once. An OPEN debounce window, by contrast, holds nothing back:
+            // verdict reuse is keyed by rule and stamp, so a refresh that runs ahead
+            // of the window simply executes the stale rules first and the window's own pass then
+            // finds them answered. Waiting can in principle be starved by passes that never
             // quiesce — the same exposure the submit case has always carried, and a form whose
             // passes never settle has no moment at which a refresh would be meaningful anyway.
             ScheduleRefresh();
             return;
         }
 
-        // A refresh runs under the submit profile, which on the default pair includes every rule
-        // the live profile already ran for the edit that armed this refresh — so each of those
-        // rules would execute a second time against the same model state. Where the redundancy is
-        // provable, this pass validates only the difference and combines the result with the
-        // report the live pass left behind.
-        //
-        // Three independent things have to hold, and failing any of them falls back to the whole
-        // submit profile: the retained report must still answer for the model as it stands, it
-        // must have been produced under the live profile the subtraction below is computed
-        // against, and that subtraction must be defined at all. The middle one
-        // is its own condition because both profiles are settable on an options instance the
-        // engine holds and re-reads: subtracting a live profile the retained report never ran
-        // under would drop rules from the verdict, or duplicate them. The fallback is total by
-        // construction, and that is what makes the optimisation safe to reach for: the worst
-        // outcome of a precondition not holding is the duplicated work this avoids, never a
-        // verdict the full profile would not have produced.
-        //
-        // The first of the three is evidence rather than proof. Matching edit stamps say that no
-        // field change has been notified since the report was taken, which is what "the model has
-        // not moved" means to an engine that is told about changes; a mutation made with no
-        // notification behind it moves neither stamp and is invisible here.
-        // InvalidateRetainedLiveReport covers the one silent change the engine can observe for
-        // itself — the rendered field set moving — and that is the whole of what it covers. A
-        // model whose CONTENTS change without a notification is outside the contract, and this is
-        // one of the places that shows: the verdict would combine live-profile rules answered
-        // against the model as it was with delta rules answered against the model as it is.
-        var retained = _retainedLiveReport is { } candidate
-            && candidate.IsCurrentFor(_editStamp, _options.LiveProfile)
-            ? candidate.Report
-            : null;
-
-        var delta = retained is not null
-            ? CurrentProfileDelta()
-            : new ProfileDeltaResult(ProfileDeltaKind.NotSubtractable, null);
-
-        // What this pass validates and which half it has to put back afterwards are one decision,
-        // not two: only a pass that really did run less than the whole submit profile has a second
-        // half, and deciding that twice is how the two could come to disagree. An empty delta runs
-        // without a profile rather than with one selecting no rules, since a profile cannot express
-        // that and the rules it would have run have already run. Anything that does not resolve to
-        // a profile the difference can actually be validated under falls to the last arm, so the
-        // unexpected case is the full profile — the unsplit path — rather than no pass at all.
-        (ValidationProfile? Profile, ValidationReport? Reused) split = delta switch
-        {
-            { Kind: ProfileDeltaKind.Delta, Profile: { } remaining } => (remaining, retained),
-            { Kind: ProfileDeltaKind.Empty } => (null, retained),
-            _ => (_options.SubmitProfile, null),
-        };
-
-        var (profile, reused) = split;
-
         await RunPassAsync(
             PassKind.Refresh,
-            profile,
+            _options.SubmitProfile,
             CancellationToken.None,
             () =>
             {
@@ -1747,7 +1714,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // fire after an earlier refresh already snapshotted the union, leaving nothing
                 // new accumulated. Either way the indicator's contract is "the fields edited
                 // within this window" — an empty accumulator IS that answer, not a signal to fall
-                // back to form-wide. The pass still validates the whole model under the submit
+                // back to form-wide. The pass still answers for the whole model under the submit
                 // profile; only which fields the indicator lights narrows.
                 var edited = new HashSet<FieldIdentifier>(_pendingRefreshFields);
                 _pendingRefreshFields.Clear();
@@ -1755,20 +1722,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             },
             report =>
             {
-                // What the whole submit profile would have produced: the half this pass ran, plus
-                // the half the live pass already ran for the same model state. The two are
-                // concatenated rather than interleaved — an issue carries no ruleset provenance to
-                // merge on — so the only thing this decides is the relative order of two issues
-                // landing on the SAME field from different halves. Everything downstream groups by
-                // field and sorts by the page's own field order.
-                var verdict = reused is null
-                    ? report
-                    : new ValidationReport([.. reused.Issues, .. report.Issues]);
-
                 // A refresh pass answers for the whole model under SubmitProfile too (its "scope"
-                // parameter above narrows only the pending indicator, never what gets validated),
-                // so it is exactly as authoritative a source for IsFormValid as a submit is.
-                AdoptFormValidity(verdict);
+                // parameter above narrows only the pending indicator, never what the verdict
+                // answers for), so it is exactly as authoritative a source for IsFormValid as a
+                // submit is.
+                AdoptFormValidity(report);
 
                 // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
                 // own issues (below) replace both submit channels wholesale.
@@ -1776,7 +1734,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
                 // Resurface only what the user already saw at submit AND is still failing —
                 // fixed fields clear; fields revealed after submit stay quiet until the next submit.
-                _submitIssues = verdict.Errors
+                _submitIssues = report.Errors
                     .Select(issue => (Issue: issue, Field: Resolve(issue)))
                     .Where(x => _submitVisible.Contains(x.Field))
                     .GroupBy(x => x.Field, x => x.Issue)
@@ -1786,7 +1744,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // union of the two submit-time sets: a field that was an error site keeps any
                 // warning it also picked up, and a field that was only ever an advisory site keeps
                 // its warning refreshed instead of disappearing on the first unrelated edit.
-                _submitAdvisories = verdict.Issues
+                _submitAdvisories = report.Issues
                     .Where(i => i.Severity != ValidationSeverity.Error)
                     .Select(issue => (Issue: issue, Field: Resolve(issue)))
                     .Where(x => _submitVisible.Contains(x.Field) || _advisoryVisible.Contains(x.Field))
@@ -1864,32 +1822,37 @@ internal enum PassKind
 internal readonly record struct PassScope(PassKind Kind, int Version, CancellationToken Token);
 
 /// <summary>
-/// The answer a live pass leaves behind for a post-submit refresh to reuse, together with
-/// everything that decides whether it may still be reused. Held as one value because the three
-/// are meaningless apart: a report with no idea which model state or which profile produced it
-/// cannot be checked against anything, and dropping the report while leaving the other two behind
-/// is the shape of invalidation this makes unrepresentable.
+/// One rule's most recent answer, together with everything that decides whether a later pass may
+/// serve it instead of running the rule again. Held as one value because the parts are
+/// meaningless apart: issues with no idea which model state or which profile produced them
+/// cannot be checked against anything.
 /// </summary>
-/// <param name="Report">The live pass's full report, covering every rule its profile selected.</param>
-/// <param name="EditStamp">The engine's edit count as the pass began — what it answers for.</param>
-/// <param name="Profile">The live profile the pass actually ran, remembered because the option holding it is settable.</param>
-internal readonly record struct RetainedLiveReport(
-    ValidationReport Report,
+/// <param name="Issues">The issues the rule produced — empty when it passed, which is as much a
+/// fact worth reusing as a failure is.</param>
+/// <param name="EditStamp">The engine's edit count as the producing pass began — the model state
+/// this verdict answers for.</param>
+/// <param name="IsProfileScoped">Whether the execution consulted a child-scope decision that can
+/// differ across profiles (see <see cref="RuleLevelResult.IsProfileScoped"/>) — when it did, the
+/// verdict answers only for <paramref name="Profile"/> and an honest store re-runs the rule for
+/// any other.</param>
+/// <param name="Profile">The profile the producing pass ran under, remembered by reference
+/// because the options holding the profiles are settable.</param>
+internal readonly record struct RuleVerdict(
+    IReadOnlyList<ValidationIssue> Issues,
     int EditStamp,
+    bool IsProfileScoped,
     ValidationProfile Profile)
 {
     /// <summary>
-    /// Whether this report may stand in for the live half of a refresh's verdict: it has to
-    /// answer for the model state the refresh is reporting on, and to have been produced under
-    /// the live profile the subtraction is computed against.
+    /// Whether this verdict may be served to a pass that read <paramref name="editStamp"/> at
+    /// its beginning and runs <paramref name="profile"/>: the stamps must agree, and a
+    /// profile-scoped verdict additionally answers only for the very profile it ran under.
     /// </summary>
-    /// <param name="editStamp">The engine's edit count as the refresh begins.</param>
-    /// <param name="live">The live profile currently in force.</param>
     /// <remarks>
     /// The stamp comparison says only that no field change has been notified since — which is
     /// what "the model is unchanged" means to an engine that is told about changes. A mutation
     /// made without one is invisible to it.
     /// </remarks>
-    internal bool IsCurrentFor(int editStamp, ValidationProfile live) =>
-        EditStamp == editStamp && ReferenceEquals(Profile, live);
+    internal bool IsFreshFor(int editStamp, ValidationProfile profile) =>
+        EditStamp == editStamp && (!IsProfileScoped || ReferenceEquals(Profile, profile));
 }

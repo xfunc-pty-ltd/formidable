@@ -351,11 +351,13 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // That single edit starts a live pass and arms the post-submit refresh at the same instant.
         // The live pass runs the whole model, so the contact email's 300 ms availability check
         // makes it outlast the 300 ms debounce — the refresh comes due while it is still in
-        // flight. The refresh defers to it rather than racing or cancelling it, so the live pass
+        // flight. The refresh defers to it rather than racing or cancelling it; the live pass
         // keeps running and its verdict answers the engaged fields — the committed edit engaged
-        // this seats field, so its message arrives with no second submit to ask for it — which is
-        // why the assertion is deliberately the auto-waiting one, with no submit and no sleep
-        // behind it.
+        // this seats field, so its message arrives with no second submit to ask for it. The
+        // deferred refresh, when it does run, executes only the rules still owed an answer at
+        // this edit, serving the availability check the live pass answered from the per-rule
+        // verdict store rather than paying for it a second time. The assertion is deliberately
+        // the auto-waiting one, with no submit and no sleep behind it.
         await Expect(MessagesFor(row, "seats"))
             .ToHaveTextAsync([SeatsOutOfRange], new() { Timeout = AsyncTimeoutMs });
     }

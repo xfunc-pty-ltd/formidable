@@ -61,7 +61,8 @@ validates against, and the profile the debounced post-submit refresh re-validate
 ### `RefreshDebounce`
 
 `TimeSpan`, defaults to 300 ms. How long the engine waits, after a field change once a submit
-has happened, before re-running `SubmitProfile` to refresh inline errors.
+has happened, before the debounced refresh re-answers `SubmitProfile` to keep inline errors
+current. The refresh arms at this duration whether or not `LiveDebounce` is set.
 
 ### `LiveDebounce`
 
@@ -75,25 +76,21 @@ Reach for it when live rules are expensive enough that one per keystroke is the 
 async availability check being the obvious case. It changes how often live passes run — and, when
 `TrackFormValidity` is also on, how often its validity probe runs too, since the probe rides this
 same window rather than firing on a schedule of its own (see below). After a submit, the same edit
-that arms this window also arms the post-submit refresh, and that refresh's own due time reads
-this window too.
+that arms this window also arms the post-submit refresh.
 
-An edit after a submit arms both, and the live pass always answers first: the refresh's own due
-time is `RefreshDebounce`, or this window plus a fixed 50 ms margin, whichever is later — and a
-refresh that comes due while an open window still holds fields defers to it rather than run
-early. At the default, with no live debounce at all, the live pass runs on the edit itself and
-the refresh follows it 300 ms later. Set this above `RefreshDebounce` (400 ms against the 300 ms
-default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) does) and the
-refresh's own timer moves out to match, arming at 450 ms instead of the plain 300, so the live
-pass this edit armed still gets there first. The live pass owns the live channel, the refresh
-owns what the submit disclosed, and neither writes the other's — live before refresh is the
-natural reading of the two, the pass judging the value on screen arriving ahead of the one
-re-checking what submit already said, and it is what every `LiveDebounce` setting gives any
-refresh armed after a submit.
+The two arm independently: the refresh at plain `RefreshDebounce`, this window at its own width, and
+neither timer reads the other. At the default, with no live debounce at all, the live pass runs on
+the edit itself and the refresh follows it 300 ms later. Set this above `RefreshDebounce` (400 ms
+against the 300 ms default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor)
+does) and the refresh comes due first instead. The order is free to vary because the cost is not:
+verdict reuse is keyed by rule and edit stamp rather than by which pass ran first, so whichever
+pass lands first executes the stale rules and the other serves the stored verdicts. The live pass
+owns the live channel, the refresh owns what the submit disclosed, and neither writes the other's —
+with the refresh in front, what submit disclosed updates a beat before the field's own live message
+does, a transient reordering that leaves the settled state identical.
 
-Same verdicts, same cost. The retained-report reuse a post-submit edit gets without `LiveDebounce`
-set applies here too, since the live pass this edit armed always has a head start on the refresh
-that wants to reuse its report — see
+Same verdicts, same per-rule cost, in either order. The reuse a post-submit edit gets without
+`LiveDebounce` set applies here unchanged — see
 [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) for the
 mechanism.
 

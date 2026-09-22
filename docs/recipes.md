@@ -48,9 +48,9 @@ finished yet. With it, however many commits pile up, one blur delivers one notif
 
 | | Draft-bucket rule (`ConfigureDraftRules`) | Submit-ruleset rule (`ConfigureSubmitRules`) |
 |---|---|---|
-| `UpdateOn="InputUpdateMode.OnChange"` (default) | When the field loses focus after a change: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each blur-commit re-runs the submit profile once the refresh debounce (300 ms) falls quiet. |
-| `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke: each one starts its own live pass, and the pass that wins writes the verdict. | Not before submit. At submit — and after that, typing re-runs the submit profile after 300 ms of quiet. |
-| `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change: the blur delivers one notification for however many `change` commits preceded it, so a multi-segment control never starts a live pass mid-edit — and a blur with no commit before it starts nothing. | Not before submit. At submit — and after that, each blur-commit re-runs the submit profile once the refresh debounce (300 ms) falls quiet. |
+| `UpdateOn="InputUpdateMode.OnChange"` (default) | When the field loses focus after a change: the commit starts a live pass and the message lands on that field. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
+| `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke: each one starts its own live pass, and the pass that wins writes the verdict. | Not before submit. At submit — and after that, typing re-answers the submit profile after 300 ms of quiet. |
+| `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change: the blur delivers one notification for however many `change` commits preceded it, so a multi-segment control never starts a live pass mid-edit — and a blur with no commit before it starts nothing. | Not before submit. At submit — and after that, each blur-commit re-answers the submit profile once the refresh debounce (300 ms) falls quiet. |
 
 Both columns assume the default profiles; pointing `FormidableOptions.LiveProfile` at another
 profile moves the line. A live pass validates the whole model, and its verdict answers every
@@ -183,29 +183,22 @@ app.MapGroup("/api/signups").Validate<Signup>(
     ValidationProfile.Named("SubmitPlusExtra", true, ValidationProfile.SubmitRuleSetName, "SomeOtherRuleset"));
 ```
 
-**The cost, honestly:** comma-membership is what keeps the server this simple, but it also hides
-the shared rule from the post-submit refresh's own optimisation. `ProfileDelta` subtracts ruleset
-*names*, not rule membership — `ValidationProfile.Submit`'s own name list is just `["Submit"]`,
-with no way to know that `"Submit"` now also reaches whatever `RuleSet("Submit,Engaged", ...)`
-tagged onto `"Engaged"` too. So the pair comes out not subtractable, and the refresh that follows a
-post-submit edit runs the whole `SubmitProfile` again instead of reusing the live pass's retained
-report: safely (the non-subtractable case is itself a correct, already-covered fallback), just not
-for free. `FormValidationEngineEngagedProfileTests.The_submit_and_engaged_profile_pair_is_not_subtractable`
-pins exactly this. The submit bucket's own rules pay this cost either way: `ProfileDelta` only
-ever excludes what the live pass covered, and a rule declared solely in `ConfigureSubmitRules()`
-never is, so it re-runs on refresh whether or not the pair subtracts cleanly. What losing
-subtractability adds on top is the *draft* bucket running a second time too — the whole
-`SubmitProfile`, defaults included, rather than just the delta. On `/workout` itself, the
-300&nbsp;ms `ContactEmail` availability check in `ConfigureDraftRules()` answers twice per
-post-submit edit, not once, because the page's own `LiveProfile` selects `"Engaged"` alone.
-Worth knowing before reaching for this pattern on a form whose draft bucket carries an expensive
-rule, an async check chief among them.
+**The cost, honestly:** none worth naming. The pair looks disjoint by *name* —
+`ValidationProfile.Submit`'s own ruleset list is just `["Submit"]`, with `"Engaged"` nowhere in
+it — but the engine reuses verdicts by *rule*, and a `RuleSet("Submit,Engaged", ...)` rule is
+one declared rule however many names reach it. A post-submit edit runs the shared rule once
+across its live pass and the refresh that follows: the live pass under `"Engaged"` executes it,
+and the refresh under `Submit` serves the stored verdict.
+`FormValidationEngineEngagedProfileTests.The_submit_and_engaged_profile_pair_reuses_the_shared_rule_per_rule`
+pins exactly this. The draft bucket rides the same store: on `/workout` itself, whose
+`LiveProfile` names `"Engaged"` alongside the default rules, the 300&nbsp;ms `ContactEmail`
+availability check in `ConfigureDraftRules()` answers once per post-submit edit — the live pass
+executes it, and the refresh serves its verdict too.
 
 **Read:** [Profiles](profiles.md) (custom profiles),
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule),
 [The refresh runs only what the live pass did not](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)
-(the general shape: a rule spanning two rulesets at once runs in both halves of a subtraction,
-however it's declared).
+(the verdict store the reuse rides on).
 **Sample:** [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — the attendee `Name`
 rule.
 

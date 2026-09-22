@@ -211,9 +211,9 @@ public class FormValidationEngineFieldSetChangeTests
     {
         // A field-set change is the one arm site that can start a refresh with NOTHING in
         // _pendingRefreshFields - no edit ever put a field there. Held open on a gated draft
-        // rule (the refresh runs the whole submit profile, since nothing was retained to reuse),
-        // this pins that an empty accumulator reads as an empty scope: no field validating, ever,
-        // across the pass's whole lifetime.
+        // rule (the refresh re-executes the whole submit selection, since the field-set change
+        // cleared the verdict store), this pins that an empty accumulator reads as an empty
+        // scope: no field validating, ever, across the pass's whole lifetime.
         var customer = new EngineCustomer { Name = "far too long" };
         var order = new EngineOrder { Customer = customer };
         var validator = new GatedRuleRunCountingValidator();
@@ -292,7 +292,7 @@ public class FormValidationEngineFieldSetChangeTests
     }
 
     [Fact]
-    public async Task A_field_set_change_invalidates_the_retained_live_report()
+    public async Task A_field_set_change_clears_the_verdict_store()
     {
         var customer = new EngineCustomer { Name = "far too long" };
         var order = new EngineOrder { Customer = customer };
@@ -304,16 +304,17 @@ public class FormValidationEngineFieldSetChangeTests
 
         Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
 
-        // This edit's live pass leaves a report behind, taken at the current edit count, that the
-        // refresh it also armed would otherwise reuse in place of running the draft bucket again.
+        // This edit's live pass stores the draft rule's verdict at the current edit count; the
+        // refresh the edit also armed would otherwise serve it from the store in place of
+        // running the rule again.
         customer.Name = "longer still";
         editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
 
         var draftBefore = validator.DraftRuleRuns;
 
-        // A field-set change moves no edit counter, so the retained report still looks current.
-        // Only being dropped outright can stop the refresh below reusing a report that was
-        // computed against the page — and the model — as they stood before the move.
+        // A field-set change moves no edit counter, so the stored verdict still reads as fresh.
+        // Only the store being cleared outright can stop the refresh below reusing a verdict
+        // that was computed against the page — and the model — as they stood before the move.
         engine.OnRenderedFieldsChanged();
         time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
 

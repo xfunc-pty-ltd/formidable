@@ -128,16 +128,15 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // shows a second, instantaneous open/close here. Duration is what discriminates a genuine
     // round trip from that harmless flash; see InstallCheckWindowProbe below.
     //
-    // What actually reds this test: reverting FormValidationEngine's delta computation ALONE
-    // (forcing the refresh to always run the whole SubmitProfile, the same mutation
-    // FormValidationEngineProfileSplitTests.A_post_submit_edit_runs_each_draft_rule_once uses)
-    // does NOT turn this red — MemoizedHandleValidator's memo backstops it, since the refresh's
-    // redundant re-check is for the value the live pass just answered, well inside the memo's
-    // window, so it
-    // resolves instantly from the memo instead of re-running the delay. Only removing BOTH the
-    // delta computation and the memo together reproduces the original symptom: two real, roughly
-    // 900 ms windows instead of one. The engine-level mechanism (does the delta subtraction run
-    // each rule once) is independently pinned by
+    // What must break this test is reverting FormValidationEngine's per-rule verdict store —
+    // whole-profile refresh execution, every Submit rule re-run instead of only the rules still
+    // owed an answer at the edit's stamp. That revert ALONE does not turn this red, though:
+    // MemoizedHandleValidator's memo backstops it, since the refresh's redundant re-check is for
+    // the value the live pass just answered, well inside the memo's window, so it resolves
+    // instantly from the memo instead of re-running the delay. Only removing BOTH the store and
+    // the memo together produces the symptom: two real, roughly 900 ms windows instead of one.
+    // The engine-level mechanism (does the refresh execute only the rules without a fresh
+    // verdict) is independently pinned by
     // FormValidationEngineProfileSplitTests.A_post_submit_edit_runs_each_draft_rule_once, which
     // counts rule invocations directly and does not depend on the sample or its memo; this test
     // proves the end-to-end, user-visible contract instead, and is a weaker (but real) guard on
@@ -188,21 +187,24 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     }
 
     // Property: with LiveDebounce ticked, editing after a submit still produces exactly one REAL
-    // checking window, not two — the debounced live pass answers first, retains its report, and
-    // the refresh that follows reuses it instead of running its own round trip, the same outcome
-    // A_post_submit_edit_checks_once pins above without LiveDebounce set at all.
+    // checking window, not two — the refresh window (300 ms) is narrower than the debounce
+    // window (400 ms), so the refresh comes due first and pays the single round trip, and the
+    // debounced live pass that follows finds every rule it selects already answered at the
+    // edit's stamp and publishes from the verdict store without a round trip of its own — the
+    // same outcome A_post_submit_edit_checks_once pins above without LiveDebounce set at all,
+    // reached in the opposite pass order.
     //
-    // Reverting FormValidationEngine's refresh arm-time change (the max in HandleFieldChanged,
-    // back to plain RefreshDebounce regardless of LiveDebounce) does NOT turn this red on its
-    // own, for the same reason A_post_submit_edit_checks_once's own mutation does not:
-    // MemoizedHandleValidator's memo backstops it. With the max reverted, the refresh comes due
-    // first, at 300 ms — before the debounced live pass has even started — finds no report
-    // retained, and pays for the whole SubmitProfile itself, memoizing "adam" as it goes. The
-    // debounced live pass keeps deferring while that refresh is in flight
-    // (RunDebouncedLivePassAsync's own RefreshInFlight guard) and only proceeds once it clears,
-    // by which point "adam" is already in the memo, so it answers from that entry instead of
-    // paying for its own round trip. What changes is WHICH pass pays, not whether a second one
-    // does — so the wall-clock cost stays flat and this test cannot see the regression.
+    // What must break this test is the same store revert A_post_submit_edit_checks_once names —
+    // and here too the revert ALONE does not turn it red. The refresh behaves identically either
+    // way in this staging (nothing is answered at the edit's stamp when it fires, so its full
+    // selection IS the stale set); what the revert changes is the deferred live pass, which
+    // stands down while the refresh is in flight (RunDebouncedLivePassAsync's RefreshInFlight
+    // guard), proceeds once it clears, and then re-runs the uniqueness check instead of finding
+    // it answered in the store. That redundant re-check is for the value the refresh just
+    // answered and memoized, so it resolves instantly from MemoizedHandleValidator's memo and
+    // the wall-clock cost stays flat — this test cannot see the regression. In correct code the
+    // memo sits idle here (the store leaves the live pass nothing to execute); its designed job
+    // on this page is the submit-side skip, a Submit pressed shortly after a live pass.
     // FormValidationEngineProfileSplitTests.A_debounced_edit_runs_each_common_rule_once pins the
     // exact mutation directly, counting rule invocations on a validator with no memo to hide
     // behind; this test proves the weaker, end-to-end, user-visible claim that holds given the
@@ -218,6 +220,10 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // instantaneous indicator flash (see InstallCheckWindowProbe), yet low enough to keep the
         // test's own wait reasonable.
         const int delayMs = 900;
+        // Mirrors FormidableOptions.RefreshDebounce's default, which the page leaves unset — the
+        // earliest timer that can start any pass after the edit while LiveDebounce holds the
+        // live pass back; the lower-bound assert at the end reasons about when it can fire.
+        const int refreshDebounceMs = 300;
         await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
         await page.GetByLabel("Debounce live checks (batch fast typing into one pass)", new() { Exact = true })
             .CheckAsync();
@@ -240,10 +246,13 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // "ada", the submit's own pass) is setup, not the edit under test.
         await page.EvaluateAsync(InstallCheckWindowProbe);
 
+        // The page's own clock, read just before the edit commits — the probe stamps openedAt
+        // with performance.now() too, so the lower-bound assert below compares like with like.
+        var beforeFill = await page.EvaluateAsync<double>("() => performance.now()");
         await page.GetByLabel("Username", new() { Exact = true }).FillAsync("adam");
 
-        // Waits out the debounce window, the edit's own live pass, the refresh's defer-and-recheck
-        // cycle, and — were the double check to return — a second full round trip, by polling
+        // Waits out the refresh window and its round trip, the deferred live pass's landing
+        // behind it, and — were the double check to return — a second full round trip, by polling
         // rather than guessing a fixed duration (see SettledAfterLastClose).
         await page.WaitForFunctionAsync(
             SettledAfterLastClose,
@@ -251,10 +260,27 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
 
         var windows = await page.EvaluateAsync<double[][]>("() => window.__checkWindows");
 
-        var realChecks = windows.Count(w => w[1] - w[0] >= delayMs / 2.0);
+        var realWindows = windows.Where(w => w[1] - w[0] >= delayMs / 2.0).ToArray();
         Assert.True(
-            realChecks == 1,
-            $"expected exactly one real checking window, found {realChecks} of {windows.Length} " +
+            realWindows.Length == 1,
+            $"expected exactly one real checking window, found {realWindows.Length} of {windows.Length} " +
             $"total window(s): [{string.Join(", ", windows.Select(w => $"{w[1] - w[0]:F0}ms"))}]");
+
+        // The count alone does not discriminate this journey's own precondition: were LiveDebounce
+        // not applied at all (the checkbox wiring inert), the edit's live pass would start
+        // immediately and open its one real window within milliseconds of the fill — still a
+        // count of one. The opening TIME is what trips on that mutation, and only as a lower
+        // bound is it flake-safe: every measurement bias runs late (beforeFill is captured before
+        // the fill commits, timers fire at or after their due time, the observer records the
+        // indicator after the pass opens it), so correct code cannot come in under the bound. The
+        // bound is the refresh window rather than the wider debounce window because it must hold
+        // under either pass order: with LiveDebounce applied, no pass can start before the
+        // narrower refresh timer comes due — whichever pass then pays, the first real window
+        // opens no earlier than that.
+        var firstRealOpensAfterMs = realWindows[0][0] - beforeFill;
+        Assert.True(
+            firstRealOpensAfterMs >= refreshDebounceMs,
+            $"expected the first real checking window to open no earlier than {refreshDebounceMs} ms " +
+            $"(the refresh window) after the fill, but it opened {firstRealOpensAfterMs:F0} ms after");
     }
 }

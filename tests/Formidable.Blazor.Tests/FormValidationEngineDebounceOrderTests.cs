@@ -10,15 +10,13 @@ namespace Formidable.Blazor.Tests;
 /// One edit after a submit arms two passes at once — a live pass under the live profile and the
 /// post-submit refresh under the submit profile. Without <see cref="FormidableOptions.LiveDebounce"/>
 /// the live pass runs synchronously, ahead of the refresh's own window, every time. With it set,
-/// the refresh's own due time is bounded below by the live window plus a margin — a refresh
-/// cannot come due before the debounced live pass it could reuse a report from has even started —
-/// so the live pass answers first there too, regardless of which of the two debounce values a
-/// caller happens to configure the larger one. The margin is what lets this edit's own arming
-/// reach the right due time directly; the engine backs it with a general deferral that holds any
-/// refresh back from a window with fields still in it regardless of which of the three arm sites
-/// scheduled it, pinned in <see cref="FormValidationEngineRefreshDeferralTests"/>. All three
-/// configurations still have to reach the same verdicts, so each sequence here is run against one
-/// assertion set under each.
+/// the two windows close in whatever order their configured widths give them — and the order does
+/// not matter, because rule verdicts are keyed by rule and edit stamp: whichever pass fires first
+/// executes the stale rules, and the other serves their verdicts from the store. What the engine
+/// still enforces is deference to a pass genuinely IN FLIGHT — a window's fire re-arms rather
+/// than cancel a running submit or refresh, and a refresh defers to a running live pass — which
+/// is supersession hygiene, not execution ordering. Every configuration still has to reach the
+/// same verdicts, so each sequence here is run against one assertion set.
 /// </summary>
 /// <remarks>
 /// The assertions name channels rather than list positions: the draft rule's message can only
@@ -71,12 +69,13 @@ public class FormValidationEngineDebounceOrderTests
     }
 
     [Fact]
-    public async Task A_wide_live_debounce_still_answers_before_the_refresh_that_follows_it()
+    public async Task A_wide_live_debounce_lets_the_refresh_land_first_and_the_live_pass_reuse_it()
     {
-        // LiveDebounce 400 ms against the 300 ms RefreshDebounce default: naming the wider window
-        // for LiveDebounce does not make the refresh land first, because the refresh's own due
-        // time follows the live window rather than racing it - the live pass answers first here
-        // regardless of which of the two debounce values is configured the larger one.
+        // LiveDebounce 400 ms against the 300 ms RefreshDebounce default: the refresh window is
+        // the narrower one, so the refresh fires first, executes the whole stale selection, and
+        // the live window's own pass then has nothing left to run — it publishes the draft
+        // rule's verdict from the store. The reversed pass order changes which pass pays for
+        // which rule and nothing else.
         var customer = new EngineCustomer();
         var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
         var editContext = new EditContext(order);
@@ -101,55 +100,15 @@ public class FormValidationEngineDebounceOrderTests
         Assert.Empty(engine.GetIssues(customerName));
         Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
 
-        time.Advance(TimeSpan.FromMilliseconds(400)); // the live pass fires first
+        time.Advance(TimeSpan.FromMilliseconds(300)); // the refresh fires first
 
-        // The live channel is already current while the refresh — due only after the live window
-        // — has yet to answer at all.
-        Assert.Contains(engine.GetIssues(customerName), i => i.Message == DraftMessage);
-        Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
-
-        time.Advance(TimeSpan.FromMilliseconds(50)); // the refresh follows it
-
-        AssertBothChannelsCurrent(engine, customerName, description);
-    }
-
-    [Fact]
-    public async Task A_live_debounce_equal_to_the_refresh_window_still_gives_the_live_pass_the_margin()
-    {
-        // A form reaches LiveDebounce equal to RefreshDebounce's own 300 ms default by asking for
-        // a live debounce and leaving the refresh alone. The refresh's due time always carries the
-        // margin beyond the live one, so the two are never simultaneous even when the two
-        // configured windows are equal - the live pass answers first.
-        var customer = new EngineCustomer();
-        var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
-        var editContext = new EditContext(order);
-        var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
-            order, editContext,
-            new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
-            new ReflectionModelIntrospector(),
-            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(300), DisclosureOverride = _ => true },
-            time);
-
-        var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
-        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
-
-        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
-        Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
-
-        customer.Name = "far too long";
-        editContext.NotifyFieldChanged(customerName);
-
-        // Both windows are open, so neither channel has moved yet.
+        // The submit channel is already current — the refresh executed both rules — while the
+        // draft failure it computed waits for the live channel: it is not a submit-time error
+        // site, so only a live pass's verdict apply can disclose it.
+        Assert.DoesNotContain(engine.GetIssues(description), i => i.Message == SubmitMessage);
         Assert.Empty(engine.GetIssues(customerName));
-        Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
 
-        time.Advance(TimeSpan.FromMilliseconds(300)); // the live pass fires
-
-        Assert.Contains(engine.GetIssues(customerName), i => i.Message == DraftMessage);
-        Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage); // refresh not yet due
-
-        time.Advance(TimeSpan.FromMilliseconds(50)); // the margin elapses; the refresh follows
+        time.Advance(TimeSpan.FromMilliseconds(100)); // the live window closes behind it
 
         AssertBothChannelsCurrent(engine, customerName, description);
     }
@@ -214,12 +173,14 @@ public class FormValidationEngineDebounceOrderTests
     }
 
     [Fact]
-    public async Task A_wide_live_debounce_settles_an_async_rule_before_the_refresh_that_follows_it()
+    public async Task A_wide_live_debounce_defers_to_the_in_flight_refresh_and_lands_from_the_store()
     {
-        // LiveDebounce 400 ms against the 300 ms RefreshDebounce default, with the shared draft
-        // rule asynchronous: the live pass always fires first, but it can still be in flight when
-        // the refresh's own (later) due time arrives. The refresh must defer to it rather than
-        // run - the LiveInFlight deferral RunRefreshPassAsync already carries for exactly this.
+        // LiveDebounce 400 ms against the 300 ms RefreshDebounce default, with both rules
+        // asynchronous: the refresh fires first and is still in flight on its gate when the live
+        // window closes. The window must re-arm rather than start a pass that would cancel the
+        // refresh (see RefreshInFlight's remarks) — and once the refresh lands, the re-armed
+        // window's own pass finds every rule answered at its stamp and publishes the draft
+        // verdict without touching the gate at all.
         var customer = new EngineCustomer();
         var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
         var validator = new GatedChannelSeparatingValidator();
@@ -244,30 +205,26 @@ public class FormValidationEngineDebounceOrderTests
         customer.Name = "far too long";
         editContext.NotifyFieldChanged(customerName);
 
-        time.Advance(TimeSpan.FromMilliseconds(400)); // the live window closes and blocks on its rule
+        time.Advance(TimeSpan.FromMilliseconds(300)); // the refresh fires first and blocks on its rule
         Assert.True(engine.GetFieldState(customerName).IsValidating);
 
-        time.Advance(TimeSpan.FromMilliseconds(50)); // the refresh comes due against the in-flight live pass
+        time.Advance(TimeSpan.FromMilliseconds(100)); // the live window closes against the in-flight refresh
 
-        // Deferred, not started: the live pass is still the one in flight, and the submit channel
-        // still carries the verdict only a refresh can clear.
+        // Deferred, not started: the refresh is still the one in flight, and the submit channel
+        // still carries the verdict only it can clear.
         Assert.True(engine.GetFieldState(customerName).IsValidating);
-        Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
-
-        var liveSettled = Quiescence(engine);
-        validator.Gate.SetResult();
-        await liveSettled;
-        validator.Reset();
-
-        // The live pass landed; the refresh it held up still owes the submit channel its answer.
-        Assert.Contains(engine.GetIssues(customerName), i => i.Message == DraftMessage);
         Assert.Contains(engine.GetIssues(description), i => i.Message == SubmitMessage);
 
         var refreshSettled = Quiescence(engine);
-        time.Advance(TimeSpan.FromMilliseconds(300)); // the re-armed refresh window closes and blocks
-        Assert.True(engine.GetFieldState(customerName).IsValidating);
         validator.Gate.SetResult();
         await refreshSettled;
+
+        // The refresh landed both rules: the submit channel is current, and the draft failure it
+        // computed waits for the live channel to disclose it.
+        Assert.DoesNotContain(engine.GetIssues(description), i => i.Message == SubmitMessage);
+        Assert.Empty(engine.GetIssues(customerName));
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // the re-armed window closes; nothing left to execute
 
         AssertBothChannelsCurrent(engine, customerName, description);
     }

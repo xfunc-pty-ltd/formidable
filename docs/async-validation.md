@@ -158,7 +158,7 @@ flowchart TD
     K --> L{"Submit or a live pass in flight?"}
     L -- "yes" --> M["Refresh defers: re-arms its timer instead of running"]
     M --> K
-    L -- "no" --> N["Refresh pass validates the model, reusing the live pass's report where the subtraction below applies; the pending indicator is scoped to the pending-refresh snapshot"]
+    L -- "no" --> N["Refresh pass answers the whole submit profile, executing only the rules nothing has answered for this edit; the pending indicator is scoped to the pending-refresh snapshot"]
 
     O["Submit invoked"] --> P["Submit pass runs SubmitProfile form-wide, cancelling whatever pass was in flight"]
     P --> Q["HasSubmitted set true"]
@@ -166,9 +166,9 @@ flowchart TD
 
 The diagram traces the default cadence, where an edit's live pass starts on the keystroke itself.
 `FormidableOptions.LiveDebounce` puts a timer in front of that first step, described under
-[The live pass starts](#the-live-pass-starts) — which, once a submit has happened, reaches the
-refresh-arm step downstream of it too, and the refresh's own defer decision beyond that, both
-traced in the sections below.
+[The live pass starts](#the-live-pass-starts). The refresh's own timer is no part of what it
+changes: the two are armed independently, and the sections below cover why their windows are
+free to land in either order.
 
 ### An edit commits
 
@@ -211,13 +211,12 @@ started-and-cancelled request per keystroke.
 A debounced live pass is a little more deferential than an immediate one: with a submit *or* a
 refresh already running, it re-arms its timer instead of starting, because the edit that would
 normally re-arm the refresh has already happened, and cancelling the refresh outright would leave
-its verdict stale with nothing left to fix it. The option reaches the refresh's own cadence too:
-once a submit has happened, the field change that arms the debounce window also arms the refresh,
-and the refresh's due time answers for this window as well as for `RefreshDebounce`. Any refresh
-that comes due while the window is still open with fields left in it defers to it too, not only
-the one this same edit armed — see
+its verdict stale with nothing left to fix it. The refresh's own timer is unmoved by any of
+this. After a submit it arms at plain `RefreshDebounce`, whatever this window's width, so a
+window wider than the refresh debounce lets the refresh land first — an order that costs
+nothing and changes no verdict; see
 [The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
-below for the mechanism and what it buys.
+below for why either pass can go first and the work is paid once regardless.
 
 ### A newer pass supersedes an older one
 
@@ -262,24 +261,21 @@ for. Since starting a pass cancels the one before it, a refresh that ran regardl
 away work someone asked for. The async rule that was 500 ms into a 600 ms check would have
 nothing to show for it.
 
-So it defers, to any of three. If a submit or a live pass is in flight, or a debounced live
-window is still armed with fields left in it, the refresh re-arms its own timer rather than
-running, and comes back when the timer next quiets — as many times as it takes. Deferring to a
-submit is the higher-intent rule again. Deferring to a live pass earns its keep somewhere else:
-an edit whose async rule outlasts the debounce still gets the answer its own live pass was
-computing. Between two live passes that have already run there is nothing to defer to, since a
-newer live pass supersedes the older one outright — a live pass not yet started, only
-accumulating fields behind its own debounce timer, is the different case the third condition
-above answers for. The refresh's own path is different: it cancels neither the submit nor the
-live pass, it waits for them.
-
-With nothing in flight and no debounced live window still armed with fields left in it, the
-refresh pass validates the model — the whole `SubmitProfile`, or only the part of it the live
-pass has not already answered (see
+So it defers, to exactly two things. If a submit or a live pass is in flight, the refresh
+re-arms its own timer rather than running, and comes back when the timer next quiets — as many
+times as it takes. Deferring to a submit is the higher-intent rule again. Deferring to a live
+pass earns its keep somewhere else: an edit whose async rule outlasts the debounce still gets
+the answer its own live pass was computing. An open debounce window is neither of those — it
+holds no pass, only fields waiting for one — so the refresh runs right past it, and the window's
+own pass then finds the rules the refresh ran already answered (see
 [The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
-below). Either way it answers for the whole model in one pass; what the pending-refresh snapshot
-scopes is the pending indicator, covered in
-[Which fields show "checking…"](#which-fields-show-checking) below.
+below). The refresh's own path differs from a live pass's in one more way: it cancels neither
+the submit nor the live pass, it waits for them.
+
+With nothing in flight, the refresh pass answers for the whole model under `SubmitProfile`,
+executing only the rules nothing has answered for the current edit and assembling the rest from
+verdicts already held. What the pending-refresh snapshot scopes is the pending indicator,
+covered in [Which fields show "checking…"](#which-fields-show-checking) below.
 
 ### Submit sits above all of it
 
@@ -298,102 +294,100 @@ Once a form has been submitted, an edit still takes both branches of the flowcha
 live pass and it arms the refresh. `ValidationProfile.Submit` is the default rules plus the
 `Submit` ruleset; `ValidationProfile.Draft`, the default `LiveProfile`, is the default rules
 alone — so on the default pair, everything the live pass just ran is also part of what the
-refresh is about to run. The refresh subtracts it: it validates only the rules the submit
-profile adds beyond the live profile, and combines that report with the live pass's own report
-for the rest. An async rule written in `ConfigureDraftRules()` — the uniqueness check at the top
-of this page — sits entirely inside that subset, so it answers once per post-submit edit rather
-than twice: the live pass runs it, and the refresh's own pass skips past it.
+refresh is about to run. Run naively, every draft rule would answer twice for one edit. It
+doesn't, because the engine keeps a verdict store: every rule's most recent answer, keyed by the
+rule itself and stamped with the engine's count of committed field changes as the producing pass
+began. A pass reads that count at its own beginning, executes only the selected rules with no
+fresh verdict at that stamp, and assembles its report from every selected rule in declaration
+order, served from the store or just executed. What it publishes is always a whole-profile
+answer, however little it actually ran. An async rule written in `ConfigureDraftRules()` (the
+uniqueness check at the top of this page) answers once per post-submit edit: the live pass runs
+it, and the refresh serves the stored verdict.
 
 The sample's [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes the
 saving visible. Submit, then type: one "checking…" cycle runs, not two.
 
-Three things have to hold for the subtraction to apply, all about the same edit. The live
-profile's rules have to be a genuine subset of the submit profile's — every ruleset the live
-profile names has to also appear in the submit profile, and the live profile can't include
-default rules unless the submit profile does — since subtracting a profile that reaches
-somewhere the submit profile doesn't would drop rules from the verdict rather than avoid
-re-running them. The live pass's report has to still answer for the model as it stands, which the
-engine reads as "no field change has been notified since that pass began", plus one thing it can
-see for itself: a rendered field set that moves — a collection row leaving the page, a section
-collapsing — drops the retained report outright, and the refresh that follows runs the whole
-`SubmitProfile` rather than trust a report describing a page, and a model, already gone. And the
-retained report has to have been produced under the live profile currently in force:
-`FormidableOptions.LiveProfile` is a mutable instance a consumer may swap
-between the live pass and the refresh that follows it (the documented way to change a setting at
-runtime, see [Engine options](options.md#formidableoptions-is-read-once)), so a swapped profile
-falls back the same way a stale report does, rather than subtract against a profile the retained
-answer never ran under.
+Nothing about that depends on which pass gets there first. Reuse is keyed by rule and stamp
+rather than by pass order, so whichever pass lands first pays for the stale rules and the other
+assembles. The same discipline covers a refresh overtaken by its own kind: a re-armed timer that
+fires while a refresh is still running (a field-set change mid-flight, say) starts a newer
+refresh that supersedes it, and the superseded pass writes nothing at all — last write wins, and
+the verdict on screen is the newer pass's own.
 
-Report currency is checked against notifications rather than against the model itself, and that
-distinction has teeth. Change a bound model's contents without telling the form — a handler
-patching a computed property, a late server response writing into the model while a refresh window
-is open — and nothing the engine reads moves. The retained report goes on looking current, and the
-verdict the refresh publishes combines live-profile rules answered against the model as it was
-with delta rules answered against the model as it is. Mutating a bound model without notifying is
+"Fresh" is a precise word here, with two halves. A verdict answers for the model state its pass
+began at: every committed field change moves the engine's edit count, a verdict whose stamp no
+longer matches the count a pass read at its beginning is simply run again, and no pass ever
+serves an answer produced before an edit it can see. The second half is the one staleness that
+count cannot see: a rendered field set that moves — a collection row leaving the page, a section
+collapsing — changes which issues may be disclosed, and possibly the model behind them, without
+any field change being notified. That change empties the store outright, and a pass already in
+flight across it still publishes its verdict but declines to remember it, so the next pass
+re-answers everything against the page as it stands.
+
+Verdicts are facts about rules rather than about profiles, with one honest exception. A rule
+whose child scope the profile itself filters — an `Include()`'s internals, or a `SetValidator`
+child validator whose rules carry ruleset memberships of their own — can genuinely answer
+differently under two profiles, so execution notices such a consultation as it happens and the
+store remembers that verdict as answering only for the profile it ran under. A pass running any
+other profile runs the rule again: an honest re-run rather than a divergent reuse. Every other
+verdict is served to any pass that selects its rule, whichever profile that pass runs under.
+Every rule on this page, and every shape the sample apps ship (plain rules, rules declared into
+rulesets, collection rules with `ChildRules` children), is in this class. It is also what lets
+`FormidableOptions.LiveProfile` be swapped at runtime (the documented way to change a setting,
+see [Engine options](options.md#formidableoptions-is-read-once)) with no special handling: the
+swapped profile re-selects, rules both profiles select keep their verdicts, and rules the store
+has never answered run.
+
+The edit count moves on notifications rather than on mutations, and that distinction has teeth.
+Change a bound model's contents without telling the form — a handler patching a computed
+property, a late server response writing into the model while a refresh window is open — and
+nothing the engine reads moves. The stored verdicts go on looking fresh, and the next pass
+serves answers computed against the model as it was. Mutating a bound model without notifying is
 outside the contract everywhere in Formidable, and covered under
-[Fields and collections](fields-and-collections.md); this is the place where the price is a wrong
-verdict rather than a stale message. `field.NotifyChanged()` (or `EditContext.NotifyFieldChanged`)
-is what keeps it right.
-
-The subset condition holds by construction for the default pair (`ValidationProfile.Submit`
-selects default rules plus the `Submit` ruleset, `ValidationProfile.Draft` selects default rules
-alone, so `Draft` is always a subset of `Submit`), which leaves the other two (report currency and
-profile identity) as the only ways the default pair ever falls back to the full profile. A custom
-`LiveProfile`/`SubmitProfile` pair that only partially overlaps adds a third way: every rule the
-two share keeps running twice per post-submit edit regardless. Behaviour that varies with the
-shape of the two profiles is worth knowing before it's the thing a slow rule's second run
-surprises someone with. Where the two are disjoint there's nothing to subtract in the first
-place, so the refresh runs its own profile in full — the same fallback a broken precondition
-reaches everywhere else on this page.
+[Fields and collections](fields-and-collections.md); this is the place where the price is a
+wrong verdict rather than a stale message. `field.NotifyChanged()` (or
+`EditContext.NotifyFieldChanged`) is what keeps it right.
 
 `FormidableOptions.LiveDebounce` changes when a keystroke's own live pass starts: it accumulates
 the field and arms the debounce timer instead of starting immediately, described under
-[The live pass starts](#the-live-pass-starts). After a submit, that same edit's refresh reads the
-same window too — its due time is `RefreshDebounce`, or the live window plus a fixed 50&nbsp;ms
-margin, whichever is later. Set `LiveDebounce` above `RefreshDebounce` (400 ms against the 300 ms
-default, as `/async` does) and the refresh's own timer moves out to 450 ms rather than firing at
-the plain 300. The margin only guarantees the debounced live pass has *started* by then, not
-finished — what actually delivers the reuse is
-[the refresh deferring to whatever is running](#the-refresh-defers-to-whatever-is-running): it
-waits out the live pass rather than racing it, then subtracts against the report that pass leaves
-behind, exactly as it would with `LiveDebounce` unset. The async draft rule answers once for that
-edit, not twice — the margin keeps the refresh from starting before the live pass does, and the
-defer keeps it from running past one still in flight, or past a debounce window still armed with
-fields left to answer for. [Options](options.md#livedebounce) covers this same relationship from
-the verdict side — every `LiveDebounce`/`RefreshDebounce` combination for a post-submit edit
-agrees on what ends up on screen, and on what it costs to get there.
+[The live pass starts](#the-live-pass-starts). What it does not change is the refresh's timer.
+After a submit the same edit arms the refresh at plain `RefreshDebounce`, so a live
+window wider than it (400 ms against the 300 ms default, as `/async` does) puts the refresh
+first: it comes due, finds no pass in flight — an open window is nothing
+[the refresh defers to](#the-refresh-defers-to-whatever-is-running) — and executes the stale
+rules under `SubmitProfile`; the window's own live pass then finds every draft rule answered and
+executes nothing. The async draft rule answers once for that edit in either order. What varies
+with the order is transient: with the refresh in front, what submit disclosed updates a beat
+before the field's own live message does, and the settled state is identical either way.
+[Options](options.md#livedebounce) covers this same relationship from the option's side: every
+`LiveDebounce`/`RefreshDebounce` combination for a post-submit edit agrees on what ends up on
+screen, and on what it costs to get there.
 
-One validator-wide setting breaks the subtraction's safety net rather than its availability:
-`ClassLevelCascadeMode.Stop` makes a validator give up after its first failing rule, and the
-subtraction runs the live and delta profiles as two separate validator calls, each free to stop
-at its own first failure without seeing the other's. A validator that would have stopped after
-one failure under a single unsplit `Submit` run can report a second issue here that run never
-would have reached. Nothing in this library sets `ClassLevelCascadeMode.Stop`, and
-FluentValidation's own default is `Continue`, so the gap is dormant unless a validator opts in —
-and since the setting isn't visible through the `IModelValidator<TModel>` seam, the engine has no
-way to detect it and warn. Rule-level `.Cascade(CascadeMode.Stop)`, scoped to one rule's own
-chain inside a single ruleset, is unaffected.
+One validator-wide setting opts a form out of per-rule execution rather than misbehaving under
+it. `ClassLevelCascadeMode.Stop` makes a validator give up after its first failing rule, and
+separate per-rule executions could reproduce neither the stopping nor its verdict: a failing
+rule cannot suppress later rules it never shares a run with. So a validator that sets it is
+never taken rule by rule — the FluentValidation adapter reports the capability absent, and the
+engine gives every pass the whole profile in one call. Correct, and priced exactly as it reads:
+each pass validates its full profile, with nothing reused between passes. The same whole-profile
+path serves any `IModelValidator<TModel>` that never exposes rule-level access at all.
+FluentValidation's own default is `Continue`, and nothing in this library changes it. Rule-level
+`.Cascade(CascadeMode.Stop)`, scoped to one rule's own chain inside a single ruleset, is
+unaffected: the chain stops inside its one rule exactly as it always does, and the verdict
+reuses like any other.
 
-One rule shape breaks it the same way. Subtraction works on ruleset names, so a rule declared in
-two rulesets at once — `RuleSet("Submit, Approve", ...)`, with `Approve` on the live profile and
-both on the submit profile — sits in each half of the subtraction and runs in each, where a single
-unsplit `Submit` run would have run it once (FluentValidation's selector runs a rule once however
-many of the selected rulesets it belongs to). The combined verdict then carries its issue twice.
-Nothing can detect that either: ruleset membership isn't visible through the
-`IModelValidator<TModel>` seam, and a `ValidationIssue` doesn't record which ruleset produced it,
-so a rule that can't be subtracted exactly is a shape to know about rather than one the engine
-guards against. Keeping a rule in one ruleset avoids it entirely.
-
-Submit itself never reaches for any of this. `SubmitAsync` always validates the whole
-`SubmitProfile` from scratch, whatever a live pass answered a moment before — the retained-report
-reuse belongs to the refresh that follows a landed submit, not to the submit itself. A submit
-fired shortly after a live pass therefore re-asks a question the live pass just answered, which
-is exactly the gap [memoizing the rule](#memoizing-an-async-rule) below closes.
+Submit is the one pass that never reads the store. `SubmitAsync` runs its whole selection
+regardless of what any pass answered a moment before: it is the disclosure event, the verdict a
+caller is actually awaiting, and its full run repopulates the store on the way through, so the
+passes behind it start from answered rules. A pass whose every selected rule is already answered
+executes nothing at all and still publishes its assembled verdict like any other. The flip side
+is that a submit fired shortly after a live pass re-asks a question the live pass just answered,
+which is exactly the gap [memoizing the rule](#memoizing-an-async-rule) below closes.
 
 One more run is opt-in and independent of all of this. `FormidableOptions.TrackFormValidity`
 probes the whole model under `SubmitProfile` on every field change — or once per window when
 `LiveDebounce` is set, at the same cadence as the live pass it rides alongside — and the probe
-shares nothing with the refresh's subtraction, so a form with it switched on runs that same draft
+shares nothing with the verdict store, so a form with it switched on runs that same draft
 rule twice per post-submit edit rather than once: the live pass answers it, and the probe answers
 it again on its own terms.
 
@@ -401,11 +395,12 @@ it again on its own terms.
 
 `AsyncRuleMemo<TKey, TResult>` holds answers and `MustAsyncMemoized` puts one on a rule, for two
 gaps the engine's own reuse doesn't reach. A repeated value — typing `admin`, clearing it, typing
-`admin` again — asks the same question twice with nothing in between to catch it: each keystroke
-starts a fresh pass, and no pass remembers what an earlier, unrelated one already answered. And a
+`admin` again — asks the same question twice with nothing in between to catch it: every keystroke
+moves the edit stamp, and the verdict store answers for model states rather than for values, so
+the rule runs again however familiar the value looks. And a
 submit fired shortly after a live pass re-asks whatever that live pass just answered, in full,
-every time, since [`SubmitAsync` never reuses a retained
-report](#the-refresh-runs-only-what-the-live-pass-did-not) the way the post-submit refresh does.
+every time, since [`SubmitAsync` never reads the verdict
+store](#the-refresh-runs-only-what-the-live-pass-did-not) the way the post-submit refresh does.
 A memo closes both gaps by answering from what it already knows instead of paying for the call
 again.
 

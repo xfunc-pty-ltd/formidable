@@ -194,6 +194,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Submitting lights both indicators while the submit pass runs
 - [ ] After an accepted submit, type a taken value again: its verdict appears when the check
       completes, without waiting for another submit
+- [ ] Edit Username once after a submit and pause: exactly one "checking…" cycle runs, not
+      two — the refresh that follows the live pass finds the uniqueness check already
+      answered and does not run it again
 - [ ] Delay slider reads **600 ms** on load; dragging it updates the millisecond label live
 - [ ] At 2000 ms: the pending state lingers long enough to type again and watch supersession
       cancel the stale check mid-flight — only the final value gets a verdict

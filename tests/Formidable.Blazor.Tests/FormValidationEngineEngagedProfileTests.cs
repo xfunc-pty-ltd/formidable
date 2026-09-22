@@ -186,24 +186,81 @@ public class FormValidationEngineEngagedProfileTests
     }
 
     /// <summary>
-    /// The real, verified cost of comma-membership over a dedicated composite SubmitProfile:
-    /// <see cref="ProfileDelta"/> is validator-agnostic algebra over two <see cref="ValidationProfile"/>
-    /// objects' own declared ruleset-NAME lists. <see cref="ValidationProfile.Submit"/>'s list is
-    /// just <c>["Submit"]</c> - it has no way to know that, for this one validator, "Submit" rules
-    /// also happen to include whatever a <c>RuleSet("Submit,Engaged", ...)</c> call tagged onto
-    /// "Engaged" too. So "Engaged" reads as a ruleset the live profile selects that the submit
-    /// profile's own list never names, and the pair is NOT subtractable - the post-submit refresh
-    /// on <c>/workout</c> does not reuse the live pass's retained report and instead runs the
-    /// whole Submit profile (still correct -
-    /// FormValidationEngineProfileSplitTests.A_non_subtractable_profile_pair_runs_the_full_profile
-    /// pins that the fallback itself stays safe - just unoptimised).
+    /// Counts the shared rule's executions at exactly the shape the fixture above declares: one
+    /// <c>RuleSet("Submit,Engaged")</c> row rule, one counter inside it. Local to the reuse pin
+    /// so the five engaged-disclosure facts keep their own fixture untouched.
+    /// </summary>
+    private sealed class DualRuleCountingValidator : DraftSubmitValidator<EngagedFixtureModel>
+    {
+        public int DualRuns;
+
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+        }
+
+        protected override void ConfigureAdditionalProfiles()
+        {
+            Profile("Engaged", () => { });
+            RuleSet("Submit,Engaged", () =>
+                RuleForEach(x => x.Attendees).ChildRules(attendee =>
+                    attendee.RuleFor(a => a.Name)
+                        .Must(name =>
+                        {
+                            DualRuns++;
+                            return name.Length > 0;
+                        })
+                        .WithMessage("Name is required")));
+        }
+    }
+
+    /// <summary>
+    /// The cost story of comma-membership over a dedicated composite SubmitProfile: none. The
+    /// pair looks disjoint by NAME — "Engaged" never appears in
+    /// <see cref="ValidationProfile.Submit"/>'s own ruleset list — but the engine reuses
+    /// verdicts by RULE, and a <c>RuleSet("Submit,Engaged", ...)</c> rule is one declared rule
+    /// however many names reach it. A post-submit edit therefore runs the shared rule once
+    /// across its live pass and the refresh that follows: the live pass under "Engaged"
+    /// executes it, and the refresh under "Submit" serves the verdict from the store.
     /// </summary>
     [Fact]
-    public void The_submit_and_engaged_profile_pair_is_not_subtractable()
+    public async Task The_submit_and_engaged_profile_pair_reuses_the_shared_rule_per_rule()
     {
-        var result = ProfileDelta.Compute(ValidationProfile.Submit, EngagedLiveProfile);
+        var model = new EngagedFixtureModel();
+        var attendee = new EngagedAttendee(); // blank Name - the shared rule fails throughout
+        model.Attendees.Add(attendee);
+        var validator = new DualRuleCountingValidator();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngagedFixtureModel>(
+            model, editContext,
+            new FluentValidationModelValidator<EngagedFixtureModel>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveProfile = EngagedLiveProfile,
+                SubmitProfile = ValidationProfile.Submit,
+                DisclosureOverride = _ => true,
+            },
+            time);
 
-        Assert.Equal(ProfileDeltaKind.NotSubtractable, result.Kind);
-        Assert.Null(result.Profile);
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Equal(1, validator.DualRuns);
+
+        // A committed change to the row's name (still blank, still failing): the live pass under
+        // "Engaged" re-answers the shared rule for the edited model.
+        editContext.NotifyFieldChanged(new FieldIdentifier(attendee, nameof(EngagedAttendee.Name)));
+        Assert.Equal(2, validator.DualRuns);
+
+        time.Advance(TimeSpan.FromMilliseconds(301)); // the post-submit refresh follows
+
+        // Two, not three: the refresh reused the live pass's verdict for the one rule the two
+        // profiles share, and the row's message still stands on the submit channel.
+        Assert.Equal(2, validator.DualRuns);
+        Assert.Contains("Name is required", editContext.GetValidationMessages(
+            new FieldIdentifier(attendee, nameof(EngagedAttendee.Name))));
     }
 }
