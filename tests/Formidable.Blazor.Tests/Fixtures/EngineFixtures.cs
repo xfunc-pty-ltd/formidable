@@ -187,6 +187,13 @@ public sealed class SlowLiveRuleValidator : DraftSubmitValidator<EngineOrder>
 /// released — for asserting that a live pass triggered by editing one async field does not mark
 /// a sibling async field as validating too.
 /// </summary>
+/// <remarks>
+/// The submit ruleset carries a model-level rule on the same gate, which never fails and so
+/// changes no verdict. A post-submit refresh runs only what the live pass left out, so holding a
+/// refresh in flight means holding a rule from the submit bucket; a gate on the draft bucket alone
+/// holds live passes only. It carries the same customer guard the gated draft rule does, so a
+/// model this fixture's draft rules would skip cannot block on the gate with nothing to release it.
+/// </remarks>
 public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
 {
     public TaskCompletionSource CustomerNameGate { get; private set; } = new();
@@ -208,9 +215,14 @@ public sealed class TwoAsyncFieldsValidator : DraftSubmitValidator<EngineOrder>
             .When(x => x.Customer is not null);
     }
 
-    protected override void ConfigureSubmitRules()
-    {
-    }
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x)
+            .MustAsync(async (_, ct) =>
+            {
+                await CustomerNameGate.Task.WaitAsync(ct);
+                return true;
+            })
+            .When(x => x.Customer is not null);
 
     public void Reset() => CustomerNameGate = new TaskCompletionSource();
 }
@@ -323,6 +335,139 @@ public sealed class NormalizableOrderValidator : DraftSubmitValidator<Normalizab
 
     protected override void ConfigureSubmitRules() =>
         RuleFor(x => x.Description).MaximumLength(2);
+}
+
+/// <summary>
+/// Validator whose two profiles fail different fields, so a test can tell the live channel and
+/// the submit channel apart by message alone. The draft rule fails <see cref="EngineCustomer.Name"/>
+/// — a field no submit here ever makes an error site, so a refresh filters its own copy of that
+/// verdict straight back out and only a live pass can put it on the field. The submit rule fails
+/// <see cref="EngineOrder.Description"/> for as long as the customer has no name, so a single edit
+/// to the name breaks the draft rule and clears the submit rule at once: each channel then has an
+/// observable transition of its own, and neither one's verdict can be mistaken for the other's.
+/// </summary>
+public sealed class ChannelSeparatingValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Customer!.Name)
+            .MaximumLength(4).WithMessage("Customer name must be four characters or fewer")
+            .When(x => x.Customer is not null);
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description)
+            .Must((order, _) => order.Customer is { Name.Length: > 0 })
+            .WithMessage("Description needs a named customer");
+}
+
+/// <summary>
+/// <see cref="ChannelSeparatingValidator"/> with both of its rules made asynchronous and blocked
+/// on <see cref="Gate"/> — which is what lets a test hold either a live pass or a refresh pass in
+/// flight while the other's debounce window comes due. Both buckets are gated because the two
+/// passes run different ones: a live pass runs the draft bucket, and a post-submit refresh runs
+/// only what that pass left out, which is the submit bucket.
+/// </summary>
+public sealed class GatedChannelSeparatingValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Customer!.Name)
+            .MustAsync(async (name, ct) =>
+            {
+                await Gate.Task.WaitAsync(ct);
+                return name.Length <= 4;
+            })
+            .WithMessage("Customer name must be four characters or fewer")
+            .When(x => x.Customer is not null);
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description)
+            .MustAsync(async (order, _, ct) =>
+            {
+                await Gate.Task.WaitAsync(ct);
+                return order.Customer is { Name.Length: > 0 };
+            })
+            .WithMessage("Description needs a named customer");
+
+    public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>
+/// Counts how often each rule bucket executes. Running a rule twice leaves exactly the issues
+/// running it once leaves, so an execution counter is the only thing that can tell the two apart.
+/// The draft bucket fails <see cref="EngineCustomer.Name"/> beyond four characters and the submit
+/// bucket requires <see cref="EngineOrder.Description"/>, so each bucket also carries a message
+/// naming which one produced it. <see cref="ExtraRuleSetName"/> is registered with no rules of its
+/// own: a live profile naming it selects exactly what the draft bucket alone selects while still
+/// naming something the submit profile does not, which is what makes such a pair unsubtractable
+/// without changing a single verdict.
+/// </summary>
+public sealed class RuleRunCountingValidator : DraftSubmitValidator<EngineOrder>
+{
+    public const string DraftMessage = "Customer name must be four characters or fewer";
+    public const string SubmitMessage = "Description is required";
+    public const string ExtraRuleSetName = "Extra";
+
+    public int DraftRuleRuns;
+    public int SubmitRuleRuns;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Customer!.Name)
+            .Must(name =>
+            {
+                DraftRuleRuns++;
+                return name.Length <= 4;
+            })
+            .WithMessage(DraftMessage)
+            .When(x => x.Customer is not null);
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description)
+            .Must(description =>
+            {
+                SubmitRuleRuns++;
+                return description.Length > 0;
+            })
+            .WithMessage(SubmitMessage);
+
+    protected override void ConfigureAdditionalProfiles() => Profile(ExtraRuleSetName, () => { });
+}
+
+/// <summary>
+/// <see cref="RuleRunCountingValidator"/> with its draft rule made asynchronous and blocked on
+/// <see cref="Gate"/>, so a live pass can be held in flight while an edit lands — the one window
+/// in which the edit stamp a live pass takes as it begins differs from the one standing when its
+/// verdict arrives. The counter is incremented before the rule blocks, so it counts executions
+/// that were reached rather than executions that got an answer.
+/// </summary>
+public sealed class GatedRuleRunCountingValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+
+    public int DraftRuleRuns;
+    public int SubmitRuleRuns;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(x => x.Customer!.Name)
+            .MustAsync(async (name, ct) =>
+            {
+                DraftRuleRuns++;
+                await Gate.Task.WaitAsync(ct);
+                return name.Length <= 4;
+            })
+            .WithMessage(RuleRunCountingValidator.DraftMessage)
+            .When(x => x.Customer is not null);
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Description)
+            .Must(description =>
+            {
+                SubmitRuleRuns++;
+                return description.Length > 0;
+            })
+            .WithMessage(RuleRunCountingValidator.SubmitMessage);
+
+    public void Reset() => Gate = new TaskCompletionSource();
 }
 
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>

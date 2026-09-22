@@ -300,37 +300,42 @@ Two things reduce the cost, and both of them are yours rather than the engine's:
   pass. It leaves the refresh's own cadence alone, as described under
   [The live pass starts](#the-live-pass-starts): it reduces live passes, not refresh passes, so
   it never takes a post-submit edit below the two runs described here.
-- Memoize inside the rule when the check is genuinely expensive, keyed on the value the rule is
-  checking. The rule has that value in scope and the engine deliberately does not: it hands the
-  validator a profile and takes back a report, with no rule-level seam to cache at. That makes
-  the remedy the validator's, and it is a small one.
+- Memoize the check when it is genuinely expensive, keyed on the value the rule is checking. The
+  rule has that value in scope and the engine deliberately does not: it hands the validator a
+  profile and takes back a report, with no rule-level seam to cache at. That makes the remedy the
+  validator's, and the core package ships the piece it needs.
 
 The key is the value itself: a second pass over an unchanged value reuses the first pass's answer
 instead of making the call again. The two runs are about one `RefreshDebounce` apart — 300 ms by
 default — so the window only has to be long enough to catch a duplicate that is milliseconds
 old.
 
-Here is the same uniqueness check as a validator that calls a real directory service
-(`IUsernameDirectory` below is the consumer's own lookup, whatever it is) and remembers its last
-answer. It is a second validator over the same `Handle` model, not the sample's own
-`HandleValidator` quoted above:
+One more run is opt-in. `FormidableOptions.TrackFormValidity` probes the whole model under
+`SubmitProfile` on every field change — or once per window when `LiveDebounce` is set, at the
+same cadence as the live pass it rides alongside — so a form with it switched on runs that same
+draft rule three times per post-submit edit rather than twice.
+
+### Memoizing an async rule
+
+`AsyncRuleMemo<TKey, TResult>` holds the answers and `MustAsyncMemoized` puts one on a rule. Here is
+this page's uniqueness check as a validator that calls a real directory service
+(`IUsernameDirectory` is the consumer's own lookup, whatever it is). It is a second validator over
+the same `Handle` model, not the sample's own `HandleValidator` quoted above:
 
 ```csharp
-using System.Diagnostics;
 using FluentValidation;
 using Formidable;
 
 public class UniqueHandleValidator : DraftSubmitValidator<Handle>
 {
-    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(1);
+    private readonly AsyncRuleMemo<string, bool> _free = new(TimeSpan.FromSeconds(1));
     private readonly IUsernameDirectory _directory;
-    private (string Username, bool Free, long Timestamp)? _last;
 
     public UniqueHandleValidator(IUsernameDirectory directory) => _directory = directory;
 
     protected override void ConfigureDraftRules() =>
         RuleFor(h => h.Username)
-            .MustAsync((username, token) => IsFreeAsync(username, token))
+            .MustAsyncMemoized(_free, (username, token) => _directory.IsFreeAsync(username!, token))
             .WithMessage("That username is taken")
             .When(h => !string.IsNullOrEmpty(h.Username));
 
@@ -338,6 +343,77 @@ public class UniqueHandleValidator : DraftSubmitValidator<Handle>
         RuleFor(h => h.Username)
             .NotEmpty()
             .WithMessage("A username is required");
+}
+```
+
+`MustAsyncMemoized` is `MustAsync` with a lookup in front of it, so everything after it chains the
+same way. The value reaches the check nullable even here, where `Username` is not: a `null` value
+is handed straight to the check and never used as a key, since nothing keys on the absence of a
+value. This rule's `.When` has already ruled null out, which is what the `!` says.
+
+One thing does not chain the same way, and it is the token. An answer the memo holds belongs to
+every caller waiting on it, so a check reached through the memo runs under
+`CancellationToken.None` rather than the token FluentValidation supplies: a caller that gives up
+stops waiting, and the call it was waiting on carries on for whoever else wants the answer. The
+`null` path never touches the memo, so that one passes FluentValidation's own token straight
+through. A check whose cancellation has to follow one caller does not belong behind a memo.
+
+Three things decide whether that is safe on a given rule, and the first is the one that goes wrong
+silently.
+
+- **Hold the memo on the validator.** It has to outlive a single pass to be worth anything.
+  Constructed inside the rule's own lambda it is rebuilt on every call, hits on nothing, and warns
+  about none of it: the form behaves exactly as it did before, at exactly the cost it had before.
+  A field is the whole requirement. The engine resolves its `IModelValidator<TModel>` once and
+  keeps it, and FluentValidation registers validators per scope, so a field on the validator lives
+  as long as the answers are worth anything.
+- **The check has to be pure with respect to its key.** Its answer may depend on the value it is
+  handed and on nothing else that can move inside the window. The mistake worth naming is the one
+  that looks pure: a coupon check that really asks "is this code valid *for me*", keyed on the
+  coupon code alone. The customer is half the question and none of the key, so a memo whose
+  lifetime spans two customers answers the second with the first's verdict. A singleton-registered
+  validator is exactly that lifetime, and so is a memo parked in a `static` field. Key on both
+  halves instead — a key type carrying the pair — or leave that check unmemoized. The
+  constructor's `IEqualityComparer<TKey>` is no way out of this one: it decides what counts as the
+  same key, so it can coarsen a key that already carries the customer and never introduce one the
+  key never had.
+- **Keep the window short.** It exists to swallow a duplicate seconds old at most, not to stand
+  in for a data cache with its own invalidation story.
+
+`MustAsyncMemoized` reaches a property of any non-nullable type — `string` and `int`, but equally
+`Guid`, `decimal`, `DateOnly` — and any nullable reference type, `string?` among them. The one
+shape it does not reach is a nullable value type — `int?`, `Guid?` and the rest — where inference
+fails and the compiler reports CS0411: one type parameter cannot be both the memo's non-null key
+and a nullable value type at once. Unwrap it and call the memo directly:
+
+```csharp
+        RuleFor(t => t.SeatNumber)
+            .MustAsync((seat, token) => seat is null
+                ? Task.FromResult(true)
+                : _seatFree.GetAsync(
+                    seat.Value,
+                    (key, ct) => _seating.IsFreeAsync(key, ct),
+                    token));
+```
+
+`GetAsync` is the whole surface: a key, a check, and back comes either the answer already held or
+a fresh one. It is also the way in for a memoized rule answering something other than a `bool`.
+
+### Remembering the last answer by hand
+
+Nothing stops a validator holding its own answer instead, and over one field the shape is small —
+the same validator with the memo swapped for a slot, and `using System.Diagnostics;` for the
+clock:
+
+```csharp
+    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(1);
+    private (string Username, bool Free, long Timestamp)? _last;
+
+    protected override void ConfigureDraftRules() =>
+        RuleFor(h => h.Username)
+            .MustAsync((username, token) => IsFreeAsync(username!, token))
+            .WithMessage("That username is taken")
+            .When(h => !string.IsNullOrEmpty(h.Username));
 
     private async Task<bool> IsFreeAsync(string username, CancellationToken cancellationToken)
     {
@@ -352,24 +428,15 @@ public class UniqueHandleValidator : DraftSubmitValidator<Handle>
         _last = (username, free, Stopwatch.GetTimestamp());
         return free;
     }
-}
 ```
 
-Three things decide whether that is safe on a given rule:
-
-- **The check has to be pure.** Its answer may depend on the value and nothing else. A rule that
-  reads another field, the clock, or a row a colleague is editing at the same time has no
-  business remembering its last answer.
-- **The validator's lifetime is the cache's lifetime.** A scoped validator caches per visitor,
-  which is what the example above assumes. A singleton shares one cache across everyone, which
-  is a correctness question before it is a performance one.
-- **Keep the window short.** It exists to swallow a duplicate seconds old at most, not to stand
-  in for a data cache with its own invalidation story.
-
-One more run is opt-in. `FormidableOptions.TrackFormValidity` probes the whole model under
-`SubmitProfile` on every field change — or once per window when `LiveDebounce` is set, at the
-same cadence as the live pass it rides alongside — so a form with it switched on runs that same
-draft rule three times per post-submit edit rather than twice.
+The three rules above apply to that just as they do to the memo, and two differences decide
+whether it is enough. `AsyncRuleMemo` holds the in-flight `Task` rather than the finished value, so
+the two passes overlapping one edit join a single call instead of making two whenever the check
+outlasts the gap between them — a slot holding only finished answers cannot. And it keeps a
+bounded set of entries rather than one, so a `RuleForEach` visiting every item with the same
+validator instance hits on all of them, where a single slot is overwritten once per item and hits
+on none.
 
 ## Which fields show "checking…"
 

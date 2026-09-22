@@ -1111,26 +1111,61 @@ than whichever rule the validator happened to declare first. Two issues on one f
 order the validator produced them in.
 
 `FormidableForm` is what supplies that order. After any render that changed the set of registered
-fields, it asks `IFormidableFieldOrderService` where those fields' elements actually sit and hands
-the answer to its engine, which sorts `GetVisibleIssues()` by it. The browser is the only thing
-that knows where an element is, so the shipped implementation is JS-backed — and public for the
-same reason `IFormidableFocusService` and `IFormidableDomValueSync` are, so a bUnit test can fake
-the seam instead of standing up module interop (see [Testing](testing.md#the-form-under-bunit)).
+fields, it asks `IFormidableFieldOrderService` where those fields sit and hands the answer to its
+engine, which sorts `GetVisibleIssues()` by it. The browser is the only thing that knows where an
+element is, so the shipped implementation is JS-backed — and public for the same reason
+`IFormidableFocusService` and `IFormidableDomValueSync` are, so a bUnit test can fake the seam
+instead of standing up module interop (see [Testing](testing.md#the-form-under-bunit)).
 
-Two edges of that contract are worth knowing, both deliberate:
+The seam's currency is the field, not its rendered element id:
 
-- **A field the page cannot place sorts last.** The form asks about the fields currently in the
-  render tree, and the service answers only for the ids it finds in the DOM, so anything outside
-  both sorts after everything placed: a control that renders no id of its own, the model-level
-  entry the all-suppressed gate produces, and a row held only by
+```csharp
+    ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields);
+```
+
+*Source: `src/Formidable.Blazor/IFormidableFieldOrderService.cs`*
+
+A `FieldIdentifier` maps to the id its element carries through
+`FormidableFieldId.For(field)`, so a field-based seam can express DOM position and anything else
+an implementation knows about a field; an id alone can only ever express the first, since it
+cannot be read back into the field it came from. That round trip belongs to the implementation
+that wants it — the shipped one maps each field to its id, asks the browser to sort by
+`compareDocumentPosition`, and maps the answer back.
+
+Four edges of that contract are worth knowing, all deliberate:
+
+- **A verdict about the whole form is reported first.** The request is not only the registered
+  fields: the model-level field rides along on every resolution, and its element is the `<form>`
+  the component renders, which contains every field on the page. Document order therefore puts it
+  ahead of everything else, which is where the all-suppressed gate's explanation and a validator
+  fault belong — they address the form, not a field inside it. An implementation need not
+  special-case it: `FormidableFieldId.For` derives its id the same way it does for any other
+  field.
+- **A field the page cannot place sorts last.** The service answers only for the fields it can
+  actually locate, so anything it leaves out sorts after everything it placed: a control that
+  renders no id of its own, and a row held only by
   [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it
-  has left the DOM. There is nowhere on the page to send a visitor for any of them anyway.
+  has left the DOM. There is nowhere on the page to send a visitor for either of them anyway.
+- **An empty answer and no answer are different answers.** An empty list says none of these
+  fields are on the page, which is a legitimate thing to say about a page and is taken as the
+  order. `null` says the order could not be resolved at all, and the form treats it as "ask again
+  on a later render" — the same way it treats an interop call that threw. Answer `null` where an
+  empty list was meant and the form re-resolves on every render; answer empty where `null` was
+  meant and it settles on validator order until the registered field set next changes, which on a
+  stable form is never.
 - **Before the first resolution, the order is the engine's own.** A resolve lands after the render
   that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel:
   the fault issue, then submit errors, then advisories, then the live channel. The same is true of
   a host that never resolves an order at all — `FormidableValidator` in attach mode, or an app
   that registered no order service — which keeps the summary working and costs it only the
   reading order (see [Migration guide](migration-guide.md#what-to-check-after-migrating)).
+
+Document order is the default because it is the order a visitor reads the form in. A form that
+wants a different one sets [`FormidableOptions.OrderIssues`](options.md#orderissues), a
+synchronous re-sort over the resolved order, rather than implementing the seam — the seam is for
+answering *where* the fields are, which is the part only the browser can do. Sorting by something
+the layout decides, such as a two-column or `flex`-ordered form, is the case that genuinely needs
+the seam: see [Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-appear-on-screen).
 
 ### Showing one severity band
 
@@ -1162,6 +1197,10 @@ computes its own `role` from what it actually shows, so two summaries are two li
 announcements: an `Errors` summary announces as `alert` whenever it has anything, an `Advisories`
 one always as the politer `status` (see
 [CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region)).
+
+**Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor) — two disjoint
+summaries stacked one above the other at the top of the form, so what blocks and what merely
+advises arrive as separate blocks, and the one with nothing to say is absent rather than empty.
 
 ## `FormidableValidator<TModel>`, attaching to an existing form
 

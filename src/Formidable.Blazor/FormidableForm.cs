@@ -180,18 +180,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // there is simply not in the answer. The form never puts it in the registry itself (the
         // id is written straight onto the <form> element, not through FieldRegistry.Register),
         // but nothing stops a consumer's own field component from targeting the same identifier,
-        // so the check is against the request being built, not the registry: a duplicate in the
-        // request would come back as a duplicate, confusing entry in the resolved map.
+        // so the check is against the request being built, not the registry: asked about twice, it
+        // would take whichever of its two positions the answer listed last rather than the one the
+        // page puts it in. Adding it is also what leaves the request never empty, whatever the
+        // registry holds.
         var fields = _engine.Registry.RevealedFields.ToList();
         if (!fields.Contains(_engine.ModelLevelField))
         {
             fields.Add(_engine.ModelLevelField);
-        }
-
-        if (fields.Count == 0)
-        {
-            _engine.SetFieldOrder(null);
-            return;
         }
 
         IReadOnlyList<FieldIdentifier>? ordered;

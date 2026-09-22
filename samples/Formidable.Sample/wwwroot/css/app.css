@@ -701,3 +701,10 @@ fieldset:focus-visible,
     outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
+
+/* The router moves focus to the page heading on every navigation, so assistive technology
+   announces the page that was opened. A heading is not a control and never enters the tab order,
+   so a ring painted on that programmatic focus marks nothing a visitor can act on. */
+h1:focus {
+    outline: none;
+}

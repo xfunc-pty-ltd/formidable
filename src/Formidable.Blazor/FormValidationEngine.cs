@@ -30,6 +30,10 @@ namespace Formidable.Blazor;
 /// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
 /// _version gates issue maps with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
+/// A fourth mechanism covers the report a refresh reuses: _editStamp mutates synchronously on the
+/// caller's context as each field change arrives, and _lastLiveReport/_lastLiveEditStamp mutate on
+/// the dispatcher from a live pass's verdict apply — so they are written only by a pass that is
+/// still the current one, exactly as the issue maps beside them are.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -74,6 +78,25 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private int _version;
     private int _formValidityStamp;
+
+    // Counts edits, so a report can be asked whether it still answers for the model. A refresh
+    // reuses a live pass's report only while the two stamps agree; anything that moves the model
+    // on without moving this counter is invisible here, which is why InvalidateRetainedLiveReport
+    // exists for the changes a counter cannot see.
+    private int _editStamp;
+
+    private ValidationReport? _lastLiveReport;
+    private int _lastLiveEditStamp;
+    private ValidationProfile? _lastLiveProfile;
+
+    // The subtraction of the live profile from the submit profile, cached against the exact pair
+    // it was computed from. Both are settable options, so the pair is re-read on every refresh and
+    // compared by reference: ValidationProfile equality is by name alone, and two differently
+    // shaped profiles sharing a name would otherwise keep a subtraction that no longer describes
+    // them.
+    private ValidationProfile? _deltaSubmitProfile;
+    private ValidationProfile? _deltaLiveProfile;
+    private ProfileDeltaResult _deltaResult;
 
     // The pass in flight, or null when none is. One descriptor rather than a flag per kind so it
     // cannot go stale: every pass records itself here as it begins, a newer pass overwrites that
@@ -442,6 +465,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {
+        // First, before anything here can start a pass: a live pass reads this counter as it
+        // begins, and a post-submit refresh reuses that pass's report only while the two still
+        // agree. Bumping it after a pass had already started would let that pass's report claim
+        // to answer for an edit it never saw.
+        _editStamp++;
+
         MarkTouched(e.FieldIdentifier);
 
         if (_options.LiveDebounce is { } debounce)
@@ -569,7 +598,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// stop clearing a flag, that the other two still do.
     /// </summary>
     /// <param name="kind">Which lifecycle this is; it also decides the fault policy below.</param>
-    /// <param name="profile">The profile the model is validated under.</param>
+    /// <param name="profile">
+    /// The profile the model is validated under, or <see langword="null"/> when the caller has
+    /// already established that nothing this pass would run is left to run. A null profile asks
+    /// the validator nothing and hands <paramref name="applyVerdict"/> an empty report; every
+    /// other part of the lifecycle is unchanged, so such a pass still supersedes whatever came
+    /// before it, still publishes under the same version guard, and still retires exactly once.
+    /// </param>
     /// <param name="external">
     /// The caller's own cancellation token, linked into the pass. Only a submit has one; live and
     /// refresh pass <see cref="CancellationToken.None"/>, which is what lets one cancellation filter
@@ -590,7 +625,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </returns>
     private async Task<ValidationReport?> RunPassAsync(
         PassKind kind,
-        ValidationProfile profile,
+        ValidationProfile? profile,
         CancellationToken external,
         Func<HashSet<FieldIdentifier>?> beginScope,
         Action<ValidationReport> applyVerdict)
@@ -600,22 +635,25 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         {
             await SetValidating(true, pass, beginScope()).ConfigureAwait(false);
 
-            ValidationReport report;
-            try
+            var report = ValidationReport.Empty;
+            if (profile is not null)
             {
-                report = await _validator.ValidateAsync(_model, profile, pass.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!external.IsCancellationRequested)
-            {
-                return null; // superseded by a newer pass, rather than cancelled by the caller
-            }
-            catch (Exception exception) when (kind != PassKind.Submit)
-            {
-                // A submit is the one pass someone is awaiting, so a validator that throws under it
-                // has somewhere to surface: the caller's own try/catch. A live or refresh pass is
-                // fire-and-forget, so its fault has to become form state and an event instead.
-                await ReportFaultAsync(pass, exception).ConfigureAwait(false);
-                return null;
+                try
+                {
+                    report = await _validator.ValidateAsync(_model, profile, pass.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!external.IsCancellationRequested)
+                {
+                    return null; // superseded by a newer pass, rather than cancelled by the caller
+                }
+                catch (Exception exception) when (kind != PassKind.Submit)
+                {
+                    // A submit is the one pass someone is awaiting, so a validator that throws under
+                    // it has somewhere to surface: the caller's own try/catch. A live or refresh pass
+                    // is fire-and-forget, so its fault has to become form state and an event instead.
+                    await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                    return null;
+                }
             }
 
             await _renderDispatch(() =>
@@ -697,13 +735,34 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             _pendingLiveFields.Add(field);
         }
 
+        // Read as the pass begins rather than when its verdict lands. The report answers for the
+        // model the validator actually saw, and an edit arriving mid-pass moves the model on
+        // without the report following it. Recording the earlier stamp makes such a report simply
+        // fail a refresh's currency check; recording the later one would let it answer for a state
+        // it never validated.
+        var editStamp = _editStamp;
+
+        // Captured alongside the stamp, and handed to the pass rather than read again later: the
+        // option holds a mutable instance a consumer may swap at any moment, so the profile this
+        // pass ran under is only knowable by remembering it here.
+        var liveProfile = _options.LiveProfile;
+
         await RunPassAsync(
             PassKind.Live,
-            _options.LiveProfile,
+            liveProfile,
             CancellationToken.None,
             () => new HashSet<FieldIdentifier>(triggeringFields),
             report =>
             {
+                // Retained whole, not per field: a live pass validates the entire model under the
+                // live profile and merely writes its verdict field by field, so the report is a
+                // complete answer for every rule that profile selects. That is what lets a
+                // post-submit refresh run only the rules the live profile leaves out instead of
+                // running the shared ones a second time for the same model state.
+                _lastLiveReport = report;
+                _lastLiveEditStamp = editStamp;
+                _lastLiveProfile = liveProfile;
+
                 // Every field whose pass this one superseded, not just the field that started it:
                 // each live pass validates the whole model under the same LiveProfile, so this
                 // report answers for those fields too. A superseded pass writes nothing — it is no
@@ -1091,13 +1150,33 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             }
 
             var channel = ChannelFor(issue);
+            ValidationIssue tracked;
             if (channel.TryGetValue(field, out var existing))
             {
-                existing.Add(issue);
+                // A client-sourced issue can already sit on this field carrying the exact same
+                // message and severity — the field-fixed-then-re-broken case: the fix's refresh
+                // found nothing to re-key the previous apply's bookkeeping against and dropped it
+                // (see RunRefreshPassAsync), then the re-break's own client-side pass reproduced
+                // an identical, untracked issue because _submitVisible is sticky. This apply has
+                // nothing of its own to undo, so without this check it would append a second copy
+                // of a message already shown. Adopt the existing instance instead of appending;
+                // an issue that differs in message or severity is unrelated and still gets added.
+                var matching = existing.FirstOrDefault(
+                    i => i.Message == issue.Message && i.Severity == issue.Severity);
+                if (matching is not null)
+                {
+                    tracked = matching;
+                }
+                else
+                {
+                    existing.Add(issue);
+                    tracked = issue;
+                }
             }
             else
             {
                 channel[field] = [issue];
+                tracked = issue;
             }
 
             // Sticky: reveal state never un-reveals a field. The two sets are separate because the
@@ -1106,7 +1185,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             var revealed = issue.Severity == ValidationSeverity.Error ? _submitVisible : _advisoryVisible;
             revealed.Add(field);
 
-            _appliedServerIssues.Add((field, issue));
+            _appliedServerIssues.Add((field, tracked));
         }
 
         RebuildStore();
@@ -1207,6 +1286,35 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         return live;
     }
 
+    /// <summary>
+    /// Drops the report a live pass left behind, so the next post-submit refresh validates the
+    /// whole submit profile rather than reusing it. The edit counter alone cannot see every change
+    /// that makes a retained report answer for the wrong thing — it counts edits to the model, and
+    /// a change to which fields are on the page changes which of that report's issues may be
+    /// disclosed without touching the model at all.
+    /// </summary>
+    private void InvalidateRetainedLiveReport() => _lastLiveReport = null;
+
+    /// <summary>
+    /// What the submit profile runs beyond the live profile, computed once per profile pair.
+    /// Recomputing per refresh would be cheap but not free, and the answer can only change when a
+    /// caller swaps one of the two options.
+    /// </summary>
+    private ProfileDeltaResult CurrentProfileDelta()
+    {
+        var submit = _options.SubmitProfile;
+        var live = _options.LiveProfile;
+
+        if (!ReferenceEquals(submit, _deltaSubmitProfile) || !ReferenceEquals(live, _deltaLiveProfile))
+        {
+            _deltaResult = ProfileDelta.Compute(submit, live);
+            _deltaSubmitProfile = submit;
+            _deltaLiveProfile = live;
+        }
+
+        return _deltaResult;
+    }
+
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -1231,9 +1339,51 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
+        // A refresh runs under the submit profile, which on the default pair includes every rule
+        // the live profile already ran for the edit that armed this refresh — so each of those
+        // rules would execute a second time against the same model state. Where the redundancy is
+        // provable, this pass validates only the difference and combines the result with the
+        // report the live pass left behind.
+        //
+        // Three independent things have to hold, and failing any of them falls back to the whole
+        // submit profile: the retained report must still answer for the model as it stands (the
+        // edit stamps say so), it must have been produced under the live profile the subtraction
+        // below is computed against, and that subtraction must be defined at all. The middle one
+        // is its own condition because both profiles are settable on an options instance the
+        // engine holds and re-reads: subtracting a live profile the retained report never ran
+        // under would drop rules from the verdict, or duplicate them. The fallback is total by
+        // construction, and that is what makes the optimisation safe to reach for: the worst
+        // outcome of a precondition not holding is the duplicated work this avoids, never a
+        // verdict the full profile would not have produced.
+        var retained = _lastLiveReport is not null
+            && _lastLiveEditStamp == _editStamp
+            && ReferenceEquals(_lastLiveProfile, _options.LiveProfile)
+            ? _lastLiveReport
+            : null;
+
+        var delta = retained is not null
+            ? CurrentProfileDelta()
+            : new ProfileDeltaResult(ProfileDeltaKind.NotSubtractable, null);
+
+        // What this pass validates and which half it has to put back afterwards are one decision,
+        // not two: only a pass that really did run less than the whole submit profile has a second
+        // half, and deciding that twice is how the two could come to disagree. An empty delta runs
+        // without a profile rather than with one selecting no rules, since a profile cannot express
+        // that and the rules it would have run have already run. Anything that does not resolve to
+        // a profile the difference can actually be validated under falls to the last arm, so the
+        // unexpected case is the full profile — the unsplit path — rather than no pass at all.
+        (ValidationProfile? Profile, ValidationReport? Reused) split = delta switch
+        {
+            { Kind: ProfileDeltaKind.Delta, Profile: { } remaining } => (remaining, retained),
+            { Kind: ProfileDeltaKind.Empty } => (null, retained),
+            _ => (_options.SubmitProfile, null),
+        };
+
+        var (profile, reused) = split;
+
         await RunPassAsync(
             PassKind.Refresh,
-            _options.SubmitProfile,
+            profile,
             CancellationToken.None,
             () =>
             {
@@ -1262,10 +1412,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             },
             report =>
             {
-                // A refresh pass validates the whole model under SubmitProfile too (its "scope"
+                // What the whole submit profile would have produced: the half this pass ran, plus
+                // the half the live pass already ran for the same model state. The two are
+                // concatenated rather than interleaved — an issue carries no ruleset provenance to
+                // merge on — so the only thing this decides is the relative order of two issues
+                // landing on the SAME field from different halves. Everything downstream groups by
+                // field and sorts by the page's own field order.
+                var verdict = reused is null
+                    ? report
+                    : new ValidationReport([.. reused.Issues, .. report.Issues]);
+
+                // A refresh pass answers for the whole model under SubmitProfile too (its "scope"
                 // parameter above narrows only the pending indicator, never what gets validated),
                 // so it is exactly as authoritative a source for IsFormValid as a submit is.
-                AdoptFormValidity(report);
+                AdoptFormValidity(verdict);
 
                 // The previous ApplyServerIssues call's bookkeeping, captured before the refresh's
                 // own issues (below) replace both submit channels wholesale.
@@ -1273,7 +1433,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
                 // Resurface only what the user already saw at submit AND is still failing —
                 // fixed fields clear; fields revealed after submit stay quiet until the next submit.
-                _submitIssues = report.Errors
+                _submitIssues = verdict.Errors
                     .Select(issue => (Issue: issue, Field: Resolve(issue)))
                     .Where(x => _submitVisible.Contains(x.Field))
                     .GroupBy(x => x.Field, x => x.Issue)
@@ -1283,7 +1443,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // union of the two submit-time sets: a field that was an error site keeps any
                 // warning it also picked up, and a field that was only ever an advisory site keeps
                 // its warning refreshed instead of disappearing on the first unrelated edit.
-                _submitAdvisories = report.Issues
+                _submitAdvisories = verdict.Issues
                     .Where(i => i.Severity != ValidationSeverity.Error)
                     .Select(issue => (Issue: issue, Field: Resolve(issue)))
                     .Where(x => _submitVisible.Contains(x.Field) || _advisoryVisible.Contains(x.Field))

@@ -101,10 +101,17 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 - [ ] `Great synth!` + blur: amber warning live; 6 tags + blur: purple-blue info live
 - [ ] Submit with Title: proceeds, status counts advisories; without: only the error blocks
-- [ ] Summary groups error → warning → info with matching link colours
+- [ ] Inside the advisories block the warning is listed above the info, each link in its own
+      colour; every link in the errors block is error-coloured
+- [ ] Two summary blocks render one above the other at the top of the form, errors and
+      advisories listed separately: with Title filled and the warning/info showing, the errors
+      block is absent entirely — not an empty box — and only the advisories block is there
+- [ ] Nothing is listed twice: clear Title and submit so an error and both advisories show at
+      once, then read both blocks — each message appears in exactly one of them, so a screen
+      reader hears it once
 - [ ] Each severity band carries its own background tint and border-left (not one shared
-      red-tinted box): with all three severities showing at once, the info band never sits on
-      an error-coloured field, in both light and dark
+      red-tinted box): with all three severities showing at once, the info band in the advisories
+      block (the Tags message) never picks up the error's colouring, in both light and dark
 
 ---
 

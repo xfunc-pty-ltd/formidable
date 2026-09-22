@@ -136,8 +136,20 @@ public sealed class FormidableOptions
     /// and returns them re-sorted, so a consumer who only wants to move one group ahead of another
     /// can do that without describing the whole form. It runs once per order resolution — the same
     /// cadence as the service, behind the same registry-version guard — not per render and not per
-    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> call, so its result is baked into the
-    /// ordinal map and costs nothing to read.
+    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> call: its result is baked into the
+    /// ordinal map, which every read of the issues then sorts by, a lookup per issue rather than
+    /// another run of the delegate.
+    /// The fields handed over include the model-level one — a <see cref="FieldIdentifier"/> with an
+    /// empty <see cref="FieldIdentifier.FieldName"/>, carrying the all-suppressed gate's
+    /// explanation and any validator fault — because it is resolved like any other field, its id
+    /// riding on the form's own element. A delegate keying on field names has to say where that one
+    /// goes; indexing a dictionary of field names that has no entry for it throws.
+    /// Exceptions are the delegate's own. Nothing catches one — not even the interop family a call
+    /// to the order service is shielded from — and this runs inside a render lifecycle method, so a
+    /// delegate that throws takes the form down with it.
+    /// Read by <c>FormidableForm</c>, which owns the order resolution. Attach mode
+    /// (<c>FormidableValidator</c>) resolves no order at all, so setting this on a form that
+    /// attaches to an existing <c>EditForm</c> does nothing.
     /// It is synchronous by design. Anything that needs to measure the DOM has to be async, and
     /// async ordering already has a home in the service; an async delegate here would duplicate it
     /// without adding reach.

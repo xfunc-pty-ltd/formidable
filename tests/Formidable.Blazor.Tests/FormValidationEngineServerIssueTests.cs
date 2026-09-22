@@ -183,6 +183,48 @@ public class FormValidationEngineServerIssueTests
     }
 
     [Fact]
+    public async Task Fixed_then_rebroken_field_does_not_duplicate_the_server_issue()
+    {
+        // The sibling the repro above never walks: a field fixed long enough for a refresh to
+        // drop the applied-server bookkeeping entirely (rather than re-key it to a survivor),
+        // then re-broken so the ordinary client-side pass reproduces an identical, untracked
+        // issue on a still-disclosed field. The next server apply has nothing of its own to
+        // undo and must not append a second copy of a message already sitting in the channel.
+        _order.Items = [new EngineItem()];
+        var sku = new FieldIdentifier(_order.Items[0], nameof(EngineItem.Sku));
+
+        // 1. Apply the server's first-submit verdict: the item is missing a SKU.
+        _engine.ApplyServerIssues([new ValidationIssue("Items[0].Sku", "SKU is required")]);
+        Assert.Equal(1, _engine.GetIssues(sku).Count(i => i.Message == "SKU is required"));
+
+        // 2. Fix it and let the debounced refresh run. The refresh's re-key finds nothing on
+        //    the field to match the applied entry against and drops the bookkeeping - the field
+        //    itself must be clean, which is what proves the drop actually happened here.
+        _order.Items[0].Sku = "ABC";
+        _editContext.NotifyFieldChanged(sku);
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+        Assert.Empty(_engine.GetIssues(sku));
+
+        // 3. Break it again. _submitVisible is sticky, so the field is still a disclosed error
+        //    site: the refresh's own client-side pass re-produces "SKU is required" on its own,
+        //    with no applied-server bookkeeping behind it. Exactly one copy - the client's.
+        _order.Items[0].Sku = string.Empty;
+        _editContext.NotifyFieldChanged(sku);
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        await Task.Yield();
+        Assert.Equal(1, _engine.GetIssues(sku).Count(i => i.Message == "SKU is required"));
+
+        // 4. The server re-sends the same verdict it always held for this field.
+        _engine.ApplyServerIssues([new ValidationIssue("Items[0].Sku", "SKU is required")]);
+
+        // 5. Still exactly one copy - the apply adopted the client-sourced twin instead of
+        //    appending a second instance of the identical message.
+        Assert.Equal(1, _engine.GetIssues(sku).Count(i => i.Message == "SKU is required"));
+        Assert.Single(_engine.GetVisibleIssues(), v => v.Field.Equals(sku) && v.Issue.Message == "SKU is required");
+    }
+
+    [Fact]
     public async Task Client_submit_issues_survive_a_server_replace()
     {
         var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };

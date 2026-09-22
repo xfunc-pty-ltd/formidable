@@ -42,4 +42,31 @@ public sealed class SeverityJourney(SampleAppFixture app)
         await TabAsync(page);
         await Expect(MessagesFor(page, "description")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
     }
+
+    // The page renders two FormidableSummary instances, Show="SummaryFilter.Errors" and
+    // Show="SummaryFilter.Advisories". Each instance's own role reflects what it actually
+    // matched — role="alert" only when the filtered set contains an error, role="status"
+    // otherwise — so addressing the two by role proves the filters are doing the work rather
+    // than merely that both messages appear somewhere on the page: an unfiltered pair would
+    // put the Title error in both instances' role="alert" summary, and this locator would fail
+    // with a strict-mode violation instead of quietly finding text.
+    [E2EFact]
+    public async Task Errors_and_advisories_render_as_separate_summaries()
+    {
+        await using var session = await app.NewPageAsync("/severity");
+        var page = session.Page;
+
+        await TypeAsync(Field(page, "description"), "Great synth!");
+        await TabAsync(page);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
+
+        var errorSummary = page.Locator(".formidable-summary[role='alert']");
+        var advisorySummary = page.Locator(".formidable-summary[role='status']");
+
+        await Expect(errorSummary).ToContainTextAsync("Title is required");
+        await Expect(errorSummary).Not.ToContainTextAsync("Exclamation marks read as shouty — consider removing them");
+
+        await Expect(advisorySummary).ToContainTextAsync("Exclamation marks read as shouty — consider removing them");
+        await Expect(advisorySummary).Not.ToContainTextAsync("Title is required");
+    }
 }

@@ -251,6 +251,90 @@ renderable, return `true`, and the summary retries the focus once.
 [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
 
+### I want the summary ordered by where fields appear on screen
+
+**Set:** register your own `IFormidableFieldOrderService` ahead of `AddFormidableBlazor()`, which
+keeps a registration already there. Map each field to the id its element carries, ask the browser
+where those elements actually are, and map the answer back.
+
+```csharp
+using Formidable.Blazor;
+using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.JSInterop;
+
+public sealed class VisualOrderService : IFormidableFieldOrderService
+{
+    private readonly IJSRuntime _js;
+
+    public VisualOrderService(IJSRuntime js) => _js = js;
+
+    public async ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(
+        IReadOnlyList<FieldIdentifier> fields)
+    {
+        // Last one wins, the way the shipped service resolves it: two fields can only ever agree
+        // on an id by colliding, and a throw over that would cost the page its reading order.
+        var byId = new Dictionary<string, FieldIdentifier>();
+        foreach (var field in fields)
+        {
+            byId[FormidableFieldId.For(field)] = field;
+        }
+
+        var ids = byId.Keys.ToArray();
+
+        // The ids are one argument — the array the script iterates — so they travel wrapped.
+        var ordered = await _js.InvokeAsync<string[]>("visualOrder", new object?[] { ids });
+        if (ordered is null)
+        {
+            return null;
+        }
+
+        return ordered.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+    }
+}
+```
+
+```javascript
+window.visualOrder = ids => ids
+    .map(id => ({ id, element: document.getElementById(id) }))
+    .filter(entry => entry.element)
+    .sort((a, b) => {
+        const first = a.element.getBoundingClientRect();
+        const second = b.element.getBoundingClientRect();
+        return first.top - second.top || first.left - second.left;
+    })
+    .map(entry => entry.id);
+```
+
+```csharp
+builder.Services.AddScoped<IFormidableFieldOrderService, VisualOrderService>();
+builder.Services.AddFormidableBlazor();
+```
+
+The shipped service sorts by `compareDocumentPosition`, which is the order the *markup* declares.
+That is the right answer almost always, and the wrong one exactly when the layout disagrees with
+the markup: a two-column form, or a `flex` container whose children carry `order`, puts fields in
+front of the visitor in a sequence nothing in the markup states. Measuring is the only way to
+learn that sequence, measuring means the browser, and the browser means async — which is why this
+seam is public and why it is a service rather than a delegate.
+
+Two parts of the contract are worth honouring in your own implementation. Answer `null`, not an
+empty list, when you could not resolve an order at all: the form retries `null` on a later render
+and takes an empty list as the settled answer that none of these fields are on the page. And
+decide deliberately where the model-level field goes. It arrives in the request like any other,
+with an empty `FieldName` and its id on the `<form>` element, and it carries the all-suppressed
+gate's explanation and any validator fault. `compareDocumentPosition` puts it first for free,
+since the form contains everything in it; a rect comparison can tie with the first field instead,
+so put it at the front yourself if you want the shipped behaviour.
+
+If the order you want does not depend on the layout — blocking fields first, one section ahead of
+another — [`FormidableOptions.OrderIssues`](options.md#orderissues) re-sorts what the shipped
+service already resolved, and costs no JavaScript of your own.
+
+**Read:** [Component kit](component-kit.md#the-order-entries-appear-in),
+[Options](options.md#orderissues).
+**Sample:** no page. Every sample form lays its fields out top to bottom, where document order and
+visual order are the same answer.
+
 ### I want to use a native or third-party control
 
 **Set:** wrap it in `FormidableField` and call `field.NotifyChanged()` from its change handler —

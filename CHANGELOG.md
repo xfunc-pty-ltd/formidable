@@ -83,18 +83,47 @@ pre-publish polish wave.
 - `FormidableSummary.Show` (`SummaryFilter`, default `All`) — renders one severity band
   instead of the combined list, so a page can put its errors and its advisories in different
   places; `Advisories` covers warnings and infos together, and a filter matching nothing
-  renders nothing. Each summary computes its own announcement role from what it shows.
+  renders nothing. Each summary computes its own announcement role from what it shows. The
+  `/severity` sample page renders the pair, errors and advisories as separate blocks.
 - `IFormValidationEngine.GetVisibleIssues()` reports issues in the document order of the
   fields that render them — so `FormidableSummary` lists them in reading order within each
   severity group, and a blocked submit's focus lands on the topmost problem.
   `FormidableForm` resolves that order after any render that changed its registered field
-  set, by asking the new `IFormidableFieldOrderService`; a field with no element on the
-  page sorts last, and until a resolve lands (or in `FormidableValidator`'s attach mode,
-  which resolves none) the channel order stands: fault, submit errors, advisories, then
-  live. The service is registered by `AddFormidableBlazor()` alongside the focus and
-  DOM-sync services — a public interface over an internal JS-backed implementation for the
-  same reason its two siblings are: a bUnit test substitutes a fake instead of standing up
-  module interop.
+  set, by asking the new `IFormidableFieldOrderService`. That seam takes and returns
+  `IReadOnlyList<FieldIdentifier>` rather than element ids, so an implementation can order by
+  anything it knows about a field instead of only by DOM position, and the id round trip
+  belongs to the shipped implementation that wants it. A `null` answer means no order could
+  be resolved and is retried on a later render; an empty list is the settled answer that none
+  of these fields are on the page. The request carries the model-level field alongside the
+  registered ones — its id rides on the `<form>` element, which contains everything — so a
+  gate or fault verdict about the whole form sorts ahead of the fields inside it, while a
+  field with no element on the page sorts last. Until a resolve lands (or in
+  `FormidableValidator`'s attach mode, which resolves none) the channel order stands: fault,
+  submit errors, advisories, then live. The service is registered by `AddFormidableBlazor()`
+  alongside the focus and DOM-sync services — a public interface over an internal JS-backed
+  implementation for the same reason its two siblings are: a bUnit test substitutes a fake
+  instead of standing up module interop.
+- `FormidableOptions.OrderIssues`
+  (`Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?`, default `null`) —
+  a synchronous re-sort over the document order the field-order service resolved, for a form
+  that wants its issues reported in some other sequence without implementing the seam itself.
+  It runs once per order resolution, behind the same registry-version guard as the service. A
+  delegate reorders and nothing more: a field missing from its answer is appended in document
+  order rather than dropped, a repeated field keeps only its first position, and a field it was
+  never handed is ignored, so no delegate can withhold an issue or push a real field out of the
+  map.
+- `AsyncRuleMemo<TKey, TResult>` in the core package, plus `MustAsyncMemoized` rule-builder sugar
+  over it — an async rule reuses the answer it already gave for an unchanged value, so the two
+  passes one post-submit edit runs cost one round trip instead of two. It holds the in-flight
+  `Task` rather than the finished value, so overlapping passes join a single call instead of
+  duplicating it; a faulted or cancelled check is never served, so a transient failure does not
+  stick for the rest of the window; entries are a bounded dictionary rather than one slot, so a
+  `RuleForEach` hits on every item instead of none; and what counts as the same value is an
+  optional `IEqualityComparer<TKey>`. Hold one as a field on the validator — constructed inside
+  a rule's lambda it is rebuilt per call and silently never hits. `MustAsyncMemoized` binds a
+  property of any non-nullable type, plus any nullable reference type; only a nullable value-typed
+  property such as `int?` is out of reach, and the consumer unwraps it to call
+  `AsyncRuleMemo.GetAsync` directly.
 - The scroll behind a focus move — a blocked submit's own, or a click on a
   `FormidableSummary` entry — prefers the field's own message list over the focus element,
   and aligns a target taller than 60% of the viewport to its top instead of centring it, so
@@ -105,8 +134,16 @@ pre-publish polish wave.
   services; async-flush guidance for pending-state assertions) and a "validate a nested
   object" recipe in `docs/recipes.md`.
 - An explanation in `docs/async-validation.md` of why one edit after a submit runs a draft
-  rule twice, with the consumer-side remedies: `LiveDebounce` for the live pass, and a
-  worked value-keyed memoization inside the rule for a genuinely expensive check.
+  rule twice, with the consumer-side remedies: `LiveDebounce` for the live pass, and
+  `AsyncRuleMemo`/`MustAsyncMemoized` for the check itself, alongside the hand-rolled equivalent
+  and what the shared memo does that a last-answer slot cannot.
+- A "summary ordered by where fields appear on screen" recipe in `docs/recipes.md` — a custom
+  `IFormidableFieldOrderService` measuring with `getBoundingClientRect()`, for a two-column or
+  `flex`-ordered form whose visual order its markup never states.
+- `docs/options.md` states how `LiveDebounce` and `RefreshDebounce` relate: an edit after a
+  submit arms both, the shorter window comes due first, and both orders reach the same
+  verdicts — the live pass owning the live channel and the refresh owning what the submit
+  disclosed.
 
 ### Changed
 

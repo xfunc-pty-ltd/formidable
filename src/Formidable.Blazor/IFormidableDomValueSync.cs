@@ -14,7 +14,11 @@ namespace Formidable.Blazor;
 /// <remarks>
 /// Public for the same reason <see cref="IFormidableFocusService"/> is: a consumer's own bUnit
 /// tests can substitute a fake instead of configuring JS interop for every blur. Registered by
-/// <c>AddFormidableBlazor</c>; existing registrations are respected.
+/// <c>AddFormidableBlazor</c>; existing registrations are respected. Unlike
+/// <see cref="IFormidableFocusService"/> and <see cref="IFormidableFieldOrderService"/>, which take
+/// a <see cref="Microsoft.AspNetCore.Components.Forms.FieldIdentifier"/> because they answer
+/// questions about a field in the abstract, this writes to one already-rendered element, and its
+/// caller already holds that element's id from rendering it.
 /// </remarks>
 public interface IFormidableDomValueSync
 {

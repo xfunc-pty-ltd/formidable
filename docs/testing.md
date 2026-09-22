@@ -118,21 +118,41 @@ and which field a blocked submit moved to is worth pinning, since
 on the form: both inject it and call it on blur. `IFormidableFieldOrderService` is what
 `FormidableForm` asks, after any render that changed its registered fields, for the document order
 its summary lists issues in — so a double is how a test states an order without a document, and
-how issue order or the field a blocked submit focused becomes assertable. Formidable's own
+how issue order or the field a blocked submit focused becomes assertable.
+
+The seam speaks fields rather than element ids in both directions, so a double states its answer
+in the same currency the assertions are written in:
+
+```csharp
+public ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields)
+```
+
+Three details make a double behave like the real thing. The request always carries the model-level
+field (a `FieldIdentifier` with an empty `FieldName`) alongside the registered ones, so a form
+with no fields at all still asks and the list a double is handed can hold nothing else. A returned
+`null` means "no order could be resolved" and the form retries it on a later render, while an
+empty list is the settled answer that none of these fields are on the page — so a double
+exercising the retry has to be able to say the first without saying the second. And a field the
+double leaves out of its answer sorts after every field it names, which is the shape of an
+unrendered field.
+
+Formidable's own
 [`RecordingDomValueSync`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingDomValueSync.cs) is a
 twenty-line class recording every call,
 [`RecordingFieldOrderService`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingFieldOrderService.cs)
-is the same shape with an answer to hand back, and a focus double is the same shape again over
-`FocusAsync`.
+is the same shape with an answer to hand back, plus a fault it throws instead of answering and a
+one-call no-order answer, so the retry after either is observable. A focus double is the same
+shape again over `FocusAsync`.
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
 `JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan every call the form
 makes, `orderFields` included. Strict mode is bUnit's default, and an unplanned call throws
 `JSRuntimeUnhandledInvocationException` — which derives from `Exception`, not `JSException`, so
-the form's own tolerance for a failed interop call never catches it. Render a form with fields
-and no plan for `orderFields`, and the render itself throws. That is what Formidable's own
-`FocusServiceTests` do, because there the service *is* the thing under test.
+the form's own tolerance for a failed interop call never catches it. Render a `FormidableForm` at
+all with no plan for `orderFields`, fields or no fields, and the render itself throws. That is
+what Formidable's own `FocusServiceTests` do, because there the service *is* the thing under
+test.
 For a form test, the interface doubles are less machinery.
 
 ### Waiting for the answer

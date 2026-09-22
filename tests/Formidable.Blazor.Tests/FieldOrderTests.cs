@@ -230,6 +230,42 @@ public class FieldOrderTests : BunitContext
         Assert.True(fields.IndexOf(engine.ModelLevelField) < fields.IndexOf(description));
     }
 
+    // The rendered counterpart of the test above, and the whole loop it depends on: the form puts
+    // the model-level field in the request, the service answers with it somewhere in the order,
+    // and the ordinal map the form builds from that answer is what the engine sorts by. The
+    // recording service answers with the request reversed, and the form appends the model-level
+    // field last — so it comes back FIRST here, in front of two coexisting field errors. Leave it
+    // out of the request and it would carry no ordinal at all, which sorts it to the end.
+    [Fact]
+    public async Task A_rendered_form_sorts_the_model_level_field_by_its_resolved_ordinal()
+    {
+        var order = NewOrder();
+        var fieldOrder = new RecordingFieldOrderService();
+        WireHost(fieldOrder);
+        var module = SetUpFocusModule();
+
+        var cut = RenderHostForm(order, new DeclarationOrderValidator());
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+        var visible = cut.Instance.Engine!.GetVisibleIssues();
+
+        // Coexistence first — a model-level issue alone would make "first" say nothing.
+        Assert.Contains(visible, v => v.Field.Equals(DescriptionField(order)));
+        Assert.Contains(visible, v => v.Field.Equals(CustomerNameField(order)));
+
+        Assert.Equal(modelLevel, visible[0].Field);
+        Assert.Equal("The order is incomplete", visible[0].Issue.Message);
+        Assert.Equal("The order is incomplete", SummaryEntries(cut)[0]);
+
+        // And the blocked submit takes the visitor to it: the id is the one the <form> carries.
+        Assert.Equal(
+            FormidableFieldId.For(modelLevel),
+            module.Invocations["focusField"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
     // Document order decides which field is FIRST, but not which issue a blocked submit takes the
     // visitor to. A page whose top field carries only a warning, with the error below it, must
     // still land on the error — otherwise focus and the summary (which regroups by severity, so it

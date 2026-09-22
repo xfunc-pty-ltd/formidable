@@ -78,6 +78,18 @@ same window rather than firing on a schedule of its own (see below). After a sub
 still arms the post-submit refresh on `RefreshDebounce`'s own schedule regardless, so that window
 stays independent of this one.
 
+Independent, but not unrelated: an edit after a submit arms both, and the shorter window comes due
+first. At the default, with no live debounce at all, the live pass runs on the edit itself and the
+refresh follows it 300 ms later. Set this above `RefreshDebounce` — 400 ms against the 300 ms
+default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) does — and the order
+inverts, the refresh landing first with the live pass behind it. Set it to exactly
+`RefreshDebounce` and there is no first at all: both windows come due in the same tick, and which
+of the two passes runs before the other is the runtime's to decide. All three are legal, all
+three are pinned, and all three reach the same verdicts: the live pass owns the live channel, the
+refresh owns what the submit disclosed, and neither writes the other's. Live before refresh is
+the natural reading of the two, the pass judging the value on screen arriving ahead of the one
+re-checking what submit already said, and it is what the defaults give you.
+
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps
 between the immediate default and a 400 ms window, with the "checking…" indicator showing the
 difference.
@@ -209,6 +221,59 @@ every field- and collection-level message list becomes its own polite live regio
 content changes. Recommended on forms that render no `FormidableSummary` — the summary already
 announces on its own, and two live regions saying the same thing is worse than one. See
 [CSS and accessibility](css-and-accessibility.md) for how the summary's own role is chosen.
+
+### `OrderIssues`
+
+`Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?`, defaults to `null`, which
+reports visible issues in the document order of the fields that render them (see
+[Component kit](component-kit.md#the-order-entries-appear-in)). Set it and the delegate becomes a
+stage after that: `IFormidableFieldOrderService` answers where the fields are, and this answers
+what order to report them in.
+
+It receives the fields already in document order and hands them back re-sorted, so a form that
+only wants one group ahead of another says that much and no more:
+
+```csharp
+_options.OrderIssues = fields => fields
+    .OrderBy(field => field.FieldName switch
+    {
+        "" => 0,                 // the verdict about the form as a whole
+        "Email" or "Phone" => 1,
+        _ => 2,
+    })
+    .ToList();
+```
+
+`OrderBy` is stable, so everything the key does not separate keeps the document order it arrived
+in: the delegate moves the contact fields up, keeps the form-level verdict ahead of them, and
+leaves the rest of the form alone.
+
+The model-level field is in that list too, with an empty `FieldName`, because it is resolved like
+any other field and the shipped service always places it (its id sits on the form's own element).
+It carries the all-suppressed gate's explanation and any validator fault, which is why document
+order puts it first. A delegate keying on field names should say where that one goes rather than
+let it fall into a default bucket behind the named ones — the empty-name arm above is that, and
+without it the two contact fields would be reported ahead of the verdict about the whole form.
+
+Exceptions are yours. Nothing catches one the delegate throws, and it runs inside a render, so a
+delegate that throws takes the form down with it.
+
+Re-sorting is all it can do. A field left out of the result is appended, in document order, rather
+than dropped: an issue nobody reports is an issue the visitor cannot act on, and withholding one
+is what disclosure is for, with its own diagnostic. A field named twice keeps only its first
+position, and a field the delegate was never handed is ignored, so a short answer padded out to
+the right length cannot push a real field out of the map either.
+
+It is synchronous by design. Measuring the DOM has to be async, and async ordering already has a
+home in the service; an async delegate here would duplicate that reach without adding to it.
+
+It runs once per order resolution, at the same cadence as the service and behind the same
+registry-version guard — not per render, and not per `GetVisibleIssues()` call. Its answer is
+baked into the ordinal map the engine sorts by, so reading it back is a lookup per issue rather
+than another run of the delegate. One consequence follows from that cadence: the map is rebuilt
+when the set of registered fields changes, so a sort criterion that moves on its own, a runtime
+"group the blocking ones first" toggle for instance, is not picked up until the next registration
+change.
 
 ### `CssClasses`
 
@@ -343,11 +408,14 @@ that resolved it, not the one on screen.
   and recoloured live via CSS custom properties
   ([`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor)).
 
-Three have no sample page, deliberately. `VerifyRowKeys` is a switch you flip in your own
+Four have no sample page, deliberately. `VerifyRowKeys` is a switch you flip in your own
 Development configuration and never see again unless it fires; `NeverRegisteredFieldDiagnostic`
 reports into your telemetry rather than onto the screen; `InlineMessageRole` changes only what a
-screen reader announces, which a page cannot demonstrate visually. Each one's entry above is its
-worked example.
+screen reader announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a
+reading order every sample page is already content with, since each lays its fields out top to
+bottom. Each one's entry above is its worked example. For the case where the layout itself is what
+makes document order wrong, and the delegate cannot help because it cannot measure, see
+[Recipes](recipes.md#i-want-the-summary-ordered-by-where-fields-appear-on-screen).
 
 Two components carry behaviour this page's options don't reach:
 [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.razor) toggles
