@@ -2,9 +2,10 @@ namespace Formidable;
 
 /// <summary>The client-side shape of a Formidable.AspNetCore validation 400: the standard <c>errors</c> dictionary keyed by property path plus an <c>advisories</c> extension for non-error issues.</summary>
 /// <remarks>
-/// Deserialize inside a guard and treat a <see langword="null"/> result as no verdict: a proxy,
-/// gateway or WAF in front of the endpoint answers a 400 with its own body, on which
-/// <c>ReadFromJsonAsync</c> throws <see cref="System.Text.Json.JsonException"/>, and a JSON
+/// Read through <see cref="FormidableValidationProblemJsonContext"/> (a trimmed publish cannot
+/// read this type by reflection) inside a guard, and treat a <see langword="null"/> result as no
+/// verdict: a proxy, gateway or WAF in front of the endpoint answers a 400 with its own body, on
+/// which <c>ReadFromJsonAsync</c> throws <see cref="System.Text.Json.JsonException"/>, and a JSON
 /// <c>null</c> deserializes to <see langword="null"/>, which <c>ApplyServerIssues</c> rejects.
 /// Unguarded, each is an unhandled exception in a Blazor event handler. Hand the result, or
 /// <see cref="ToIssues"/>, to <c>ApplyServerIssues</c> on <c>FormidableForm</c> or <c>FormidableValidator</c>.

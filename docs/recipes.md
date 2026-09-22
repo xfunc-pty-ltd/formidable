@@ -364,13 +364,17 @@ field, see
 var response = await Http.PostAsJsonAsync("/api/orders", Model);
 if (!response.IsSuccessStatusCode)
 {
-    var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+    var problem = await response.Content.ReadFromJsonAsync(
+        FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
     if (problem is not null)
     {
         _form!.ApplyServerIssues(problem);
     }
 }
 ```
+
+Name the generated metadata as the code above does. A WebAssembly Release build trims, and a
+trimmed build cannot read the type by reflection.
 
 The guard above is half of it. A 400 from a proxy or a gateway is no verdict, often not JSON at
 all, and the deserialize throws on such a body rather than returning `null`, so the parse itself

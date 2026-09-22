@@ -76,9 +76,11 @@ cannot read as no verdict, and apply nothing:
     FormidableValidationProblem? problem;
     try
     {
-        problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        problem = await response.Content.ReadFromJsonAsync(
+            FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
     }
-    catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+    catch (Exception ex)
+        when (ex is JsonException or InvalidOperationException or NotSupportedException)
     {
         problem = null;
     }
@@ -93,6 +95,11 @@ cannot read as no verdict, and apply nothing:
 ```
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage6.razor` -->
+
+> [!NOTE]
+> The read names `FormidableValidationProblemJsonContext`, generated JSON metadata that needs no
+> reflection. Publishing a WebAssembly app trims it, and a trimmed build cannot read the type by
+> reflection at all.
 
 `ApplyServerIssues` puts each issue on the field it names, at the severity it carries. Errors block
 and mark their field invalid; warnings and infos land as advisories that block nothing. Each call

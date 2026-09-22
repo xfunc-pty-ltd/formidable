@@ -146,9 +146,15 @@ public partial class Workout : IDisposable
         FormidableValidationProblem? problem;
         try
         {
-            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+            // The generated metadata, not the plain generic overload: a trimmed publish (what a
+            // Release build of a WebAssembly app produces) cannot deserialize the type by
+            // reflection, and the guard below catches that refusal too rather than let it reach
+            // the visitor.
+            problem = await response.Content.ReadFromJsonAsync(
+                FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (Exception ex)
+            when (ex is JsonException or InvalidOperationException or NotSupportedException)
         {
             problem = null;
         }

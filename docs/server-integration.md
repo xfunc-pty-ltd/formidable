@@ -129,12 +129,19 @@ the same report. Two of its members are Formidable's to decide; the envelope aro
 whichever half of the framework built it.
 
 On the client, closing the loop is two calls. Deserialize the 400 body into
-`FormidableValidationProblem`, one type in the core package, with web JSON defaults; then hand the
+`FormidableValidationProblem`, one type in the core package, through
+`FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`; then hand the
 result to `FormidableForm.ApplyServerIssues`. That method has two overloads, on `FormidableForm` and
 on `FormidableValidator` alike: a deserialized `FormidableValidationProblem`, or a sequence of
 `ValidationIssue`, which `ToIssues()` produces by flattening the payload, every error entry first and
 then the advisories. The engine's own method takes the sequence, and a sequence is enumerated
 exactly once.
+
+That first call names generated JSON metadata rather than the plain generic `ReadFromJsonAsync<T>()`
+because a trimmed publish, which is what a WebAssembly Release build produces, cannot deserialize
+the type by reflection and throws `NotSupportedException` when it tries. The metadata carries the
+same web JSON defaults the generic call applies, so the body reads the same way either side of a
+trim.
 
 The severity is the server's to set. An error lands on its field as an error, the one severity that
 blocks a submit: it marks the field `formidable-invalid` and reaches the `EditContext`'s message
@@ -165,6 +172,10 @@ unlabelled one does.
 Inside a Blazor event handler each of those is an unhandled exception: the page's error UI on
 WebAssembly, a faulted circuit on Server. So the parse belongs inside a `try`, a `null` result
 counts as no verdict, and the page says so in its own words rather than through the framework's.
+
+Catch what the parse can throw, not only what a foreign body causes. The sample below adds
+`NotSupportedException`, which a read that does not name the generated metadata raises under
+trimming, so no way of failing reaches the visitor as a crash.
 
 Deserializing is a shape check, not a verdict check. A gateway's own JSON deserializes happily into
 a problem carrying no errors and no advisories, and applying that replaces whatever the last
@@ -205,9 +216,15 @@ private async Task Send()
     FormidableValidationProblem? problem;
     try
     {
-        problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        // The generated metadata, not the plain generic overload: a trimmed publish (what a
+        // Release build of a WebAssembly app produces) cannot deserialize the type by
+        // reflection, and the guard below catches that refusal too rather than let it reach
+        // the visitor.
+        problem = await response.Content.ReadFromJsonAsync(
+            FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
     }
-    catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+    catch (Exception ex)
+        when (ex is JsonException or InvalidOperationException or NotSupportedException)
     {
         problem = null;
     }
@@ -481,8 +498,10 @@ extension beside it, carrying every non-error issue from the same report.
 ```
 
 The client-side shape of that body is one type in the core `Formidable` package,
-`FormidableValidationProblem`. Deserialize an HTTP 400 into it with web JSON defaults, then hand the
-result to the form.
+`FormidableValidationProblem`. Deserialize an HTTP 400 into it through
+`FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`, then hand the result
+to the form. That metadata applies the web JSON defaults and needs no reflection, so a trimmed
+publish reads the body too.
 
 | Member | Type | What it holds |
 |---|---|---|

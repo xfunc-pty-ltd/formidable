@@ -95,9 +95,11 @@
         FormidableValidationProblem? problem;
         try
         {
-            problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+            problem = await response.Content.ReadFromJsonAsync(
+                FormidableValidationProblemJsonContext.Default.FormidableValidationProblem);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (Exception ex)
+            when (ex is JsonException or InvalidOperationException or NotSupportedException)
         {
             problem = null;
         }
