@@ -6,7 +6,7 @@ namespace Formidable.Introspection;
 /// <code>
 ///   path      := property ( '.' property | '.'? indexer )*
 ///   property  := any run of characters except '.', '[', ']'
-///   indexer   := '[' token ']'   (a numeric index or a dictionary key)
+///   indexer   := '[' token ']'
 /// </code>
 /// Consecutive indexers chain without a dot (<c>A[0][1]</c>), and a redundant dot before an
 /// indexer is accepted (<c>A.[0]</c>). Rejected: a blank path, a leading, trailing or doubled dot,

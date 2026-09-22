@@ -17,12 +17,11 @@ namespace Formidable.AspNetCore;
 /// <remarks>
 /// A model implementing <see cref="INormalizableModel"/> is normalized first. A
 /// <see langword="null"/> argument is skipped; whether the action runs with one is MVC's decision,
-/// made before this filter, and it does for a nullable parameter under <c>[ApiController]</c> and
-/// for any body parameter on a plain <c>Controller</c>. Several validated arguments aggregate into
-/// one report, readable through
-/// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>, and, on
-/// rejection, into one 400: <c>errors</c> keyed by property path with no per-argument prefix, so
-/// two models sharing a property name merge under one key, and warnings and infos under the
+/// and it does for a nullable parameter under <c>[ApiController]</c> and for any body parameter on
+/// a plain <c>Controller</c>. Validated arguments aggregate into one report
+/// (<see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>) and, on rejection,
+/// into one 400: <c>errors</c> keyed by property path with no per-argument prefix, so two models
+/// sharing a property name merge under one key, and warnings and infos under the
 /// <c>advisories</c> extension.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]

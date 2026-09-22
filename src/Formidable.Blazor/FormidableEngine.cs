@@ -12,12 +12,12 @@ namespace Formidable.Blazor;
 /// answer, the two reveal ledgers, the server-issue store, the gate latch, the fault issue and
 /// <see cref="HasSubmitted"/>, with the per-set verdict store and the submit-coverage vouch
 /// beside them. Every issue read computes from them; the message store is a projection rebuilt
-/// whenever a source moves.
+/// when a source moves.
 /// </para>
 /// <para>
 /// The passes: live, submit, refresh and load; the <see cref="FormidableOptions.TrackFormValidity"/>
-/// probe is not one. Their order, supersession and deferral are the engine page's subject
-/// (<c>docs/how-the-engine-works.md</c>), which the members cite by section.
+/// probe is not one. <c>docs/how-the-engine-works.md</c> covers their order, supersession and
+/// deferral.
 /// </para>
 /// </remarks>
 public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IStaleRegistrationReporter, IDisposable

@@ -6,11 +6,11 @@ namespace Formidable;
 /// Implementing this interface is supported; a member added later carries a default
 /// implementation, so an implementation written against these members keeps compiling. A
 /// validator advertises the capability by implementing this interface and answering
-/// <see cref="CanValidateByRule"/> <see langword="true"/>, as it advertises
-/// <see cref="IRuleInspectingValidator{TModel}"/> with its own tester; a caller tests both at
+/// <see cref="CanValidateByRule"/> <see langword="true"/>, as
+/// <see cref="IRuleInspectingValidator{TModel}"/> has its own tester; a caller tests both at
 /// each use, never the type alone, and validates the whole profile through
 /// <see cref="IModelValidator{TModel}"/> when the test fails.
-/// <see cref="FluentValidationModelValidator{TModel}"/> implements it, and a wrapper keeps it by
+/// <see cref="FluentValidationModelValidator{TModel}"/> implements it; a wrapper keeps it by
 /// deriving from <see cref="DelegatingModelValidator{TModel}"/>. An implementation resolves the
 /// identities <see cref="ValidateRulesAsync"/> hands back by reading <see cref="RuleIdentity.Key"/>.
 /// </remarks>

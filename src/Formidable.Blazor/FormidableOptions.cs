@@ -117,13 +117,13 @@ public sealed class FormidableOptions
     /// <summary>A per-issue answer to whether an issue may show: <see langword="true"/> for yes though nothing renders its field, <see langword="false"/> for no, <see langword="null"/> to defer to the field registry (whether the field is rendered). Defaults to <see langword="null"/>.</summary>
     /// <remarks>
     /// What an answer decides depends on the channel asking. At a submit it decides whether an
-    /// error's field is watched, and a watched field then shows all its errors, an answer of no
-    /// for one sibling notwithstanding. A server error shows unless the answer is
-    /// <see langword="false"/>; a server advisory shows on <see langword="true"/>, hides on
-    /// <see langword="false"/>, and defers to the registry on <see langword="null"/>. The live
-    /// channel asks only under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, where
-    /// <see langword="true"/> grants visibility, never engagement. A model-level issue counts as
-    /// rendered while the form is on the page.
+    /// error's field is watched; a watched field shows all its errors, whatever the answer for a
+    /// sibling. A server error hides only on <see langword="false"/>; a server advisory shows on
+    /// <see langword="true"/>, hides on <see langword="false"/>, defers to the registry on
+    /// <see langword="null"/>. The live channel asks only under
+    /// <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, where <see langword="true"/> grants
+    /// visibility, never engagement. A model-level issue counts as rendered while the form is on the
+    /// page.
     /// </remarks>
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
 

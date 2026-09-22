@@ -7,11 +7,11 @@ namespace Formidable.Introspection;
 
 /// <summary>The reflection-based <see cref="IModelIntrospector"/> that <see cref="FormidableServiceCollectionExtensions.AddFormidable"/> registers by default, caching parsed paths and member lookups.</summary>
 /// <remarks>
-/// The last segment never navigates: it names the member on whatever owner the walk reached. A
-/// segment that cannot be navigated (such as a null value, an unknown member, an out-of-range
-/// index, a missing key or a throwing getter) ends the walk at the deepest non-null owner, with
-/// the rest of the path as the member name. A malformed path resolves to the root with the whole
-/// path as the member name; an empty path, to the root with an empty member name.
+/// The last segment never navigates; it names the member on the owner reached. A segment that
+/// cannot be navigated (such as a null value, an unknown member, an out-of-range index, a missing
+/// key or a throwing getter) ends the walk at the deepest non-null owner, with the rest of the
+/// path as the member name. A malformed path resolves to the root with the whole path as the
+/// member name; an empty path, to the root with an empty name.
 /// </remarks>
 [RequiresUnreferencedCode("Walks the object graph via reflection; model members must not be trimmed.")]
 // A source-generated implementation can replace this behind the interface with no consumer-facing
