@@ -22,6 +22,14 @@ makes the rule an `Error`, exactly as it always was:
 
 ```csharp
 /// <summary>Severity of a <see cref="ValidationIssue"/>.</summary>
+/// <remarks>
+/// The member names are wire contract as well as API: the ASP.NET Core package's
+/// <c>ValidationReportProblemMapper.ToAdvisories</c> writes a non-error issue's severity onto
+/// the <c>advisories</c> wire payload as this enum's member name, and
+/// <see cref="FormidableValidationProblem.ToIssues"/> parses the name back, reading one it does
+/// not recognize as <see cref="Warning"/> — so renaming a member is a silent wire break, not
+/// just an API break.
+/// </remarks>
 public enum ValidationSeverity
 {
     /// <summary>A failure that blocks submission.</summary>
@@ -106,13 +114,16 @@ it's shown.
     /// True when there are no <see cref="ValidationSeverity.Error"/> issues.
     /// Warnings and infos do not affect validity.
     /// </summary>
-    public bool IsValid => !Errors.Any();
+    public bool IsValid => Errors.Count == 0;
 ```
 
 *Source: `src/Formidable/ValidationReport.cs`*
 
 ```csharp
 /// <summary>The result of running the submit pipeline.</summary>
+/// <remarks>Grows by init-only properties, never by constructor parameters, so existing
+/// construction keeps compiling and binding; any added member folds into the record's
+/// synthesized equality.</remarks>
 /// <param name="CanProceed">True when no error-severity issues exist (warnings do not block).</param>
 /// <param name="Report">The full validation report from the submit profile.</param>
 /// <param name="VisibleErrorSummary">Distinct display names of the errors shown to the user — dialog/summary fodder.</param>
@@ -269,7 +280,9 @@ keeps its site, and everything else starts over.
 
 On the server, both the minimal-API `Validate<T>()` filter and the MVC `[Validate]` attribute
 short-circuit to a 400 `ValidationProblemDetails` only when the report has at least one
-error-severity issue; a report that's all warnings and infos lets the request through unblocked.
+error-severity issue; a report that's all warnings and infos lets the request through unblocked,
+still readable in the handler through `GetFormidableValidationReport` (see
+[Returning warnings beside a 200](server-integration.md#returning-warnings-beside-a-200)).
 When a request *is* blocked, any warnings or infos in that same report ride along on the
 response's `advisories` extension key. That key sits alongside the standard `errors` dictionary, not
 inside it, and `ApplyServerIssues` applies the whole body at the severity each issue carries: the

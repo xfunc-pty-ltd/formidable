@@ -606,7 +606,7 @@ consumer-facing guarantees rest on:
             builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
         }
 
-        if (Context.Engine.GetFieldRequirement(Field) == RuleRequirement.Required)
+        if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
         {
             builder.AddAttribute(sequence + 3, "aria-required", "true");
         }
@@ -1239,7 +1239,7 @@ submit profile is the one that decides, because "required" on a form means "requ
 can be submitted": a narrowed `LiveProfile` changes when a message appears, never whether the
 value is demanded.
 
-It registers nothing, since a marker is not an input, so what keeps the field revealed for
+It registers nothing, since a marker is not an input, so what keeps the field registered for
 disclosure is the validated input beside it or a `FormidableFieldAnchor`, exactly as it is for
 `FormidableFieldMessage`. It observes no engine state either. Requiredness is a property of the
 rules rather than of what the values are doing, so no validation pass changes what it draws; a
@@ -1252,9 +1252,9 @@ where the kit's inputs and `FormidableFieldContext.InputAttributes` put it as
 the accessible name computed from it. See [CSS and
 accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby).
 
-Requiredness is a three-valued answer, `RuleRequirement`, and the component draws for one of them:
+Requiredness is a three-valued answer, `FieldRequirement`, and the component draws for one of them:
 
-| `RuleRequirement` | What it means | What the component draws |
+| `FieldRequirement` | What it means | What the component draws |
 |---|---|---|
 | `Required` | The submit profile selects a presence rule for the field, and it carries no condition | The marker |
 | `ConditionallyRequired` | Every presence rule the profile selects for the field is conditional | Nothing |
@@ -1604,7 +1604,7 @@ own registration:
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
 public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<TValue>
 {
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 
@@ -1665,7 +1665,7 @@ public sealed class FormidableFieldContext
         {
             inputAttributes["aria-describedby"] = AriaDescribedBy;
         }
-        if (Requirement == RuleRequirement.Required)
+        if (Requirement == FieldRequirement.Required)
         {
             inputAttributes["aria-required"] = "true";
         }
@@ -1701,13 +1701,13 @@ public sealed class FormidableFieldContext
     /// <summary>
     /// How firmly the submit profile's rules demand that the field carry a value — see
     /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
-    /// and what it cannot see. <see cref="RuleRequirement.Required"/> is what
+    /// and what it cannot see. <see cref="FieldRequirement.Required"/> is what
     /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
     /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
     /// here and decides for itself, which is the only way to draw anything for
-    /// <see cref="RuleRequirement.ConditionallyRequired"/>.
+    /// <see cref="FieldRequirement.ConditionallyRequired"/>.
     /// </summary>
-    public RuleRequirement Requirement { get; }
+    public FieldRequirement Requirement { get; }
 
     /// <summary>
     /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when
@@ -1759,7 +1759,7 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
     [Parameter, EditorRequired]
     public Expression<Func<TValue>> For { get; set; } = default!;
 
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 

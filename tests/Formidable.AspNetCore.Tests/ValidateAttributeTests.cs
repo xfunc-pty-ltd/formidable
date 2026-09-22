@@ -145,6 +145,58 @@ public sealed class ExplicitModelValidator : IModelValidator<ExplicitModel>
         new([new ValidationIssue(nameof(ExplicitModel.Name), "Custom error")]);
 }
 
+/// <summary>Capture slots for the report-accessor tests: the validator records the report it
+/// produced, the action records what the accessor served it, and the two are compared without
+/// anything crossing the wire.</summary>
+public sealed class ReportCapture
+{
+    public ValidationReport? Computed { get; set; }
+    public ValidationReport? SeenByAction { get; set; }
+    public bool ActionRan { get; set; }
+}
+
+/// <summary>Hands back a report it built itself — valid WITH a warning — and records the
+/// instance, so a test can prove the stashed aggregate carries the very issue instances the
+/// validator produced rather than a re-run's copies.</summary>
+public sealed class RecordingSampleOrderValidator(ReportCapture capture) : IModelValidator<SampleOrder>
+{
+    public Task<ValidationReport> ValidateAsync(
+        SampleOrder model, ValidationProfile profile, CancellationToken cancellationToken = default)
+    {
+        capture.Computed = new ValidationReport(
+            [new ValidationIssue(nameof(SampleOrder.Description), "Avoid hyphens", ValidationSeverity.Warning)]);
+        return Task.FromResult(capture.Computed);
+    }
+
+    public ValidationReport Validate(SampleOrder model, ValidationProfile profile) =>
+        new([new ValidationIssue(nameof(SampleOrder.Description), "Avoid hyphens", ValidationSeverity.Warning)]);
+}
+
+[ApiController]
+[Route("mvc3")]
+public sealed class ReportAccessorController : ControllerBase
+{
+    [HttpPost("accepted")]
+    [Validate]
+    public IActionResult Accepted([FromBody] SampleOrder order)
+    {
+        var capture = HttpContext.RequestServices.GetRequiredService<ReportCapture>();
+        capture.ActionRan = true;
+        capture.SeenByAction = HttpContext.GetFormidableValidationReport();
+        return Ok(order);
+    }
+
+    [HttpPost("unvalidated")]
+    [Validate]
+    public IActionResult Unvalidated([FromBody] UnregisteredModel model)
+    {
+        var capture = HttpContext.RequestServices.GetRequiredService<ReportCapture>();
+        capture.ActionRan = true;
+        capture.SeenByAction = HttpContext.GetFormidableValidationReport();
+        return Ok(model);
+    }
+}
+
 [ApiController]
 [Route("mvc2")]
 [Validate]
@@ -435,6 +487,85 @@ public class ValidateAttributeTests
             new StringContent("null", Encoding.UTF8, "application/json"));
 
         Assert.True(response.IsSuccessStatusCode, $"Expected a success status, got {response.StatusCode}");
+    }
+
+    private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartReportAccessorAppAsync(ReportCapture capture) =>
+        TestApp.StartAsync(
+            app => app.MapControllers(),
+            services =>
+            {
+                services.AddControllers().AddApplicationPart(typeof(ReportAccessorController).Assembly);
+                services.AddSingleton(capture);
+                // Registered AFTER AddFormidable's open-generic adapter, so this closed
+                // registration wins resolution; discovery still probes IValidator<SampleOrder>,
+                // which the shared TestApp registers.
+                services.AddSingleton<IModelValidator<SampleOrder>>(new RecordingSampleOrderValidator(capture));
+            });
+
+    [Fact]
+    public async Task Action_reads_the_aggregate_report_the_attribute_computed()
+    {
+        var capture = new ReportCapture();
+        await using var app = await StartReportAccessorAppAsync(capture);
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc3/accepted", new SampleOrder { Description = "ok" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(capture.ActionRan);
+        Assert.NotNull(capture.Computed); // positive control: the recorder is what validated
+        Assert.NotNull(capture.SeenByAction);
+        // The attribute aggregates per-argument reports into one; the aggregate's issues are the
+        // very instances the validator produced, so reference identity here proves the stash IS
+        // the computed verdict rather than a second validation's copy.
+        var issue = Assert.Single(capture.SeenByAction!.Issues);
+        Assert.Same(Assert.Single(capture.Computed!.Issues), issue);
+        // Valid WITH a warning: the advisory is reachable inside the action on the 200 path.
+        Assert.True(capture.SeenByAction.IsValid);
+        Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+    }
+
+    [Fact]
+    public async Task A_rejected_action_still_carries_the_report_for_middleware_to_read()
+    {
+        ValidationReport? seenAfterPipeline = null;
+        await using var app = await TestApp.StartAsync(
+            a =>
+            {
+                a.Use(async (context, next) =>
+                {
+                    await next(context);
+                    seenAfterPipeline = context.GetFormidableValidationReport();
+                });
+                a.MapControllers();
+            },
+            services => services.AddControllers().AddApplicationPart(typeof(OrdersController).Assembly));
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/orders",
+            new SampleOrder { Description = "", Items = [new SampleItem()] });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // The action never ran, but the stash happened before the short-circuit — middleware
+        // reads the rejection's full severity detail without parsing the response body.
+        Assert.NotNull(seenAfterPipeline);
+        Assert.False(seenAfterPipeline!.IsValid);
+    }
+
+    [Fact]
+    public async Task Accessor_is_null_when_the_attribute_validated_nothing()
+    {
+        var capture = new ReportCapture { SeenByAction = new ValidationReport([]) }; // sentinel — must be overwritten
+        await using var app = await StartReportAccessorAppAsync(capture);
+        var client = app.GetTestClient();
+
+        // UnregisteredModel resolves no validator, so [Validate] validates nothing — the
+        // accessor must answer null, not an empty report implying rules ran and passed.
+        var response = await client.PostAsJsonAsync("mvc3/unvalidated", new UnregisteredModel { Name = "x" });
+
+        Assert.True(response.IsSuccessStatusCode, $"Expected a success status, got {response.StatusCode}");
+        Assert.True(capture.ActionRan);
+        Assert.Null(capture.SeenByAction);
     }
 
     [Fact]

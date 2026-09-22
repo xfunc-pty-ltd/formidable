@@ -94,7 +94,7 @@ public class FormValidationEngineFieldSetChangeTests
 
         var notifications = 0;
         var validationStateChanges = 0;
-        engine.StateChanged += () => notifications++;
+        engine.StateChanged += (_, _) => notifications++;
         editContext.OnValidationStateChanged += (_, _) => validationStateChanges++;
 
         // The field is still registered, so nothing leaves and there is nothing to republish. This
@@ -245,7 +245,7 @@ public class FormValidationEngineFieldSetChangeTests
         // Subscribed before the refresh fires, so a transient flip mid-window cannot be missed by
         // only sampling before and after.
         var everValidating = false;
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
             everValidating |= engine.GetFieldState(name).IsValidating
                 || engine.GetFieldState(description).IsValidating;
 
@@ -289,7 +289,7 @@ public class FormValidationEngineFieldSetChangeTests
         // Subscribed before the refresh fires: a pending class that lit only while the pass was
         // in flight would be gone again by the time the advance returns.
         var everPending = false;
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
             everPending |= editContext.FieldCssClass(name).Contains("formidable-pending")
                 || editContext.FieldCssClass(description).Contains("formidable-pending");
 
@@ -408,7 +408,7 @@ public class FormValidationEngineFieldSetChangeTests
         // pass-that-should-never-have-started leaves behind, and a post-hoc read after the
         // (synchronous) fire would already have missed it.
         var everValidating = false;
-        engine.StateChanged += () => everValidating |= engine.IsValidating || engine.GetFieldState(name).IsValidating;
+        engine.StateChanged += (_, _) => everValidating |= engine.IsValidating || engine.GetFieldState(name).IsValidating;
 
         time.Advance(TimeSpan.FromMilliseconds(400)); // window closes into an empty snapshot
 

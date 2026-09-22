@@ -230,7 +230,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
             // The fallback candidates, built only once the option has asked for a guard: every
             // field something has registered, for the script to walk up from to a <form>.
-            var fieldIds = _engine.Registry.RevealedFields.Select(FormidableFieldId.For).ToArray();
+            var fieldIds = _engine.Registry.RegisteredFields.Select(FormidableFieldId.For).ToArray();
             registered = await _jsModule.InvokeAsync<bool>("registerClickRecovery", gateId, fieldIds);
         }
         catch
@@ -418,7 +418,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// renderer's synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it
     /// mutates validation state and triggers renders.
     /// </summary>
-    public Task DiscloseLoadedValuesAsync() => RequireEngine().DiscloseLoadedValuesAsync();
+    /// <param name="cancellationToken">
+    /// Cancels the pass under the engine's contract — a cancelled call throws and adopts
+    /// nothing, detailed on <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/>'s own
+    /// parameter. The submit methods take no token deliberately: a submit is UI-event-driven,
+    /// and its event handler holds none to pass. This call is data-driven — the caller that
+    /// filled the model typically holds the <see cref="CancellationTokenSource"/> it minted for
+    /// the load, so a superseded record-open or a dispose mid-load cancels the disclosure
+    /// through the same token that cancels the fetch.
+    /// </param>
+    public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
+        RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
 
     /// <summary>
     /// Reconciles the engine's view of which fields are still on the page against the registry,

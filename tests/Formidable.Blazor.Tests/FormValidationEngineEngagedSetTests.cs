@@ -212,7 +212,7 @@ public class FormValidationEngineEngagedSetTests
     private static Task Quiescence(FormValidationEngine<CrossFieldSchedule> engine)
     {
         var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
         {
             if (!engine.IsValidating)
             {

@@ -123,7 +123,7 @@ public class FormValidationEngineAsyncTests
             new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
         Exception? observed = null;
-        engine.ValidationFaulted += ex => observed = ex;
+        engine.ValidationFaulted += (_, e) => observed = e.Exception;
 
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
         await Task.Yield();
@@ -161,7 +161,7 @@ public class FormValidationEngineAsyncTests
             new FormidableOptions { SubmitProfile = ValidationProfile.Draft },
             new FakeTimeProvider());
         Exception? observed = null;
-        engine.ValidationFaulted += ex => observed = ex;
+        engine.ValidationFaulted += (_, e) => observed = e.Exception;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => engine.ValidateForSubmitAsync());
 

@@ -39,8 +39,8 @@ as advisories that paint `formidable-warning` or `formidable-info` once the fiel
 or modified — and it replaces what its own previous call applied rather
 than piling onto it, so resubmitting the same or a corrected payload never leaves a stale
 duplicate behind. That's the whole authoring surface: pick an adapter, apply what it sends back.
-What follows is the wire format underneath both of them, each adapter's own shape, and the
-normalize step both run before
+What follows is the wire format underneath both of them, each adapter's own shape, what a
+handler can read back from a passing report, and the normalize step both run before
 they validate anything.
 
 ## The wire contract
@@ -80,26 +80,39 @@ public sealed class FormidableValidationProblem
     {
         var issues = new List<ValidationIssue>();
 
-        // A foreign 400 body can carry explicit JSON nulls that override the property
-        // initializers below (the deserializer doesn't enforce nullable-reference annotations),
-        // and a key's message array itself can be null — tolerate both rather than throw.
+        // A foreign 400 body can carry explicit JSON nulls anywhere its shape admits one — the
+        // collections themselves, a key's message array, an element inside that array, a whole
+        // advisory entry, or an advisory's fields (the deserializer doesn't enforce
+        // nullable-reference annotations) — tolerate every shape rather than throw. A null
+        // advisory entry carries nothing to show, so it is skipped; a null path reads as ""
+        // (the model-level path); a null message reads as "".
         var errors = Errors ?? new Dictionary<string, string[]>();
         var advisories = Advisories ?? [];
 
         foreach (var (path, messages) in errors)
         {
-            issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message)));
+            issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message ?? string.Empty)));
         }
 
         foreach (var advisory in advisories)
         {
+            if (advisory is null)
+            {
+                continue;
+            }
+
             var severity =
                 Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
                 && parsed != ValidationSeverity.Error
                     ? parsed
                     : ValidationSeverity.Warning;
 
-            issues.Add(new ValidationIssue(advisory.Path, advisory.Message, severity, advisory.Code, advisory.DisplayName));
+            issues.Add(new ValidationIssue(
+                advisory.Path ?? string.Empty,
+                advisory.Message ?? string.Empty,
+                severity,
+                advisory.Code,
+                advisory.DisplayName));
         }
 
         return issues;
@@ -210,20 +223,25 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
-    /// never block on their own.
+    /// use the client's path format and whose <c>advisories</c> extension carries the report's
+    /// non-error issues. Warnings and infos never block on their own: a report carrying only
+    /// them passes through to the handler, which can read it via
+    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
     /// <remarks>
     /// Always fails closed, with no silent-skip mode to opt out of: a handler with no
     /// <typeparamref name="TModel"/> parameter at all throws
-    /// <see cref="InvalidOperationException"/> the first time the endpoint runs (a wiring bug);
-    /// a declared <typeparamref name="TModel"/> parameter bound to <see langword="null"/> — e.g.
-    /// a nullable body parameter posted the JSON literal <c>null</c> — returns the standard 400
-    /// validation shape with a model-level "A request body is required." error instead, since a
-    /// client can trigger that on every request. When the handler declares more than one
-    /// parameter of type <typeparamref name="TModel"/>, only the first one is validated.
+    /// <see cref="InvalidOperationException"/> when the endpoint's request pipeline is built (a
+    /// wiring bug) — routing materializes every mapped endpoint before it can match any
+    /// request, so the throw fails every request to the application, loudly, rather than hiding
+    /// as a 500 on the one broken route; a declared <typeparamref name="TModel"/> parameter
+    /// bound to <see langword="null"/> — e.g. a nullable body parameter posted the JSON literal
+    /// <c>null</c> — returns the standard 400 validation shape with a model-level "A request
+    /// body is required." error instead, since a client can trigger that on every request. When
+    /// the handler declares more than one parameter of type <typeparamref name="TModel"/>, only
+    /// the first one is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -232,7 +250,8 @@ public static class FormidableEndpointFilterExtensions
         var resolvedProfile = profile ?? ValidationProfile.Submit;
         return builder.AddEndpointFilterFactory((factoryContext, next) =>
         {
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile, HasDeclaredParameter<TModel>(factoryContext.MethodInfo));
+            ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
+            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
             return invocationContext => filter.InvokeAsync(invocationContext, next);
         });
     }
@@ -242,19 +261,23 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
-    /// never block on their own.
+    /// use the client's path format and whose <c>advisories</c> extension carries the report's
+    /// non-error issues. Warnings and infos never block on their own: a report carrying only
+    /// them passes through to the handler, which can read it via
+    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
     /// </summary>
     /// <param name="builder">The route group to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
     /// <remarks>
     /// Every endpoint in the group must bind a <typeparamref name="TModel"/>-typed parameter —
-    /// checked per endpoint, so one endpoint in the group missing it doesn't affect the rest.
-    /// Endpoints without one throw <see cref="InvalidOperationException"/> at request time (a
-    /// wiring bug); an endpoint that HAS the parameter but received <see langword="null"/> for
-    /// it gets the standard 400 validation shape instead, per the single-handler overload above.
-    /// When an endpoint declares more than one parameter of type <typeparamref name="TModel"/>,
-    /// only the first one is validated.
+    /// checked endpoint by endpoint, and an endpoint without one throws
+    /// <see cref="InvalidOperationException"/> when its request pipeline is built (a wiring
+    /// bug), which fails route materialization as a whole: a group carrying a mis-wired
+    /// endpoint fails every request to the application, loudly, rather than leaving that one
+    /// endpoint to 500 among working siblings. An endpoint that HAS the parameter but received
+    /// <see langword="null"/> for it gets the standard 400 validation shape instead, per the
+    /// single-handler overload above. When an endpoint declares more than one parameter of type
+    /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -263,50 +286,64 @@ public static class FormidableEndpointFilterExtensions
         var resolvedProfile = profile ?? ValidationProfile.Submit;
         return builder.AddEndpointFilterFactory((factoryContext, next) =>
         {
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile, HasDeclaredParameter<TModel>(factoryContext.MethodInfo));
+            ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
+            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
             return invocationContext => filter.InvokeAsync(invocationContext, next);
         });
     }
 
     // Checked once per endpoint at filter-build time (EndpointFilterFactoryContext.MethodInfo is
     // the endpoint's own handler, even for a filter attached at the group level) rather than at
-    // every request, so ValidationEndpointFilter<TModel> can tell "no argument of this type was
-    // ever declared" (throw — a wiring bug) apart from "the declared argument was bound null"
-    // (400 — a client can trigger this on every request) without re-reflecting per request.
+    // every request. Throwing here, while the endpoint's request pipeline is being built, means
+    // "no argument of this type was ever declared" (a wiring bug no request shape can influence)
+    // cannot hide as a 500 on one rarely-hit route: routing materializes every mapped endpoint
+    // before it can match any request, so the mis-wiring fails every request to the application
+    // until it is fixed. It also leaves ValidationEndpointFilter<TModel> free to read a null
+    // argument as exactly one thing: "the declared argument was bound null" (400 — a client can
+    // trigger this on every request).
     // Assignability, not exact-type equality: a handler may declare a MORE DERIVED parameter
     // type than TModel, and InvokeAsync's own retrieval (context.Arguments.OfType<TModel>())
     // already treats that as a match — an exact-type check here would disagree and misreport a
     // declared-but-null derived parameter as "no parameter of this type at all".
-    private static bool HasDeclaredParameter<TModel>(MethodInfo methodInfo) =>
-        methodInfo.GetParameters().Any(p => typeof(TModel).IsAssignableFrom(p.ParameterType));
+    private static void ThrowIfNoDeclaredParameter<TModel>(MethodInfo methodInfo)
+    {
+        if (!methodInfo.GetParameters().Any(p => typeof(TModel).IsAssignableFrom(p.ParameterType)))
+        {
+            throw new InvalidOperationException(
+                $"Validate<{FriendlyTypeName.Of(typeof(TModel))}>() found no endpoint argument of that type — there is nothing to validate.");
+        }
+    }
 }
 ```
 
 *Source: `src/Formidable.AspNetCore/FormidableEndpointFilterExtensions.cs`*
 
 Both overloads default to `ValidationProfile.Submit` and install the same filter — the group
-overload just attaches it to every endpoint the group defines, checking each one's own handler
-for a `TModel` parameter at filter-build time rather than sharing one answer across the whole
-group. That answer decides which of two very different outcomes a null model gets:
+overload just attaches it to every endpoint the group defines, checking each handler's own
+signature for a `TModel` parameter rather than sharing one answer across the whole group. An
+endpoint that fails that check never gets a filter at all: the factory throws instead of
+building one, so a null model at request time can only mean one thing:
 
 ```csharp
 namespace Formidable.AspNetCore;
 
 /// <summary>
-/// Runs normalize + profile validation for one endpoint argument type. Always fails closed: a
-/// declared parameter bound to null 400s, a genuinely absent parameter or an unresolvable
-/// <see cref="IModelValidator{TModel}"/> throws.
+/// Runs normalize + profile validation for one endpoint argument type, stashing the computed
+/// report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
+/// Always fails closed: a declared parameter bound to null 400s, and an unresolvable
+/// <see cref="IModelValidator{TModel}"/> throws. An endpoint with no parameter of this type at
+/// all never reaches the filter — the endpoint filter factory in
+/// <see cref="FormidableEndpointFilterExtensions"/> throws for it while the endpoint's request
+/// pipeline is being built.
 /// </summary>
 internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
     where TModel : class
 {
     private readonly ValidationProfile _profile;
-    private readonly bool _hasDeclaredParameter;
 
-    public ValidationEndpointFilter(ValidationProfile profile, bool hasDeclaredParameter)
+    public ValidationEndpointFilter(ValidationProfile profile)
     {
         _profile = profile;
-        _hasDeclaredParameter = hasDeclaredParameter;
     }
 
     public async ValueTask<object?> InvokeAsync(
@@ -315,19 +352,11 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
         var model = context.Arguments.OfType<TModel>().FirstOrDefault();
         if (model is null)
         {
-            if (!_hasDeclaredParameter)
-            {
-                // No parameter of this type exists on the endpoint at all — a wiring bug (e.g. a
-                // group-validated endpoint that never declared the argument), not something a
-                // client can trigger by shaping a request.
-                throw new InvalidOperationException(
-                    $"Validate<{FriendlyTypeName.Of(typeof(TModel))}>() found no endpoint argument of that type — there is nothing to validate.");
-            }
-
-            // A parameter of this type IS declared on the handler but bound to null — e.g. a
-            // nullable body parameter posted the JSON literal `null`. Any anonymous client can
-            // trigger this on every request, so it gets the standard 400 validation shape
-            // instead of an exception.
+            // The filter factory refuses endpoints with no parameter of this type, so null here
+            // can only mean the declared parameter was bound to null — e.g. a nullable body
+            // parameter posted the JSON literal `null`. Any anonymous client can trigger this
+            // on every request, so it gets the standard 400 validation shape instead of an
+            // exception.
             var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
             return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
         }
@@ -336,6 +365,12 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 
         var validator = context.HttpContext.RequestServices.GetRequiredService<IModelValidator<TModel>>();
         var report = await validator.ValidateAsync(model, _profile, context.HttpContext.RequestAborted);
+
+        // Stashed before the 400/pass-through decision so the request can always read the
+        // verdict a validator produced: the handler composes a "saved, but note…" 200 from a
+        // passing report's advisories, and middleware reads a rejection's full severity detail
+        // without parsing the response body.
+        context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = report;
 
         if (report.IsValid)
         {
@@ -351,20 +386,25 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 
 *Source: `src/Formidable.AspNetCore/ValidationEndpointFilter.cs`*
 
-Two different reasons produce the same `model is null`, and they get two different responses. A
-group-validated endpoint with no `TModel`-typed argument at all is a wiring bug, not something a
-request can influence, so it still fails every request with an `InvalidOperationException` rather
-than a silent skip. A declared `TModel` argument bound to `null` (a nullable body parameter posted
-the JSON literal `null`) is something any anonymous client can trigger on every request, so that
-gets the standard 400 validation shape instead: a model-level `"A request body is required."`
-error, using the same `ValidationReportProblemMapper.ToErrorDictionary` mapping every other
-rejection in this document uses, not a one-off shape. Neither filter has a discovery mode to
-silently skip a resolvable-but-unregistered validator either:
+A missing parameter and a null-bound one are different problems, and they surface at different
+moments. An endpoint with no `TModel`-typed argument at all is a wiring bug, not something a
+request can influence, so the factory refuses it with an `InvalidOperationException` when the
+endpoint's request pipeline is built. Routing materializes every mapped endpoint before it can
+match any request, which makes the refusal loud on purpose: one mis-wired endpoint fails every
+request to the application until it is fixed, rather than hiding as a 500 on the one broken
+route. A declared `TModel` argument bound to `null` (a nullable body parameter posted the JSON
+literal `null`) is something any anonymous client can trigger on every request, so it is
+answered at request time with the standard 400 validation shape: a model-level `"A request body
+is required."` error, using the same `ValidationReportProblemMapper.ToErrorDictionary` mapping
+every other rejection in this document uses, not a one-off shape. Neither filter has a discovery
+mode to silently skip a resolvable-but-unregistered validator either:
 `GetRequiredService<IModelValidator<TModel>>()` throws on its own if `AddFormidable()` was never
 called, so there is no equivalent to `[Validate]`'s `RequireValidator` needed here (see below).
 `report.IsValid` is `true` whenever the report has no error-severity issues; warnings and infos
 don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls straight
-through to `next(context)` and the handler's own return value, unmodified.
+through to `next(context)` and the handler's own return value, unmodified — though the report
+itself is not lost: [Returning warnings beside a 200](#returning-warnings-beside-a-200) below
+shows the handler reading it back.
 
 ## MVC
 
@@ -474,6 +514,16 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
         }
 
         var aggregate = new ValidationReport(issues);
+
+        if (validatedAny)
+        {
+            // Stashed before the 400/pass-through decision so the request can always read the
+            // verdict the validators produced. Gated on validatedAny: when nothing was
+            // validated, the accessor answers null rather than serving an empty report that
+            // implies rules ran and passed.
+            context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = aggregate;
+        }
+
         if (!aggregate.IsValid)
         {
             var problem = new ValidationProblemDetails(ValidationReportProblemMapper.ToErrorDictionary(aggregate))
@@ -509,7 +559,12 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
 `IsValid` gate runs once, after the loop; a `null` argument does not count toward
-`RequireValidator`'s "did this action bind anything at all" check below. Every non-null argument's
+`RequireValidator`'s "did this action bind anything at all" check below. The merge is
+deliberately flat: the 400's `errors` dictionary keys each issue by its own property path with
+no per-argument prefix, so two validated models sharing a property name land under one key. The
+stash just above the `IsValid` gate is what `GetFormidableValidationReport` reads back: the
+aggregate, whether the request went on to a 400 or to the action (see
+[Returning warnings beside a 200](#returning-warnings-beside-a-200)). Every non-null argument's
 type is resolved by `ResolveValidatedType`:
 
 ```csharp
@@ -602,6 +657,40 @@ So `[Validate(Profile = "Submit")]` and `Validate<Order>(ValidationProfile.Submi
 the same rules — read the string as the name of the profile the value names directly, and the same
 pairing holds for `"Draft"` and for any custom profile name.
 
+## Returning warnings beside a 200
+
+A report with no errors never blocks, so the wire contract above has nothing to say about its
+warnings and infos: the handler's own response goes out untouched. The report is not gone,
+though. Both adapters stash the report the moment validation computes it, before the
+400/pass-through decision, and `GetFormidableValidationReport` reads it back anywhere the
+`HttpContext` is in reach — most usefully inside the handler a passing request went on to run:
+
+```csharp
+var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
+orders.MapPost("/", (RoundTripOrder order, HttpContext http) =>
+{
+    // Behind Validate<RoundTripOrder>() the report is always present here: the filter
+    // validated before the handler could run.
+    var report = http.GetFormidableValidationReport()!;
+    return Results.Ok(new
+    {
+        accepted = true,
+        lines = order.Lines.Count,
+        // The same advisory shape the 400 path puts on its `advisories` extension, so the
+        // client parses a "saved, but note…" 200 with the type it already has.
+        advisories = ValidationReportProblemMapper.ToAdvisories(report)
+    });
+});
+```
+
+The `ToAdvisories` call is the point of the composition: it is the same public mapping the 400
+path uses, so a "saved, but note…" response carries its warnings in the exact wire shape the
+client already parses into `FormidableValidationProblem.Advisories`. An MVC action does the same
+through its own `HttpContext` property; for `[Validate]` the report is the aggregate across
+every validated argument. On a request no Formidable adapter validated — an endpoint outside
+the filter, an action whose arguments resolved no validator — the accessor returns `null`, so
+code shared across both kinds of route checks before reading.
+
 ## Normalize pipeline
 
 Both adapters run the model's own cleanup hook before validation, if it has one:
@@ -615,6 +704,12 @@ namespace Formidable;
 /// validation filters before validation; client code may invoke it directly before saving
 /// drafts.
 /// </summary>
+/// <remarks>
+/// Implemented by consumer models, so it grows accordingly: a member added after v1 carries a
+/// default implementation, and a model that does not override it keeps compiling with its
+/// normalization unchanged — the default clears nothing the model's own
+/// <see cref="Normalize"/> does not.
+/// </remarks>
 public interface INormalizableModel
 {
     /// <summary>Clears fields not applicable to the current selection state and strips empty collection rows.</summary>
@@ -792,6 +887,9 @@ skip straight to the framework's ordinary success path when the report has no er
 (`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections
 above). The handler's or action's own return value passes through completely untouched, with no
 advisories attached, because there is no wire contract for a successful response to carry them.
+A handler that wants its 200 to say "saved, but note…" builds that response itself, from the
+report the adapter already computed — see
+[Returning warnings beside a 200](#returning-warnings-beside-a-200).
 
 **Collection sizes are the host's job, not the validator's.** Both sample endpoints validate
 whatever collection a client sends without capping how large it can get — the request body's size

@@ -224,8 +224,8 @@ public class RuleLevelValidatorTests
             perRule.AddRange(result.Report.Issues);
         }
 
-        // Path, Message, Severity, Code and DisplayName all participate in ValidationIssue's
-        // record equality, and comparing the lists pins the order as well: per-rule reports
+        // Every ValidationIssue member — State included — participates in its record
+        // equality, and comparing the lists pins the order as well: per-rule reports
         // concatenated in SelectRules order ARE the whole-profile report — Include() internals
         // and SetValidator child filtering included, because per-rule execution filters child
         // scope with the same name list the whole-profile selector carries.
@@ -469,5 +469,27 @@ public class RuleLevelValidatorTests
         Assert.False(underSubmit.IsProfileScoped);
         Assert.False(underEngaged.IsProfileScoped);
         Assert.Equal(underSubmit.Report.Issues, underEngaged.Report.Issues);
+    }
+
+    private static readonly object NotesState = new();
+
+    private sealed class StatefulNotesValidator : AbstractValidator<RuleModel>
+    {
+        public StatefulNotesValidator() =>
+            RuleFor(x => x.Notes).Must(notes => notes != "flagged")
+                .WithMessage("Notes are flagged").WithState(_ => NotesState);
+    }
+
+    [Fact]
+    public async Task Custom_state_lands_on_the_per_rule_issue()
+    {
+        var adapter = new FluentValidationModelValidator<RuleModel>(new StatefulNotesValidator());
+        var model = new RuleModel { Notes = "flagged" };
+
+        var rule = Assert.Single(adapter.SelectRules(ValidationProfile.Submit));
+        var result = await adapter.ValidateRuleAsync(model, ValidationProfile.Submit, rule);
+
+        var issue = Assert.Single(result.Report.Issues);
+        Assert.Same(NotesState, issue.State);
     }
 }

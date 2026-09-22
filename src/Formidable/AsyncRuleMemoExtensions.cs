@@ -21,6 +21,14 @@ public static class AsyncRuleMemoExtensions
     /// in particular that the check must be pure with respect to its input.
     /// </para>
     /// <para>
+    /// There is deliberately no overload handing <paramref name="predicate"/> the model —
+    /// FluentValidation's own <c>MustAsync</c> carries that shape — because
+    /// <paramref name="memo"/> keys its answers by the value alone: a check that also read the
+    /// model would have the answer it computed against one model state served against another,
+    /// for as long as the window lasts and the value stands still. A check that needs more
+    /// than the value is not memoizable by the value, and belongs on <c>MustAsync</c> directly.
+    /// </para>
+    /// <para>
     /// <typeparamref name="TKey"/> is <paramref name="memo"/>'s key type, and also the property's
     /// type when the property cannot be null. It reaches a nullable property too, as long as the
     /// property is a reference type: a <c>string</c> rule and a <c>string?</c> rule both bind

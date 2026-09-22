@@ -62,8 +62,8 @@ public class ProfiledValidatorRuleSetVerificationTests
         // cache is real: the first (valid) profile named "Once" gets verified and cached under
         // that name. A second, differently-shaped profile object that reuses the same name but
         // names an unregistered ruleset is never re-checked, because the cache short-circuits on
-        // the name alone (mirroring ValidationProfile's own by-Name equality contract, see
-        // ValidationProfileTests.Equality_is_by_name, rather than inventing a stricter cache key).
+        // the name alone -- a deliberately looser key than ValidationProfile's full-shape
+        // equality, documented in the class remarks.
         // The typo'd ruleset therefore reaches FluentValidation itself, which silently runs zero
         // rules under a name it doesn't recognize -- exactly the failure mode this whole feature
         // exists to catch, except here the cache is the reason it slips through. This is

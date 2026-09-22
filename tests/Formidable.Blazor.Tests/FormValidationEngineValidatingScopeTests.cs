@@ -37,7 +37,7 @@ public class FormValidationEngineValidatingScopeTests
         // notification (fired before the pass flips IsValidating true) would otherwise resolve
         // quiescence prematurely.
         var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
         {
             if (!engine.IsValidating)
             {
@@ -82,7 +82,7 @@ public class FormValidationEngineValidatingScopeTests
         // notification (fired before the pass flips IsValidating true) would otherwise resolve
         // quiescence prematurely.
         var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
         {
             if (!engine.IsValidating)
             {

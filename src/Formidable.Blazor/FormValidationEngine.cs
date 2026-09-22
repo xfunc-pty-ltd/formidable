@@ -196,7 +196,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     // The submit profile's presence demands, resolved to fields (see Requirements). Null until
     // first asked, and dropped whenever the profile instance or the rendered field set moves.
-    private Dictionary<FieldIdentifier, RuleRequirement>? _requirements;
+    private Dictionary<FieldIdentifier, FieldRequirement>? _requirements;
     private ValidationProfile? _requirementsProfile;
 
     // The last coverage answer that came out fresh, and the two coordinates it answers for. They
@@ -238,6 +238,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// optional — a direct construction with none supplied gets the engine's other diagnostics
     /// (Trace, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>) unaffected.
     /// </summary>
+    /// <remarks>
+    /// The two shipped roots — <see cref="FormidableForm{TModel}"/> and
+    /// <see cref="FormidableValidator{TModel}"/> — are the only supported hosts. Direct
+    /// construction is supported for tests against the engine alone: a hand-assembled root
+    /// never learns of rendered-field-set changes, because the reconciliation and ordering
+    /// seams are internal, wired by the shipped hosts, and this constructor subscribes only to
+    /// the edit context's field-changed notification — so verdicts for a removed row outlive
+    /// it, departed fields are never pruned, and issues keep validator order.
+    /// </remarks>
     public FormValidationEngine(
         TModel model,
         EditContext editContext,
@@ -295,28 +304,30 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     public bool IsFormValid { get; private set; }
 
     /// <inheritdoc />
-    public event Action? StateChanged;
+    public event EventHandler<FormidableStateChangedEventArgs>? StateChanged;
 
     /// <inheritdoc />
-    public event Action<Exception>? ValidationFaulted;
+    public event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted;
 
     /// <inheritdoc />
     public FieldState GetFieldState(FieldIdentifier field)
     {
         var (hasErrors, hasWarnings, hasInfos) = ScanFieldSeverities(field);
 
-        return new FieldState(
-            IsTouched: _touched.Contains(field),
-            IsModified: EditContext.IsModified(field),
-            IsValidating: IsFieldValidating(field),
-            HasErrors: hasErrors,
-            HasWarnings: hasWarnings,
-            HasInfos: hasInfos,
-            WouldPassSubmit: WouldPassSubmit(field));
+        return new FieldState
+        {
+            IsTouched = _touched.Contains(field),
+            IsModified = EditContext.IsModified(field),
+            IsValidating = IsFieldValidating(field),
+            HasErrors = hasErrors,
+            HasWarnings = hasWarnings,
+            HasInfos = hasInfos,
+            WouldPassSubmit = WouldPassSubmit(field)
+        };
     }
 
     /// <inheritdoc />
-    public RuleRequirement GetFieldRequirement(FieldIdentifier field)
+    public FieldRequirement GetFieldRequirement(FieldIdentifier field)
     {
         // The override is asked first and on every read: it is a declaration a consumer makes
         // about their own form, so it outranks whatever the rules can be read to say, and it is
@@ -329,7 +340,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         return Requirements().TryGetValue(field, out var requirement)
             ? requirement
-            : RuleRequirement.NotRequired;
+            : FieldRequirement.NotRequired;
     }
 
     /// <summary>
@@ -359,10 +370,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// one screen up, and for the same reason: the next pass surfaces that exception through
     /// its own fault policy, which is where a configuration error belongs. Only entries that
     /// demand something are kept, so a lookup miss and
-    /// <see cref="RuleRequirement.NotRequired"/> are the same answer.
+    /// <see cref="FieldRequirement.NotRequired"/> are the same answer.
     /// </para>
     /// </summary>
-    private Dictionary<FieldIdentifier, RuleRequirement> Requirements()
+    private Dictionary<FieldIdentifier, FieldRequirement> Requirements()
     {
         var profile = _options.SubmitProfile;
         if (_requirements is not null && ReferenceEquals(_requirementsProfile, profile))
@@ -370,7 +381,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return _requirements;
         }
 
-        var map = new Dictionary<FieldIdentifier, RuleRequirement>();
+        var map = new Dictionary<FieldIdentifier, FieldRequirement>();
         if (_validator is IRuleInspectingValidator<TModel> inspector && inspector.CanInspectRules)
         {
             try
@@ -379,7 +390,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 foreach (var path in inspector.GetDeclaredFieldPaths(profile))
                 {
                     var requirement = inspector.GetFieldRequirement(path, profile);
-                    if (requirement == RuleRequirement.NotRequired)
+                    if (requirement == FieldRequirement.NotRequired)
                     {
                         continue;
                     }
@@ -1726,7 +1737,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return Task.CompletedTask;
         }).ConfigureAwait(false);
 
-        ValidationFaulted?.Invoke(exception);
+        ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
     }
 
     /// <summary>
@@ -1882,7 +1893,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         }
         catch (Exception exception)
         {
-            ValidationFaulted?.Invoke(exception);
+            ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
             return;
         }
 
@@ -2032,7 +2043,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// form's own, which is on the page for as long as the form is, and it never registers.
     /// </summary>
     private bool IsRendered(FieldIdentifier field) =>
-        field.Equals(ModelLevelField) || Registry.IsRevealed(field);
+        field.Equals(ModelLevelField) || Registry.IsRegistered(field);
 
     /// <summary>
     /// Whether the field has LEFT the page: something registered it once, and nothing does now.
@@ -2131,7 +2142,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         NotifyStateChanged();
     }
 
-    private void NotifyStateChanged() => StateChanged?.Invoke();
+    private void NotifyStateChanged() => StateChanged?.Invoke(this, FormidableStateChangedEventArgs.Empty);
 
     /// <inheritdoc />
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)

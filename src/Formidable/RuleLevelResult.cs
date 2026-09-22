@@ -5,6 +5,9 @@ namespace Formidable;
 /// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/>: the rule's report, plus how
 /// far that verdict can be reused.
 /// </summary>
+/// <remarks>Grows by init-only properties, never by constructor parameters, so existing
+/// construction keeps compiling and binding; any added member folds into the record's
+/// synthesized equality.</remarks>
 /// <param name="Report">The issues the rule produced, mapped exactly as whole-profile
 /// validation maps them.</param>
 /// <param name="IsProfileScoped">

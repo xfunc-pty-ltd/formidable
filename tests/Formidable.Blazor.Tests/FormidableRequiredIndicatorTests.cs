@@ -76,7 +76,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         Assert.Null(MarkerFor(cut, nameof(MarkerModel.Nominee)));
         Assert.Null(InputFor(cut, nameof(MarkerModel.Nominee)).GetAttribute("aria-required"));
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             EngineOf(cut).GetFieldRequirement(new FieldIdentifier(model, nameof(MarkerModel.Nominee))));
     }
 
@@ -94,7 +94,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         var options = new FormidableOptions
         {
             RequiredOverride = field => field.FieldName == nameof(MarkerModel.Handle)
-                ? RuleRequirement.Required
+                ? FieldRequirement.Required
                 : null,
         };
         var cut = RenderForm(new MarkerModel(), options);
@@ -115,7 +115,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         var options = new FormidableOptions
         {
             RequiredOverride = field => field.FieldName == nameof(MarkerModel.Name)
-                ? RuleRequirement.NotRequired
+                ? FieldRequirement.NotRequired
                 : null,
         };
         var cut = RenderForm(new MarkerModel(), options);
@@ -202,7 +202,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         var throughThePath = RequirementOf(new NestedRootValidator());
         var throughAChildValidator = RequirementOf(new DelegatingNestedRootValidator());
 
-        Assert.Equal(RuleRequirement.Required, throughThePath);
+        Assert.Equal(FieldRequirement.Required, throughThePath);
         Assert.Equal(throughThePath, throughAChildValidator);
     }
 
@@ -315,27 +315,27 @@ public class FormidableRequiredIndicatorTests : BunitContext
             new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
 
         var held = FieldIdentifier.Create(() => model.Child.City);
-        Assert.Equal(RuleRequirement.Required, engine.GetFieldRequirement(held));
+        Assert.Equal(FieldRequirement.Required, engine.GetFieldRequirement(held));
 
         // The swap alone. Both the answer and the held identifier still name the replaced child,
         // so they still agree and the field is still answered.
         model.Child = new NestedChild();
         Assert.NotSame(replaced, model.Child);
-        Assert.Equal(RuleRequirement.Required, engine.GetFieldRequirement(held));
+        Assert.Equal(FieldRequirement.Required, engine.GetFieldRequirement(held));
 
         // The next derivation. A move in the rendered field set drops the answer, and rebuilding
         // it files the member under the child the graph now holds.
         engine.OnRenderedFieldsChanged();
-        Assert.Equal(RuleRequirement.NotRequired, engine.GetFieldRequirement(held));
+        Assert.Equal(FieldRequirement.NotRequired, engine.GetFieldRequirement(held));
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             engine.GetFieldRequirement(FieldIdentifier.Create(() => model.Child.City)));
 
         // And no later move repairs it: every derivation files against the graph as it then
         // stands, so only the component rebinding — its host rebuilding the engine and registry —
         // ever gives the asker a current identifier again.
         engine.OnRenderedFieldsChanged();
-        Assert.Equal(RuleRequirement.NotRequired, engine.GetFieldRequirement(held));
+        Assert.Equal(FieldRequirement.NotRequired, engine.GetFieldRequirement(held));
     }
 
     // A marker is not an input, so it registers nothing — and the consequence is bigger than the
@@ -367,7 +367,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         // The marker rendered — so the field is one the engine has an answer for, and the
         // registry's silence below is the marker's own doing rather than the marker being absent.
         Assert.Equal("*", form.Find("span.formidable-required").TextContent);
-        Assert.False(form.Instance.Engine!.Registry.IsRevealed(field));
+        Assert.False(form.Instance.Engine!.Registry.IsRegistered(field));
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
@@ -389,7 +389,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
     /// <c>Child.City</c> — the one field both nested-root validators demand, reached the same
     /// way from each, so the two answers are comparable.
     /// </summary>
-    private static RuleRequirement RequirementOf(IValidator<NestedRoot> validator)
+    private static FieldRequirement RequirementOf(IValidator<NestedRoot> validator)
     {
         var model = new NestedRoot();
         using var engine = new FormValidationEngine<NestedRoot>(
@@ -652,7 +652,7 @@ public sealed class CountingInspector(FluentValidationModelValidator<MarkerModel
     public ValidationReport Validate(MarkerModel model, ValidationProfile profile) =>
         inner.Validate(model, profile);
 
-    public RuleRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile) =>
+    public FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile) =>
         inner.GetFieldRequirement(fieldPath, profile);
 
     public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)

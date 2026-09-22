@@ -52,7 +52,8 @@ public class FormidableFieldAnchorTests : BunitContext
     // call replaces it on the same BunitContext, so the anchor is rendered behind a bool flag
     // component parameter and flipped via re-parameterization
     // (`IRenderedComponent<T>.Render(...)`, the v2 equivalent of SetParametersAndRender) instead of
-    // replacing the whole tree. The assertions are unchanged: reveal on register, hide on dispose.
+    // replacing the whole tree. The assertions are unchanged: registered on initialization,
+    // unregistered on dispose.
     [Fact]
     public void Anchor_registers_and_unregisters_with_the_form_registry()
     {
@@ -67,10 +68,10 @@ public class FormidableFieldAnchorTests : BunitContext
 
         var host = cut.FindComponent<AnchorHost>();
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(new FieldIdentifier(order, nameof(EngineOrder.Description))));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(new FieldIdentifier(order, nameof(EngineOrder.Description))));
 
         host.Render(parameters => parameters.Add(p => p.ShowAnchor, false)); // re-parameterize -> anchor leaves the tree and disposes
-        Assert.False(form.Instance.Engine!.Registry.IsRevealed(new FieldIdentifier(order, nameof(EngineOrder.Description))));
+        Assert.False(form.Instance.Engine!.Registry.IsRegistered(new FieldIdentifier(order, nameof(EngineOrder.Description))));
     }
 
     // This deliberately does NOT route through FormidableForm/EditForm. EditForm tears down and
@@ -106,7 +107,7 @@ public class FormidableFieldAnchorTests : BunitContext
             builder.CloseComponent();
         });
 
-        Assert.True(firstEngine.Registry.IsRevealed(field));
+        Assert.True(firstEngine.Registry.IsRegistered(field));
 
         var secondEngine = CreateEngine(order);
         var secondContext = new FormidableFormContext(secondEngine);
@@ -117,15 +118,15 @@ public class FormidableFieldAnchorTests : BunitContext
             parameters.Add(p => p.ChildContent, fieldFragment);
         });
 
-        Assert.True(secondEngine.Registry.IsRevealed(field));
-        Assert.False(firstEngine.Registry.IsRevealed(field));
+        Assert.True(secondEngine.Registry.IsRegistered(field));
+        Assert.False(firstEngine.Registry.IsRegistered(field));
     }
 
     // The anchor renders nothing, so it deliberately never subscribes to the engine's StateChanged:
     // a validation pass leaves it with nothing to re-render, and a form holding one anchor per row
     // of a collection would otherwise schedule a render per anchor per pass. The message list
-    // beside it — revealed by the anchor's own registration — is the same pass's proof that the
-    // notification did fire.
+    // beside it — disclosing the error for the field the notification engaged — is the same
+    // pass's proof that the notification did fire.
     [Fact]
     public void Anchor_does_not_re_render_when_a_validation_pass_lands()
     {

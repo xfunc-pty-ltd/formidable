@@ -42,7 +42,7 @@ public sealed class FormidableFieldContext
         {
             inputAttributes["aria-describedby"] = AriaDescribedBy;
         }
-        if (Requirement == RuleRequirement.Required)
+        if (Requirement == FieldRequirement.Required)
         {
             inputAttributes["aria-required"] = "true";
         }
@@ -78,13 +78,13 @@ public sealed class FormidableFieldContext
     /// <summary>
     /// How firmly the submit profile's rules demand that the field carry a value — see
     /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
-    /// and what it cannot see. <see cref="RuleRequirement.Required"/> is what
+    /// and what it cannot see. <see cref="FieldRequirement.Required"/> is what
     /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
     /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
     /// here and decides for itself, which is the only way to draw anything for
-    /// <see cref="RuleRequirement.ConditionallyRequired"/>.
+    /// <see cref="FieldRequirement.ConditionallyRequired"/>.
     /// </summary>
-    public RuleRequirement Requirement { get; }
+    public FieldRequirement Requirement { get; }
 
     /// <summary>
     /// The one-splat seam for a foreign control: <c>id</c>, <c>class</c>, and — only when

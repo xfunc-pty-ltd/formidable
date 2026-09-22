@@ -73,7 +73,7 @@ public partial class Workout : IDisposable
     // field context, and a native one has no context to ask, so the page reads what the submit
     // profile demands off the engine and renders the attribute the kit's inputs would.
     private string? VenueRegionAriaRequired =>
-        _form?.Engine?.GetFieldRequirement(VenueRegionField) == RuleRequirement.Required ? "true" : null;
+        _form?.Engine?.GetFieldRequirement(VenueRegionField) == FieldRequirement.Required ? "true" : null;
 
     protected override void OnInitialized()
     {
@@ -197,7 +197,8 @@ public partial class Workout : IDisposable
         }
     }
 
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
 
     public void Dispose()
     {

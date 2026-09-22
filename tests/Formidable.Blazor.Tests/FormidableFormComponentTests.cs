@@ -302,7 +302,7 @@ public class FormidableFormComponentTests : BunitContext
 
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
         var firstEngine = form.Instance.Engine!;
-        Assert.True(firstEngine.Registry.IsRevealed(new FieldIdentifier(first, nameof(EngineOrder.Description))));
+        Assert.True(firstEngine.Registry.IsRegistered(new FieldIdentifier(first, nameof(EngineOrder.Description))));
 
         var second = new EngineOrder();
         form.Render(parameters => parameters
@@ -312,7 +312,7 @@ public class FormidableFormComponentTests : BunitContext
         var secondEngine = form.Instance.Engine!;
         Assert.NotSame(firstEngine, secondEngine);
         var secondField = new FieldIdentifier(second, nameof(EngineOrder.Description));
-        Assert.True(secondEngine.Registry.IsRevealed(secondField));
+        Assert.True(secondEngine.Registry.IsRegistered(secondField));
 
         // The rebuilt input's live pass must reach the NEW engine — if the input were still
         // wired to the disposed first engine, this would never turn invalid and the
@@ -429,7 +429,7 @@ public class FormidableFormComponentTests : BunitContext
         // registered against the NEW engine's own registry (a reused context would leave the
         // input still bound to the OLD, disposed engine, so Register() never runs again and
         // this reads false).
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(descriptionField));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(descriptionField));
 
         // A second render over the now-stable (post-reset) context, Model/Options unchanged,
         // takes the rebuilt input's OnParametersSet down the VerifyRowKey no-op path rather
@@ -440,7 +440,7 @@ public class FormidableFormComponentTests : BunitContext
             .Add(p => p.ChildContent, InputBoundTo(order, this)));
 
         Assert.NotNull(cut.Find("input"));
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(descriptionField));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(descriptionField));
     }
 
     // A submit awaiting the engine's pipeline can still be in flight when ResetAsync disposes
@@ -500,6 +500,39 @@ public class FormidableFormComponentTests : BunitContext
 
         Assert.NotNull(outcome);
         Assert.False(outcome!.CanProceed);
+    }
+
+    // The root forwards the engine's cancellation contract whole: a cancelled call throws and
+    // adopts nothing. Swallowing the token in the pass-through would let the load run to
+    // completion — no throw, Description touched and disclosing — so every assertion here
+    // discriminates that regression.
+    [Fact]
+    public async Task A_pre_cancelled_disclose_token_throws_and_adopts_nothing()
+    {
+        var order = new EngineOrder { Description = "far too long for the ten-character rule" };
+        var cut = RenderForm(order);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => cut.InvokeAsync(() => cut.Instance.DiscloseLoadedValuesAsync(cts.Token)));
+
+        var engine = cut.Instance.Engine!;
+        Assert.False(engine.GetFieldState(description).IsTouched);
+        Assert.Empty(engine.EditContext.GetValidationMessages());
+
+        // The engagement half of "adopts nothing": a live pass answers every engaged field, so a
+        // field the cancelled call had wrongly engaged would disclose its failing value here.
+        // Customer's own error appearing is the positive control that the pass ran and disclosed.
+        await cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(
+            new FieldIdentifier(order, nameof(EngineOrder.Customer))));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotEmpty(engine.EditContext.GetValidationMessages(
+                new FieldIdentifier(order, nameof(EngineOrder.Customer))));
+            Assert.Empty(engine.EditContext.GetValidationMessages(description));
+        });
     }
 
     // The server round trip is the one pipeline step a page drives itself, and reaching it through

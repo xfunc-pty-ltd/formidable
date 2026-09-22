@@ -361,7 +361,7 @@ the moment the draft loads.
 
 ### I want to mark fields required when the rules cannot say so
 
-**Set:** `FormidableOptions.RequiredOverride`, returning a `RuleRequirement` for the fields you
+**Set:** `FormidableOptions.RequiredOverride`, returning a `FieldRequirement` for the fields you
 are declaring and `null` for everything else.
 
 ```csharp
@@ -369,8 +369,8 @@ are declaring and `null` for everything else.
     {
         RequiredOverride = field => field.FieldName switch
         {
-            nameof(Booking.GuestName) => RuleRequirement.Required,
-            nameof(Booking.Reference) => RuleRequirement.NotRequired,
+            nameof(Booking.GuestName) => FieldRequirement.Required,
+            nameof(Booking.Reference) => FieldRequirement.NotRequired,
             _ => null,
         },
     };
@@ -378,7 +378,7 @@ are declaring and `null` for everything else.
 
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) reads the
 validator's own rules, and what it can read is presence written as FluentValidation's `NotEmpty()`
-or `NotNull()`. The shapes below draw no mark, and `RuleRequirement.NotRequired` means "not known
+or `NotNull()`. The shapes below draw no mark, and `FieldRequirement.NotRequired` means "not known
 to be required" rather than "proven optional":
 
 - presence written as a predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`;

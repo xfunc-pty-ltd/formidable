@@ -7,6 +7,14 @@ namespace Formidable.Blazor;
 /// The target element is located by its <see cref="FormidableFieldId"/> id, which the kit's
 /// inputs assign automatically — any element carrying that id can be focused this way.
 /// </summary>
+/// <remarks>
+/// Implementing this interface — a recording double in a bUnit test, a focus behaviour of
+/// your own — is supported surface, and it grows accordingly: a member added after v1
+/// carries a default implementation that does nothing and reports having done nothing, the
+/// answer <see cref="FocusAsync"/> already gives for an element the DOM does not hold.
+/// Moving focus is a courtesy, so an implementation that does not override the addition
+/// declines it and leaves the page as it was.
+/// </remarks>
 public interface IFormidableFocusService
 {
     /// <summary>

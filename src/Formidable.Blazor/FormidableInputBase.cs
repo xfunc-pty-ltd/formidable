@@ -93,7 +93,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     [Parameter]
     public Expression<Func<TValue>>? ValueExpression { get; set; }
 
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 
@@ -230,7 +230,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
         }
 
-        if (Context.Engine.GetFieldRequirement(Field) == RuleRequirement.Required)
+        if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
         {
             builder.AddAttribute(sequence + 3, "aria-required", "true");
         }

@@ -64,7 +64,7 @@ public class FormValidationEnginePassNotificationTests : BunitContext
             engine.MarkTouched(new FieldIdentifier(order, nameof(EngineOrder.Description))));
 
         var rounds = 0;
-        engine.StateChanged += () => rounds++;
+        engine.StateChanged += (_, _) => rounds++;
         var rendersBefore = bystander.RenderCount;
 
         cut.Find("input").Change("typed");
@@ -76,7 +76,7 @@ public class FormValidationEnginePassNotificationTests : BunitContext
         // counting. Subscribed only now the pass is confirmed in flight, so the rounds raised
         // before it cannot resolve quiescence early.
         var quiescent = new TaskCompletionSource();
-        void OnStateChanged()
+        void OnStateChanged(object? sender, FormidableStateChangedEventArgs e)
         {
             if (!engine.IsValidating)
             {

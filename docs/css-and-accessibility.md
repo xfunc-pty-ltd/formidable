@@ -294,14 +294,16 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             wouldPassSubmit = fallback.WouldPassSubmit;
         }
 
-        var state = new FieldState(
-            IsTouched: touched,
-            IsModified: editContext.IsModified(fieldIdentifier),
-            IsValidating: pending,
-            HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
-            HasWarnings: hasWarnings,
-            HasInfos: hasInfos,
-            WouldPassSubmit: wouldPassSubmit);
+        var state = new FieldState
+        {
+            IsTouched = touched,
+            IsModified = editContext.IsModified(fieldIdentifier),
+            IsValidating = pending,
+            HasErrors = editContext.GetValidationMessages(fieldIdentifier).Any(),
+            HasWarnings = hasWarnings,
+            HasInfos = hasInfos,
+            WouldPassSubmit = wouldPassSubmit
+        };
 
         return FormidableCss.Compute(state, _classes);
     }
@@ -445,7 +447,7 @@ by `FormidableField` gets the same wiring a `FormidableInputBase` descendant doe
 `aria-required="true"` follows a different question from the other two. `aria-invalid` and
 `aria-describedby` describe what the field's values are currently doing; `aria-required` describes
 what the submit profile's rules demand of it, so it appears while
-`IFormValidationEngine.GetFieldRequirement` reports `RuleRequirement.Required` and is not touched
+`IFormValidationEngine.GetFieldRequirement` reports `FieldRequirement.Required` and is not touched
 by any validation pass. That is why it is asked separately from the single state-and-issues read
 the rest of `AddCommonAttributes` works from: the derived answer is reused, so asking per field per
 render is a lookup. [`RequiredOverride`](options.md#requiredoverride) is the part that can change
@@ -527,6 +529,14 @@ namespace Formidable.Blazor;
 /// The target element is located by its <see cref="FormidableFieldId"/> id, which the kit's
 /// inputs assign automatically — any element carrying that id can be focused this way.
 /// </summary>
+/// <remarks>
+/// Implementing this interface — a recording double in a bUnit test, a focus behaviour of
+/// your own — is supported surface, and it grows accordingly: a member added after v1
+/// carries a default implementation that does nothing and reports having done nothing, the
+/// answer <see cref="FocusAsync"/> already gives for an element the DOM does not hold.
+/// Moving focus is a courtesy, so an implementation that does not override the addition
+/// declines it and leaves the page as it was.
+/// </remarks>
 public interface IFormidableFocusService
 {
     /// <summary>

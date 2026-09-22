@@ -6,6 +6,14 @@ namespace Formidable.Blazor;
 public sealed class FormidableFormContext
 {
     /// <summary>Wraps an engine for cascading.</summary>
+    /// <remarks>
+    /// The two shipped roots — <see cref="FormidableForm{TModel}"/> and
+    /// <see cref="FormidableValidator{TModel}"/> — create and cascade this context, and they
+    /// are the only supported hosts for one. Constructing it directly is supported for tests
+    /// that cascade a context around an engine or a double; a hand-assembled root built this
+    /// way never learns of rendered-field-set changes, because the reconciliation and ordering
+    /// seams are internal, wired by the shipped hosts.
+    /// </remarks>
     public FormidableFormContext(IFormValidationEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);

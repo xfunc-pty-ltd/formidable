@@ -1,10 +1,19 @@
+using FluentValidation;
 using Formidable.Tests.Fixtures;
 
 namespace Formidable.Tests;
 
 public class FluentValidationModelValidatorTests
 {
+    private static readonly object DescriptionState = new();
+
     private readonly FluentValidationModelValidator<TestOrder> _adapter = new(new TestOrderValidator());
+
+    private sealed class StatefulOrderValidator : AbstractValidator<TestOrder>
+    {
+        public StatefulOrderValidator() =>
+            RuleFor(x => x.Description).NotEmpty().WithState(_ => DescriptionState);
+    }
 
     [Fact]
     public void Valid_model_returns_empty_report()
@@ -73,5 +82,25 @@ public class FluentValidationModelValidatorTests
 
         Assert.False(report.IsValid);
         Assert.Contains(report.Errors, i => i.Path == "Customer");
+    }
+
+    [Fact]
+    public void Custom_state_lands_on_the_issue()
+    {
+        var adapter = new FluentValidationModelValidator<TestOrder>(new StatefulOrderValidator());
+
+        var report = adapter.Validate(new TestOrder(), ValidationProfile.Submit);
+
+        var issue = Assert.Single(report.Errors, i => i.Path == "Description");
+        Assert.Same(DescriptionState, issue.State);
+    }
+
+    [Fact]
+    public void A_failure_without_custom_state_carries_null()
+    {
+        var report = _adapter.Validate(new TestOrder(), ValidationProfile.Submit);
+
+        Assert.NotEmpty(report.Issues);
+        Assert.All(report.Issues, issue => Assert.Null(issue.State));
     }
 }

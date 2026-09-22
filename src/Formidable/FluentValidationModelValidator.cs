@@ -96,15 +96,24 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <inheritdoc />
     /// <remarks>
     /// True exactly when the wrapped validator is a FluentValidation
-    /// <c>AbstractValidator&lt;TModel&gt;</c>, whatever its cascade mode: reading a rule's
-    /// declared components asks nothing of execution order, so the class-level cascade stop
-    /// that bars <see cref="CanValidateByRule"/> does not bar inspection. A hand-rolled
+    /// <c>AbstractValidator&lt;TModel&gt;</c> AND the loaded FluentValidation assembly still
+    /// carries the members the inspection walk reads by name
+    /// (<c>ChildValidatorAdaptor&lt;,&gt;</c>'s <c>GetValidator</c>/<c>RuleSets</c>,
+    /// <c>ICollectionRule&lt;,&gt;</c>'s <c>Filter</c>/<c>AsyncFilter</c>). Those reads
+    /// degrade quietly rather than throwing, so under a FluentValidation resolved above the
+    /// range this package declares they could turn "conditionally required" into a flat
+    /// "required" with no signal; the member check — made once per process, writing one Trace
+    /// line when it fails — turns that into the honest "cannot tell", and the readers then
+    /// claim nothing. Cascade mode never matters: reading a rule's declared components asks
+    /// nothing of execution order, so the class-level cascade stop that bars
+    /// <see cref="CanValidateByRule"/> does not bar inspection. A hand-rolled
     /// <see cref="IValidator{T}"/> keeps its rules to itself and reports false.
     /// </remarks>
-    public bool CanInspectRules => _validator is AbstractValidator<TModel>;
+    public bool CanInspectRules =>
+        _validator is AbstractValidator<TModel> && FluentValidationInspectionSurface.Intact;
 
     /// <inheritdoc />
-    public RuleRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
+    public FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
     {
         ArgumentNullException.ThrowIfNull(fieldPath);
         ArgumentNullException.ThrowIfNull(profile);
@@ -127,7 +136,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
             return templated;
         }
 
-        return RuleRequirement.NotRequired;
+        return FieldRequirement.NotRequired;
     }
 
     /// <summary>
@@ -165,25 +174,26 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <summary>
     /// The one walk both inspection readers answer from: every field path the profile's rules
     /// declare, mapped to the presence demand those rules make of it. A path with rules but no
-    /// presence component is present with <see cref="RuleRequirement.NotRequired"/> — the two
+    /// presence component is present with <see cref="FieldRequirement.NotRequired"/> — the two
     /// questions the readers ask are "is this field spoken about" and "is it demanded", and
     /// only a map that keeps both can answer them consistently.
     /// </summary>
-    private Dictionary<string, RuleRequirement> DeclaredFields(ValidationProfile profile)
+    private Dictionary<string, FieldRequirement> DeclaredFields(ValidationProfile profile)
     {
         // One profile deep, and keyed by REFERENCE. Both readers are asked repeatedly for the
         // same profile - a form builds its whole requirement map by asking once per declared
         // path - and a walk allocates a dictionary and resolves every child validator it meets.
         // One entry covers that pattern exactly and cannot grow, which a per-profile map could
-        // if a caller built a fresh profile per ask. Reference rather than equality because
-        // profiles compare by NAME: two carrying the same name and different rulesets are one
-        // key, and would serve each other's answer.
+        // if a caller built a fresh profile per ask. Reference rather than equality as the
+        // check: the walk reads the profile's shape alone, so value-equal profiles would earn
+        // identical answers and a reference miss only ever recomputes an answer - it can never
+        // serve a wrong one.
         if (_declared is { } snapshot && ReferenceEquals(snapshot.Profile, profile))
         {
             return snapshot.Fields;
         }
 
-        var declared = new Dictionary<string, RuleRequirement>(StringComparer.Ordinal);
+        var declared = new Dictionary<string, FieldRequirement>(StringComparer.Ordinal);
         if (_validator is not AbstractValidator<TModel> abstractValidator)
         {
             return declared;
@@ -192,6 +202,16 @@ public sealed partial class FluentValidationModelValidator<TModel>
         // Ahead of the store, so a profile naming a ruleset that was never registered throws on
         // every ask rather than only on the first - nothing unverified is ever remembered.
         VerifyRuleSets(profile);
+
+        // CanInspectRules gates on the surface check as well as on the validator's shape, and
+        // the readers promise an empty answer whenever it is false - so a walk whose by-name
+        // reads would quietly degrade is never taken. After the ruleset verification on
+        // purpose: a typo'd profile name fails the same way whatever the surface check found.
+        if (!FluentValidationInspectionSurface.Intact)
+        {
+            return declared;
+        }
+
         WalkDeclaredRules(
             abstractValidator,
             typeof(TModel),
@@ -209,7 +229,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     }
 
     /// <summary>One profile's declared fields, held together so the pair cannot be read torn.</summary>
-    private sealed record DeclaredSnapshot(ValidationProfile Profile, Dictionary<string, RuleRequirement> Fields);
+    private sealed record DeclaredSnapshot(ValidationProfile Profile, Dictionary<string, FieldRequirement> Fields);
 
     /// <summary>
     /// Walks one validator's selected rules, filing each leaf component under the path its
@@ -239,7 +259,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         bool conditional,
         IValidatorSelector selector,
         IValidationContext selectionContext,
-        Dictionary<string, RuleRequirement> declared,
+        Dictionary<string, FieldRequirement> declared,
         HashSet<object> walking)
     {
         if (validator is not IEnumerable<IValidationRule> rules || !walking.Add(validator))
@@ -311,10 +331,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 }
 
                 var demand = !IsPresenceComponent(component)
-                    ? RuleRequirement.NotRequired
+                    ? FieldRequirement.NotRequired
                     : componentConditional
-                        ? RuleRequirement.ConditionallyRequired
-                        : RuleRequirement.Required;
+                        ? FieldRequirement.ConditionallyRequired
+                        : FieldRequirement.Required;
 
                 var path = prefix + name;
 
@@ -670,7 +690,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 failure.ErrorMessage,
                 MapSeverity(failure.Severity),
                 string.IsNullOrEmpty(failure.ErrorCode) ? null : failure.ErrorCode,
-                GetDisplayName(failure)))
+                GetDisplayName(failure),
+                failure.CustomState))
             .ToList();
 
         return new ValidationReport(issues);

@@ -275,19 +275,19 @@ the override does to a server-applied issue.
 
 ### `RequiredOverride`
 
-`Func<FieldIdentifier, RuleRequirement?>?`, defaults to `null`. Consulted before the validator's
-own rules are read: return a `RuleRequirement` to declare a field's requiredness outright, or
+`Func<FieldIdentifier, FieldRequirement?>?`, defaults to `null`. Consulted before the validator's
+own rules are read: return a `FieldRequirement` to declare a field's requiredness outright, or
 `null` to defer to what the rules say.
 
 It is not a nicety. Reading rules sees presence written as FluentValidation's own `NotEmpty()`
 or `NotNull()` and nothing else, so presence written as a predicate —
 `Must(s => !string.IsNullOrWhiteSpace(s))` — is indistinguishable from any other predicate and
-answers `RuleRequirement.NotRequired`. So does every field of a validator that cannot be
+answers `FieldRequirement.NotRequired`. So does every field of a validator that cannot be
 inspected. `NotRequired` means "not known to be required", never "proven optional", and this
 delegate is what a form says instead.
 
-It declares in both directions. `RuleRequirement.Required` marks a field the rules cannot be read
-to demand; `RuleRequirement.NotRequired` unmarks one they can, a `NotNull()` on a value the page
+It declares in both directions. `FieldRequirement.Required` marks a field the rules cannot be read
+to demand; `FieldRequirement.NotRequired` unmarks one they can, a `NotNull()` on a value the page
 fills in itself being the usual case. And it decides both surfaces at once, so the marker
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders and
 the `aria-required` the kit's inputs carry cannot disagree.

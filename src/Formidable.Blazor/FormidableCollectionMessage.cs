@@ -14,7 +14,7 @@ namespace Formidable.Blazor;
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
 public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<TValue>
 {
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 

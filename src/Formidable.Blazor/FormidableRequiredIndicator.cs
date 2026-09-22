@@ -10,7 +10,7 @@ namespace Formidable.Blazor;
 /// <c>&lt;span class="formidable-required" aria-hidden="true"&gt;</c> around
 /// <see cref="FormidableOptions.RequiredIndicatorContent"/> while
 /// <see cref="IFormValidationEngine.GetFieldRequirement"/> answers
-/// <see cref="RuleRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
+/// <see cref="FieldRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
 /// Place it wherever the marker belongs — inside the field's <c>&lt;label&gt;</c>, after the
 /// label text, is the shape the samples use.
 /// </summary>
@@ -28,7 +28,7 @@ namespace Formidable.Blazor;
 /// accessible name computed from it.
 /// </para>
 /// <para>
-/// Nothing is drawn for <see cref="RuleRequirement.ConditionallyRequired"/> — a presence rule
+/// Nothing is drawn for <see cref="FieldRequirement.ConditionallyRequired"/> — a presence rule
 /// the profile selects but reaches only through a condition. Whether that demand applies cannot
 /// be decided without evaluating the condition against the model, which inspection does not do,
 /// so drawing the same mark would assert a demand the library cannot verify, and a validator
@@ -39,7 +39,7 @@ namespace Formidable.Blazor;
 /// <see cref="FormidableOptions.RequiredOverride"/>.
 /// </para>
 /// <para>
-/// Registers nothing: a marker is not an input, so what keeps the field revealed for disclosure
+/// Registers nothing: a marker is not an input, so what keeps the field registered for disclosure
 /// is the validated input beside it (or a <see cref="FormidableFieldAnchor{TValue}"/>), exactly
 /// as it is for <see cref="FormidableFieldMessage{TValue}"/>. <see cref="For"/> is (re-)read
 /// whenever the cascaded <see cref="FormidableFormContext"/> is a new instance — including the
@@ -85,7 +85,7 @@ public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBas
         }
 
         var content = Context.Engine.Options.RequiredIndicatorContent;
-        if (content is null || Context.Engine.GetFieldRequirement(_field) != RuleRequirement.Required)
+        if (content is null || Context.Engine.GetFieldRequirement(_field) != FieldRequirement.Required)
         {
             return;
         }

@@ -214,6 +214,39 @@ public class FormidableValidatorComponentTests : BunitContext
             v => v.Issue.Message == "server says no");
     }
 
+    // Mirrors FormidableForm's identical pin: the root forwards the engine's cancellation
+    // contract whole — a cancelled call throws and adopts nothing. Swallowing the token in the
+    // pass-through would let the load run to completion, failing every assertion here.
+    [Fact]
+    public async Task A_pre_cancelled_disclose_token_throws_and_adopts_nothing()
+    {
+        var order = new EngineOrder { Description = "far too long for the ten-character rule" };
+        var cut = RenderForm(order);
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => cut.InvokeAsync(() => validator.Instance.DiscloseLoadedValuesAsync(cts.Token)));
+
+        var engine = validator.Instance.Engine!;
+        Assert.False(engine.GetFieldState(description).IsTouched);
+        Assert.Empty(engine.EditContext.GetValidationMessages());
+
+        // The engagement half of "adopts nothing": a live pass answers every engaged field, so a
+        // field the cancelled call had wrongly engaged would disclose its failing value here.
+        // Customer's own error appearing is the positive control that the pass ran and disclosed.
+        await cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(
+            new FieldIdentifier(order, nameof(EngineOrder.Customer))));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotEmpty(engine.EditContext.GetValidationMessages(
+                new FieldIdentifier(order, nameof(EngineOrder.Customer))));
+            Assert.Empty(engine.EditContext.GetValidationMessages(description));
+        });
+    }
+
     // Mirrors FormidableForm's identical guard test: both forwarders beat the engine's first
     // build the same way, and say so by name rather than a bare NullReferenceException.
     [Fact]

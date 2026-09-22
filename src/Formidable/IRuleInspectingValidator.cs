@@ -10,11 +10,12 @@ namespace Formidable;
 /// inspector.CanInspectRules</c> — never the type test alone.
 /// </summary>
 /// <remarks>
-/// Inspection is a weaker ask than per-rule execution and has its own gate: a validator whose
-/// class-level cascade mode stops on the first failure enumerates its rules perfectly even
-/// though its rules cannot be executed one at a time, so <see cref="CanInspectRules"/> is
-/// <see langword="true"/> there while
-/// <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/> is <see langword="false"/>.
+/// Inspection is a weaker ask than per-rule execution, and the two capabilities gate
+/// independently: a validator whose class-level cascade mode stops on the first failure
+/// enumerates its rules perfectly even though they cannot be executed one at a time, so the
+/// cascade stop that makes <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/>
+/// <see langword="false"/> does not bear on <see cref="CanInspectRules"/>, which answers from
+/// its own gate.
 /// <para>
 /// Neither reader throws when the capability is absent — an inspection answer decorates a
 /// form rather than deciding a verdict, so a validator that cannot be read reports "nothing
@@ -30,6 +31,15 @@ namespace Formidable;
 /// declared rules. They are stable for the lifetime of the validator, since rules are declared
 /// once when it is constructed — but an implementation is free to derive them on every call,
 /// so a caller that asks per field per render caches them itself.
+/// </para>
+/// <para>
+/// Implementing this interface is supported surface, and it grows accordingly: a member added
+/// after v1 carries a default implementation whose answer is the documented "cannot tell" — a
+/// new tester reads <see langword="false"/>, a new reader reports the empty answer — which is
+/// the state every caller already handles, because it is the shape
+/// <see cref="CanInspectRules"/> being <see langword="false"/> promises. An implementation
+/// that does not override the addition therefore goes on claiming exactly what it claimed
+/// before.
 /// </para>
 /// </remarks>
 public interface IRuleInspectingValidator<in TModel>
@@ -62,24 +72,24 @@ public interface IRuleInspectingValidator<in TModel>
     /// FluentValidation's own member-name matching normalises it, with an exact match tried
     /// first. The answer is a property of the rules rather than of any model, so no index is
     /// out of range. Compared ordinally; any other string reports
-    /// <see cref="RuleRequirement.NotRequired"/>.
+    /// <see cref="FieldRequirement.NotRequired"/>.
     /// </param>
     /// <param name="profile">The profile whose rule selection decides the answer.</param>
     /// <remarks>
     /// Only presence expressed through FluentValidation's own <c>NotEmpty()</c>/<c>NotNull()</c>
     /// components is visible. Presence written as a predicate — <c>Must(s =&gt;
     /// !string.IsNullOrWhiteSpace(s))</c> — is indistinguishable from any other predicate and
-    /// reports <see cref="RuleRequirement.NotRequired"/>, so a consumer-facing feature built on
+    /// reports <see cref="FieldRequirement.NotRequired"/>, so a consumer-facing feature built on
     /// this offers a way to declare requiredness directly. A <c>RuleForEach</c> whose
     /// components judge each element directly is a rule the validator declares for itself,
     /// filed under the collection's own path — so <c>Tags</c> reports required for a
     /// <c>RuleForEach(m =&gt; m.Tags).NotEmpty()</c>.
     /// </remarks>
     /// <returns>
-    /// The demand, or <see cref="RuleRequirement.NotRequired"/> when
+    /// The demand, or <see cref="FieldRequirement.NotRequired"/> when
     /// <see cref="CanInspectRules"/> is <see langword="false"/>.
     /// </returns>
-    RuleRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile);
+    FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile);
 
     /// <summary>
     /// Every field path the rules <paramref name="profile"/> selects speak about, as the

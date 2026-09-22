@@ -613,7 +613,7 @@ public class FieldOrderTests : BunitContext
         var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
         var customerName = new FieldIdentifier(_order.Customer!, nameof(EngineCustomer.Name));
         var notifications = 0;
-        _engine.StateChanged += () => notifications++;
+        _engine.StateChanged += (_, _) => notifications++;
 
         _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
         {
@@ -650,7 +650,7 @@ public class FieldOrderTests : BunitContext
         });
 
         var notifications = 0;
-        _engine.StateChanged += () => notifications++;
+        _engine.StateChanged += (_, _) => notifications++;
 
         // A different instance carrying the same answer, which is what a fresh resolve hands over.
         _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>

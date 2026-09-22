@@ -1,6 +1,15 @@
 namespace Formidable.Introspection;
 
 /// <summary>Resolves validator property paths against a live object graph.</summary>
+/// <remarks>
+/// A swappable seam — <c>AddFormidable</c> registers the reflection-based implementation only
+/// when nothing else is, which is how a fully trimmed publish supplies its own — and it grows
+/// accordingly: a member added after v1 carries a default implementation answering "this
+/// cannot be read", the report <see cref="TryReadValue"/> already gives for a member it cannot
+/// find, which every caller treats as a reason to claim nothing rather than as a value. An
+/// implementation that does not override the addition therefore claims nothing it did not
+/// read.
+/// </remarks>
 public interface IModelIntrospector
 {
     /// <summary>

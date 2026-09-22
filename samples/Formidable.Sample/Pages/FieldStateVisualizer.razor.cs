@@ -27,7 +27,8 @@ public partial class FieldStateVisualizer : IDisposable
         }
     }
 
-    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
 
     public void Dispose()
     {

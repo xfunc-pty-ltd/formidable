@@ -1,6 +1,8 @@
 namespace Formidable.Introspection;
 
 /// <summary>One segment of a property path: either a property name or an indexer token.</summary>
+/// <remarks>Grows by properties behind the existing factories or new ones, never by changes to
+/// a factory's shape; any added member folds into the record's synthesized equality.</remarks>
 public readonly record struct PathSegment
 {
     private PathSegment(string? propertyName, string? indexToken)

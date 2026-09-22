@@ -57,7 +57,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         var feedback = new Feedback();
         var form = RenderRating(feedback);
 
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(
             new FieldIdentifier(feedback, nameof(Feedback.Rating))));
     }
 
@@ -136,7 +136,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
 
         var form = cut.FindComponent<FormidableForm<Feedback>>();
         var input = cut.FindComponent<HookOnlyInput>().Instance;
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(field));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(field));
 
         cut.FindComponent<ToggleHost>().Render(parameters =>
         {
@@ -145,7 +145,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         });
 
         Assert.True(input.HookRan);
-        Assert.False(form.Instance.Engine!.Registry.IsRevealed(field));
+        Assert.False(form.Instance.Engine!.Registry.IsRegistered(field));
     }
 
     // A DisposeCore that throws must not leave the registration behind — the release runs in
@@ -178,7 +178,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         });
 
         var form = cut.FindComponent<FormidableForm<Feedback>>();
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(field));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(field));
 
         // bUnit surfaces a disposal exception rather than swallowing it (it propagates from the
         // render call that triggers the unmount), so the exception itself is part of what this
@@ -191,7 +191,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
             }));
         Assert.Equal("dispose blew up", thrown.Message);
 
-        Assert.False(form.Instance.Engine!.Registry.IsRevealed(field));
+        Assert.False(form.Instance.Engine!.Registry.IsRegistered(field));
     }
 
     /// <summary>Renders its child only while <see cref="Show"/> is true, so a test can unmount it.</summary>

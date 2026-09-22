@@ -4,8 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Formidable.AspNetCore;
 
 /// <summary>
-/// Runs normalize + profile validation for one endpoint argument type. Always fails closed: a
-/// declared parameter bound to null 400s, and an unresolvable
+/// Runs normalize + profile validation for one endpoint argument type, stashing the computed
+/// report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
+/// Always fails closed: a declared parameter bound to null 400s, and an unresolvable
 /// <see cref="IModelValidator{TModel}"/> throws. An endpoint with no parameter of this type at
 /// all never reaches the filter — the endpoint filter factory in
 /// <see cref="FormidableEndpointFilterExtensions"/> throws for it while the endpoint's request
@@ -40,6 +41,12 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 
         var validator = context.HttpContext.RequestServices.GetRequiredService<IModelValidator<TModel>>();
         var report = await validator.ValidateAsync(model, _profile, context.HttpContext.RequestAborted);
+
+        // Stashed before the 400/pass-through decision so the request can always read the
+        // verdict a validator produced: the handler composes a "saved, but note…" 200 from a
+        // passing report's advisories, and middleware reads a rejection's full severity detail
+        // without parsing the response body.
+        context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = report;
 
         if (report.IsValid)
         {

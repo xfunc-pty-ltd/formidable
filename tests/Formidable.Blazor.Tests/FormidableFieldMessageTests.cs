@@ -195,7 +195,7 @@ public class FormidableFieldMessageTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
 
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(new FieldIdentifier(order, nameof(EngineOrder.Items))));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(new FieldIdentifier(order, nameof(EngineOrder.Items))));
     }
 
     [Fact]

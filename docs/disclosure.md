@@ -70,7 +70,7 @@ that finds it off screen again.
 That gate only fires when nothing about the failure can be shown; the ordinary case is narrower.
 At submit, the engine resolves each FluentValidation failure's property path to a
 `FieldIdentifier` through the model introspector, then asks the registry (`FieldRegistry`)
-whether that identifier is currently revealed. [Collections and row
+whether that identifier is currently registered. [Collections and row
 identity](collections-and-row-identity.md) covers how that resolution walks indexed paths. A field
 has no matching registration when the markup that would render it sits behind an `@if` that isn't
 satisfied. The rule still ran and the issue still exists in the validator's report, but it never
@@ -344,7 +344,7 @@ Every registering component — `FormidableInputBase<TValue>` descendants, `Form
 such as `Virtualize` disposes rows that scroll out of view, even though they remain part of the
 form. Without `KeepRegistered`, a scrolled-away row's field unregisters, and its live messages go
 quiet with it while the row still sits in the model, still failing. Setting `KeepRegistered` on
-the row's fields keeps them revealed after disposal, so scrolling takes no message away, and a
+the row's fields keeps them registered after disposal, so scrolling takes no message away, and a
 submit can still disclose a row the visitor scrolled past. See the Virtualize section of
 [Component kit](component-kit.md) for the full pattern.
 

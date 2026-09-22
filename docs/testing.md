@@ -143,7 +143,10 @@ twenty-line class recording every call,
 [`RecordingFieldOrderService`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingFieldOrderService.cs)
 is the same shape with an answer to hand back, plus a fault it throws instead of answering and a
 one-call no-order answer, so the retry after either is observable. A focus double is the same
-shape again over `FocusAsync`.
+shape again over `FocusAsync`. A double written today also keeps compiling as Formidable grows:
+a member added after v1 to any interface a consumer implements — these three seams and
+`IFormValidationEngine` among them — carries a default implementation, and until a
+double overrides it, it answers the conservative default named in the interface's own remarks.
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's

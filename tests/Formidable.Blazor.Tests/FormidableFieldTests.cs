@@ -85,7 +85,7 @@ public class FormidableFieldTests : BunitContext
             // Description carries the submit bucket's NotEmpty(), so the splat says so too — a
             // control splatting this bundle announces the demand without wiring anything itself.
             Assert.Equal("true", attributes["aria-required"]);
-            Assert.Equal(RuleRequirement.Required, seen.Requirement);
+            Assert.Equal(FieldRequirement.Required, seen.Requirement);
         });
     }
 
@@ -139,7 +139,7 @@ public class FormidableFieldTests : BunitContext
         });
 
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(new FieldIdentifier(order, nameof(EngineOrder.Description))));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(new FieldIdentifier(order, nameof(EngineOrder.Description))));
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public class FormidableFieldTests : BunitContext
             builder.CloseComponent();
         });
 
-        Assert.True(firstEngine.Registry.IsRevealed(field));
+        Assert.True(firstEngine.Registry.IsRegistered(field));
 
         var secondEngine = CreateEngine(order);
         var secondContext = new FormidableFormContext(secondEngine);
@@ -208,8 +208,8 @@ public class FormidableFieldTests : BunitContext
             parameters.Add(p => p.ChildContent, fieldFragment);
         });
 
-        Assert.True(secondEngine.Registry.IsRevealed(field));
-        Assert.False(firstEngine.Registry.IsRevealed(field));
+        Assert.True(secondEngine.Registry.IsRegistered(field));
+        Assert.False(firstEngine.Registry.IsRegistered(field));
 
         // The rendered context must now reflect the NEW engine: a live-pass validation on the
         // new engine's EditContext should reach `seen`. If the StateChanged subscription were

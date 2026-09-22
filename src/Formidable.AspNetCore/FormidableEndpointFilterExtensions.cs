@@ -13,8 +13,10 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
-    /// never block on their own.
+    /// use the client's path format and whose <c>advisories</c> extension carries the report's
+    /// non-error issues. Warnings and infos never block on their own: a report carrying only
+    /// them passes through to the handler, which can read it via
+    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
@@ -49,8 +51,10 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="INormalizableModel"/>) and validates the endpoint's
     /// <typeparamref name="TModel"/> argument with the given profile before the handler runs.
     /// Error issues short-circuit to a 400 ValidationProblemDetails whose <c>errors</c> keys
-    /// use the client's path format; non-error issues ride the <c>advisories</c> extension and
-    /// never block on their own.
+    /// use the client's path format and whose <c>advisories</c> extension carries the report's
+    /// non-error issues. Warnings and infos never block on their own: a report carrying only
+    /// them passes through to the handler, which can read it via
+    /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
     /// </summary>
     /// <param name="builder">The route group to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>

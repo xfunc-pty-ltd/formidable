@@ -380,7 +380,7 @@ public class FormValidationEngineProfileSplitTests
         Action act)
     {
         var recorded = new List<(bool First, bool Second)>();
-        void Record()
+        void Record(object? sender, FormidableStateChangedEventArgs e)
         {
             if (engine.IsValidating)
             {

@@ -158,13 +158,13 @@ public class FormidableInputRenderTests : BunitContext
 
         public bool IsFormValid => inner.IsFormValid;
 
-        public event Action? StateChanged
+        public event EventHandler<FormidableStateChangedEventArgs>? StateChanged
         {
             add => inner.StateChanged += value;
             remove => inner.StateChanged -= value;
         }
 
-        public event Action<Exception>? ValidationFaulted
+        public event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted
         {
             add => inner.ValidationFaulted += value;
             remove => inner.ValidationFaulted -= value;
@@ -182,7 +182,7 @@ public class FormidableInputRenderTests : BunitContext
             return inner.GetIssues(field);
         }
 
-        public RuleRequirement GetFieldRequirement(FieldIdentifier field)
+        public FieldRequirement GetFieldRequirement(FieldIdentifier field)
         {
             RequirementReads++;
             return inner.GetFieldRequirement(field);

@@ -3,6 +3,15 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor;
 
 /// <summary>Engine configuration. Profiles are assigned meaning here — at the point of use.</summary>
+/// <remarks>
+/// The engine holds the instance it was built with and reads each property at each use — a pass
+/// selecting its profile, a timer arming, a render asking for a class name or a marker — so
+/// mutating a property mid-form takes effect at that property's next read, unless the property's
+/// own remarks state a coarser read (<see cref="ClickRecovery"/>'s once-per-root read is the
+/// archetype). A change notifies nothing by itself: it shows when something next validates or
+/// renders. Handing a root a different options instance without swapping the model throws rather
+/// than silently applying nothing — build the options once, hold them, and mutate that instance.
+/// </remarks>
 public sealed class FormidableOptions
 {
     /// <summary>
@@ -32,6 +41,16 @@ public sealed class FormidableOptions
     /// Debounce for the refresh pass, armed by a field change once a submit has happened and by
     /// any move in the rendered field set. Defaults to 300 ms.
     /// </summary>
+    /// <remarks>
+    /// <see cref="TimeSpan.Zero"/> is the narrowest window, not a switch: each arming event
+    /// re-arms the shared timer to fire as soon as it can run, so the window no longer waits for
+    /// a burst of edits to settle — but the pass still starts from the timer's own callback
+    /// rather than inside the notification that armed it, and a fire that finds a submit, live,
+    /// or load pass in flight still defers and re-arms. The one spelling that turns the refresh
+    /// off is <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>, which arms a timer that
+    /// never fires — no positive width does, however wide. Contrast <see cref="LiveDebounce"/>,
+    /// whose <see langword="null"/> genuinely bypasses its timer.
+    /// </remarks>
     public TimeSpan RefreshDebounce { get; set; } = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
@@ -43,6 +62,17 @@ public sealed class FormidableOptions
     /// since the window opened. The window is shared across fields rather than tracked per
     /// field — the same semantics <see cref="RefreshDebounce"/> already has for the refresh.
     /// </summary>
+    /// <remarks>
+    /// <see cref="TimeSpan.Zero"/> is not a spelling of <see langword="null"/>: it is a real
+    /// window of zero width, and it keeps the timer path — field changes accumulate, the pass
+    /// starts from the timer's fire scoped to whatever accumulated before it ran, a fire that
+    /// finds a submit, refresh, or load pass in flight defers and re-arms, and the
+    /// <see cref="TrackFormValidity"/> probe rides once per window.
+    /// <see langword="null"/> bypasses the timer entirely: the live pass starts inside the
+    /// field-changed notification itself, one pass per change with the probe beside it at that
+    /// same cadence, standing down only for a submit or load in flight and superseding anything
+    /// else.
+    /// </remarks>
     public TimeSpan? LiveDebounce { get; set; }
 
     /// <summary>
@@ -76,6 +106,11 @@ public sealed class FormidableOptions
     /// <see cref="LiveProfile"/> narrows it, so the two evaluate the same work twice. Where it
     /// does narrow, the probe is the more expensive of the two, with the async/server-shaped
     /// rules among the difference.
+    /// The construction-time probe is the one read of this property a mutation cannot reach, and
+    /// enabling tracking mid-form computes nothing by itself:
+    /// <see cref="IFormValidationEngine.IsFormValid"/> keeps whatever it holds —
+    /// <see langword="false"/>, on a form tracking has never answered — until the next field
+    /// change or whole-model pass answers it.
     /// </summary>
     public bool TrackFormValidity { get; set; }
 
@@ -109,15 +144,37 @@ public sealed class FormidableOptions
     public DisplacedClickRecovery ClickRecovery { get; set; } = DisplacedClickRecovery.Buttons;
 
     /// <summary>
-    /// Optional disclosure override. Return true to force an issue visible, false to force it
-    /// suppressed, or null to defer to the field registry. Model-level issues (empty path) are
-    /// always visible unless this returns false.
+    /// Optional per-issue visibility answer, consulted where the engine decides whether an issue
+    /// may be shown: return <see langword="true"/> to answer yes for an issue whose field
+    /// nothing renders, <see langword="false"/> to answer no, or <see langword="null"/> to defer
+    /// to the field registry. Defaults to <see langword="null"/>. What an answer decides is
+    /// channel-dependent — see remarks; it is an input to each channel's own disclosure rule,
+    /// never a per-issue switch over what is on screen.
     /// </summary>
+    /// <remarks>
+    /// On the submit channel the answer decides whether an error puts its FIELD under watch,
+    /// and the watch is per field and only ever unions: <see langword="false"/> withholds that
+    /// one issue's contribution and no more, so a field any sibling issue, earlier blocked
+    /// submit, or server apply has revealed discloses its current submit-selected errors whole,
+    /// with no per-issue re-check — the override's authority is over revealing, not over
+    /// filtering a revealed field's answer. A submit's advisories are filtered per issue as they
+    /// are captured; the next refresh recaptures a watched field's advisories from the rules
+    /// unfiltered. <c>ApplyServerIssues</c> asks per issue at apply: a server error is stored
+    /// whether or not anything renders its field, only an explicit <see langword="false"/> drops
+    /// one, and a dropped error reveals nothing either; a server advisory defers to the registry
+    /// like a client one. The live channel consults this only under
+    /// <see cref="LiveIssueDisclosure.EngagedAndVisible"/> — under the default
+    /// <see cref="LiveIssueDisclosure.Engaged"/> policy no answer here reaches a live issue in
+    /// either direction — and even where the opt-in applies it, per issue at every read,
+    /// <see langword="true"/> grants visibility, never engagement. Model-level issues (empty
+    /// path) resolve to the form's own element, which counts as rendered for as long as the form
+    /// is on the page, so deferring leaves them visible.
+    /// </remarks>
     public Func<ValidationIssue, bool?>? DisclosureOverride { get; set; }
 
     /// <summary>
     /// Optional requiredness override, consulted before the validator's own rules are read.
-    /// Return a <see cref="RuleRequirement"/> to declare a field's requiredness outright, or
+    /// Return a <see cref="FieldRequirement"/> to declare a field's requiredness outright, or
     /// null to defer to what the rules say. Defaults to <see langword="null"/>, which defers for
     /// every field.
     /// </summary>
@@ -125,10 +182,10 @@ public sealed class FormidableOptions
     /// Not a nicety: reading rules can only see presence expressed as FluentValidation's own
     /// <c>NotEmpty()</c>/<c>NotNull()</c>, so presence written as a predicate —
     /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> — is indistinguishable from any other
-    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>; a validator that cannot
+    /// predicate and reports <see cref="FieldRequirement.NotRequired"/>; a validator that cannot
     /// be inspected at all reports it for every field. This is what a form says instead, and it
-    /// declares in both directions: <see cref="RuleRequirement.Required"/> marks a field the
-    /// rules cannot be read to demand, and <see cref="RuleRequirement.NotRequired"/> unmarks
+    /// declares in both directions: <see cref="FieldRequirement.Required"/> marks a field the
+    /// rules cannot be read to demand, and <see cref="FieldRequirement.NotRequired"/> unmarks
     /// one they can — a <c>NotNull()</c> on a value the page fills in itself, say.
     /// It decides both surfaces at once, so the marker a <c>FormidableRequiredIndicator</c>
     /// renders and the <c>aria-required</c> the kit's inputs carry cannot disagree.
@@ -136,7 +193,7 @@ public sealed class FormidableOptions
     /// rest of the answer, so a delegate reading state that changes is answered as it changes.
     /// Keep it cheap and keep it a pure read: it runs inside a render.
     /// </remarks>
-    public Func<FieldIdentifier, RuleRequirement?>? RequiredOverride { get; set; }
+    public Func<FieldIdentifier, FieldRequirement?>? RequiredOverride { get; set; }
 
     /// <summary>
     /// The content <c>FormidableRequiredIndicator</c> renders for a required field. Defaults to
@@ -223,6 +280,9 @@ public sealed class FormidableOptions
     /// Recommended in Development builds only. It costs an accessor resolution per bound component
     /// per render, and a form that reaches production with the mistake should misfile a message
     /// rather than take the page down.
+    /// Read once per bound component, as it binds to the form's context, so a change mid-form
+    /// governs only components that bind afterwards — those already bound keep the answer they
+    /// read.
     /// </summary>
     public bool VerifyRowKeys { get; set; }
 
@@ -274,5 +334,12 @@ public sealed class FormidableOptions
     public Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>? OrderIssues { get; set; }
 
     /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
+    /// <remarks>
+    /// Change class names by mutating this instance's properties — every reader sees the change
+    /// at its next class computation. Replacing the instance reaches only the kit components,
+    /// which read it through the options at each render: the provider that classes native
+    /// InputBase components is handed the instance the engine was built with and keeps it, so a
+    /// replacement leaves kit and native inputs answering with different names.
+    /// </remarks>
     public FormidableCssClasses CssClasses { get; set; } = new();
 }

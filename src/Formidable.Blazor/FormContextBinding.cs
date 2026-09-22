@@ -12,7 +12,7 @@ internal sealed class FormContextBinding : IDisposable
 {
     private FormidableFormContext? _context;
     private FieldRegistration? _registration;
-    private Action? _stateChangedHandler;
+    private EventHandler<FormidableStateChangedEventArgs>? _stateChangedHandler;
 
     /// <summary>The currently bound context, or null before the first <see cref="Update"/>.</summary>
     public FormidableFormContext? Context => _context;
@@ -35,7 +35,7 @@ internal sealed class FormContextBinding : IDisposable
         FormidableFormContext? context,
         Type componentType,
         Func<FormidableFormContext, FieldRegistration?>? register = null,
-        Action? stateChanged = null)
+        EventHandler<FormidableStateChangedEventArgs>? stateChanged = null)
     {
         if (context is null)
         {

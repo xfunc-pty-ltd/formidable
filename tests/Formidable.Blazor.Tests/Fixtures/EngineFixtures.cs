@@ -702,7 +702,7 @@ public static class EngineTestSync
     public static Task Quiescence(FormValidationEngine<EngineOrder> engine)
     {
         var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
         {
             if (!engine.IsValidating)
             {

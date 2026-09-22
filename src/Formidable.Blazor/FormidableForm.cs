@@ -300,7 +300,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // would take whichever of its two positions the answer listed last rather than the one the
         // page puts it in. Adding it is also what leaves the request never empty, whatever the
         // registry holds.
-        var fields = _engine.Registry.RevealedFields.ToList();
+        var fields = _engine.Registry.RegisteredFields.ToList();
         if (!fields.Contains(_engine.ModelLevelField))
         {
             fields.Add(_engine.ModelLevelField);
@@ -474,7 +474,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // shadows the lookup while this form is still rendered, and a registered field walks
             // up to it. A form that is not rendered has no registered fields either, so there is
             // nothing to walk up from and no guard to install.
-            var fieldIds = _engine.Registry.RevealedFields.Select(FormidableFieldId.For).ToArray();
+            var fieldIds = _engine.Registry.RegisteredFields.Select(FormidableFieldId.For).ToArray();
             await _jsModule.InvokeVoidAsync("registerClickRecovery", _modelLevelFieldId, fieldIds);
         }
         catch
@@ -867,7 +867,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// visitor somewhere in. Call from the renderer's synchronization context (a Blazor event
     /// handler or <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
     /// </summary>
-    public Task DiscloseLoadedValuesAsync() => RequireEngine().DiscloseLoadedValuesAsync();
+    /// <param name="cancellationToken">
+    /// Cancels the pass under the engine's contract — a cancelled call throws and adopts
+    /// nothing, detailed on <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/>'s own
+    /// parameter. The submit methods take no token deliberately: a submit is UI-event-driven,
+    /// and its event handler holds none to pass. This call is data-driven — the caller that
+    /// filled the model typically holds the <see cref="CancellationTokenSource"/> it minted for
+    /// the load, so a superseded record-open or a dispose mid-load cancels the disclosure
+    /// through the same token that cancels the fetch.
+    /// </param>
+    public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
+        RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
 
     /// <summary>
     /// The engine, or the reason there is not one yet. It is built on the form's first parameter

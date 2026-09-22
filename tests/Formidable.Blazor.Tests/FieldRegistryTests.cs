@@ -11,21 +11,21 @@ public class FieldRegistryTests
     private FieldIdentifier Field(string name) => new(_order, name);
 
     [Fact]
-    public void Unregistered_field_is_not_revealed()
+    public void Unregistered_field_is_not_registered()
     {
-        Assert.False(_registry.IsRevealed(Field("Description")));
+        Assert.False(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]
-    public void Registered_field_is_revealed_until_disposed()
+    public void Registration_holds_until_disposed()
     {
         var registration = _registry.Register(Field("Description"));
 
-        Assert.True(_registry.IsRevealed(Field("Description")));
+        Assert.True(_registry.IsRegistered(Field("Description")));
 
         registration.Dispose();
 
-        Assert.False(_registry.IsRevealed(Field("Description")));
+        Assert.False(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]
@@ -35,20 +35,20 @@ public class FieldRegistryTests
         var second = _registry.Register(Field("Description"));
 
         first.Dispose();
-        Assert.True(_registry.IsRevealed(Field("Description")));
+        Assert.True(_registry.IsRegistered(Field("Description")));
 
         second.Dispose();
-        Assert.False(_registry.IsRevealed(Field("Description")));
+        Assert.False(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]
-    public void Keep_registered_field_stays_revealed_after_dispose()
+    public void Keep_registered_field_stays_registered_after_dispose()
     {
         var registration = _registry.Register(Field("Description"), keepRegistered: true);
 
         registration.Dispose();
 
-        Assert.True(_registry.IsRevealed(Field("Description")));
+        Assert.True(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]
@@ -58,8 +58,8 @@ public class FieldRegistryTests
         var itemB = new EngineItem();
         _registry.Register(new FieldIdentifier(itemA, "Sku"));
 
-        Assert.True(_registry.IsRevealed(new FieldIdentifier(itemA, "Sku")));
-        Assert.False(_registry.IsRevealed(new FieldIdentifier(itemB, "Sku")));
+        Assert.True(_registry.IsRegistered(new FieldIdentifier(itemA, "Sku")));
+        Assert.False(_registry.IsRegistered(new FieldIdentifier(itemB, "Sku")));
     }
 
     [Fact]
@@ -70,19 +70,19 @@ public class FieldRegistryTests
         registration.Dispose();
         registration.Dispose();
 
-        Assert.False(_registry.IsRevealed(Field("Description")));
+        Assert.False(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]
     public void Later_non_kept_disposal_reverses_an_earlier_keep()
     {
         _registry.Register(Field("Description"), keepRegistered: true).Dispose();
-        Assert.True(_registry.IsRevealed(Field("Description")));
+        Assert.True(_registry.IsRegistered(Field("Description")));
 
         var second = _registry.Register(Field("Description"));
         second.Dispose();
 
-        Assert.False(_registry.IsRevealed(Field("Description")));
+        Assert.False(_registry.IsRegistered(Field("Description")));
     }
 
     [Fact]

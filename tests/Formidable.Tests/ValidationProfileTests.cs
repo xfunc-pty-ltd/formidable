@@ -47,10 +47,46 @@ public class ValidationProfileTests
     }
 
     [Fact]
-    public void Equality_is_by_name()
+    public void Equality_is_by_full_shape()
     {
-        Assert.Equal(ValidationProfile.Named("Submit"), ValidationProfile.Submit);
+        Assert.Equal(
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Submit", "Approve"),
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Submit", "Approve"));
+        Assert.NotEqual(
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Approve"),
+            ValidationProfile.Named("Approve", includeDefaultRules: true, "Approve"));
+        Assert.NotEqual(
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Submit", "Approve"),
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Approve", "Submit"));
         Assert.NotEqual(ValidationProfile.Draft, ValidationProfile.Submit);
+    }
+
+    [Fact]
+    public void A_named_profile_sharing_a_canonical_name_is_not_equal_to_the_canonical_profile()
+    {
+        Assert.NotEqual(ValidationProfile.Named("Submit"), ValidationProfile.Submit);
+    }
+
+    [Fact]
+    public void Equality_compares_names_case_insensitively()
+    {
+        Assert.Equal(ValidationProfile.Named("draft"), ValidationProfile.Draft);
+        Assert.Equal(
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "approve"),
+            ValidationProfile.Named("APPROVE", includeDefaultRules: false, "Approve"));
+    }
+
+    [Fact]
+    public void Equal_profiles_hash_equal()
+    {
+        Assert.Equal(
+            ValidationProfile.Named("approve", includeDefaultRules: false, "submit").GetHashCode(),
+            ValidationProfile.Named("Approve", includeDefaultRules: false, "Submit").GetHashCode());
+    }
+
+    [Fact]
+    public void ToString_returns_the_name()
+    {
         Assert.Equal("Draft", ValidationProfile.Draft.ToString());
     }
 

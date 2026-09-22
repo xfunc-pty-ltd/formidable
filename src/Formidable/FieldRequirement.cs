@@ -16,8 +16,14 @@ namespace Formidable;
 /// comparison keeps the later member and knows nothing of what either one means. A member added
 /// here is placed by how firmly it demands a value, not by where it reads best.
 /// </para>
+/// <para>
+/// The numeric values are not contract — only their relative order is. They are spaced so that
+/// a member added between two existing grades takes an unused value in between: enum members
+/// compile into consuming assemblies as constants, so renumbering an existing member would
+/// leave every already-built consumer comparing against the wrong grade until it recompiles.
+/// </para>
 /// </remarks>
-public enum RuleRequirement
+public enum FieldRequirement
 {
     /// <summary>
     /// No presence rule was found for the field under the profile. This is also the answer
@@ -27,7 +33,7 @@ public enum RuleRequirement
     /// "proven optional", which is why a consumer-facing feature built on this must let a
     /// consumer declare requiredness itself.
     /// </summary>
-    NotRequired,
+    NotRequired = 0,
 
     /// <summary>
     /// The profile selects a presence rule for the field, but the rule or its presence
@@ -35,11 +41,11 @@ public enum RuleRequirement
     /// current state. Every presence rule the profile selects for the field is conditional —
     /// one unconditional rule alongside them answers <see cref="Required"/>.
     /// </summary>
-    ConditionallyRequired,
+    ConditionallyRequired = 100,
 
     /// <summary>
     /// The profile selects a presence rule for the field that carries no condition: every
     /// validation under this profile demands a value.
     /// </summary>
-    Required,
+    Required = 200,
 }

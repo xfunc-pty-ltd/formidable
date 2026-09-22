@@ -197,14 +197,14 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
 
         await SummaryEntry(page, warning).ClickAsync();
 
-        // The scroll is smooth, so its resting position — not a mid-animation snapshot — is what
-        // proves where it landed: wait for window.scrollY to stop moving first.
-        await WaitForScrollToSettleAsync(page);
-
         // The message list, addressed the way every collection message list is: the field's id
-        // with "-messages" appended, not a spelled-out id.
-        var top = await page.Locator("ul[id$='-attendees-messages']")
-            .EvaluateAsync<double>("el => el.getBoundingClientRect().top");
+        // with "-messages" appended, not a spelled-out id. The scroll is smooth, so what proves
+        // the landing is the list coming to rest inside the viewport — polled for, because a
+        // snapshot taken at any single instant can read a stalled animation instead (the
+        // mechanism is on WaitForTopInBandAsync).
+        var top = await WaitForTopInBandAsync(
+            page.Locator("ul[id$='-attendees-messages']"),
+            t => t >= 0 && t < viewportHeight);
         Assert.True(
             top >= 0 && top < viewportHeight,
             $"expected the attendees message list inside the viewport (0..{viewportHeight}), got top={top}");
@@ -240,11 +240,13 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         // auto-focus (FocusFirstErrorOnInvalidSubmit) is what triggers it; no summary click is
         // needed.
         await Expect(Field(page, "form")).ToBeFocusedAsync();
-        await WaitForScrollToSettleAsync(page);
 
-        var top = await Field(page, "form").EvaluateAsync<double>("el => el.getBoundingClientRect().top");
-        // "start" alignment rests the element's top at (near) the viewport's top; the pre-fix
-        // "center" alignment would rest a form this tall's top far above it, strongly negative.
+        // "start" alignment rests the element's top at (near) the viewport's top; a "center"
+        // alignment would rest a form this tall's top far above it, strongly negative, on a
+        // trajectory that never enters this band — so polling for the band rides out the
+        // animation's stalls without losing the discrimination (the mechanism is on
+        // WaitForTopInBandAsync).
+        var top = await WaitForTopInBandAsync(Field(page, "form"), t => t is >= -5 and <= 50);
         Assert.True(
             top is >= -5 and <= 50,
             $"expected the form's top near the viewport's top (start-aligned), got top={top}");
@@ -253,21 +255,27 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     private static Task SubmitRegistrationAsync(IPage page) =>
         page.GetByRole(AriaRole.Button, new() { Name = "Submit registration", Exact = true }).ClickAsync();
 
-    // A smooth scrollIntoView animates over several frames, so reading the resting position
-    // immediately after the click that triggers it can catch it mid-flight. Poll window.scrollY
-    // until two consecutive reads agree.
-    private static async Task WaitForScrollToSettleAsync(IPage page)
+    // A smooth scrollIntoView is frame-driven on the main thread, which is busy with validation
+    // and render work at the very moment these scrolls start, so under a Debug-build WASM load
+    // the animation can stall flat for hundreds of milliseconds on its way to a correct rest.
+    // Equal scrollY reads a poll apart therefore establish nothing: the same flat window appears
+    // before the scroll starts, mid-stall, and in the easing tail. The discriminating fact is the
+    // position the caller's assert demands, so this polls the target's viewport top until it
+    // enters the caller's band and returns the last read either way — both callers' mis-aligned
+    // rests sit outside their bands on trajectories that never enter them, so a wrong scroll runs
+    // out the deadline and the assert fails carrying the actual value.
+    private static async Task<double> WaitForTopInBandAsync(ILocator target, Func<double, bool> inBand)
     {
-        var previous = double.NaN;
-        for (var attempt = 0; attempt < 50; attempt++)
+        var top = double.NaN;
+        for (var attempt = 0; attempt < AsyncTimeoutMs / 50; attempt++)
         {
-            var current = await page.EvaluateAsync<double>("() => window.scrollY");
-            if (current == previous)
+            top = await target.EvaluateAsync<double>("el => el.getBoundingClientRect().top");
+            if (inBand(top))
             {
-                return;
+                return top;
             }
-            previous = current;
             await Task.Delay(50);
         }
+        return top;
     }
 }

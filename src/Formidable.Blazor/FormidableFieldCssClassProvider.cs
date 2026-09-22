@@ -93,14 +93,16 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             wouldPassSubmit = fallback.WouldPassSubmit;
         }
 
-        var state = new FieldState(
-            IsTouched: touched,
-            IsModified: editContext.IsModified(fieldIdentifier),
-            IsValidating: pending,
-            HasErrors: editContext.GetValidationMessages(fieldIdentifier).Any(),
-            HasWarnings: hasWarnings,
-            HasInfos: hasInfos,
-            WouldPassSubmit: wouldPassSubmit);
+        var state = new FieldState
+        {
+            IsTouched = touched,
+            IsModified = editContext.IsModified(fieldIdentifier),
+            IsValidating = pending,
+            HasErrors = editContext.GetValidationMessages(fieldIdentifier).Any(),
+            HasWarnings = hasWarnings,
+            HasInfos = hasInfos,
+            WouldPassSubmit = wouldPassSubmit
+        };
 
         return FormidableCss.Compute(state, _classes);
     }

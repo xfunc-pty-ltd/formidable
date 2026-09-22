@@ -154,14 +154,18 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// Called when the engine raises <see cref="IFormValidationEngine.StateChanged"/> — a
     /// validation pass landing, a refresh, a server-applied issue — and re-renders the
     /// component on the renderer's synchronization context. An override that still wants
-    /// the re-render must call base.
+    /// the re-render must call base. It has the event's own handler shape, so an override
+    /// reads whatever <see cref="FormidableStateChangedEventArgs"/> carries.
     /// </summary>
-    protected virtual void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
+    /// <param name="sender">The engine that raised the event.</param>
+    /// <param name="e">The event's arguments.</param>
+    protected virtual void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+        _ = InvokeAsync(StateHasChanged);
 
     /// <summary>
     /// Runs <see cref="DisposeCore"/>, then releases the field registration and the engine
     /// subscription. Deliberately not virtual: the base's cleanup is not a derived control's to
-    /// forget, so a removed field cannot stay revealed because someone missed a base call. The
+    /// forget, so a removed field cannot stay registered because someone missed a base call. The
     /// release runs in a <see langword="finally"/>, so a throwing <see cref="DisposeCore"/> no
     /// longer skips it.
     /// </summary>

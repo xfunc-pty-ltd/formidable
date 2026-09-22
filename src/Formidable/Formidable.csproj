@@ -6,8 +6,20 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="FluentValidation" Version="12.1.1" />
+        <!-- Capped below the next major on purpose: the library adapts FluentValidation
+             internals (selection semantics, adaptor members, the mirrored index-normalizer
+             pattern), every one of those adaptations is verified against a specific major, and
+             the rule-inspection walk's by-name reads degrade quietly rather than loudly under
+             a major that moves them. Each new FluentValidation major gets a verified Formidable
+             release that widens this range. -->
+        <PackageReference Include="FluentValidation" Version="[12.1.1,13.0.0)" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Lets the test project pin internal mechanics (e.g. the FluentValidation inspection
+             surface guard's predicate) directly, rather than only through public surface. -->
+        <InternalsVisibleTo Include="Formidable.Tests" />
     </ItemGroup>
 
 </Project>

@@ -12,6 +12,20 @@ namespace Formidable;
 /// <remarks>
 /// There is deliberately no synchronous variant: the consuming engines are async, and a rule
 /// with async components could not honour one.
+/// <para>
+/// An implementation minting its own identities resolves the one
+/// <see cref="ValidateRuleAsync"/> hands back by reading <see cref="RuleIdentity.Key"/> — the
+/// rule object it wrapped in <see cref="SelectRules"/> — rather than by carrying its own
+/// identity-to-rule lookup.
+/// </para>
+/// <para>
+/// Implementing this interface is supported surface, and it grows accordingly: a member added
+/// after v1 carries a default implementation matching this interface's own posture for absent
+/// capability — a new tester reads <see langword="false"/>, and a new doer throws
+/// <see cref="NotSupportedException"/> rather than silently under-validating — so a caller
+/// routes around an implementation that does not override the addition exactly as it routes
+/// around <see cref="CanValidateByRule"/> being <see langword="false"/>.
+/// </para>
 /// </remarks>
 public interface IRuleLevelValidator<in TModel>
 {
@@ -38,7 +52,7 @@ public interface IRuleLevelValidator<in TModel>
     /// exactly as whole-profile validation does.
     /// </summary>
     /// <remarks>
-    /// The identities are opaque and validator-instance-scoped — see
+    /// The identities are opaque to the caller and validator-instance-scoped — see
     /// <see cref="RuleIdentity"/>. Throws <see cref="NotSupportedException"/> when
     /// <see cref="CanValidateByRule"/> is <see langword="false"/>.
     /// </remarks>

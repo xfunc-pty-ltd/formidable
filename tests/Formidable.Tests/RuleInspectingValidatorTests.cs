@@ -436,10 +436,10 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<DraftedBrief>(new DraftedBriefValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Title", ValidationProfile.Submit));
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Summary", ValidationProfile.Submit));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Summary", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Title", ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Summary", ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Summary", ValidationProfile.Draft));
 
         // Title's length rule rides the draft bucket, so the field is declared under Draft and
         // simply not required. Summary's only rule is the submit-bucket presence rule, so the
@@ -467,7 +467,7 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        Assert.Equal(RuleRequirement.ConditionallyRequired, adapter.GetFieldRequirement(field, ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.ConditionallyRequired, adapter.GetFieldRequirement(field, ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -481,7 +481,7 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Mixed", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Mixed", ValidationProfile.Draft));
     }
 
     /// <summary>An unconditional presence rule outranks a conditional one on the same field.</summary>
@@ -490,7 +490,7 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Both", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Both", ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -505,8 +505,8 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Predicate", ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Absent", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Predicate", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Absent", ValidationProfile.Draft));
     }
 
     /// <summary>A field no rule mentions is not required, and asking about it is not an error.</summary>
@@ -515,7 +515,7 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Nothing", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Nothing", ValidationProfile.Draft));
         Assert.DoesNotContain("Nothing", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
@@ -532,7 +532,7 @@ public class RuleInspectingValidatorTests
 
         Assert.False(adapter.CanValidateByRule);
         Assert.True(adapter.CanInspectRules);
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
         Assert.Contains("Title", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
@@ -547,7 +547,7 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<InspectModel>(new HandRolledValidator());
 
         Assert.False(adapter.CanInspectRules);
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
         Assert.Empty(adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
@@ -630,13 +630,13 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<EventRegistration>(new EventRegistrationValidator());
 
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             adapter.GetFieldRequirement("Attendees[].Name", ValidationProfile.Submit));
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             adapter.GetFieldRequirement("Attendees[0].Name", ValidationProfile.Submit));
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             adapter.GetFieldRequirement("Attendees[57].Name", ValidationProfile.Submit));
     }
 
@@ -652,10 +652,10 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<Roster>(new RosterValidator());
 
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             adapter.GetFieldRequirement("Teams[0].Members[1].Alias", ValidationProfile.Submit));
         Assert.Equal(
-            RuleRequirement.Required,
+            FieldRequirement.Required,
             adapter.GetFieldRequirement("Teams[2].Name", ValidationProfile.Submit));
     }
 
@@ -677,10 +677,10 @@ public class RuleInspectingValidatorTests
             : new(new RowFilteredValidator());
 
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Rows[].City", ValidationProfile.Draft));
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Rows[0].City", ValidationProfile.Draft));
     }
 
@@ -695,13 +695,13 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<InspectModel>(new RowConditionalValidator());
 
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Rows[].City", ValidationProfile.Draft));
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Rows[0].City", ValidationProfile.Draft));
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Rows[7].City", ValidationProfile.Draft));
     }
 
@@ -718,7 +718,7 @@ public class RuleInspectingValidatorTests
         Assert.Equal(
             ["Chained", "Title"],
             adapter.GetDeclaredFieldPaths(ValidationProfile.Draft).OrderBy(p => p, StringComparer.Ordinal));
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Chained", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Chained", ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -737,7 +737,7 @@ public class RuleInspectingValidatorTests
             : new FluentValidationModelValidator<InspectModel>(new ModelLevelChildRulesValidator());
 
         Assert.Equal(["Chained"], validator.GetDeclaredFieldPaths(ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.Required, validator.GetFieldRequirement("Chained", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, validator.GetFieldRequirement("Chained", ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -754,18 +754,18 @@ public class RuleInspectingValidatorTests
         var scoped = new FluentValidationModelValidator<InspectModel>(new RuleSetScopedChildValidator());
         var admin = ValidationProfile.Named("Admin", includeDefaultRules: true, "Admin");
 
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", ValidationProfile.Draft));
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), ValidationProfile.Draft)).Issues);
 
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", admin));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", admin));
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), admin)).Issues);
 
         var selfScoping = new FluentValidationModelValidator<InspectModel>(new SelfScopingChildRootValidator());
 
-        Assert.Equal(RuleRequirement.NotRequired, selfScoping.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, selfScoping.GetFieldRequirement("Child.City", ValidationProfile.Draft));
         Assert.Empty((await selfScoping.ValidateAsync(new InspectModel(), ValidationProfile.Draft)).Issues);
 
-        Assert.Equal(RuleRequirement.Required, selfScoping.GetFieldRequirement("Child.City", admin));
+        Assert.Equal(FieldRequirement.Required, selfScoping.GetFieldRequirement("Child.City", admin));
         Assert.Equal(
             ["Child.City"],
             (await selfScoping.ValidateAsync(new InspectModel(), admin)).Issues.Select(i => i.Path));
@@ -784,8 +784,8 @@ public class RuleInspectingValidatorTests
         var scoped = new FluentValidationModelValidator<InspectModel>(new RuleSetScopedChildValidator());
         var admin = ValidationProfile.Named("Admin", includeDefaultRules: true, "Admin");
 
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", ValidationProfile.Submit));
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", admin));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", admin));
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), ValidationProfile.Submit)).Issues);
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), admin)).Issues);
     }
@@ -803,12 +803,12 @@ public class RuleInspectingValidatorTests
         var scoped = new FluentValidationModelValidator<InspectModel>(new ScopedTaggedChildRootValidator());
         var adminOnly = ValidationProfile.Named("AdminOnly", includeDefaultRules: false, "Admin");
 
-        Assert.Equal(RuleRequirement.Required, scoped.GetFieldRequirement("Child.City", ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.Required, scoped.GetFieldRequirement("Child.City", ValidationProfile.Submit));
         Assert.Equal(
             ["Child.City"],
             (await scoped.ValidateAsync(new InspectModel(), ValidationProfile.Submit)).Issues.Select(i => i.Path));
 
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", adminOnly));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", adminOnly));
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), adminOnly)).Issues);
     }
 
@@ -825,11 +825,11 @@ public class RuleInspectingValidatorTests
         var allOnly = ValidationProfile.Named("AllOnly", includeDefaultRules: false, "*");
 
         var scoped = new FluentValidationModelValidator<InspectModel>(new RuleSetScopedChildValidator());
-        Assert.Equal(RuleRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", allOnly));
+        Assert.Equal(FieldRequirement.NotRequired, scoped.GetFieldRequirement("Child.City", allOnly));
         Assert.Empty((await scoped.ValidateAsync(new InspectModel(), allOnly)).Issues);
 
         var tagged = new FluentValidationModelValidator<InspectModel>(new ScopedTaggedChildRootValidator());
-        Assert.Equal(RuleRequirement.Required, tagged.GetFieldRequirement("Child.City", allOnly));
+        Assert.Equal(FieldRequirement.Required, tagged.GetFieldRequirement("Child.City", allOnly));
         Assert.Equal(
             ["Child.City"],
             (await tagged.ValidateAsync(new InspectModel(), allOnly)).Issues.Select(i => i.Path));
@@ -846,8 +846,8 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<NestedScopeModel>(new NestedScopedRootValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Outer.Inner.City", ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Outer.Inner.Zip", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Outer.Inner.City", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Outer.Inner.Zip", ValidationProfile.Draft));
         Assert.Equal(
             ["Outer.Inner.City"],
             (await adapter.ValidateAsync(new NestedScopeModel(), ValidationProfile.Draft)).Issues.Select(i => i.Path));
@@ -865,12 +865,12 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new TaggedChildRulesValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Child.City", ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Child.City", ValidationProfile.Submit));
         Assert.Equal(
             ["Child.City"],
             (await adapter.ValidateAsync(new InspectModel(), ValidationProfile.Submit)).Issues.Select(i => i.Path));
 
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
         Assert.Empty((await adapter.ValidateAsync(new InspectModel(), ValidationProfile.Draft)).Issues);
     }
 
@@ -895,7 +895,7 @@ public class RuleInspectingValidatorTests
 
             var run = await adapter.ValidateAsync(new InspectModel(), ValidationProfile.Draft);
             Assert.Contains("Chained", run.Issues.Select(i => i.Path));
-            Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Chained", ValidationProfile.Draft));
+            Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Chained", ValidationProfile.Draft));
             Assert.Contains("Chained", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
         }
         finally
@@ -944,7 +944,7 @@ public class RuleInspectingValidatorTests
             .Issues.Select(i => Templated(i.Path))
             .ToHashSet(StringComparer.Ordinal);
         var claimed = adapter.GetDeclaredFieldPaths(profile)
-            .Where(path => adapter.GetFieldRequirement(path, profile) == RuleRequirement.Required)
+            .Where(path => adapter.GetFieldRequirement(path, profile) == FieldRequirement.Required)
             .ToHashSet(StringComparer.Ordinal);
 
         // Every profile here selects at least one rule, so the comparison is never vacuous.
@@ -1002,7 +1002,7 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<InspectModel>(new ConditionalChildValidator());
 
         Assert.Equal(
-            RuleRequirement.ConditionallyRequired,
+            FieldRequirement.ConditionallyRequired,
             adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
     }
 
@@ -1048,8 +1048,8 @@ public class RuleInspectingValidatorTests
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new CollectionRuleValidator());
 
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Tags", ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Tags[0]", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Tags", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Tags[0]", ValidationProfile.Draft));
 
         Assert.Equal(["Tags"], adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
@@ -1068,7 +1068,7 @@ public class RuleInspectingValidatorTests
 
         Assert.Contains("Child.City", declared);
         Assert.DoesNotContain("Child", declared);
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -1082,7 +1082,7 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
         Assert.Contains("Predicate", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Predicate", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Predicate", ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -1130,9 +1130,9 @@ public class RuleInspectingValidatorTests
 
     /// <summary>
     /// Two profiles carrying the same NAME and different rulesets are different questions, and
-    /// each gets its own answer. Profiles compare by name, so anything holding an answer against
-    /// a profile has to hold it against the instance rather than against equality — otherwise
-    /// the second ask here is served the first one's answer.
+    /// each gets its own answer. Equality reads the full shape, so the two compare unequal —
+    /// and the declared-paths snapshot is held against the profile INSTANCE, the stronger key,
+    /// so the second ask here is recomputed rather than served the first one's answer.
     /// </summary>
     [Fact]
     public void Two_profiles_sharing_a_name_do_not_share_an_answer()
@@ -1141,9 +1141,9 @@ public class RuleInspectingValidatorTests
         var draftOnly = ValidationProfile.Named("Same", includeDefaultRules: true);
         var withSubmit = ValidationProfile.Named("Same", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName);
 
-        Assert.Equal(draftOnly, withSubmit); // equality is by name: the trap this guards
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
-        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Title", withSubmit));
-        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
+        Assert.NotEqual(draftOnly, withSubmit); // different shapes under one name compare unequal
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Title", withSubmit));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
     }
 }

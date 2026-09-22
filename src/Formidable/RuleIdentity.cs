@@ -25,8 +25,15 @@ public readonly struct RuleIdentity : IEquatable<RuleIdentity>
         _key = key;
     }
 
-    /// <summary>The wrapped key. Internal — the identity is opaque to consumers.</summary>
-    internal object? Key => _key;
+    /// <summary>
+    /// The wrapped key, or <see langword="null"/> for a <see langword="default"/> identity.
+    /// Only meaningful to the validator that produced it: an
+    /// <see cref="IRuleLevelValidator{TModel}"/> implementation resolves an identity handed to
+    /// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/> by reading back here the rule
+    /// object it wrapped in <see cref="IRuleLevelValidator{TModel}.SelectRules"/>, with no side
+    /// lookup. Any other reader holds an object whose type and content promise nothing.
+    /// </summary>
+    public object? Key => _key;
 
     /// <inheritdoc />
     public bool Equals(RuleIdentity other) => ReferenceEquals(_key, other._key);

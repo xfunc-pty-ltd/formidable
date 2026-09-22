@@ -126,7 +126,11 @@ public class FormidableFieldCssClassProviderTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: false, HasErrors: false, HasWarnings: true, HasInfos: false);
+        var state = new FieldState
+        {
+            IsTouched = true, IsModified = false, IsValidating = false,
+            HasErrors = false, HasWarnings = true, HasInfos = false
+        };
         var engine = new FieldStateStubEngine(editContext, state);
         var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
 
@@ -166,7 +170,7 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-pending", engine.EditContext.FieldCssClass(field));
 
         var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
         {
             if (!engine.IsValidating)
             {
@@ -195,7 +199,11 @@ public class FormidableFieldCssClassProviderTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        var state = new FieldState(IsTouched: true, IsModified: false, IsValidating: true, HasErrors: false, HasWarnings: false, HasInfos: false);
+        var state = new FieldState
+        {
+            IsTouched = true, IsModified = false, IsValidating = true,
+            HasErrors = false, HasWarnings = false, HasInfos = false
+        };
         var engine = new FieldStateStubEngine(editContext, state);
         var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
 
@@ -213,9 +221,11 @@ public class FormidableFieldCssClassProviderTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var field = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        var state = new FieldState(
-            IsTouched: true, IsModified: false, IsValidating: true,
-            HasErrors: false, HasWarnings: false, HasInfos: false, WouldPassSubmit: false);
+        var state = new FieldState
+        {
+            IsTouched = true, IsModified = false, IsValidating = true,
+            HasErrors = false, HasWarnings = false, HasInfos = false, WouldPassSubmit = false
+        };
         var engine = new FieldStateStubEngine(editContext, state);
         var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
 
@@ -252,13 +262,13 @@ public class FormidableFieldCssClassProviderTests
 
         public bool IsFormValid => false;
 
-        public event Action? StateChanged
+        public event EventHandler<FormidableStateChangedEventArgs>? StateChanged
         {
             add { }
             remove { }
         }
 
-        public event Action<Exception>? ValidationFaulted
+        public event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted
         {
             add { }
             remove { }
@@ -266,7 +276,7 @@ public class FormidableFieldCssClassProviderTests
 
         public FieldState GetFieldState(FieldIdentifier field) => state;
 
-        public RuleRequirement GetFieldRequirement(FieldIdentifier field) => RuleRequirement.NotRequired;
+        public FieldRequirement GetFieldRequirement(FieldIdentifier field) => FieldRequirement.NotRequired;
 
         public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field) => [];
 

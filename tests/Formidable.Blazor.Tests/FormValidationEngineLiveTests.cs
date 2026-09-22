@@ -58,7 +58,7 @@ public class FormValidationEngineLiveTests
     public void Field_change_marks_field_touched_and_raises_state_changed()
     {
         var raised = 0;
-        _engine.StateChanged += () => raised++;
+        _engine.StateChanged += (_, _) => raised++;
 
         _editContext.NotifyFieldChanged(DescriptionField);
 

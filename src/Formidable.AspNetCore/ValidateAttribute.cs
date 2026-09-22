@@ -32,6 +32,13 @@ namespace Formidable.AspNetCore;
 /// skips the argument silently — set <see cref="RequireValidator"/> to turn that into a thrown
 /// misconfiguration instead, recommended for any endpoint that accepts polymorphic model
 /// binding.
+/// An action can bind more than one validatable argument; their issues aggregate into a single
+/// report and, on rejection, a single <c>errors</c> dictionary keyed by each issue's own
+/// property path with no per-argument prefix, so two validated models sharing a property name
+/// merge under one key: that un-prefixed shape is the wire contract. The same aggregate
+/// is readable for the rest of the request through
+/// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>, the action body
+/// included.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 [RequiresUnreferencedCode(
@@ -125,6 +132,16 @@ public sealed class ValidateAttribute : ActionFilterAttribute
         }
 
         var aggregate = new ValidationReport(issues);
+
+        if (validatedAny)
+        {
+            // Stashed before the 400/pass-through decision so the request can always read the
+            // verdict the validators produced. Gated on validatedAny: when nothing was
+            // validated, the accessor answers null rather than serving an empty report that
+            // implies rules ran and passed.
+            context.HttpContext.Items[FormidableHttpContextExtensions.ValidationReportKey] = aggregate;
+        }
+
         if (!aggregate.IsValid)
         {
             var problem = new ValidationProblemDetails(ValidationReportProblemMapper.ToErrorDictionary(aggregate))

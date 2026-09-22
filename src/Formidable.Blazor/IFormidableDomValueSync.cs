@@ -19,6 +19,13 @@ namespace Formidable.Blazor;
 /// a <see cref="Microsoft.AspNetCore.Components.Forms.FieldIdentifier"/> because they answer
 /// questions about a field in the abstract, this writes to one already-rendered element, and its
 /// caller already holds that element's id from rendering it.
+/// <para>
+/// The interface grows accordingly: a member added after v1 carries a default implementation
+/// that writes nothing — the answer <see cref="SyncValueAsync"/> already gives for a missing
+/// element. The model is the authority and a write here only reconciles an element's display
+/// to it, so an implementation that does not override the addition skips a reconciliation
+/// rather than corrupting anything.
+/// </para>
 /// </remarks>
 public interface IFormidableDomValueSync
 {

@@ -24,7 +24,7 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableComponentBase
     [Parameter, EditorRequired]
     public Expression<Func<TValue>> For { get; set; } = default!;
 
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    /// <summary>Keeps the field registered after disposal — for virtualized containers.</summary>
     [Parameter]
     public bool KeepRegistered { get; set; }
 

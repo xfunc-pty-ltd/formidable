@@ -190,6 +190,123 @@ public class EndpointFilterTests
         Assert.Contains("Validate<SampleOrder>() found no endpoint argument", exception.Message);
     }
 
+    /// <summary>Hands back a report it built itself and records the instance, so a test can
+    /// prove the accessor serves the very report the filter computed rather than a re-run's
+    /// copy. The report is valid WITH a warning — the shape the 400 path never carries.</summary>
+    private sealed class RecordingModelValidator : IModelValidator<SampleOrder>
+    {
+        public ValidationReport? LastReport { get; private set; }
+
+        public Task<ValidationReport> ValidateAsync(
+            SampleOrder model, ValidationProfile profile, CancellationToken cancellationToken = default)
+        {
+            LastReport = new ValidationReport(
+                [new ValidationIssue(nameof(SampleOrder.Description), "Avoid hyphens", ValidationSeverity.Warning)]);
+            return Task.FromResult(LastReport);
+        }
+
+        public ValidationReport Validate(SampleOrder model, ValidationProfile profile) =>
+            new([new ValidationIssue(nameof(SampleOrder.Description), "Avoid hyphens", ValidationSeverity.Warning)]);
+    }
+
+    [Fact]
+    public async Task Success_path_handler_reads_the_same_report_instance_the_filter_computed()
+    {
+        var recorder = new RecordingModelValidator();
+        ValidationReport? seenByHandler = null;
+        await using var app = await TestApp.StartAsync(
+            a => a.MapPost("/accepted", (SampleOrder order, HttpContext http) =>
+                {
+                    seenByHandler = http.GetFormidableValidationReport();
+                    return Results.Ok();
+                }).Validate<SampleOrder>(),
+            // Registered AFTER AddFormidable's open-generic adapter, so this closed registration
+            // wins resolution and the filter validates through the recorder.
+            services => services.AddSingleton<IModelValidator<SampleOrder>>(recorder));
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/accepted", new SampleOrder { Description = "ok" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(recorder.LastReport); // positive control: the recorder is what validated
+        Assert.NotNull(seenByHandler);
+        Assert.Same(recorder.LastReport, seenByHandler);
+        // The report is valid WITH a warning: an advisory the wire has no success shape for is
+        // reachable in the handler, which is the accessor's whole reason to exist.
+        Assert.True(seenByHandler!.IsValid);
+        Assert.Contains(seenByHandler.Advisories, i => i.Severity == ValidationSeverity.Warning);
+    }
+
+    [Fact]
+    public async Task A_rejected_request_still_carries_the_report_for_middleware_to_read()
+    {
+        ValidationReport? seenAfterPipeline = null;
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            a.Use(async (context, next) =>
+            {
+                await next(context);
+                seenAfterPipeline = context.GetFormidableValidationReport();
+            });
+            a.MapPost("/orders", (SampleOrder order) => Results.Ok(order)).Validate<SampleOrder>();
+        });
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/orders",
+            new SampleOrder { Description = "", Items = [new SampleItem()] });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // The handler never ran, but the stash happened before the 400 decision — middleware
+        // reads the rejection's full severity detail without parsing the response body.
+        Assert.NotNull(seenAfterPipeline);
+        Assert.False(seenAfterPipeline!.IsValid);
+    }
+
+    [Fact]
+    public async Task Accessor_is_null_on_a_request_no_formidable_filter_validated()
+    {
+        var handlerRan = false;
+        ValidationReport? seenByHandler = new ValidationReport([]); // sentinel — must be overwritten
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/unfiltered", (SampleOrder order, HttpContext http) =>
+            {
+                handlerRan = true;
+                seenByHandler = http.GetFormidableValidationReport();
+                return Results.Ok();
+            }));
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/unfiltered", new SampleOrder { Description = "ok" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(handlerRan);
+        Assert.Null(seenByHandler);
+    }
+
+    [Fact]
+    public async Task A_null_bound_model_400_stashes_no_report_because_no_validator_ran()
+    {
+        ValidationReport? seenAfterPipeline = new ValidationReport([]); // sentinel — must be overwritten
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            a.Use(async (context, next) =>
+            {
+                await next(context);
+                seenAfterPipeline = context.GetFormidableValidationReport();
+            });
+            a.MapPost("/optional", (SampleOrder? order) => Results.Ok(order)).Validate<SampleOrder>();
+        });
+        var client = app.GetTestClient();
+
+        // The filter answers a null-bound model with its 400 before any validator can run, so
+        // there is no computed report for the accessor to serve — null, not an empty report.
+        var response = await client.PostAsync("/optional",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(seenAfterPipeline);
+    }
+
     [Fact]
     public async Task Grouped_endpoint_with_a_derived_declared_parameter_type_still_returns_400_not_500_on_null()
     {

@@ -200,7 +200,7 @@ public class FormidableInputBaseTests : BunitContext
         var order = new EngineOrder();
         var form = RenderInput(order);
 
-        Assert.True(form.Instance.Engine!.Registry.IsRevealed(new FieldIdentifier(order, nameof(EngineOrder.Description))));
+        Assert.True(form.Instance.Engine!.Registry.IsRegistered(new FieldIdentifier(order, nameof(EngineOrder.Description))));
     }
 
     [Fact]
@@ -369,7 +369,7 @@ public class FormidableInputBaseTests : BunitContext
             builder.CloseComponent();
         });
 
-        Assert.True(firstEngine.Registry.IsRevealed(field));
+        Assert.True(firstEngine.Registry.IsRegistered(field));
 
         var secondEngine = CreateEngine(order);
         var secondContext = new FormidableFormContext(secondEngine);
@@ -380,8 +380,8 @@ public class FormidableInputBaseTests : BunitContext
             parameters.Add(p => p.ChildContent, inputFragment);
         });
 
-        Assert.True(secondEngine.Registry.IsRevealed(field));
-        Assert.False(firstEngine.Registry.IsRevealed(field));
+        Assert.True(secondEngine.Registry.IsRegistered(field));
+        Assert.False(firstEngine.Registry.IsRegistered(field));
 
         // The rendered input must now reflect the NEW engine: a live-pass validation on the new
         // engine's EditContext should reach it. If the StateChanged subscription were still wired

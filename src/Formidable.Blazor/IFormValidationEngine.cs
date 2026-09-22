@@ -3,6 +3,27 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor;
 
 /// <summary>Non-generic engine view consumed by components and the cascaded form context.</summary>
+/// <remarks>
+/// Implementing this interface is supported surface — a test double cascaded in place of the
+/// shipped engine is the expected shape for component tests — and it grows accordingly: a
+/// member added after v1 carries a default implementation whose answer is the absent-feature
+/// one. A new <see langword="bool"/> reads <see langword="false"/>, a new collection reads
+/// empty, and a new query answers the way an engine without the feature would, so an
+/// implementation that predates the member keeps compiling and keeps its meaning — though it
+/// also sits the new behaviour out until it overrides the member, which is what a
+/// conservative default is for. Every other Formidable interface a consumer implements
+/// carries this same policy, each naming its own conservative default.
+/// <para>
+/// The policy has honest limits, stated once, here. A default body has only the interface's
+/// members to compute from, because an interface cannot carry per-implementation state — so a
+/// member that needs state of its own is a design conversation, not a default. An event
+/// cannot be defaulted into being raised: an implementation that predates one would compile
+/// against accessors that discard its subscribers and silently never raise it, so a new event
+/// is likewise a redesign rather than a default. What keeps the event story growable is the
+/// shape the two events here already have — anything they learn to say arrives as init-only
+/// properties on their arguments classes, never as a new event.
+/// </para>
+/// </remarks>
 public interface IFormValidationEngine
 {
     /// <summary>The edit context this engine writes messages to.</summary>
@@ -30,10 +51,12 @@ public interface IFormValidationEngine
 
     /// <summary>
     /// Whether the form would currently pass <see cref="FormidableOptions.SubmitProfile"/> —
-    /// meant for disable-submit scenarios. Meaningful only when
-    /// <see cref="FormidableOptions.TrackFormValidity"/> is turned on; otherwise this always
-    /// reads <see langword="false"/>, and even with tracking on it reads <see langword="false"/>
-    /// until the engine's first probe completes. The probe that keeps this current answers under
+    /// meant for disable-submit scenarios. Meaningful only while
+    /// <see cref="FormidableOptions.TrackFormValidity"/> is on — tracking is what keeps it
+    /// current: a form that never enables tracking reads <see langword="false"/>, one that
+    /// disables it mid-form keeps whatever it was last reading (nothing resets it), and even
+    /// with tracking on it reads <see langword="false"/> until the first probe or whole-model
+    /// pass answers it. The probe that keeps this current answers under
     /// the submit profile invisibly — no disclosure, no message-store write, no pending-indicator
     /// flip — so nothing about it is ever shown to the user. It shares the engine's per-rule
     /// verdict store with the passes beside it: on a validator that can execute rule by rule it
@@ -58,14 +81,28 @@ public interface IFormValidationEngine
     /// </summary>
     bool IsFormValid { get; }
 
-    /// <summary>Raised whenever validation or field state changes.</summary>
-    event Action? StateChanged;
+    /// <summary>
+    /// Raised whenever validation or field state changes. The sender is the engine;
+    /// <see cref="FormidableStateChangedEventArgs"/> carries no detail, and anything the event
+    /// learns to say about what changed arrives there as init-only properties rather than as a
+    /// change to the event's own shape, so a handler keeps compiling as the arguments grow.
+    /// </summary>
+    event EventHandler<FormidableStateChangedEventArgs>? StateChanged;
 
     /// <summary>
-    /// Raised when a validation pass fails with an unexpected exception (not cancellation). The
-    /// engine also surfaces a generic model-level message; subscribe to log or customize.
+    /// Raised when a pass nobody is awaiting — live, refresh, or the invisible probe behind
+    /// <see cref="FormidableOptions.TrackFormValidity"/> — fails with an unexpected exception
+    /// (not cancellation), carrying that exception on
+    /// <see cref="FormidableValidationFaultedEventArgs.Exception"/>; subscribe to log or
+    /// otherwise handle it. A pass with a caller awaiting it — a submit,
+    /// <see cref="DiscloseLoadedValuesAsync"/> — throws to that caller instead and never raises
+    /// this. A live or refresh fault also surfaces a generic model-level message while its pass
+    /// is still the current one; the probe's never does, because the probe promises no
+    /// disclosure. The sender is the engine, and anything the event learns to say beyond the
+    /// exception arrives as init-only properties on the arguments class rather than as a change
+    /// to the event's own shape, so a handler keeps compiling as the arguments grow.
     /// </summary>
-    event Action<Exception>? ValidationFaulted;
+    event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted;
 
     /// <summary>Current state for one field.</summary>
     FieldState GetFieldState(FieldIdentifier field);
@@ -84,7 +121,7 @@ public interface IFormValidationEngine
     /// through <see cref="IRuleInspectingValidator{TModel}"/>, which sees presence written as
     /// <c>NotEmpty()</c>/<c>NotNull()</c> and nothing else: presence written as a predicate and
     /// a validator that cannot be inspected both report
-    /// <see cref="RuleRequirement.NotRequired"/>, which means "not known to be required" rather
+    /// <see cref="FieldRequirement.NotRequired"/>, which means "not known to be required" rather
     /// than "proven optional" — the override is how a form says otherwise. A rule the root does
     /// not declare for itself IS read, by whichever of three routes carries it: one inside a
     /// child validator is answered under the child's own path (<c>Address.City</c>), one merged
@@ -114,7 +151,7 @@ public interface IFormValidationEngine
     /// them is the next derivation — a <see cref="FormidableOptions.SubmitProfile"/> swap, or a
     /// move in the rendered field set — which files <c>Address.City</c> under the NEW owner
     /// while a component that has not rebound still asks under the old one. From there the
-    /// field reports <see cref="RuleRequirement.NotRequired"/> — no marker and no
+    /// field reports <see cref="FieldRequirement.NotRequired"/> — no marker and no
     /// <c>aria-required</c> — and a further move does not repair it: only that component
     /// rebinding does, which is its host rebuilding the engine and registry. It fails towards
     /// claiming nothing, as every limit above it does, and
@@ -134,7 +171,7 @@ public interface IFormValidationEngine
     /// the override delegate, being the part that can change on its own, is invoked on every ask.
     /// </para>
     /// </remarks>
-    RuleRequirement GetFieldRequirement(FieldIdentifier field);
+    FieldRequirement GetFieldRequirement(FieldIdentifier field);
 
     /// <summary>
     /// The field's current issues, any severity, computed from the engine's own state each time
@@ -250,7 +287,7 @@ public interface IFormValidationEngine
     /// unstyled rather than being painted red.
     /// <see cref="GetFieldRequirement"/> errs the same way at its own limits, but what
     /// claiming nothing LOOKS like differs: it reports
-    /// <see cref="RuleRequirement.NotRequired"/> and drops a marker, where this stays silent
+    /// <see cref="FieldRequirement.NotRequired"/> and drops a marker, where this stays silent
     /// and paints no class.
     /// </para>
     /// <para>

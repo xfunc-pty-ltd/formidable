@@ -22,7 +22,7 @@ public sealed class FieldRegistry
 
     /// <summary>
     /// Registers a rendered field. Dispose the returned handle when the field leaves the
-    /// render tree. With <paramref name="keepRegistered"/> the field stays revealed after
+    /// render tree. With <paramref name="keepRegistered"/> the field stays registered after
     /// disposal — for containers such as <c>Virtualize</c> that dispose rows scrolled out of
     /// view without the row ceasing to be part of the form. A later registration of the same
     /// field disposed without keepRegistered removes the retained entry — the latest disposal's
@@ -38,7 +38,7 @@ public sealed class FieldRegistry
     }
 
     /// <summary>True when the field is currently rendered (or retained via keep-registered).</summary>
-    public bool IsRevealed(FieldIdentifier field) => _counts.ContainsKey(field) || _kept.Contains(field);
+    public bool IsRegistered(FieldIdentifier field) => _counts.ContainsKey(field) || _kept.Contains(field);
 
     /// <summary>
     /// Changes whenever a field registers or unregisters. A host polls this to learn whether the
@@ -74,7 +74,7 @@ public sealed class FieldRegistry
     /// keep-registered is absent: it has left the DOM, so there is no element of its own to
     /// locate.
     /// </summary>
-    internal IReadOnlyCollection<FieldIdentifier> RevealedFields => _counts.Keys;
+    internal IReadOnlyCollection<FieldIdentifier> RegisteredFields => _counts.Keys;
 
     /// <summary>
     /// True when the field has been registered at least once since the engine was built, whether

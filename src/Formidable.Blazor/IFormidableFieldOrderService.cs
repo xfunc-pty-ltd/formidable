@@ -21,6 +21,13 @@ namespace Formidable.Blazor;
 /// <see cref="FormidableFieldId.For(FieldIdentifier)"/>, which is how the shipped implementation
 /// asks the browser.
 /// </para>
+/// <para>
+/// The interface grows accordingly: a member added after v1 carries a default implementation
+/// answering "nothing could be resolved" — the state a <see langword="null"/> from
+/// <see cref="OrderAsync"/> already puts a host in, where validator order stands until a
+/// later render resolves. An implementation that does not override the addition therefore
+/// never asserts an order it did not derive.
+/// </para>
 /// </remarks>
 public interface IFormidableFieldOrderService
 {

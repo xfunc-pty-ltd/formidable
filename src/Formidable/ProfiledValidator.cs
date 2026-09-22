@@ -28,10 +28,11 @@ namespace Formidable;
 /// ruleset name that FluentValidation would otherwise ignore and silently under-validate. A
 /// plain FluentValidation <c>AbstractValidator&lt;T&gt;</c> validated via
 /// <see cref="ValidatorProfileExtensions"/> without deriving from this class is not covered.
-/// The cache key is the profile's <see cref="ValidationProfile.Name"/> alone, matching
-/// <see cref="ValidationProfile"/>'s own equality contract — two distinct profile instances
-/// that happen to share a name are treated as the same profile, and only the first one
-/// actually validated is checked.
+/// The cache key is the profile's <see cref="ValidationProfile.Name"/> alone, compared ordinally
+/// — the case-insensitivity above belongs to the ruleset match, not to this cache — so two
+/// distinct profile instances sharing a name exactly are treated as the same profile here, and
+/// only the first one actually validated has its ruleset names checked; a name differing only in
+/// case is verified on its own.
 /// </para>
 /// </remarks>
 public abstract class ProfiledValidator<T> : AbstractValidator<T>

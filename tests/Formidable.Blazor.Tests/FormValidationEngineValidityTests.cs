@@ -111,7 +111,7 @@ public class FormValidationEngineValidityTests
     public async Task StateChanged_fires_only_on_a_flip()
     {
         var raised = 0;
-        _engine.StateChanged += () => raised++;
+        _engine.StateChanged += (_, _) => raised++;
 
         // First edit: DescriptionField is newly touched (its own StateChanged) and the model
         // stays invalid — the probe reports false again, no flip.
@@ -243,7 +243,7 @@ public class FormValidationEngineValidityTests
         engine.OnRenderedFieldsChanged();
 
         var everValidating = false;
-        engine.StateChanged += () =>
+        engine.StateChanged += (_, _) =>
             everValidating |= engine.IsValidating || engine.GetFieldState(descriptionField).IsValidating;
 
         _time.Advance(TimeSpan.FromMilliseconds(400)); // window closes into an empty engine-pass snapshot
@@ -344,7 +344,7 @@ public class FormValidationEngineValidityTests
         var priorValue = engine.IsFormValid;
 
         Exception? observed = null;
-        engine.ValidationFaulted += ex => observed = ex;
+        engine.ValidationFaulted += (_, e) => observed = e.Exception;
 
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
         await FlushAsync();
