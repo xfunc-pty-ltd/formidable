@@ -42,15 +42,29 @@ explanation instead of quietly doing nothing —
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
 
-That model-level issue needs somewhere to land, the same as any other: `FormidableSummary`'s
-click-to-focus addresses it by `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`,
-exactly like a named field. `FormidableForm` renders that id — plus `tabindex="-1"` so the
-otherwise-inert `<form>` element can hold focus — on its own `<form>` automatically, so the gate's
-summary entry works without a page rendering anything for it (see
-[CSS and accessibility](css-and-accessibility.md) for the id mechanics, and
-[Component kit](component-kit.md) for what `FormidableForm` renders). Attach mode's
-`FormidableValidator` renders no `<form>` of its own, so a page using it still renders that id by
-hand — see [Component kit](component-kit.md)'s `FormidableValidator` section for the pattern.
+That explanation is a model-level issue — it belongs to the form, not to any field — and it is
+served to every surface that reads model-level issues, not to the summary alone.
+`FormidableSummary` lists it, and its click-to-focus addresses the form by
+`FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`, exactly like a named field:
+`FormidableForm` renders that id — plus `tabindex="-1"` so the otherwise-inert `<form>` element
+can hold focus — on its own `<form>` automatically (see
+[CSS and accessibility](css-and-accessibility.md) for the id mechanics). The `EditContext`'s
+message store carries it too, so Blazor's own `<ValidationSummary />` shows it on a form that
+uses the native components. And on a form that renders inline messages only,
+[`FormidableModelMessage`](component-kit.md#formidablemodelmessage) is the surface built for it:
+the same persistent list the field messages render, fixed to the model-level field, so the gate's
+explanation has somewhere to appear on exactly the form that has no summary to carry it. Attach
+mode's `FormidableValidator` renders no `<form>` of its own, so a page using it still renders the
+focus id by hand — see [Component kit](component-kit.md)'s `FormidableValidator` section for the
+pattern.
+
+A page that renders none of those — no summary, no model message, nothing reading the store —
+can still read the issues itself: `Engine.GetIssues(new FieldIdentifier(model, string.Empty))`
+returns them, the gate's explanation included, and `GetVisibleIssues()` carries them among
+everything else. Anything hand-rolled on that read should keep the persistent-element discipline
+the shipped components apply — render the container always and let items come and go — or the
+announcement the gate exists to make is the one most likely to be dropped (see
+[CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region) for why).
 
 That explanation is derived, not filed. There is no gate entry anywhere to keep or lose, only the
 conditions that make one true: a submit that blocked with nothing to show, an answer that still
@@ -103,7 +117,7 @@ flowchart TD
 
     C --> F{"Any error shown?"}
     E --> F
-    F -- "yes" --> G["Submit blocks; FormidableSummary shows whichever issues are visible now"]
+    F -- "yes" --> G["Submit blocks; every message surface shows whichever issues are visible now"]
     F -- "no, every failing field was hidden" --> H["Defensive gate explains the block at form level instead"]
     H --> G
 
@@ -125,8 +139,8 @@ component was registered for its field *at the moment submit ran*, or because an
 already put that field under watch. The live pass that runs after every field change has no such
 gate. By default registration filters it nowhere: the engine files a live verdict for every
 engaged field without consulting the registry, and every surface reads that verdict back the same
-way, whether or not anything currently renders the field — the engine's own issue reads,
-`FormidableFieldMessage`, `FormidableSummary`, and the `EditContext`'s message store a native
+way, whether or not anything currently renders the field — the engine's own issue reads, the
+kit's own message components, `FormidableSummary`, and the `EditContext`'s message store a native
 `ValidationMessage` renders from. That default is deliberate, and it is what keeps the store
 usable as a bridge for native components: a form built out of plain `InputBase` inputs registers
 nothing at all, and its live errors have to reach the store regardless (see
@@ -205,7 +219,7 @@ user has opened the section:
     @if (_showDetails)
     {
         <div class="field">
-            <label>Traveler name
+            <label>Traveler name <FormidableRequiredIndicator For="() => _request.TravelerName" />
                 <FormidableInputText @bind-Value="_request.TravelerName" /></label>
             <FormidableFieldMessage For="() => _request.TravelerName" />
         </div>
@@ -236,10 +250,10 @@ mirrors the same condition the `@if` uses to render it. The accommodation type i
 `<select>` — nothing Formidable would otherwise wrap — so it renders inside `FormidableField`.
 Its context supplies the plumbing the control needs: `ElementId`, `AriaInvalid`,
 `AriaDescribedBy`, `CssClass` — spelled out one attribute at a time here, though
-`@attributes="field.InputAttributes"` splats the same four in one go. It also exposes the
-`NotifyChanged()` the `@onchange` handler calls
-explicitly, so the engine's live pass runs on every change the same way it would for a
-Formidable-wrapped input:
+`@attributes="field.InputAttributes"` splats them in one go, adding `aria-required` on a field
+the submit profile demands a value for. The context also exposes the `NotifyChanged()` the
+`@onchange` handler calls explicitly, so the engine's live pass runs on every change the same
+way it would for a Formidable-wrapped input:
 
 ```razor
     @if (_request.NeedsAccommodation == true)
@@ -377,7 +391,9 @@ leaves the user nothing to fix.
 **Samples:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
 suppressed-issue list on the page reflects only the most recent submit. It's cleared at the start
 of each submit, and the diagnostic repopulates it as that submit runs. A fully disclosed submit
-leaves it empty instead of carrying forward what an earlier submit hid.
+leaves it empty instead of carrying forward what an earlier submit hid. The same page's
+summary-less variant form shows the defensive gate arriving through `FormidableModelMessage`
+instead of a summary entry.
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows the same UI-gating pattern
 (catering toggled off over an unconditional `DietaryNotes` rule) and the all-suppressed defensive
 gate, both appearing inside a composite form alongside every other feature.

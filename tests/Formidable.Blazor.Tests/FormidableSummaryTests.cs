@@ -53,7 +53,7 @@ public class FormidableSummaryTests : BunitContext
             // ones this file pins exact counts for; opted out here so those counts stay about the
             // summary alone.
             builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableSummary>(0);
                 inner.AddComponentParameter(1, "Show", show);
@@ -86,11 +86,44 @@ public class FormidableSummaryTests : BunitContext
     }
 
     [Fact]
-    public async Task Renders_nothing_when_clean()
+    public async Task A_clean_form_renders_the_wrapper_and_both_regions_empty()
     {
         var form = RenderWithSummary(new EngineOrder { Description = "ok", Customer = new EngineCustomer() });
 
-        Assert.Empty(form.FindAll(".formidable-summary"));
+        Assert.Single(form.FindAll("div.formidable-summary"));
+        var errorsRegion = form.Find(".formidable-summary__region--errors");
+        var advisoriesRegion = form.Find(".formidable-summary__region--advisories");
+        Assert.Equal("alert", errorsRegion.GetAttribute("role"));
+        Assert.Equal("status", advisoriesRegion.GetAttribute("role"));
+        Assert.Empty(form.FindAll(".formidable-summary__band"));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Roles_never_change_a_blocked_submit_fills_the_regions_that_already_carry_them()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order);
+
+        // Both fixed-role regions are in the markup before any issue exists — the live regions
+        // assistive technology will announce into already carry their roles here.
+        Assert.Equal("alert", form.Find(".formidable-summary__region--errors").GetAttribute("role"));
+        Assert.Equal("status", form.Find(".formidable-summary__region--advisories").GetAttribute("role"));
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var errorsRegion = form.Find(".formidable-summary__region--errors");
+            var advisoriesRegion = form.Find(".formidable-summary__region--advisories");
+
+            // The bands landed INSIDE the regions whose roles predate them, and neither role moved.
+            Assert.Single(errorsRegion.QuerySelectorAll(".formidable-summary__band--error"));
+            Assert.Single(advisoriesRegion.QuerySelectorAll(".formidable-summary__band--warning"));
+            Assert.Equal("alert", errorsRegion.GetAttribute("role"));
+            Assert.Equal("status", advisoriesRegion.GetAttribute("role"));
+        });
 
         await Services.DisposeAsync();
     }
@@ -109,7 +142,7 @@ public class FormidableSummaryTests : BunitContext
             Assert.Equal(2, groups.Count);
             Assert.Contains("--error", groups[0].GetAttribute("class"));
             Assert.Contains("--warning", groups[1].GetAttribute("class"));
-            Assert.Equal("alert", form.Find(".formidable-summary").GetAttribute("role"));
+            Assert.Equal("alert", form.Find(".formidable-summary__region--errors").GetAttribute("role"));
         });
 
         await Services.DisposeAsync();
@@ -229,20 +262,25 @@ public class FormidableSummaryTests : BunitContext
     }
 
     [Fact]
-    public async Task Advisory_only_visible_issues_announce_politely()
+    public async Task Advisory_only_visible_issues_fill_the_status_region_and_leave_the_alert_region_empty()
     {
         var order = new EngineOrder { Description = "a-b", Customer = new EngineCustomer() }; // warning (hyphens) only; no errors
         var form = RenderWithSummary(order);
 
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
 
-        form.WaitForAssertion(() => Assert.Equal("status", form.Find(".formidable-summary").GetAttribute("role")));
+        form.WaitForAssertion(() =>
+        {
+            var advisoriesRegion = form.Find(".formidable-summary__region--advisories");
+            Assert.Single(advisoriesRegion.QuerySelectorAll(".formidable-summary__band--warning"));
+            Assert.Empty(form.Find(".formidable-summary__region--errors").QuerySelectorAll(".formidable-summary__band"));
+        });
 
         await Services.DisposeAsync();
     }
 
     [Fact]
-    public async Task Errors_filter_shows_only_errors_and_announces_assertively()
+    public async Task Errors_filter_renders_only_the_alert_region()
     {
         var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
         var form = RenderWithSummary(order, show: SummaryFilter.Errors);
@@ -251,8 +289,9 @@ public class FormidableSummaryTests : BunitContext
 
         form.WaitForAssertion(() =>
         {
-            var summary = form.Find("div.formidable-summary");
-            Assert.Equal("alert", summary.GetAttribute("role"));
+            var errorsRegion = form.Find(".formidable-summary__region--errors");
+            Assert.Equal("alert", errorsRegion.GetAttribute("role"));
+            Assert.Empty(form.FindAll(".formidable-summary__region--advisories"));
             Assert.Single(form.FindAll("ul.formidable-summary__group--error"));
             Assert.Empty(form.FindAll("ul.formidable-summary__group--warning"));
         });
@@ -261,7 +300,7 @@ public class FormidableSummaryTests : BunitContext
     }
 
     [Fact]
-    public async Task Advisories_filter_shows_warnings_and_infos_and_announces_politely()
+    public async Task Advisories_filter_renders_only_the_status_region()
     {
         // Advisories is the one filter spanning two severities, so the order carries both: a
         // hyphen draws the warning, an exclamation mark the info, and a null customer the error
@@ -273,8 +312,9 @@ public class FormidableSummaryTests : BunitContext
 
         form.WaitForAssertion(() =>
         {
-            var summary = form.Find("div.formidable-summary");
-            Assert.Equal("status", summary.GetAttribute("role"));
+            var advisoriesRegion = form.Find(".formidable-summary__region--advisories");
+            Assert.Equal("status", advisoriesRegion.GetAttribute("role"));
+            Assert.Empty(form.FindAll(".formidable-summary__region--errors"));
             Assert.Single(form.FindAll("ul.formidable-summary__group--warning"));
             Assert.Single(form.FindAll("ul.formidable-summary__group--info"));
             Assert.Empty(form.FindAll("ul.formidable-summary__group--error"));
@@ -284,7 +324,7 @@ public class FormidableSummaryTests : BunitContext
     }
 
     [Fact]
-    public async Task A_filter_that_matches_nothing_renders_nothing()
+    public async Task A_filter_that_matches_nothing_renders_its_region_empty()
     {
         var order = new EngineOrder(); // errors only: Description + Customer both NotEmpty/NotNull
         var form = RenderWithSummary(order, show: SummaryFilter.Infos);
@@ -292,9 +332,68 @@ public class FormidableSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
 
         // The raw (unfiltered) engine state confirms the submit pass landed with visible
-        // issues; the assertion below then confirms the Infos filter matched none of them.
+        // issues; the assertions below then confirm the Infos filter matched none of them —
+        // and that the region stands empty rather than disappearing.
         form.WaitForAssertion(() => Assert.NotEmpty(form.Instance.Engine!.GetVisibleIssues()));
-        Assert.Empty(form.FindAll("div.formidable-summary"));
+        Assert.Single(form.FindAll("div.formidable-summary"));
+        Assert.Empty(form.Find(".formidable-summary__region--advisories").QuerySelectorAll(".formidable-summary__band"));
+        Assert.Empty(form.FindAll(".formidable-summary__region--errors"));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_splatted_class_merges_on_the_wrapper()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.AddComponentParameter(1, "class", "custom-summary");
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        // Exact equality pins the merge policy: the consumer's class first, the structural class
+        // appended after it, neither replacing the other.
+        Assert.Equal(
+            "custom-summary formidable-summary",
+            cut.Find("div.formidable-summary").GetAttribute("class"));
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task The_splat_reaches_the_wrapper_and_never_the_regions()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.AddComponentParameter(1, "data-hook", "mine");
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        // The splat lands on the wrapper alone; the fixed-role regions are contract, so a
+        // consumer cannot decorate them — or re-role one — by splatting.
+        Assert.Equal("mine", cut.Find("div.formidable-summary").GetAttribute("data-hook"));
+        var errorsRegion = cut.Find(".formidable-summary__region--errors");
+        var advisoriesRegion = cut.Find(".formidable-summary__region--advisories");
+        Assert.Null(errorsRegion.GetAttribute("data-hook"));
+        Assert.Null(advisoriesRegion.GetAttribute("data-hook"));
+        Assert.Equal("alert", errorsRegion.GetAttribute("role"));
+        Assert.Equal("status", advisoriesRegion.GetAttribute("role"));
 
         await Services.DisposeAsync();
     }
@@ -320,13 +419,16 @@ public class FormidableSummaryTests : BunitContext
         var order = new EngineOrder();
         var form = RenderWithSummary(order);
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
-        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll(".formidable-summary")));
+        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll(".formidable-summary__band")));
 
         order.Description = "ok";
         order.Customer = new EngineCustomer();
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync()); // valid submit clears everything
 
-        form.WaitForAssertion(() => Assert.Empty(form.FindAll(".formidable-summary")));
+        // The bands go; the wrapper and its regions stay, so the clearing happens inside the
+        // same live regions the issues were announced from.
+        form.WaitForAssertion(() => Assert.Empty(form.FindAll(".formidable-summary__band")));
+        Assert.Single(form.FindAll(".formidable-summary"));
 
         await Services.DisposeAsync();
     }

@@ -93,15 +93,15 @@ private void OnTermsChanged(ChangeEventArgs args, FormidableFieldContext field)
 }
 ```
 
-`field.InputAttributes` is the wiring in one splat: the element id, the state class, and the
-`aria-invalid`/`aria-describedby` pair whenever they apply. `field.NotifyChanged()` stays yours to
-call, because only your markup knows which event commits the control's value — and it does what a
-Formidable input's own change handler does automatically: mark the field touched, tell the
-`EditContext` it changed. Call `MarkTouched()` instead and the field goes touched without a live
-pass ever running, which looks like validation silently doing nothing. The full pattern, including
-why the label targets `field.ElementId` rather than wrapping the control and how a native input
-reads the same context for its aria attributes, lives in
-[Component kit](component-kit.md#the-foreign-control-pattern).
+`field.InputAttributes` is the wiring in one splat: the element id, the state class, and
+`aria-invalid`, `aria-describedby` and `aria-required` whenever each applies.
+`field.NotifyChanged()` stays yours to call, because only your markup knows which event commits
+the control's value — and it does what a Formidable input's own change handler does
+automatically: mark the field touched, tell the `EditContext` it changed. Call `MarkTouched()`
+instead and the field goes touched without a live pass ever running, which looks like validation
+silently doing nothing. The full pattern, including why the label targets `field.ElementId`
+rather than wrapping the control and how a native input reads the same context for its aria
+attributes, lives in [Component kit](component-kit.md#the-foreign-control-pattern).
 
 ## A curated set of typed inputs, on purpose
 

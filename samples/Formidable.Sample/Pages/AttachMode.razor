@@ -30,8 +30,12 @@
     @* Everything that needs the cascaded FormidableFormContext — FormidableSummary and the row's
        own FormidableInputText/FormidableFieldMessage — has to be FormidableValidator's own
        ChildContent, not its sibling: with no ChildContent, FormidableValidator renders nothing
-       at all, cascade included, rather than an empty wrapper. *@
-    <FormidableValidator TModel="ExpenseReport" @ref="_validator" FocusFallback="MakeSubmitterReachableAsync">
+       at all, cascade included, rather than an empty wrapper. Context= names the typed
+       fragment's parameter, because EditForm's own child content already claims the implicit
+       "context" and the Razor compiler refuses to nest two claims on one name. What collides is
+       the claim, not any use of it: the rename is owed even though nothing below reads the
+       parameter, as nothing here does. *@
+    <FormidableValidator TModel="ExpenseReport" @ref="_validator" FocusFallback="MakeSubmitterReachableAsync" Context="formidable">
         <div class="summary-slot">
             <FormidableSummary FocusFallback="MakeSubmitterReachableAsync" />
         </div>

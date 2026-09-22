@@ -97,9 +97,24 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter]
     public FormidableOptions? Options { get; set; }
 
-    /// <summary>Form content. A <see cref="FormidableFormContext"/> is cascaded to it.</summary>
+    /// <summary>
+    /// Form content. Receives the same <see cref="FormidableFormContext"/> instance the form
+    /// cascades to it, so markup can reach the engine inline — a reset button's
+    /// <c>@onclick="() => context.Engine.ResetAsync()"</c>, a handler applying a server verdict —
+    /// without capturing the component with <c>@ref</c>. An inline READ of engine state
+    /// (<c>context.Engine.IsFormValid</c>, say) refreshes when the form itself re-renders — a
+    /// submit among the causes — not on every validation pass: ongoing state travels through
+    /// <see cref="IFormValidationEngine.StateChanged"/>, which observing components subscribe to
+    /// individually, so a live indicator still needs its own subscription to that event.
+    /// Markup that nests no other typed fragment is unaffected; nesting one that also leaves its
+    /// parameter name implicit (a <c>FormidableField</c>, a <c>Virtualize</c>) makes the Razor
+    /// compiler ask for a <c>Context="..."</c> on one of the two, exactly as it does inside
+    /// <c>EditForm</c>. What collides is the declaration rather than any use of it: both
+    /// fragments claim the implicit <c>context</c> name, so the rename is owed whether or not
+    /// either body ever reads it.
+    /// </summary>
     [Parameter]
-    public RenderFragment? ChildContent { get; set; }
+    public RenderFragment<FormidableFormContext>? ChildContent { get; set; }
 
     /// <summary>
     /// Invoked when the submit pipeline passes. A passing submit can still carry advisories, so
@@ -156,7 +171,13 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <c>id</c> or <c>tabindex</c> is ignored: the rendered <c>id</c> is always the deterministic
     /// <see cref="FormidableFieldId"/> for the model-level field, and <c>tabindex="-1"</c> keeps it
     /// focusable for the all-suppressed gate's summary entry — the same override policy the kit's
-    /// inputs apply to their own <c>id</c>.
+    /// inputs apply to their own <c>id</c>. The form's own <c>novalidate</c> takes the opposite
+    /// position: it renders by default — native constraint validation would otherwise block the
+    /// submit and front the browser's bubble before <see cref="OnValidSubmit"/> or
+    /// <see cref="OnInvalidSubmit"/> could run, so no message would stay FluentValidation's — but
+    /// it renders before the splat, so <c>novalidate="@false"</c> (a <see langword="bool"/>, not
+    /// the string <c>"false"</c>, which as a rendered attribute would still mean on) removes it
+    /// and opts the form back into the browser's native constraint UI.
     /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
@@ -953,17 +974,25 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             inner.OpenComponent<EditForm>(0);
             inner.AddComponentParameter(1, nameof(EditForm.EditContext), _editContext);
             inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
+            // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
+            // The default is deliberate: without it, any native constraint attribute inside the
+            // form — a splatted required/pattern/min/max, a type="email" — has the browser block
+            // the submit and front its own bubble before OnSubmit ever fires, so the message the
+            // visitor sees stops being FluentValidation's. novalidate switches off only that
+            // interactive check: :invalid still matches, ValidityState is still computed, and
+            // checkValidity()/reportValidity() still work when called.
+            inner.AddAttribute(3, "novalidate", true);
             if (AdditionalAttributes is not null)
             {
-                inner.AddMultipleAttributes(3, AdditionalAttributes!);
+                inner.AddMultipleAttributes(4, AdditionalAttributes!);
             }
             // Rendered after the splat, so they win the duplicate-attribute race: the all-suppressed
             // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
             // consumer-supplied id or tabindex would break that the same way a consumer-supplied
             // input id would — see FormidableInputBase<TValue>'s identical policy.
-            inner.AddAttribute(4, "id", _modelLevelFieldId);
-            inner.AddAttribute(5, "tabindex", "-1");
-            inner.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
+            inner.AddAttribute(5, "id", _modelLevelFieldId);
+            inner.AddAttribute(6, "tabindex", "-1");
+            inner.AddComponentParameter(7, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();

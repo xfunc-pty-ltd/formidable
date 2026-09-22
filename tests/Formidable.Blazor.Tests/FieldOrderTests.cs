@@ -727,7 +727,7 @@ public class FieldOrderTests : BunitContext
             builder.AddComponentParameter(
                 4,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
-                (RenderFragment)(inner =>
+                (RenderFragment<FormidableFormContext>)(_ => inner =>
                 {
                     inner.OpenComponent<FormidableSummary>(0);
                     inner.CloseComponent();
@@ -792,7 +792,7 @@ public class FieldOrderTests : BunitContext
                 2,
                 nameof(FormidableForm<EngineOrder>.Validator),
                 new FluentValidationModelValidator<EngineOrder>(new DeclarationOrderValidator()));
-            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableSummary>(0);
                 inner.CloseComponent();

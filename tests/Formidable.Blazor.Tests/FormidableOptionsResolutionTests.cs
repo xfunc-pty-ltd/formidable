@@ -157,7 +157,7 @@ public class FormidableOptionsResolutionTests : BunitContext
                 {
                     inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Options), options);
                 }
-                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment)(ctx =>
+                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => ctx =>
                 {
                     ctx.OpenComponent<ContextProbe>(0);
                     ctx.CloseComponent();

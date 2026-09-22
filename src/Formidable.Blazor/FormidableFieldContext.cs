@@ -72,6 +72,11 @@ public sealed class FormidableFieldContext
     /// the input's <c>aria-describedby</c>. It is
     /// <see cref="FormidableFieldId.MessagesFor(Microsoft.AspNetCore.Components.Forms.FieldIdentifier)"/>
     /// for <see cref="Field"/>, the same id the field's message list renders on itself.
+    /// Deliberately a single id, never a merged list: the consumer composes the markup here, so
+    /// a control that also carries its own hint writes
+    /// <c>aria-describedby="@($"my-hint {field.AriaDescribedBy}")"</c> itself — the same
+    /// splatted-first, messages-id-after order the kit's inputs merge a splatted
+    /// <c>aria-describedby</c> in.
     /// </summary>
     public string? AriaDescribedBy { get; }
 

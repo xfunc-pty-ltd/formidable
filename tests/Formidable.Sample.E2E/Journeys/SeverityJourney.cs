@@ -44,11 +44,11 @@ public sealed class SeverityJourney(SampleAppFixture app)
     }
 
     // The page renders two FormidableSummary instances, Show="SummaryFilter.Errors" and
-    // Show="SummaryFilter.Advisories". Each instance's own role reflects what it actually
-    // matched — role="alert" only when the filtered set contains an error, role="status"
-    // otherwise — so addressing the two by role proves the filters are doing the work rather
-    // than merely that both messages appear somewhere on the page: an unfiltered pair would
-    // put the Title error in both instances' role="alert" summary, and this locator would fail
+    // Show="SummaryFilter.Advisories". Show decides which fixed-role region a summary renders —
+    // the Errors instance carries the page's only role="alert" region, the Advisories instance
+    // its only role="status" one — so addressing the two regions proves the filters are doing
+    // the work rather than merely that both messages appear somewhere on the page: an
+    // unfiltered pair would render two regions of each role, and either locator would fail
     // with a strict-mode violation instead of quietly finding text.
     [E2EFact]
     public async Task Errors_and_advisories_render_as_separate_summaries()
@@ -60,8 +60,8 @@ public sealed class SeverityJourney(SampleAppFixture app)
         await TabAsync(page);
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
 
-        var errorSummary = page.Locator(".formidable-summary[role='alert']");
-        var advisorySummary = page.Locator(".formidable-summary[role='status']");
+        var errorSummary = page.Locator(".formidable-summary__region--errors[role='alert']");
+        var advisorySummary = page.Locator(".formidable-summary__region--advisories[role='status']");
 
         await Expect(errorSummary).ToContainTextAsync("Title is required");
         await Expect(errorSummary).Not.ToContainTextAsync("Exclamation marks read as shouty — consider removing them");

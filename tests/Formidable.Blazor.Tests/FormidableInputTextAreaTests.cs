@@ -26,7 +26,7 @@ public class FormidableInputTextAreaTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputTextArea>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -48,7 +48,7 @@ public class FormidableInputTextAreaTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputTextArea>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -166,7 +166,7 @@ public class FormidableInputTextAreaTests : BunitContext
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
             builder.AddComponentParameter(3, "Options", new FormidableOptions());
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputTextArea>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));

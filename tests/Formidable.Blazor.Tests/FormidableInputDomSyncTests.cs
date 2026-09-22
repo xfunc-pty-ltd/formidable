@@ -35,7 +35,7 @@ public class FormidableInputDomSyncTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Booking>>(0);
             builder.AddComponentParameter(1, "Model", booking);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<int>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<int>>)(() => booking.Seats));
@@ -62,7 +62,7 @@ public class FormidableInputDomSyncTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Booking>>(0);
             builder.AddComponentParameter(1, "Model", booking);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<decimal?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<decimal?>>)(() => booking.Price));
@@ -83,7 +83,7 @@ public class FormidableInputDomSyncTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Outing>>(0);
             builder.AddComponentParameter(1, "Model", outing);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 if (textInput)
                 {

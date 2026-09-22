@@ -59,9 +59,21 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
 
-    /// <summary>Optional content that receives the cascaded form context.</summary>
+    /// <summary>
+    /// Optional content that receives the cascaded form context — the same
+    /// <see cref="FormidableFormContext"/> instance the cascade carries, so markup can reach the
+    /// engine inline without capturing this component with <c>@ref</c>. An inline READ of engine
+    /// state refreshes when this component re-renders, not on every validation pass: ongoing
+    /// state travels through <see cref="IFormValidationEngine.StateChanged"/>, which observing
+    /// components subscribe to individually, so a live indicator still needs its own
+    /// subscription to that event. One consequence of the typed fragment is structural: this
+    /// component always sits inside an <c>EditForm</c>, whose own child content also declares
+    /// the implicit <c>context</c> name, so the Razor compiler asks for a <c>Context="..."</c>
+    /// on one of the two, whether or not either body ever reads the parameter — the attach-mode
+    /// sample puts the rename on this component.
+    /// </summary>
     [Parameter]
-    public RenderFragment? ChildContent { get; set; }
+    public RenderFragment<FormidableFormContext>? ChildContent { get; set; }
 
     /// <summary>
     /// On a submit blocked through <see cref="ValidateForSubmitAsync"/>, best-effort auto-focuses
@@ -550,7 +562,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
         builder.AddComponentParameter(1, "IsFixed", true);
         builder.AddComponentParameter(2, "Value", _context);
-        builder.AddComponentParameter(3, "ChildContent", ChildContent);
+        builder.AddComponentParameter(3, "ChildContent", ChildContent(_context));
         builder.CloseComponent();
         // IsFixed: same reasoning as FormidableForm's identical cascade — a non-fixed
         // CascadingValue re-supplies every subscriber's parameters from a stale snapshot on every

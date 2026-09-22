@@ -22,7 +22,7 @@ public class FormidableInputBaseTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputText>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -44,7 +44,7 @@ public class FormidableInputBaseTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputText>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -245,6 +245,37 @@ public class FormidableInputBaseTests : BunitContext
             form.Find("input").GetAttribute("id"));
     }
 
+    // A splatted aria-describedby must MERGE with the computed messages id, in that order —
+    // splatted first, messages id appended, mirroring the class merge — because a clobber would
+    // detach the consumer's persistent hint from the field at the exact moment an error joins
+    // it, and appending keeps the hint at the head of the announced sequence across the
+    // clean-to-erroring transition instead of reshuffling it.
+    [Fact]
+    public void Splatted_describedby_merges_with_the_computed_messages_id_while_the_field_has_issues()
+    {
+        var order = new EngineOrder();
+        var form = RenderInputWithAttributes(order, ("aria-describedby", "order-hint"));
+
+        form.Find("input").Change(new string('x', 11));
+
+        form.WaitForAssertion(() =>
+        {
+            var input = form.Find("input");
+            Assert.Equal($"order-hint {input.GetAttribute("id")}-messages", input.GetAttribute("aria-describedby"));
+        });
+    }
+
+    // The control for the merge above: with no issues, the base adds no aria-describedby of its
+    // own, so the splatted value stands exactly as the consumer wrote it.
+    [Fact]
+    public void A_clean_field_leaves_the_splatted_describedby_alone()
+    {
+        var order = new EngineOrder();
+        var form = RenderInputWithAttributes(order, ("aria-describedby", "order-hint"));
+
+        Assert.Equal("order-hint", form.Find("input").GetAttribute("aria-describedby"));
+    }
+
     [Fact]
     public void Unrelated_splatted_attributes_pass_through()
     {
@@ -307,7 +338,7 @@ public class FormidableInputBaseTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", Order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<ValueTrackingInput>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => Order.Description));

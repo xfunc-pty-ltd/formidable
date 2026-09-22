@@ -45,7 +45,7 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 5,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
-                (RenderFragment)(inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+                (RenderFragment<FormidableFormContext>)(_ => inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
             if (focusFirstErrorOnInvalidSubmit is { } focusParameter)
             {
                 builder.AddComponentParameter(
@@ -323,7 +323,7 @@ public class FormidableFormComponentTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("formidable-invalid", cut.Find("input").GetAttribute("class")));
     }
 
-    private static RenderFragment InputBoundTo(EngineOrder order, object receiver) => inner =>
+    private static RenderFragment<FormidableFormContext> InputBoundTo(EngineOrder order, object receiver) => _ => inner =>
     {
         inner.OpenComponent<FormidableInputText>(0);
         inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -713,13 +713,73 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 4,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
-                (RenderFragment)(inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+                (RenderFragment<FormidableFormContext>)(_ => inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
             builder.CloseComponent();
         });
 
         var form = container.Find("form");
         Assert.Equal(FormidableFieldId.For(new FieldIdentifier(order, string.Empty)), form.GetAttribute("id"));
         Assert.Equal("-1", form.GetAttribute("tabindex"));
+    }
+
+    // The typed fragment must receive the SAME context instance the form cascades — not a copy,
+    // not a fresh wrapper — so inline reads and the cascade agree about which engine they speak
+    // for. Handing the fragment anything else would let context.Engine and a nested component's
+    // cascaded Engine diverge after a model swap.
+    [Fact]
+    public void ChildContent_receives_the_cascaded_context_instance()
+    {
+        FormidableFormContext? received = null;
+        var order = new EngineOrder();
+        var container = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), order);
+            builder.AddComponentParameter(
+                2,
+                nameof(FormidableForm<EngineOrder>.ChildContent),
+                (RenderFragment<FormidableFormContext>)(context => _ => received = context));
+            builder.CloseComponent();
+        });
+
+        var cascade = container.FindComponent<CascadingValue<FormidableFormContext>>();
+        Assert.NotNull(received);
+        Assert.Same(cascade.Instance.Value, received);
+        Assert.Same(container.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine, received!.Engine);
+    }
+
+    [Fact]
+    public void Form_element_renders_novalidate_by_default()
+    {
+        // The deliberate default: native constraint validation would front the browser's own
+        // bubble and refuse the submit before OnSubmit ever fired, so no message would stay
+        // FluentValidation's. novalidate switches off exactly that interactive check.
+        var cut = RenderForm(new EngineOrder());
+
+        Assert.True(cut.Find("form").HasAttribute("novalidate"));
+    }
+
+    [Fact]
+    public void A_splatted_novalidate_false_removes_the_default()
+    {
+        // Unlike id/tabindex, novalidate renders BEFORE the splat — the consumer-wins position —
+        // so a page that wants the browser's native constraint UI back can splat it away with
+        // novalidate="@false" (a bool false removes the attribute; the string "false" would
+        // still render it, and a rendered novalidate is on whatever its value says).
+        var order = new EngineOrder();
+        var container = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), order);
+            builder.AddAttribute(2, "novalidate", false);
+            builder.AddComponentParameter(
+                3,
+                nameof(FormidableForm<EngineOrder>.ChildContent),
+                (RenderFragment<FormidableFormContext>)(_ => inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+            builder.CloseComponent();
+        });
+
+        Assert.False(container.Find("form").HasAttribute("novalidate"));
     }
 
     [Fact]
@@ -789,7 +849,7 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), Options);
             builder.AddComponentParameter(
                 3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
-            builder.AddComponentParameter(4, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableSummary>(0);
                 inner.CloseComponent();

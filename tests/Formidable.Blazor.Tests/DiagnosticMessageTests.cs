@@ -217,7 +217,7 @@ public class DiagnosticMessageTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", new EngineOrder());
-            builder.AddComponentParameter(2, "ChildContent", child);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => child));
             builder.CloseComponent();
         })));
     }

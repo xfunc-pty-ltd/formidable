@@ -183,7 +183,8 @@ through without blocking:
 Warnings never reach the `EditContext`'s own message store, either — only error-severity issues
 are written there, which is what built-in `InputBase`/`ValidationMessage` interop sees. The full
 issue set, warnings included, is available through `GetIssues`/`GetVisibleIssues` and
-`FieldState.HasWarnings`, which is what `FormidableFieldMessage` and `FormidableSummary` render from.
+`FieldState.HasWarnings`, which is what the kit's own message components and `FormidableSummary`
+render from.
 
 ## Rendering
 

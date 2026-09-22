@@ -52,7 +52,12 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await Field(page, "accommodationtype").SelectOptionAsync("Hotel");
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await SummaryEntry(page, HiddenIssueGate).ClickAsync();
-        await Expect(page.Locator("[id$='-form']")).ToBeFocusedAsync();
+        // The page holds two forms since the summary-less variant landed, and both carry the
+        // model-level id shape, so the bare tail-match is ambiguous under strict mode. The gate
+        // entry that was clicked belongs to the form that renders the summary, so that is the
+        // form whose focus is asserted.
+        await Expect(page.Locator("form[id$='-form']")
+            .Filter(new() { Has = page.Locator(".formidable-summary") })).ToBeFocusedAsync();
 
         // Revealing the section is registration, not disclosure: the field renders with no
         // message, and the gate still stands. Rendering engages nothing, so the live channel has
@@ -94,5 +99,75 @@ public sealed class DisclosureJourney(SampleAppFixture app)
             .ToHaveTextAsync(["Describe the special requirements"]);
         await Expect(SummaryEntry(page, TravelerNameRequired)).ToBeVisibleAsync();
         await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
+    }
+
+    /// <summary>
+    /// The page's required marks, and the one placement the rest of the corpus never shows: the
+    /// accommodation question's mark renders in the group's <c>&lt;legend&gt;</c> rather than in
+    /// either option's <c>&lt;label&gt;</c>, with the accessible half on the radios instead of on
+    /// the glyph. The cascade's own fields are demanded only under a condition, which inspection
+    /// cannot judge without a model, so revealing them adds no mark at all.
+    /// </summary>
+    [E2EFact]
+    public async Task The_required_mark_sits_in_the_radio_groups_legend()
+    {
+        await using var session = await app.NewPageAsync("/disclosure");
+        var page = session.Page;
+        var marks = page.Locator("span.formidable-required");
+        var legendMark = page.Locator("legend span.formidable-required");
+
+        // On load the summary-less variant renders no fields, so every mark on screen belongs to
+        // the form above: Destination's, inside its label, and the accommodation question's,
+        // which is the one in a legend.
+        await Expect(marks).ToHaveCountAsync(2);
+        await Expect(legendMark).ToHaveTextAsync("*");
+        await Expect(legendMark).ToHaveAttributeAsync("aria-hidden", "true");
+
+        // The glyph announces nothing, so the fact rides the radios the way the kit's own inputs
+        // carry it. "Yes" is the radio the fieldset gives the field's id to.
+        await Expect(Field(page, "needsaccommodation")).ToHaveAttributeAsync("aria-required", "true");
+
+        // A UI-gated field's mark arrives with the field: the rule behind it is unconditional.
+        await page.GetByRole(AriaRole.Button, new() { Name = "Show traveler details", Exact = true }).ClickAsync();
+        await Expect(Field(page, "travelername")).ToBeVisibleAsync();
+        await Expect(marks).ToHaveCountAsync(3);
+
+        // The two cascade fields carry conditional presence rules, so neither earns one however
+        // plainly the condition holds on screen.
+        await Field(page, "needsaccommodation").CheckAsync();
+        await Expect(Field(page, "accommodationtype")).ToBeVisibleAsync();
+        await Field(page, "accommodationtype").SelectOptionAsync("Accessible");
+        await Expect(Field(page, "specialrequirements")).ToBeVisibleAsync();
+        await Expect(marks).ToHaveCountAsync(3);
+    }
+
+    /// <summary>
+    /// The page's summary-less variant: the gate's model-level explanation reaches the screen
+    /// through <c>FormidableModelMessage</c>'s persistent list, and gives way once an inline
+    /// error is on screen to explain the block instead. The list is addressed by the model-level
+    /// id convention (the form id plus <c>-messages</c>); only the variant renders one, so the
+    /// tail-match is unambiguous even though the page holds two forms.
+    /// </summary>
+    [E2EFact]
+    public async Task The_gate_shows_through_the_model_message_on_the_summaryless_form()
+    {
+        await using var session = await app.NewPageAsync("/disclosure");
+        var page = session.Page;
+        var variant = page.Locator("#inline-only-variant");
+        var modelMessages = variant.Locator("ul[id$='-form-messages'] .formidable-message");
+
+        // Trip details collapsed: every failing field is hidden, so a blocked submit has nothing
+        // inline to disclose and the gate's explanation lands in the form-level list.
+        await Expect(modelMessages).ToHaveCountAsync(0);
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Submit request", Exact = true }).ClickAsync();
+        await Expect(modelMessages).ToHaveTextAsync([HiddenIssueGate]);
+
+        // Reveal the section and submit again: the inline errors take over, and the derived gate
+        // dissolves — an error the visitor can see now explains the block.
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Show trip details", Exact = true }).ClickAsync();
+        await Expect(Field(variant, "travelername")).ToBeVisibleAsync();
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Submit request", Exact = true }).ClickAsync();
+        await Expect(MessagesFor(variant, "travelername")).ToHaveTextAsync([TravelerNameRequired]);
+        await Expect(modelMessages).ToHaveCountAsync(0);
     }
 }

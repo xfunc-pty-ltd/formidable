@@ -33,7 +33,11 @@ how results reach the UI.
 If the page already has a working `EditForm`/`EditContext` and you'd rather not restructure it
 yet, `<FormidableValidator>` attaches to the cascaded `EditContext` the same way
 `<FluentValidationValidator />` does: drop it inside the existing `EditForm` and it starts
-running validation against it. `<FormidableForm>` is the alternative for new forms or forms
+running validation against it. One difference from the validator you're replacing: its child
+content is a typed fragment (it hands the markup the cascaded `FormidableFormContext`), and so
+is `EditForm`'s, so the Razor compiler asks you to name one of the two implicit `context`
+parameters — add `Context="formidable"` to the `<FormidableValidator>` element and move on.
+`<FormidableForm>` is the alternative for new forms or forms
 you're willing to restructure: it renders its own `EditForm` and owns the `EditContext`
 outright, which is what unlocks automatic rebuild-on-model-swap. Both attach modes share the
 same engine underneath, so the mapping table above applies to either — and both expose it the same
@@ -69,6 +73,17 @@ relying on the old one implicitly:
   way. The gate is the submit channel's alone: the live pass that runs between submits answers to
   engagement, so a field the user has committed a change to goes on speaking whether or not
   anything registered it.
+- **Attach mode leaves `novalidate` to you.** `<FormidableForm>` renders it on the `<form>` it
+  owns, by deliberate default, so the browser's interactive constraint validation never answers a
+  submit ahead of FluentValidation. `<FormidableValidator>` renders no `<form>` and does not reach
+  the one your `EditForm` owns, so nothing writes the attribute for you: a native constraint
+  attribute anywhere inside that form — a `required` or `pattern`, a `type="email"`, a `min` or
+  `max` — blocks the submit at the element and fronts the browser's own bubble, and the message
+  the visitor reads stops being FluentValidation's. Write `novalidate` on the `EditForm` yourself
+  for the same guarantee (an attribute `EditForm` does not recognise lands on the `<form>` it
+  renders, which is how the gate id gets there too), or leave it off where the browser's
+  constraint UI is what the page wants. See
+  [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form).
 - **Attach mode lists issues in the engine's order, not the page's.** Under `<FormidableForm>`,
   a summary reports issues in the document order of the fields that render them, because the form
   resolves where those fields sit and hands its engine the answer. `<FormidableValidator>` renders

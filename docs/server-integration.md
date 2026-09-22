@@ -201,11 +201,11 @@ public static class ValidationReportProblemMapper
 
 **Messages can echo user input.** A FluentValidation message built with `{PropertyValue}` embeds
 the field's own value into the response body verbatim. Formidable's own components already render
-every message as text — `FormidableFieldMessage`, `FormidableCollectionMessage`, and
-`FormidableSummary` write it through Blazor's own encoding (`AddContent`, never `MarkupString`) —
-so nothing in the kit turns that text into markup. A consumer reading the same
-`errors`/`advisories` payload outside Formidable's components needs to do the same: render each
-message as text, never interpolate it into HTML.
+every message as text — `FormidableFieldMessage`, `FormidableCollectionMessage`,
+`FormidableModelMessage`, and `FormidableSummary` write it through Blazor's own encoding
+(`AddContent`, never `MarkupString`) — so nothing in the kit turns that text into markup. A
+consumer reading the same `errors`/`advisories` payload outside Formidable's components needs to
+do the same: render each message as text, never interpolate it into HTML.
 
 ## Minimal APIs
 

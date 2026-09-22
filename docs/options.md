@@ -299,19 +299,30 @@ and keep it a pure read: it runs inside a render.
 **Recipe:** [I want to mark fields required when the rules cannot say
 so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
 
+### `ShowRequiredIndicators`
+
+`bool`, defaults to `true`. Whether
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders at
+all. Set it to `false` to render no marker anywhere on the form — no element, not an empty one —
+the form-wide off switch for a design that marks the optional fields instead.
+
+Off means off for everything the indicator might ever render, so a per-instance template, should
+the component grow one, would obey the switch too. What it never suppresses is `aria-required`:
+whether a value is demanded is a fact about the input rather than a decoration, so assistive
+technology goes on being told even where nothing is drawn. For a marker drawn entirely in CSS,
+leave the switch on and empty the content instead — next.
+
 ### `RequiredIndicatorContent`
 
-`string?`, defaults to `"*"`. The content
-[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders for a
-required field. Set it to `null` to render no marker anywhere on the form: the form-wide off
-switch for a design that marks the optional fields instead, or one that draws its marker entirely
-in CSS.
+`string`, defaults to `"*"`. The content
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders
+inside its marker for a required field. It decides what a drawn marker holds, never whether one
+is drawn — that is `ShowRequiredIndicators`, above.
 
-The library ships no styling, so this is the text inside the marker's `formidable-required`
-element and nothing else. Colour, spacing and any glyph drawn with `::before`/`::after` belong to
-your stylesheet. Suppressing the marker does not suppress `aria-required`: whether a value is
-demanded is a fact about the input rather than a decoration, so assistive technology goes on
-being told even where nothing is drawn.
+Set it to `""` for a marker drawn entirely in CSS: the marker element still renders, empty, which
+is exactly what a stylesheet's `::before`/`::after` needs to land on. The library ships no
+styling, so this is the text inside the marker's `formidable-required` element and nothing else;
+colour, spacing and any drawn glyph belong to your stylesheet.
 
 ### `LiveDisclosure`
 
@@ -320,8 +331,8 @@ live issues the live channel discloses — the one lever over a channel registra
 never touches.
 
 Under the default, engagement alone discloses. A field a committed change has named — or one a
-draft load adopted — shows its live verdict on every surface: the engine's issue reads,
-`FormidableFieldMessage`, `FormidableSummary`, and the `EditContext`'s message store, whether or
+draft load adopted — shows its live verdict on every surface: the engine's issue reads, the kit's
+own message components, `FormidableSummary`, and the `EditContext`'s message store, whether or
 not anything currently
 renders that field. That is the contract native components depend on: a page of plain `InputBase`
 inputs with no Formidable wrappers or anchors registers nothing at all, so a live error that
@@ -410,14 +421,14 @@ own point.
 ### `InlineMessageRole`
 
 `string?`, defaults to `null`, which renders no `role` attribute at all. Set it to `"status"` and
-every field- and collection-level message list becomes its own polite live region, announced as its
-content changes. The list element renders always, so the role sits on a container that persists
-across renders rather than one that enters alongside its own text — the reliable shape for a live
-region, since assistive technology is inconsistent about announcing a role that arrives together
-with the content it describes. Recommended on forms that render no `FormidableSummary` — the
-summary already announces on its own, and two live regions saying the same thing is worse than
-one. See [CSS and accessibility](css-and-accessibility.md) for how the summary's own role is
-chosen.
+every message list — field-, collection- and model-level alike — becomes its own polite live
+region, announced as its content changes. The list element renders always, so the role sits on a
+container that persists across renders rather than one that enters alongside its own text — the
+reliable shape for a live region, since assistive technology is inconsistent about announcing a
+role that arrives together with the content it describes. Recommended on forms that render no
+`FormidableSummary` — the summary already announces on its own, and two live regions saying the
+same thing is worse than one. See [CSS and accessibility](css-and-accessibility.md) for the
+summary's own fixed-role regions.
 
 ### `OrderIssues`
 
@@ -621,7 +632,7 @@ that resolved it, not the one on screen.
 - `VerifyRowKeys` — [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor), on
   unconditionally rather than gated to Development, since the page's whole point is the row-key
   discipline the guard enforces.
-- `RequiredIndicatorContent` (and the marker it feeds) —
+- `ShowRequiredIndicators` and `RequiredIndicatorContent` (and the marker they feed) —
   [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
   carries its mark and stays silent at the same time.
 

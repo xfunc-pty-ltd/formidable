@@ -194,7 +194,7 @@ public class FormidableFieldAnchorTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
-            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 if (ShowAnchor)
                 {

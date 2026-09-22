@@ -124,16 +124,32 @@ public class FormidableRequiredIndicatorTests : BunitContext
         Assert.Null(InputFor(cut, nameof(MarkerModel.Name)).GetAttribute("aria-required"));
     }
 
-    // Suppression is form-wide and total for the drawn marker — and deliberately not total for
-    // the announcement, which is a fact about the input rather than a decoration. Mutation that
-    // must break this: ignoring RequiredIndicatorContent, or letting it gate aria-required too.
+    // Suppression is form-wide and total for the drawn marker — no element at all, not an empty
+    // one — and deliberately not total for the announcement, which is a fact about the input
+    // rather than a decoration. Mutation that must break this: ignoring ShowRequiredIndicators,
+    // or letting it gate aria-required too.
     [Fact]
     public void Suppressing_the_indicator_removes_every_marker_and_keeps_the_announcement()
     {
-        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicatorContent = null });
+        var cut = RenderForm(new MarkerModel(), new FormidableOptions { ShowRequiredIndicators = false });
 
         Assert.Empty(cut.FindAll("span.formidable-required"));
         Assert.Equal("true", InputFor(cut, nameof(MarkerModel.Name)).GetAttribute("aria-required"));
+    }
+
+    // Empty content is not the off switch: the marker element still renders, carrying the class
+    // and aria-hidden and nothing inside — the shape a stylesheet's ::before needs on the page
+    // before it can draw a CSS-only glyph. Mutation that must break this: treating "" as off,
+    // which removes the very element the CSS-drawn route exists to provide.
+    [Fact]
+    public void Empty_content_renders_the_empty_marker_element_for_a_css_drawn_glyph()
+    {
+        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicatorContent = "" });
+
+        var marker = MarkerFor(cut, nameof(MarkerModel.Name))!;
+        Assert.Equal(string.Empty, marker.TextContent);
+        Assert.Equal("formidable-required", marker.GetAttribute("class"));
+        Assert.Equal("true", marker.GetAttribute("aria-hidden"));
     }
 
     // The configured content is what the marker holds, and nothing else about it changes — the
@@ -354,7 +370,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<MarkerModel>>(0);
             builder.AddComponentParameter(1, "Model", model);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableRequiredIndicator<string>>(0);
                 inner.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.Name));
@@ -415,7 +431,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
             builder.OpenComponent<FormidableForm<NestedRoot>>(0);
             builder.AddComponentParameter(1, "Model", model);
             builder.AddComponentParameter(2, "Validator", validator);
-            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 var sequence = 0;
                 Field(
@@ -444,7 +460,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
             builder.OpenComponent<FormidableForm<RowsRoot>>(0);
             builder.AddComponentParameter(1, "Model", model);
             builder.AddComponentParameter(2, "Validator", validator);
-            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 var sequence = 0;
                 for (var index = 0; index < model.Rows.Count; index++)
@@ -470,7 +486,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
             builder.AddComponentParameter(1, "Model", model);
             builder.AddComponentParameter(2, "Options", options);
             builder.AddComponentParameter(3, "Validator", validator);
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 var sequence = 0;
                 Field(inner, ref sequence, nameof(MarkerModel.Name), () => model.Name, () => model.Name);

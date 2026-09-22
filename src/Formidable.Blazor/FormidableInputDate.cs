@@ -58,7 +58,9 @@ namespace Formidable.Blazor;
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted
-/// <c>class</c> merges with the computed state class, and a consumer-supplied <c>id</c> is
+/// <c>class</c> merges with the computed state class, a consumer-splatted
+/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
+/// the field has issues, and a consumer-supplied <c>id</c> is
 /// ignored in favour of the deterministic <see cref="FormidableFieldId"/>.
 /// </para>
 /// </remarks>
@@ -71,9 +73,11 @@ public sealed class FormidableInputDate<[DynamicallyAccessedMembers(DynamicallyA
     [Inject]
     private IFormidableDomValueSync DomValueSync { get; set; } = default!;
 
-    private protected override bool SyncsDomValueOnBlur => true;
+    /// <inheritdoc />
+    protected override bool SyncsDomValueOnBlur => true;
 
-    private protected override ValueTask SyncDomValueAsync() =>
+    /// <inheritdoc />
+    protected override ValueTask SyncDomValueAsync() =>
         DomValueSync.SyncValueAsync(ElementId, FormatValueAsString(Value));
 
     static FormidableInputDate()

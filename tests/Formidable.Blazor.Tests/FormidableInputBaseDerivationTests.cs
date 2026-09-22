@@ -31,7 +31,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Feedback>>(0);
             builder.AddComponentParameter(1, "Model", feedback);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<RatingInput>(0);
                 inner.AddComponentParameter(1, "For", (Expression<Func<int>>)(() => feedback.Rating));
@@ -124,7 +124,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Feedback>>(0);
             builder.AddComponentParameter(1, "Model", feedback);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<ToggleHost>(0);
                 inner.AddComponentParameter(1, nameof(ToggleHost.Show), true);
@@ -167,7 +167,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Feedback>>(0);
             builder.AddComponentParameter(1, "Model", feedback);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<ToggleHost>(0);
                 inner.AddComponentParameter(1, nameof(ToggleHost.Show), true);
@@ -192,6 +192,78 @@ public class FormidableInputBaseDerivationTests : BunitContext
         Assert.Equal("dispose blew up", thrown.Message);
 
         Assert.False(form.Instance.Engine!.Registry.IsRegistered(field));
+    }
+
+    // The DOM-sync seam is protected precisely so a control shaped like the kit's own number and
+    // date inputs can exist outside the library: the deriver opts in through SyncsDomValueOnBlur
+    // and does its write in SyncDomValueAsync. This pins the order the base's blur handler
+    // guarantees — the consumer-splatted onblur first, then the sync, then (under OnBlur, with a
+    // commit pending) the engine notification — because a sync running before the splatted
+    // handler would overwrite the DOM state that handler was written to read, and a notification
+    // delivered before the sync would start a live pass against a box that does not yet match
+    // the model. The mutation that breaks it is reordering HandleBlurAsync.
+    [Fact]
+    public void A_syncing_deriver_sees_splat_then_sync_then_notification_on_blur()
+    {
+        var feedback = new Feedback();
+        var log = new List<string>();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<Feedback>>(0);
+            builder.AddComponentParameter(1, "Model", feedback);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<SyncingInput>(0);
+                inner.AddComponentParameter(1, "For", (Expression<Func<int>>)(() => feedback.Rating));
+                inner.AddComponentParameter(2, "Value", feedback.Rating);
+                inner.AddComponentParameter(3, "ValueChanged",
+                    EventCallback.Factory.Create<int>(this, v => feedback.Rating = v));
+                inner.AddComponentParameter(4, "UpdateOn", InputUpdateMode.OnBlur);
+                inner.AddComponentParameter(5, nameof(SyncingInput.Log), log);
+                inner.AddComponentParameter(6, "onblur",
+                    EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.FocusEventArgs>(
+                        this, () => log.Add("splat")));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+        var form = cut.FindComponent<FormidableForm<Feedback>>();
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("notify");
+
+        cut.Find("input").Change("9"); // commits under OnBlur; arms the notification, delivers nothing
+        Assert.DoesNotContain("notify", log);
+
+        cut.Find("input").Blur();
+
+        Assert.Equal(new[] { "splat", "sync", "notify" }, log);
+    }
+
+    /// <summary>
+    /// A derived control opting into the DOM-sync seam from outside the library — the two
+    /// overrides the docs' custom-control recipe shows, with the sync recording its turn instead
+    /// of writing through <see cref="IFormidableDomValueSync"/>.
+    /// </summary>
+    private sealed class SyncingInput : FormidableInputBase<int>
+    {
+        [Parameter]
+        public List<string>? Log { get; set; }
+
+        protected override bool SyncsDomValueOnBlur => true;
+
+        protected override ValueTask SyncDomValueAsync()
+        {
+            Log?.Add("sync");
+            return ValueTask.CompletedTask;
+        }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenElement(0, "input");
+            AddCommonAttributes(builder, 1);
+            builder.AddAttribute(5, "value", Value);
+            AddValueBinding(builder, 6);
+            builder.CloseElement();
+        }
     }
 
     /// <summary>Renders its child only while <see cref="Show"/> is true, so a test can unmount it.</summary>

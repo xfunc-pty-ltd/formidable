@@ -87,8 +87,10 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// component registers and the identifier <see cref="FormidableOptions.VerifyRowKeys"/>
     /// compares against it are the same expression evaluated at two different times — which is the
     /// only thing that comparison is entitled to assume. The default is the empty identifier, for a
-    /// component that speaks for the whole form rather than for a field (<c>FormidableSummary</c>):
-    /// it matches itself on every render, so such a component is simply never a candidate.
+    /// component with no accessor to resolve: <c>FormidableSummary</c>, which speaks for the whole
+    /// form, and <c>FormidableModelMessage</c>, whose field is the model-level one no accessor
+    /// expression can name. The empty identifier matches itself on every render, so a component
+    /// that keeps the default is never a candidate.
     /// </summary>
     private protected virtual FieldIdentifier ResolveField() => default;
 

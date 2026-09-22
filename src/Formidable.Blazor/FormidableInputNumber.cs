@@ -38,15 +38,18 @@ namespace Formidable.Blazor;
 /// consumer's own splatted <c>step</c> overrides the default rather than losing the
 /// duplicate-attribute race, matching native <c>InputNumber&lt;TValue&gt;</c>'s own handling.
 /// HTML's own default <c>step</c> is <c>1</c>, which makes any fractional value a native
-/// <c>stepMismatch</c>; since <c>FormidableForm</c> renders no <c>novalidate</c> (the framework's
-/// <c>EditForm</c> does not add one), a <c>&lt;button type="submit"&gt;</c> against a
-/// <c>stepMismatch</c> field never reaches Blazor's submit handler at all — the browser blocks
-/// the submit event itself and shows its own native constraint-validation message, not
-/// FluentValidation's. The default <c>step="any"</c> disables that native check so every
-/// fractional value reaches the model and only FluentValidation's own rules judge it, matching
-/// the "every validation message stays FluentValidation's" guarantee below; a consumer who
-/// splats their own <c>step</c> opts back into the browser's native constraint UI for values
-/// that mismatch it.
+/// <c>stepMismatch</c>. <c>FormidableForm</c> renders <c>novalidate</c> by default, so a
+/// mismatch there does not block the submit; what <c>novalidate</c> does not switch off is the
+/// constraint computation itself, so a <c>stepMismatch</c> field still matches <c>:invalid</c>
+/// while the box holds the mismatching value, and the default step still snaps the spinner
+/// buttons to whole numbers. Inside a form without <c>novalidate</c> — a consumer's own
+/// <c>EditForm</c> in attach mode, or a <c>FormidableForm</c> whose splat removed the default —
+/// the browser additionally blocks the submit before it reaches Blazor at all and fronts its own
+/// constraint-validation message, not FluentValidation's. The default <c>step="any"</c> retires
+/// the mismatch at the source, in every one of those forms, so only FluentValidation's own rules
+/// judge a fractional value — the "every validation message stays FluentValidation's" guarantee
+/// below. A consumer who splats their own <c>step</c> opts back into whatever native constraint
+/// handling of a mismatch their form's <c>novalidate</c> answer has left on.
 /// </para>
 /// <para>
 /// A string that fails to parse — including an emptied box when
@@ -65,7 +68,9 @@ namespace Formidable.Blazor;
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted
-/// <c>class</c> merges with the computed state class, and a consumer-supplied <c>id</c> is
+/// <c>class</c> merges with the computed state class, a consumer-splatted
+/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
+/// the field has issues, and a consumer-supplied <c>id</c> is
 /// ignored in favour of the deterministic <see cref="FormidableFieldId"/>.
 /// <see cref="FormidableInputBase{TValue}.UpdateOn"/> is fully honoured, exactly as it is for
 /// <see cref="FormidableInputText"/>.
@@ -78,9 +83,11 @@ public sealed class FormidableInputNumber<[DynamicallyAccessedMembers(Dynamicall
     [Inject]
     private IFormidableDomValueSync DomValueSync { get; set; } = default!;
 
-    private protected override bool SyncsDomValueOnBlur => true;
+    /// <inheritdoc />
+    protected override bool SyncsDomValueOnBlur => true;
 
-    private protected override ValueTask SyncDomValueAsync() =>
+    /// <inheritdoc />
+    protected override ValueTask SyncDomValueAsync() =>
         DomValueSync.SyncValueAsync(ElementId, FormatValueAsString(Value));
 
     static FormidableInputNumber()

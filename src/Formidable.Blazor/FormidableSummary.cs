@@ -9,18 +9,30 @@ namespace Formidable.Blazor;
 /// the form, backed by <see cref="IFormValidationEngine.GetVisibleIssues"/> — the same
 /// submit-then-live-deduped view <c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>
 /// use per-field, but for the whole form at once, and in the order that view reports: where the
-/// fields sit on the page, once the host has resolved that. Renders nothing while the form has no
-/// visible issues; otherwise a region with one list per non-empty severity group (errors, then
-/// warnings, then infos), each item a button that moves focus to the offending field via
-/// <see cref="IFormidableFocusService"/>. The region carries <c>role="alert"</c> when any visible
-/// issue is error-severity, and the politer <c>role="status"</c> when the visible issues are
-/// advisories only — an errors-free submit that surfaces only warnings/infos should not interrupt
-/// the way a blocking error does. Subscribes to the cascaded engine's
+/// fields sit on the page, once the host has resolved that. The markup is one persistent
+/// <c>&lt;div class="formidable-summary"&gt;</c> wrapper holding fixed-role region elements that
+/// render from the first paint and stand empty while the form has nothing to show:
+/// <c>formidable-summary__region--errors</c> carries <c>role="alert"</c> and receives the error
+/// band, and <c>formidable-summary__region--advisories</c> carries the politer
+/// <c>role="status"</c> and receives the warning and info bands — an errors-free submit that
+/// surfaces only warnings/infos should not interrupt the way a blocking error does. No role ever
+/// changes on any element, and every band that arrives after a region's own first render inserts
+/// under a role the DOM already carried, which is what makes the insertion reliable for assistive
+/// technology to announce — the same persistent-element reasoning behind
+/// <c>FormidableFieldMessage</c>'s always-rendered list. <see cref="Show"/> decides which of the
+/// two regions exist at all, and it is a parameter: changing it at runtime while matching issues
+/// are already showing renders an added region in the same pass as that region's first band.
+/// Inside a region, each non-empty severity group renders one band (errors, then warnings, then
+/// infos), each item a button that moves focus to the offending field via
+/// <see cref="IFormidableFocusService"/>. Subscribes to the cascaded engine's
 /// <see cref="IFormValidationEngine.StateChanged"/> so the summary stays current through live
 /// edits, refreshes, and server-applied issues — not just at submit time.
 /// </summary>
 public sealed class FormidableSummary : FormidableComponentBase
 {
+    private const string ErrorsRegionClass = "formidable-summary__region formidable-summary__region--errors";
+    private const string AdvisoriesRegionClass = "formidable-summary__region formidable-summary__region--advisories";
+
     private const string ErrorGroupClass = "formidable-summary__group formidable-summary__group--error";
     private const string WarningGroupClass = "formidable-summary__group formidable-summary__group--warning";
     private const string InfoGroupClass = "formidable-summary__group formidable-summary__group--info";
@@ -31,6 +43,18 @@ public sealed class FormidableSummary : FormidableComponentBase
 
     [Inject]
     private IFormidableFocusService FocusService { get; set; } = default!;
+
+    /// <summary>Additional attributes splatted onto the persistent wrapper element.</summary>
+    /// <remarks>
+    /// The splat lands on the wrapper (<c>formidable-summary</c>) and reaches nothing below it:
+    /// the fixed-role regions, and every element this component builds inside them, are contract,
+    /// so a consumer cannot re-role a region — or decorate anything under one — by splatting. On
+    /// the wrapper the kit's usual ordering applies: the splat enters the render tree first and
+    /// the computed values after, so a consumer-splatted <c>class</c> is merged rather than
+    /// replaced — the splatted value first, then <c>formidable-summary</c>.
+    /// </remarks>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     /// <summary>
     /// Invoked when a clicked issue's element is not in the DOM (focus miss) — e.g. a virtualized
@@ -43,10 +67,15 @@ public sealed class FormidableSummary : FormidableComponentBase
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 
     /// <summary>
-    /// Which severity band this summary renders. Defaults to <see cref="SummaryFilter.All"/> —
-    /// today's single combined summary. Set to render one severity band on its own (e.g. a
-    /// page that shows errors and advisories as two separate summaries); a filter that matches
-    /// nothing renders nothing, the same as a clean form.
+    /// Which severities this summary renders — and with it, which fixed-role regions its
+    /// wrapper holds. Defaults to <see cref="SummaryFilter.All"/>, which renders both regions —
+    /// the single combined summary. <see cref="SummaryFilter.Errors"/> renders the
+    /// <c>role="alert"</c> region alone; the advisory filters (<see cref="SummaryFilter.Advisories"/>,
+    /// <see cref="SummaryFilter.Warnings"/>, <see cref="SummaryFilter.Infos"/>) render the
+    /// <c>role="status"</c> region alone — e.g. a page that shows errors and advisories as two
+    /// separate summaries. A filter that matches nothing renders its region empty, the same as a
+    /// clean form: the region persists so that whatever arrives in it later is announced from an
+    /// element already carrying its role.
     /// </summary>
     [Parameter]
     public SummaryFilter Show { get; set; } = SummaryFilter.All;
@@ -82,6 +111,13 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// silently clamped to the nearest valid level, so a mistake here is visible immediately
     /// instead of shipping a heading level nobody chose.
     /// </summary>
+    /// <remarks>
+    /// An <see langword="int"/> deliberately, not an enum of the six valid levels: heading
+    /// levels are arithmetic at both ends. The value becomes the digit in the <c>h1</c>-<c>h6</c>
+    /// tag name this component renders, and a summary slotted into a page's own outline computes
+    /// <c>HeadingLevel="@(parentLevel + 1)"</c>, which an enum would turn into a cast. The loud
+    /// throw is the guard that arithmetic needs.
+    /// </remarks>
     [Parameter]
     public int HeadingLevel { get; set; } = 2;
 
@@ -116,27 +152,61 @@ public sealed class FormidableSummary : FormidableComponentBase
         }
 
         var visibleIssues = Context.Engine.GetVisibleIssues();
-        if (Show != SummaryFilter.All)
+
+        // Each region builds inside its own sequence space (OpenRegion, the same isolation
+        // AddContent wraps around any RenderFragment it appends). Blazor's diff matches sibling
+        // frames by SEQUENCE NUMBER, so numbering the advisories region after the errors region's
+        // variable-length band content would make its number depend on that content — and a
+        // changed number reads as remove-plus-insert, replacing the very element whose stable
+        // identity is this component's contract. Isolated spaces pin every region frame to the
+        // same numbers on every render, whatever the bands are doing.
+        builder.OpenElement(0, "div");
+        builder.AddMultipleAttributes(1, AdditionalAttributes!);
+        builder.AddAttribute(2, "class", FormidableCss.CombineClassNames(AdditionalAttributes, "formidable-summary"));
+
+        if (Show is SummaryFilter.All or SummaryFilter.Errors)
         {
-            visibleIssues = [.. visibleIssues.Where(v => Matches(v.Issue.Severity))];
+            builder.OpenRegion(3);
+            BuildRegion(builder, ErrorsRegionClass, "alert", visibleIssues, errorRegion: true);
+            builder.CloseRegion();
         }
 
-        if (visibleIssues.Count == 0)
+        if (Show is not SummaryFilter.Errors)
         {
-            return;
+            builder.OpenRegion(4);
+            BuildRegion(builder, AdvisoriesRegionClass, "status", visibleIssues, errorRegion: false);
+            builder.CloseRegion();
         }
+
+        builder.CloseElement();
+    }
+
+    // One fixed-role region: the element and its role render whether or not any issue currently
+    // matches, so a band arriving later inserts into a live region assistive technology has
+    // already been told about — a role, once in the DOM, never changes, and the element carrying
+    // it outlives every band that comes and goes inside it. Show is what decides a region exists
+    // at all, so a runtime Show change is where a region and its first band still share a render.
+    // The caller wraps each call in its own sequence-number region, so the local counter here
+    // starts at zero and the region element keeps its frame numbers — and with them its DOM
+    // identity — however much content the sibling region carries.
+    private void BuildRegion(
+        RenderTreeBuilder builder,
+        string regionClass,
+        string role,
+        IReadOnlyList<VisibleIssue> visibleIssues,
+        bool errorRegion)
+    {
+        var sequence = 0;
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", regionClass);
+        builder.AddAttribute(sequence++, "role", role);
 
         var groups = visibleIssues
+            .Where(v => (v.Issue.Severity == ValidationSeverity.Error) == errorRegion && Matches(v.Issue.Severity))
             .GroupBy(v => v.Issue.Severity)
             .OrderBy(g => g.Key);
 
-        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
         var headingTag = $"h{HeadingLevel}";
-
-        var sequence = 0;
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 
         foreach (var group in groups)
         {

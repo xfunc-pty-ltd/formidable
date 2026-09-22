@@ -10,8 +10,11 @@ namespace Formidable.Blazor.Tests;
 public class RowKeyVerificationTests : BunitContext
 {
     /// <summary>
-    /// The four kit components that speak for a field, and so the four that resolve an accessor
-    /// the check can compare. Every one of them is a row a collection can be built out of.
+    /// The kit components this theory drives as a collection row. Each resolves a field from its
+    /// own accessor, and the check compares that resolved identifier against the one the
+    /// component registered; each is also a row a collection can be built out of. Any other
+    /// component that resolves a field is covered on identical terms without appearing here,
+    /// because the comparison lives on the shared base rather than in any component.
     /// </summary>
     public enum RowComponent
     {
@@ -156,7 +159,7 @@ public class RowKeyVerificationTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
             builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), Options);
-            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 foreach (var item in Order.Items)
                 {

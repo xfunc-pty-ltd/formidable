@@ -29,10 +29,6 @@ namespace Formidable.Blazor;
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="For"/>).</typeparam>
 public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
 {
-    private const string ErrorItemClass = "formidable-message formidable-message--error";
-    private const string WarningItemClass = "formidable-message formidable-message--warning";
-    private const string InfoItemClass = "formidable-message formidable-message--info";
-
     private FieldIdentifier _field;
     private string _messagesElementId = string.Empty;
 
@@ -43,6 +39,24 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     /// <summary>Accessor for the field whose messages are rendered, e.g. <c>() => Model.Description</c>.</summary>
     [Parameter, EditorRequired]
     public Expression<Func<TValue>> For { get; set; } = default!;
+
+    /// <summary>Additional attributes splatted onto the rendered list element.</summary>
+    /// <remarks>
+    /// The kit's usual splat policy, stated for this element: the splat enters the render tree
+    /// first and the computed attributes after, so the computed values win the
+    /// duplicate-attribute race (Blazor applies last-write-wins). A consumer-splatted
+    /// <c>class</c> is merged rather than replaced — the splatted value first, then
+    /// <c>formidable-message-list</c>. A consumer-splatted <c>id</c> is ignored, because the
+    /// rendered id is the <c>aria-describedby</c> contract
+    /// (<see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/>) that every input
+    /// describing itself by this list points at. And while
+    /// <see cref="FormidableOptions.InlineMessageRole"/> is set, the <c>role</c> it configures
+    /// wins a splatted one — the list's live-region behaviour is that option's to decide,
+    /// form-wide; with the option unset the kit computes no <c>role</c>, so a splatted one
+    /// stands.
+    /// </remarks>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     /// <summary>
     /// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
@@ -81,13 +95,43 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
             return;
         }
 
-        var issues = Context.Engine.GetIssues(_field);
-        var role = (Context.Engine as IValidatingFieldReader)?.InlineMessageRole;
+        FormidableMessageList.Render(
+            builder,
+            AdditionalAttributes,
+            _messagesElementId,
+            (Context.Engine as IValidatingFieldReader)?.InlineMessageRole,
+            Context.Engine.GetIssues(_field));
+    }
+}
 
+/// <summary>
+/// The one implementation of the kit's message-list markup, shared by
+/// <see cref="FormidableMessageBase{TValue}"/> and <see cref="FormidableModelMessage"/> so the
+/// persistent-list contract — the always-rendered <c>ul</c>, the id that is the
+/// <c>aria-describedby</c> target, the structural classes, and the severity-classed items — has
+/// one place to be right. The splat policy is the kit's usual one: the consumer's attributes
+/// enter the render tree first and the computed values after, so Blazor's last-write-wins hands
+/// the computed <c>id</c>, the merged <c>class</c> and any configured <c>role</c> the
+/// duplicate-attribute race.
+/// </summary>
+internal static class FormidableMessageList
+{
+    private const string ErrorItemClass = "formidable-message formidable-message--error";
+    private const string WarningItemClass = "formidable-message formidable-message--warning";
+    private const string InfoItemClass = "formidable-message formidable-message--info";
+
+    internal static void Render(
+        RenderTreeBuilder builder,
+        IReadOnlyDictionary<string, object>? additionalAttributes,
+        string listElementId,
+        string? role,
+        IReadOnlyList<ValidationIssue> issues)
+    {
         var sequence = 0;
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", _messagesElementId);
-        builder.AddAttribute(sequence++, "class", "formidable-messages");
+        builder.AddMultipleAttributes(sequence++, additionalAttributes!);
+        builder.AddAttribute(sequence++, "id", listElementId);
+        builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
         if (role is not null)
         {
             builder.AddAttribute(sequence++, "role", role);

@@ -18,8 +18,15 @@ internal static class SamplePage
     /// </summary>
     public const int AsyncTimeoutMs = 15_000;
 
-    /// <summary>The form-wide issue summary, rendered only while the form has something to show.</summary>
+    /// <summary>The form-wide issue summary's persistent wrapper — always in the DOM while a
+    /// summary component is on the page, its fixed-role regions standing empty when the form has
+    /// nothing to show. Those regions also mean a bare role locator (GetByRole Status/Alert) is
+    /// ambiguous on summary pages; address the page's own status line as p[role='status'].</summary>
     public static ILocator Summary(IPage page) => page.Locator(".formidable-summary");
+
+    /// <summary>The summary's severity bands — present exactly while the summary has something
+    /// to show, so a zero count here is what "the summary has nothing to say" looks like.</summary>
+    public static ILocator SummaryBands(IPage page) => page.Locator(".formidable-summary__band");
 
     /// <summary>A summary entry, addressed by the message it carries — the only thing a reader of
     /// the summary can see, and what they would click.</summary>

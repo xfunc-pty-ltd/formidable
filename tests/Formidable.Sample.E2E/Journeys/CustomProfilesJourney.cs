@@ -49,7 +49,9 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await TabAsync(page);
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
-        await Expect(page.GetByRole(AriaRole.Status))
+        // The page's own status line, not GetByRole(AriaRole.Status): the summary's persistent
+        // advisories region carries role="status" too, so the role alone is two elements here.
+        await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Submitted under Standard submit — accepted.");
     }
 
@@ -106,8 +108,8 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await page.GetByLabel("Review note", new() { Exact = true }).FillAsync("Checked.");
         await TabAsync(page);
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
-        await Expect(Summary(page)).ToHaveCountAsync(0);
-        await Expect(page.GetByRole(AriaRole.Status))
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
+        await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Submitted under Admin review — accepted.");
     }
 }

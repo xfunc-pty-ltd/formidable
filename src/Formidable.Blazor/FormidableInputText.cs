@@ -18,7 +18,9 @@ namespace Formidable.Blazor;
 /// <see cref="FormidableFieldId"/> for the bound field, because the message list's
 /// <c>aria-describedby</c> target and <see cref="IFormidableFocusService"/> both address the field
 /// by it. A consumer-supplied <c>class</c> is honoured — it is merged with the computed state class
-/// rather than replaced (see <see cref="FormidableInputBase{TValue}.CssClass"/>).
+/// rather than replaced (see <see cref="FormidableInputBase{TValue}.CssClass"/>) — and so is a
+/// consumer-supplied <c>aria-describedby</c>: while the field has issues, the computed messages
+/// id is appended after the splatted ids rather than replacing them.
 /// </remarks>
 public sealed class FormidableInputText : FormidableInputBase<string?>
 {

@@ -55,7 +55,9 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         // must break this: routing the save through the live channel's selection, which would
         // have it report the very failure the message beside it already shows.
         await page.GetByRole(AriaRole.Button, new() { Name = "Save draft", Exact = true }).ClickAsync();
-        await Expect(page.GetByRole(AriaRole.Status))
+        // The page's own status line, not GetByRole(AriaRole.Status): the summary's persistent
+        // advisories region carries role="status" too, so the role alone is two elements here.
+        await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Draft saved — completeness rules were not enforced.");
         await Expect(MessagesFor(page, "title")).ToHaveTextAsync(["Title is required to submit"]);
 
@@ -104,7 +106,7 @@ public sealed class ProfilesJourney(SampleAppFixture app)
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Reset", Exact = true }).ClickAsync();
 
-        await Expect(Summary(page)).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
         await Expect(title).Not.ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
     }
 }

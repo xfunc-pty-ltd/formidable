@@ -133,17 +133,25 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
             inner.OpenComponent<EditForm>(0);
             inner.AddComponentParameter(1, nameof(EditForm.EditContext), _editContext);
             inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
+            // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
+            // The default is deliberate: without it, any native constraint attribute inside the
+            // form — a splatted required/pattern/min/max, a type="email" — has the browser block
+            // the submit and front its own bubble before OnSubmit ever fires, so the message the
+            // visitor sees stops being FluentValidation's. novalidate switches off only that
+            // interactive check: :invalid still matches, ValidityState is still computed, and
+            // checkValidity()/reportValidity() still work when called.
+            inner.AddAttribute(3, "novalidate", true);
             if (AdditionalAttributes is not null)
             {
-                inner.AddMultipleAttributes(3, AdditionalAttributes!);
+                inner.AddMultipleAttributes(4, AdditionalAttributes!);
             }
             // Rendered after the splat, so they win the duplicate-attribute race: the all-suppressed
             // gate's summary entry addresses the form by this id (see FormidableFieldId), and a
             // consumer-supplied id or tabindex would break that the same way a consumer-supplied
             // input id would — see FormidableInputBase<TValue>'s identical policy.
-            inner.AddAttribute(4, "id", _modelLevelFieldId);
-            inner.AddAttribute(5, "tabindex", "-1");
-            inner.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent ?? (_ => { })));
+            inner.AddAttribute(5, "id", _modelLevelFieldId);
+            inner.AddAttribute(6, "tabindex", "-1");
+            inner.AddComponentParameter(7, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();
@@ -177,6 +185,37 @@ render it by hand. A consumer-splatted `id` or `tabindex` on `FormidableForm` is
 same reason a consumer-splatted `id` on `FormidableInputText` is: the value has to stay
 deterministic for the focus service to find it. `FormidableValidator<TModel>` renders no `<form>`
 of its own — see its section below for the attach-mode equivalent.
+
+The `<form>` also renders `novalidate`, by deliberate default. The browser's interactive
+constraint validation answers a submit before Blazor hears about it: any native constraint
+attribute inside the form (a splatted `required` or `pattern`, a `type="email"` on
+`FormidableInputText`, a `min` or `max`) would block the submit at the element and front the
+browser's own bubble, so the message the visitor saw would stop being FluentValidation's.
+`novalidate` switches off exactly that check and nothing else. `:invalid` still matches,
+`ValidityState` is still computed, and `checkValidity()`/`reportValidity()` still answer when
+called — a stylesheet keying on `:invalid`, or a page asking the browser directly, sees what it
+always saw. Unlike `id` and `tabindex` above, the attribute renders in the consumer-wins
+position, before the splat: splatting `novalidate="@false"` removes it and hands the submit back
+to the browser's native constraint UI. That opt-out is the bool `@false` — the string `"false"`
+would render the attribute, and a rendered `novalidate` is on whatever its value says.
+`FormidableValidator` cannot make this call for a page: it renders no `<form>` and does not
+reach the `EditForm` the page owns, so in attach mode the attribute is the page's own to write —
+see [its section below](#formidablevalidatortmodel-attaching-to-an-existing-form) for where it
+goes.
+
+`ChildContent` is a typed fragment, `RenderFragment<FormidableFormContext>` — the shape
+`EditForm` gives its own body — so form markup reads the cascaded context as `context` without
+capturing the component with `@ref`: a reset button is
+`<button type="button" @onclick="() => context.Engine.ResetAsync()">Start over</button>`, inline.
+Two notes travel with that. An inline *read* of engine state refreshes when the form itself
+re-renders (a submit is one cause), not on every validation pass — ongoing state travels through
+`Engine.StateChanged`, which observing components subscribe to individually — so a live spinner
+or a disabled submit button still wants a small component subscribed to that event, the shape
+the `/field-state` page's visualizer ships. And nesting another typed fragment that also leaves
+its parameter name implicit (a `FormidableField`, a `Virtualize`) makes the Razor compiler ask
+for a `Context="..."` on one of the two: both declare the implicit `context` name, so the rename
+is owed whether or not either body ever reads it. It is a compile-time rename, the same one `EditForm` has always charged, and
+every shipped sample already names the inner fragment.
 
 Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset —
 rebuilds the `EditContext` and engine; a component consuming `FormidableForm` never manages that
@@ -543,13 +582,13 @@ for the shared call below:
 
 ```csharp
     private string ComputeCssClass(FieldState state) =>
-        CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
+        FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
 ```csharp
-    private static string CombineClassNames(IReadOnlyDictionary<string, object>? additionalAttributes, string computed)
+    internal static string CombineClassNames(IReadOnlyDictionary<string, object>? additionalAttributes, string computed)
     {
         if (additionalAttributes is null || !additionalAttributes.TryGetValue("class", out var splatted))
         {
@@ -566,7 +605,10 @@ for the shared call below:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+*Source: `src/Formidable.Blazor/FormidableCss.cs`* — the merge lives on `FormidableCss` because it
+is not the inputs' alone: the message components and `FormidableSummary`'s wrapper answer a
+splatted `class` through the same method, so one implementation keeps the policy identical
+everywhere it applies.
 
 A consumer writing `class="form-control"` on a `FormidableInputText` keeps that class and still
 gets whichever state class applies — `formidable-invalid`, `formidable-warning`,
@@ -575,7 +617,12 @@ appended alongside it; the two are merged, never one replacing the other.
 
 **Aria.** `aria-invalid` appears while the field has error-severity issues, and `aria-describedby`
 — pointing at the message list's id — while it has any issues at all; a clean field renders
-neither. `aria-required` appears while the submit profile's rules demand a value for the field,
+neither. A consumer-splatted `aria-describedby` (a persistent hint, say) merges rather than
+loses: while issues exist the rendered value is the splatted ids first, then the messages id
+appended, and while none exist the splat stands alone. Appending is the order that keeps the
+hint's association stable — the messages id joins the end of the announced sequence when an
+issue arrives, instead of reshuffling the hint at exactly the moment the visitor needs full
+context. `aria-required` appears while the submit profile's rules demand a value for the field,
 which is a fact about the rules rather than about the current value, so it is there from the first
 render and stays through every state the field passes.
 
@@ -603,7 +650,7 @@ consumer-facing guarantees rest on:
 
         if (issues.Count > 0)
         {
-            builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+            builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
         }
 
         if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
@@ -617,7 +664,9 @@ consumer-facing guarantees rest on:
 
 `AdditionalAttributes` enters the render tree first and the computed values after, so the computed
 values win the duplicate-attribute race (Blazor applies last-write-wins): that is what merges a
-consumer's `class` with the state class and what drops a consumer's `id` in favour of the
+consumer's `class` with the state class, merges a consumer's `aria-describedby` with the
+messages id (the `ComputeAriaDescribedBy()` call in the excerpt builds that value — splatted ids
+first, messages id appended), and drops a consumer's `id` in favour of the
 deterministic one. Because the order lives in this one call, a derived control gets it by calling
 rather than by transcribing. The call consumes four sequence numbers — `sequence` through
 `sequence + 3` — so the control's own attributes start at `sequence + 4`. It also reads the field's
@@ -767,8 +816,8 @@ Two things a page can do instead, both of which remove the shift rather than rec
   layout-side answer, and it takes real height: a persistent wrapper is not enough on its own,
   because an empty element is zero-height. `FormidableFieldMessage` renders its list element
   always, which is what gives a stylesheet something stable to give a `min-height` to. The
-  sample's own `.summary-slot` shows the limit of the weaker version: it wraps the summary
-  persistently, and the button below it still moves when the summary appears.
+  sample's own `.summary-slot` shows the limit of the weaker version: the summary's wrapper and
+  regions persist, and the button below them still moves when the bands arrive.
 
 ### Deriving your own input
 
@@ -860,6 +909,30 @@ Four rules apply to anything derived from the base:
 derived control honours every mode — `OnChange`, `OnInput`, `OnBlur`, and whatever the enum grows
 next — the same way `FormidableInputText` does, without writing its own ternary that would need
 updating every time the enum does.
+
+One more seam serves the number-and-date-shaped control: one whose native element can display
+text it reports as empty (a number box holding `e3`, say), which no render-tree diff can
+overwrite because the rendered value and the reported value already agree. The kit's own two
+cases reconcile the box on blur through `IFormidableDomValueSync`, and a derived control opts
+into exactly the same mechanism with two overrides plus the injected service:
+
+```csharp
+[Inject]
+private IFormidableDomValueSync DomValueSync { get; set; } = default!;
+
+protected override bool SyncsDomValueOnBlur => true;
+
+protected override ValueTask SyncDomValueAsync() =>
+    DomValueSync.SyncValueAsync(ElementId, FormatCurrentValue());
+```
+
+That is the shape `FormidableInputNumber` itself ships, with `FormatCurrentValue()` standing in
+for however the control formats its `Value` back into DOM text. The flag makes `AddValueBinding`
+bind `blur` in every `UpdateOn` mode; the write is the override's whole job. Everything else
+about the blur stays the base's, in the order it guarantees: the consumer-splatted `@onblur`
+runs first, the sync follows, and — under `OnBlur`, while a commit has left a notification
+pending — the engine notification is delivered last, so a live pass always renders against a box
+that already matches the model.
 
 ## `FormidableInputSelect<TValue>`
 
@@ -1067,16 +1140,19 @@ generic type is touched, the standard shape for any failing static constructor.
 
 `step="any"` renders first, *before* `AddCommonAttributes`' splat — the consumer-wins position,
 the opposite of `type` below. HTML's own default `step` is `1`, which makes any fractional value
-a native `stepMismatch`. `FormidableForm` renders no `novalidate` (neither does the framework's
-own `EditForm` underneath it), so a real `<button type="submit">` against a `stepMismatch` field
-never reaches Blazor's submit handler at all — the browser blocks the submit event and shows its
-own constraint-validation tooltip, not FluentValidation's message. The default `step="any"` turns
-that native check off, so every fractional value reaches the model and only FluentValidation
-judges it, matching native `InputNumber<TValue>`'s own default for every one of its supported
-types. Rendering it before the splat, rather than forcing it the way `type` is forced, means a
-consumer's own splatted `step` overrides the default outright — and opts back into the browser's
-native constraint UI for values that mismatch it, the same trade a consumer accepts by splatting
-any other native constraint attribute.
+a native `stepMismatch`. Under `FormidableForm` that mismatch does not block the submit,
+because the form renders `novalidate` (see [above](#formidableformtmodel)); what `novalidate`
+leaves running is the constraint computation itself, so the field would still match `:invalid`
+while it held the fraction, and the spinner buttons would still snap to whole numbers. In a form
+without `novalidate` — a consumer's own `EditForm` in attach mode, or a `FormidableForm` whose
+splat removed the default — the browser additionally blocks a real `<button type="submit">`
+before it reaches Blazor at all and shows its own constraint-validation tooltip, not
+FluentValidation's message. The default `step="any"` retires the mismatch at the source, in
+every one of those forms, so only FluentValidation judges a fractional value — matching native
+`InputNumber<TValue>`'s own default for every one of its supported types. Rendering it before
+the splat, rather than forcing it the way `type` is forced, means a consumer's own splatted
+`step` overrides the default outright, taking back whatever native handling of a mismatch their
+form's `novalidate` answer has left on.
 
 `type="number"` renders in the component-wins position, after `AddCommonAttributes`' splat, the
 same spot `RatingInput`'s `type="range"` takes above. `AddValueBinding` here is a third overload —
@@ -1164,9 +1240,8 @@ a rule such as `NotNull()` to judge.
 Every field needs somewhere to show what's wrong with it. `FormidableFieldMessage` renders a
 field's current issues, any severity, as an accessible list. The list element itself renders
 always — empty when the field has none — so a consumer's CSS can transition it open and closed the
-way the sample transitions [`FormidableSummary`](#formidablesummary) through its own persistent
-wrapper (`FormidableSummary` itself renders nothing at all when there are no visible issues,
-unlike this list element's always-rendered root), and so a configured `InlineMessageRole` sits on
+way the sample transitions [`FormidableSummary`](#formidablesummary), whose wrapper and regions
+persist the same way while its bands come and go, and so a configured `InlineMessageRole` sits on
 an element that persists across renders rather than one that enters alongside the text it
 announces (see [Options](options.md#inlinemessagerole)). It shares one base
 (`FormidableMessageBase<TValue>`) with its collection-level sibling
@@ -1174,6 +1249,15 @@ for resolving `For`, subscribing to the engine's `StateChanged`, and rendering t
 That base is public only because a public component cannot inherit a less accessible base; its
 constructor is not, so these two components are the only shapes it takes. Unlike
 `FormidableInputBase<TValue>`, it is not an extension point.
+
+`AdditionalAttributes` splats onto that list element under the kit's usual ordering: the
+consumer's attributes enter the render tree first and the computed ones after, so a computed
+value wins the duplicate. A splatted `class` is merged rather than replaced, the splatted value
+first and `formidable-message-list` after. A splatted `id` is ignored, because the rendered id is
+the `aria-describedby` target every input describing itself by this list points at. And while
+[`InlineMessageRole`](options.md#inlinemessagerole) is set, the `role` it configures wins a
+splatted one: the list's live-region behaviour is that option's to decide, form-wide. With the
+option unset the kit computes no `role`, so a splatted one stands.
 
 One base method decides whether rendering a message list also registers the field it lists:
 
@@ -1216,7 +1300,53 @@ exception, and a deliberate one: it discloses an engaged field's verdict without
 registration (see [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)), so an
 unpaired list can carry live messages while staying silent about everything submit revealed. Its
 collection-level sibling, `FormidableCollectionMessage`, overrides that same hook to skip the
-pairing requirement entirely; it's introduced below, once collections are in scope.
+pairing requirement entirely; it's introduced below, once collections are in scope. Its
+model-level sibling renders the same list for the issues no `For` expression can reach, and is
+next.
+
+## `FormidableModelMessage`
+
+Some verdicts are about the form rather than about any field: the defensive gate's explanation
+for a blocked submit that can show nothing (see [Disclosure](disclosure.md)), a server error
+applied with an empty path, and the fault issue a throwing live rule leaves behind, which
+`GetIssues` orders last. They live on the model-level field — an empty
+`FieldIdentifier.FieldName` — which `FormidableSummary` lists and the `EditContext`'s store
+carries, but which no `FormidableFieldMessage` can name: `For` takes an accessor expression, and
+no expression reaches the model-level field. A form built on inline messages alone would
+therefore show the gate, the one message whose whole purpose is being seen, nowhere.
+
+`FormidableModelMessage` is that surface. Parameterless, because the field it speaks for is
+fixed:
+
+```razor
+    <FormidableForm Model="_inlineRequest" OnValidSubmit="HandleInlineValid">
+        <FormidableModelMessage />
+```
+
+*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
+
+It renders the same persistent list as the field messages, through the same implementation: the
+always-rendered `<ul class="formidable-message-list">`, empty while the form has nothing to say,
+items entering and leaving as `formidable-message formidable-message--{severity}`. Its id is the
+model-level message id — the form element's own id plus `-messages`, per
+`FormidableFieldId.MessagesFor` — and a configured
+[`InlineMessageRole`](options.md#inlinemessagerole) sits on the persistent element. That role is
+the point on a summary-less form: the gate's explanation arrives inside a live region assistive
+technology already knew about, rather than in an element inserted alongside the text it should
+announce. The splat and its policies are the message components' own (a splatted `class` merges,
+the computed `id` wins, a configured role wins a splatted one).
+
+It registers nothing. Registration is how a *field's* submit errors earn disclosure; the
+model-level field is always disclosed, because its element is the form's own, on the page for as
+long as the form is. Beside a `FormidableSummary` the component is redundant — the summary
+already lists model-level issues among everything else — so it earns its place on the form that
+has no summary. Attach mode changes nothing here: `FormidableValidator` cascades the same
+context, so the component renders the same list inside a consumer's own `EditForm`.
+
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
+summary-less variant form under *Without a summary*: submit with the trip details collapsed and
+the gate's explanation appears through the component; reveal them and the inline messages take
+over while the form-level list empties.
 
 ## `FormidableRequiredIndicator<TValue>`
 
@@ -1232,12 +1362,42 @@ otherwise — and nothing at all for a field the rules do not demand:
 
 *Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor`*
 
-Inside the `<label>`, after the label text, is where the samples put it. The mark is derived from
+Inside the `<label>`, after the label text, is where most samples put it. The mark is derived from
 the validator's rules rather than declared on the markup, so a presence rule moving between
 profiles moves the mark with it and a form cannot drift out of step with what it enforces. The
 submit profile is the one that decides, because "required" on a form means "required before this
 can be submitted": a narrowed `LiveProfile` changes when a message appears, never whether the
 value is demanded.
+
+That placement is the samples' habit, not the component's contract. It needs exactly two things,
+the cascaded form context and `For`, and reads nothing from the label or input around it, so the
+mark lands wherever your markup puts it: before the label text, after the control, outside the
+`<label>` entirely. A checkbox is where the habit inverts — the control comes first, so the mark
+follows it:
+
+```razor
+<FormidableField For="() => _signup.AcceptsTerms" Context="field">
+    <label><input type="checkbox" @attributes="field.InputAttributes"
+                  checked="@_signup.AcceptsTerms"
+                  @onchange="args => ToggleTerms(args, field)" />
+        <FormidableRequiredIndicator For="() => _signup.AcceptsTerms" />
+        I accept the terms</label>
+</FormidableField>
+```
+
+The splatted `field.InputAttributes` carries the accessible half, putting `aria-required="true"`
+on the checkbox while the rules demand it. One note on the rule such a field needs: "must be
+ticked" is readable as a demand only when written as FluentValidation's own `NotEmpty()` on the
+`bool`, whose empty value is `false`. Written as `Equal(true)` or a `Must(...)`, it is
+indistinguishable from any other predicate and answers `NotRequired` (see the detection limits
+below), so the mark then waits on [`RequiredOverride`](options.md#requiredoverride) — a limit of
+reading rules, not of the component. Beside a native input the component works the same way:
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)'s venue field places it next to a
+plain `InputText`, wiring the accessible half by hand. A radio group is where the mark leaves the
+label altogether: [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) puts the
+accommodation question's mark in the group's `<legend>`, outside both option labels and outside
+the `FormidableField` wrapping the radios, since each label there names an option rather than the
+field.
 
 It registers nothing, since a marker is not an input, so what keeps the field registered for
 disclosure is the validated input beside it or a `FormidableFieldAnchor`, exactly as it is for
@@ -1302,40 +1462,79 @@ carries at the root's own level.
 cannot be read, [`RequiredOverride`](options.md#requiredoverride) is what a form says instead, and
 it decides the marker and `aria-required` together so the two cannot disagree.
 
-The library ships no styling, so `formidable-required` is a hook for your stylesheet and the option
-supplies the text inside it. Setting `RequiredIndicatorContent` to `null` turns every marker on the form
-off at once and leaves `aria-required` exactly where it was.
+The library ships no styling, so `formidable-required` is a hook for your stylesheet and
+[`RequiredIndicatorContent`](options.md#requiredindicatorcontent) supplies the text inside it —
+set that to `""` and the marker renders empty, which keeps the element on the page for a
+stylesheet's `::before` to draw a CSS-only glyph into. Setting
+[`ShowRequiredIndicators`](options.md#showrequiredindicators) to `false` turns every marker on
+the form off at once — no element at all — and leaves `aria-required` exactly where it was.
 
-One practical note for tests: the marker's text sits inside the `<label>`, so a query matching raw
-label text sees it and a role-and-name query, which runs the accessible-name algorithm, does not.
-`aria-hidden` is what separates the two, and it is the second kind of query that reflects what a
-visitor using assistive technology hears.
+One practical note for tests: a query matching raw text sees the marker, and a role-and-name
+query, which runs the accessible-name algorithm, does not. `aria-hidden` is what separates the
+two, and it is the second kind of query that reflects what a visitor using assistive technology
+hears. Which raw text is the one that sees it depends on where the mark sits — a label-embedded
+marker lands in the label's text, one in a `<legend>` in the group's.
 
 **Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor) — three marked
-fields, one of which is marked and silent at the same time; and
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — required marks on kit inputs, a
-foreign select, a native input and the attendee rows, with the unmarked fields carrying the same
-component.
+fields, one of which is marked and silent at the same time;
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor), with required marks on kit inputs,
+a foreign select, a native input and the attendee rows, and the unmarked fields carrying the same
+component; and [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor), where one
+mark sits outside the label entirely, in a radio group's `<legend>`.
 
 ## `FormidableSummary`
 
-Renders a live, severity-grouped list of every currently-visible issue across the form — nothing
-while the form has no visible issues. The region's `role` is severity-aware: `alert` when any
-visible issue is error-severity, the politer `status` when the visible issues are advisories only:
+Renders a live, severity-grouped list of every currently-visible issue across the form, inside
+markup built to be announced: one persistent `<div class="formidable-summary">` wrapper holding
+fixed-role live regions that render from the first paint and stand empty while the form has
+nothing to show. Errors band into a region that has carried `role="alert"` since it rendered;
+warnings and infos band into one that has always carried the politer `role="status"` — an
+errors-free submit that surfaces only advisories should not interrupt the way a blocking error
+does. No role ever changes on any element, and every issue that arrives after a region's own first
+render lands inside a live region whose role was already there: the shape assistive technology
+announces reliably, where a role entering the DOM in the same render as the content it should
+announce is the shape that gets dropped. `Show` decides which regions exist, and it is a
+parameter, so changing it at runtime while matching issues are already on screen is where a region
+and its first band still share a render:
 
 ```csharp
-        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+    private const string ErrorsRegionClass = "formidable-summary__region formidable-summary__region--errors";
+    private const string AdvisoriesRegionClass = "formidable-summary__region formidable-summary__region--advisories";
 ```
 
 ```csharp
-        var sequence = 0;
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
+        builder.OpenElement(0, "div");
+        builder.AddMultipleAttributes(1, AdditionalAttributes!);
+        builder.AddAttribute(2, "class", FormidableCss.CombineClassNames(AdditionalAttributes, "formidable-summary"));
+
+        if (Show is SummaryFilter.All or SummaryFilter.Errors)
+        {
+            builder.OpenRegion(3);
+            BuildRegion(builder, ErrorsRegionClass, "alert", visibleIssues, errorRegion: true);
+            builder.CloseRegion();
+        }
+
+        if (Show is not SummaryFilter.Errors)
+        {
+            builder.OpenRegion(4);
+            BuildRegion(builder, AdvisoriesRegionClass, "status", visibleIssues, errorRegion: false);
+            builder.CloseRegion();
+        }
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is the heading-tag
-computation driven by the `HeadingLevel` parameter, unrelated to the role wiring shown here.
+*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — `BuildRegion` renders one region
+element carrying the class and fixed role it is handed, then whichever severity bands currently
+belong inside it. The `OpenRegion` calls give each region its own sequence-number space, which is
+what makes the persistence real at the DOM level: Blazor's diff matches sibling frames by
+sequence number, so without the isolation the advisories region's number would shift with the
+error content ahead of it and the diff would replace the element instead of keeping it.
+
+`AdditionalAttributes` splats onto that wrapper and reaches nothing below it: the fixed-role
+regions, and every element the component builds inside them, are contract, so a consumer cannot
+re-role a region or decorate anything under one by splatting. On the wrapper the kit's usual
+ordering applies, which the excerpt's first three calls spell out: the element opens, the splat
+enters, and the computed `class` follows it. So a splatted `class` is merged rather than
+replaced — the splatted value first, then `formidable-summary`.
 
 Each item is a button that moves focus to the offending field through `IFormidableFocusService`,
 via the component's own `FocusWithFallbackAsync`:
@@ -1436,21 +1635,27 @@ commentary renders two:
 <FormidableSummary Show="SummaryFilter.Advisories" />
 ```
 
-A filter that matches nothing renders nothing, the same as a clean form — so the advisory summary
-disappears on its own while there is nothing to say, and the heading above it is the page's to
-hide alongside it.
+`Show` also decides which fixed-role regions the wrapper holds: `All` renders both, `Errors` the
+`role="alert"` region alone, and the three advisory filters the `role="status"` region alone. A
+filter that matches nothing renders its region empty, the same as a clean form — the region
+persists so that whatever arrives in it later is announced from an element already carrying its
+role. The paragraph above a quiet advisory summary is still the page's to hide: key it on the
+summary's bands (`:has(.formidable-summary__band)`), which exist exactly while the summary has
+something to say, the way the sample's own slide does.
 
 Each summary reads the same visible issues and filters them independently, which has two
 consequences worth planning around. A default summary rendered alongside a filtered one shows
-those issues twice — nothing coordinates between them, so pick one shape per form. And each
-computes its own `role` from what it actually shows, so two summaries are two live regions and two
-announcements: an `Errors` summary announces as `alert` whenever it has anything, an `Advisories`
-one always as the politer `status` (see
+those issues twice — nothing coordinates between them, so pick one shape per form. And every
+region is a live region of its own, so two summaries are two live regions and two announcements:
+an `Errors` summary announces from its `alert` region whenever it has anything, an `Advisories`
+one always from the politer `status` (see
 [CSS and accessibility](css-and-accessibility.md#formidablesummary-as-a-live-region)).
 
 **Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor) — two disjoint
 summaries stacked one above the other at the top of the form, so what blocks and what merely
-advises arrive as separate blocks, and the one with nothing to say is absent rather than empty.
+advises arrive as separate blocks. The one with nothing to say takes no space: its wrapper and
+region persist for announcement's sake, while everything visible — panel, tint, spacing — lives
+on the bands it currently has none of.
 
 ### Heading each band
 
@@ -1467,9 +1672,11 @@ copy Formidable never writes.
 The band itself (`<div class="formidable-summary__band formidable-summary__band--{severity}">`,
 wrapping the heading, if any, and the `<ul>` together) renders for every band regardless of
 whether that band carries a heading, so a stylesheet has one consistent shape to target rather than
-a wrapper that appears only once a heading is set. That wrapper sits between `.formidable-summary`
-and each severity's `<ul>`, which is a real markup change for anyone styling past it: a
-`.formidable-summary > ul` selector stops matching. What it buys is a panel per severity to style
+a wrapper that appears only once a heading is set. It sits inside its severity's fixed-role
+region, between that region and the `<ul>`, which matters to anyone styling with child
+combinators: the chain is `.formidable-summary` > `__region` > `__band` > `ul`, so a
+`.formidable-summary > ul` selector matches nothing — descendant selectors are the durable
+choice. What the band buys is a panel per severity to style
 as one — background, left rule, radius, padding on `.formidable-summary__band` rather than spread
 across the `<ul>` and its `formidable-summary__group` class. The sample styles it exactly that
 way; where a consumer's own panel styling lives is theirs to decide, since Formidable ships no CSS
@@ -1530,7 +1737,13 @@ same order. Focus parity is not order parity — see
 none and it renders nothing at all, cascade included, rather than an empty wrapper. Everything
 that needs the cascade, `FormidableSummary` and any `FormidableInputText`/`FormidableFieldMessage`
 pair among them, belongs nested inside `<FormidableValidator>...</FormidableValidator>`, not
-sitting beside it as a sibling.
+sitting beside it as a sibling. The fragment is typed (`RenderFragment<FormidableFormContext>`,
+the same shape `FormidableForm`'s body has), and here that always meets one structural fact:
+this component sits inside an `EditForm`, whose own body also declares the implicit `context`
+name, so the Razor compiler asks for a `Context="..."` on one of the two, whether or not either
+body ever reads the parameter. Put it on the validator — `Context="formidable"` in the example
+below and on the `/attach` sample — and the content can then read `formidable.Engine` inline
+where it wants to.
 
 One further gap needs markup rather than a different call: `FormidableValidator` renders no
 `<form>` element of its own — it attaches to whatever `EditForm` the page already owns — so it has
@@ -1540,7 +1753,7 @@ it already has:
 
 ```razor
 <EditForm Model="_model" OnSubmit="HandleSubmit" id="@GateId" tabindex="-1">
-    <FormidableValidator TModel="Order" @ref="_validator">
+    <FormidableValidator TModel="Order" @ref="_validator" Context="formidable">
         ...
     </FormidableValidator>
 </EditForm>
@@ -1552,6 +1765,14 @@ private string GateId => FormidableFieldId.For(new FieldIdentifier(_model, strin
 
 This is the same pattern every `FormidableForm`-rooted page rendered by hand before the form took
 it over; attach mode is the one place it still applies.
+
+`novalidate` is the page's to write for the same reason. `FormidableForm` renders it by default so
+that the browser's own interactive constraint validation never answers a submit ahead of
+FluentValidation (see [above](#formidableformtmodel)); `FormidableValidator` reaches no `<form>`
+element, so a page that wants the same guarantee writes the attribute on the `EditForm` it owns,
+beside the gate id above. An attribute `EditForm` does not recognise lands on the `<form>` it
+renders, which is how the id gets there too. Leaving it off is a real choice rather than an
+oversight: a page that wants the browser's own constraint UI keeps it by saying nothing.
 
 Attach mode gives up nothing on noticing the page change. `FormidableValidator` reconciles
 the rendered field set the same way `FormidableForm` does: removing a row prunes its live issues
@@ -1695,6 +1916,11 @@ public sealed class FormidableFieldContext
     /// the input's <c>aria-describedby</c>. It is
     /// <see cref="FormidableFieldId.MessagesFor(Microsoft.AspNetCore.Components.Forms.FieldIdentifier)"/>
     /// for <see cref="Field"/>, the same id the field's message list renders on itself.
+    /// Deliberately a single id, never a merged list: the consumer composes the markup here, so
+    /// a control that also carries its own hint writes
+    /// <c>aria-describedby="@($"my-hint {field.AriaDescribedBy}")"</c> itself — the same
+    /// splatted-first, messages-id-after order the kit's inputs merge a splatted
+    /// <c>aria-describedby</c> in.
     /// </summary>
     public string? AriaDescribedBy { get; }
 

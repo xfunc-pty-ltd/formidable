@@ -84,6 +84,37 @@ public class FormidableValidatorComponentTests : BunitContext
         return module;
     }
 
+    // Mirrors the form's own pin: the typed fragment receives the SAME context instance the
+    // validator cascades, so an inline read and a nested component's cascaded context agree
+    // about which engine they speak for.
+    [Fact]
+    public void ChildContent_receives_the_cascaded_context_instance()
+    {
+        FormidableFormContext? received = null;
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<EditForm>(0);
+            builder.AddComponentParameter(1, nameof(EditForm.Model), order);
+            builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                inner.AddComponentParameter(
+                    1,
+                    nameof(FormidableValidator<EngineOrder>.ChildContent),
+                    (RenderFragment<FormidableFormContext>)(context => _ => received = context));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        var cascade = cut.FindComponent<CascadingValue<FormidableFormContext>>();
+        var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
+        Assert.NotNull(received);
+        Assert.Same(cascade.Instance.Value, received);
+        Assert.Same(validator.Instance.Engine, received!.Engine);
+    }
+
     // Degrade loudly, never silently. A root the guard cannot be scoped to is a page that keeps
     // the defect, and the one thing worse than keeping it is keeping it invisibly — so the miss
     // reports on the same dual channel an unwired FocusFallback's own miss already uses, naming
@@ -142,7 +173,7 @@ public class FormidableValidatorComponentTests : BunitContext
             builder.AddComponentParameter(
                 3,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
-                (RenderFragment)(inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+                (RenderFragment<FormidableFormContext>)(_ => inner => inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
             builder.CloseComponent();
         }).FindComponent<FormidableForm<EngineOrder>>();
 
@@ -177,7 +208,7 @@ public class FormidableValidatorComponentTests : BunitContext
             builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
-                inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment)(ctx =>
+                inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => ctx =>
                 {
                     ctx.OpenComponent<ContextProbe>(0);
                     ctx.CloseComponent();
@@ -808,7 +839,7 @@ public class FormidableValidatorComponentTests : BunitContext
                 {
                     inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Options), Options);
                 }
-                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment)(ctx =>
+                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => ctx =>
                 {
                     foreach (var item in Order.Items)
                     {

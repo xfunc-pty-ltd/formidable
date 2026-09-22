@@ -66,7 +66,7 @@ public sealed class ServerJourney(SampleAppFixture app)
         // refresh re-derives the advisory channel and the client's copy is no longer in it.
         await Expect(MessagesFor(page, "description"))
             .ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
-        await Expect(Summary(page)).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
     }
 
     [E2EFact]

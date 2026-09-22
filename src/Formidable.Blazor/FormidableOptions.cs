@@ -196,20 +196,37 @@ public sealed class FormidableOptions
     public Func<FieldIdentifier, FieldRequirement?>? RequiredOverride { get; set; }
 
     /// <summary>
-    /// The content <c>FormidableRequiredIndicator</c> renders for a required field. Defaults to
-    /// <c>"*"</c>. Set to <see langword="null"/> to render no marker at all, anywhere on the
-    /// form — the form-wide off switch for a design that marks optional fields instead, or one
-    /// whose marker is drawn entirely in CSS.
+    /// Whether <c>FormidableRequiredIndicator</c> renders at all. Defaults to
+    /// <see langword="true"/>. Set to <see langword="false"/> to render no marker anywhere on
+    /// the form — no element, not an empty one — the form-wide off switch for a design that
+    /// marks its optional fields instead.
+    /// </summary>
+    /// <remarks>
+    /// Off means off for everything the indicator might ever render: should the component grow a
+    /// per-instance template, this switch suppresses that too, so "no marker anywhere on the
+    /// form" stays true whatever a field supplies. What it never suppresses is
+    /// <c>aria-required</c>: whether a value is demanded is a fact about the input, not a
+    /// decoration, so assistive technology keeps being told even where nothing is drawn. For a
+    /// marker drawn entirely in CSS, leave this on and set
+    /// <see cref="RequiredIndicatorContent"/> to <c>""</c> instead — the empty element is what a
+    /// stylesheet's <c>::before</c> needs to land on.
+    /// </remarks>
+    public bool ShowRequiredIndicators { get; set; } = true;
+
+    /// <summary>
+    /// The content <c>FormidableRequiredIndicator</c> renders inside its marker for a required
+    /// field. Defaults to <c>"*"</c>. It decides what a drawn marker holds, never whether one is
+    /// drawn — that is <see cref="ShowRequiredIndicators"/>. Set to <c>""</c> to render the
+    /// marker element empty: the route for a marker drawn entirely in CSS, since it keeps the
+    /// <c>formidable-required</c> element on the page for a stylesheet's
+    /// <c>::before</c>/<c>::after</c> to draw into.
     /// </summary>
     /// <remarks>
     /// The library ships no styling, so this is the text inside the marker's
     /// <c>formidable-required</c> element and nothing else — colour, spacing and any glyph drawn
-    /// with <c>::before</c>/<c>::after</c> are the consumer's stylesheet's business. Suppressing
-    /// the marker does not suppress <c>aria-required</c>: whether a value is demanded is a fact
-    /// about the input, not a decoration, so assistive technology keeps being told even where
-    /// nothing is drawn.
+    /// with <c>::before</c>/<c>::after</c> are the consumer's stylesheet's business.
     /// </remarks>
-    public string? RequiredIndicatorContent { get; set; } = "*";
+    public string RequiredIndicatorContent { get; set; } = "*";
 
     /// <summary>
     /// How the live channel discloses an engaged field's issues. Defaults to
@@ -287,9 +304,9 @@ public sealed class FormidableOptions
     public bool VerifyRowKeys { get; set; }
 
     /// <summary>
-    /// Role attribute applied to every field- and collection-level message list
-    /// (<c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>). Defaults to
-    /// <see langword="null"/>, which renders no <c>role</c> attribute at all. Set to
+    /// Role attribute applied to every message list — field-, collection- and model-level alike
+    /// (<c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>/<c>FormidableModelMessage</c>).
+    /// Defaults to <see langword="null"/>, which renders no <c>role</c> attribute at all. Set to
     /// <c>"status"</c> to make each list its own polite live region, announced
     /// to assistive technology as its content changes; recommended on forms that render no
     /// <see cref="FormidableSummary"/>, which already announces on its own.

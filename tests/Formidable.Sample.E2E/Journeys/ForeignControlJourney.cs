@@ -31,6 +31,6 @@ public sealed class ForeignControlJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "colour")).ToHaveCountAsync(0);
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
-        await Expect(Summary(page)).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
     }
 }

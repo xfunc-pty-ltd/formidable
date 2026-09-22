@@ -71,7 +71,7 @@ public class FormidableInputSelectTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputSelect<string?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -245,7 +245,7 @@ public class FormidableInputSelectTests : BunitContext
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
             builder.AddComponentParameter(3, "Options", new FormidableOptions());
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputSelect<string?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => order.Description));
@@ -309,7 +309,7 @@ public class FormidableInputSelectTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Widget>>(0);
             builder.AddComponentParameter(1, "Model", widget);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputSelect<UnsupportedGadget?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<UnsupportedGadget?>>)(() => widget.Gadget));
@@ -335,7 +335,7 @@ public class FormidableInputSelectTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Ticket>>(0);
             builder.AddComponentParameter(1, "Model", ticket);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputSelect<Priority?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<Priority?>>)(() => ticket.Priority));

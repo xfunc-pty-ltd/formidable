@@ -7,11 +7,14 @@ namespace Formidable.Sample.Pages;
 public partial class Disclosure
 {
     private readonly TravelRequest _request = new();
+    private readonly TravelRequest _inlineRequest = new();
     private readonly List<string> _suppressed = [];
     private FormidableOptions? _options;
     private FormidableForm<TravelRequest>? _form;
     private bool _showDetails;
+    private bool _showInlineSection;
     private string _status = string.Empty;
+    private string _inlineStatus = string.Empty;
 
     protected override void OnInitialized()
     {
@@ -31,6 +34,12 @@ public partial class Disclosure
         field.NotifyChanged();
     }
 
+    private void SetInlineNeeds(bool value, FormidableFieldContext field)
+    {
+        _inlineRequest.NeedsAccommodation = value;
+        field.NotifyChanged();
+    }
+
     private void OnTypeChanged(ChangeEventArgs args, FormidableFieldContext field)
     {
         _request.AccommodationType = args.Value?.ToString() ?? string.Empty;
@@ -45,4 +54,6 @@ public partial class Disclosure
     }
 
     private void HandleValid() => _status = "Submitted — every disclosed rule passed.";
+
+    private void HandleInlineValid() => _inlineStatus = "Submitted — the trip details check out.";
 }

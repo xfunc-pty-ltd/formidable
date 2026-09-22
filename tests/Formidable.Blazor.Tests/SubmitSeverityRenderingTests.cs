@@ -39,7 +39,7 @@ public class SubmitSeverityRenderingTests : BunitContext
             builder.OpenComponent<FormidableForm<TaggedListing>>(0);
             builder.AddComponentParameter(1, "Model", listing);
             builder.AddComponentParameter(2, "Options", new FormidableOptions { DisclosureOverride = _ => true });
-            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputText>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string?>>)(() => listing.Tags));

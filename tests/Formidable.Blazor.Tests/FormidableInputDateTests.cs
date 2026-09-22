@@ -33,7 +33,7 @@ public class FormidableInputDateTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Trip>>(0);
             builder.AddComponentParameter(1, "Model", trip);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputDate<DateTime>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<DateTime>>)(() => trip.ReturnDate));
@@ -60,7 +60,7 @@ public class FormidableInputDateTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Trip>>(0);
             builder.AddComponentParameter(1, "Model", trip);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputDate<DateOnly?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<DateOnly?>>)(() => trip.DepartureDate));
@@ -80,7 +80,7 @@ public class FormidableInputDateTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Trip>>(0);
             builder.AddComponentParameter(1, "Model", trip);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputDate<DateTimeOffset?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<DateTimeOffset?>>)(() => trip.BookedAt));
@@ -230,7 +230,7 @@ public class FormidableInputDateTests : BunitContext
             builder.AddComponentParameter(1, "Model", trip);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<Trip>(validator));
             builder.AddComponentParameter(3, "Options", new FormidableOptions());
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputDate<DateTime>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<DateTime>>)(() => trip.ReturnDate));
@@ -407,7 +407,7 @@ public class FormidableInputDateTests : BunitContext
             {
                 builder.OpenComponent<FormidableForm<Trip>>(0);
                 builder.AddComponentParameter(1, "Model", trip);
-                builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+                builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
                 {
                     inner.OpenComponent<FormidableInputDate<int>>(0);
                     inner.CloseComponent();

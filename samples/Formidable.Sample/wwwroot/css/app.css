@@ -276,7 +276,7 @@ main {
 
 /* Padding does not margin-collapse the way the field's own bottom margin does, so a field
    showing a message keeps this room on top of its normal trailing margin. The 4.8px gap above
-   the message (.formidable-messages' own margin-top) already groups it with its input; this is
+   the message (.formidable-message-list's own margin-top) already groups it with its input; this is
    the field's own share of that same grouping, keeping the message reading as owned by the
    field above it rather than floating up against the next label. The list itself renders
    always (empty when the field has none), so this keys on an actual message rather than the
@@ -296,11 +296,11 @@ main {
    the nested shape's own .35rem trailing padding) so the two shapes end in exactly the same
    trailing gap. Both key on an actual message for the same reason as above — the sibling list
    is always there too, and an empty one must fall through to the plain field/list defaults. */
-.field:has(+ .formidable-messages .formidable-message) {
+.field:has(+ .formidable-message-list .formidable-message) {
     margin-bottom: .3rem;
 }
 
-.field + .formidable-messages:has(.formidable-message) {
+.field + .formidable-message-list:has(.formidable-message) {
     margin: 0 0 1.35rem;
 }
 
@@ -310,11 +310,11 @@ main {
    belong to. Matching on the item list that follows restores both defaults for that shape.
    Two separate :has() clauses (rather than nesting one inside the other, which the selector
    grammar forbids) express the same "has a message AND is followed by the roster" condition. */
-.field:has(+ .formidable-messages .formidable-message):has(+ .formidable-messages + .member-list) {
+.field:has(+ .formidable-message-list .formidable-message):has(+ .formidable-message-list + .member-list) {
     margin-bottom: 1rem;
 }
 
-.field + .formidable-messages:has(.formidable-message):has(+ .member-list) {
+.field + .formidable-message-list:has(.formidable-message):has(+ .member-list) {
     margin: .3rem 0 0;
 }
 
@@ -476,7 +476,7 @@ form .formidable-pending {
    row off an actual message (the ITEM, not the list) so the grid-row track grows from zero
    without knowing the content's height up front and, because the list never leaves the DOM,
    collapses back to zero the same way on the way out. */
-.formidable-messages {
+.formidable-message-list {
     display: grid;
     grid-template-rows: 0fr;
     list-style: none;
@@ -485,18 +485,18 @@ form .formidable-pending {
     transition: grid-template-rows .22s ease, margin-top .22s ease;
 }
 
-.formidable-messages:has(.formidable-message) {
+.formidable-message-list:has(.formidable-message) {
     grid-template-rows: 1fr;
     margin-top: .3rem;
 }
 
-.formidable-messages > li {
+.formidable-message-list > li {
     overflow: hidden;
     min-height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .formidable-messages {
+    .formidable-message-list {
         transition: none;
     }
 }
@@ -573,10 +573,11 @@ button:focus-visible {
 
 /* ---------- summary (links excluded from the secondary-button rules above) ---------- */
 
-/* The slide: FormidableSummary renders nothing at all when there are no visible issues, so
-   :has() toggles the open row directly off the summary's own presence — no separate open/closed
-   class to keep in sync. overflow: hidden and min-height: 0 on the summary keep it from resisting
-   the collapsed 0fr row before that happens. */
+/* The slide: FormidableSummary's severity bands exist exactly while it has something to show —
+   the wrapper and its fixed-role regions persist either way — so :has() toggles the open row
+   off the bands, not off the always-present wrapper, and no separate open/closed class needs
+   keeping in sync. overflow: hidden and min-height: 0 on the wrapper keep it from resisting the
+   collapsed 0fr row. */
 .summary-slot {
     display: grid;
     grid-template-rows: 0fr;
@@ -588,7 +589,7 @@ button:focus-visible {
     min-height: 0;
 }
 
-.summary-slot:has(.formidable-summary) {
+.summary-slot:has(.formidable-summary__band) {
     grid-template-rows: 1fr;
 }
 
@@ -599,13 +600,22 @@ button:focus-visible {
 }
 
 /* Neutral: FormidableSummary.Show can render a summary carrying only one severity band, so no
-   single colour lives on the outer region — each band below carries its own. The bands are
-   peers, not a card-in-a-card: no outer background, border or padding here, just the stack. */
-.formidable-summary {
-    display: flex;
-    flex-direction: column;
-    gap: .5rem;
+   single colour lives on the wrapper or its regions — each band below carries its own. The
+   bands are peers, not a card-in-a-card: no outer background, border or padding, just the
+   stack. And because the wrapper and regions persist while empty, everything that would give
+   an empty summary a footprint — the bottom margin, the gaps — is keyed on the bands. */
+.formidable-summary:has(.formidable-summary__band) {
     margin-bottom: 1.1rem;
+}
+
+.formidable-summary__band + .formidable-summary__band {
+    margin-top: .5rem;
+}
+
+/* Show="All" renders both fixed-role regions in one summary; when each holds a band, this is
+   where the last error band and the first advisory band meet. */
+.formidable-summary__region--errors:has(.formidable-summary__band) + .formidable-summary__region--advisories:has(.formidable-summary__band) {
+    margin-top: .5rem;
 }
 
 /* The panel treatment — tint, left rule, radius, padding — lives on the band, not the list, so

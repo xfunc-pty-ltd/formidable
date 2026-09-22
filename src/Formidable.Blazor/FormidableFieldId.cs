@@ -54,8 +54,9 @@ public static class FormidableFieldId
     /// <summary>
     /// The id of the element listing a field's messages: <see cref="For(FieldIdentifier)"/> with a
     /// <c>-messages</c> suffix. This is the <c>aria-describedby</c> contract, and this method owns
-    /// it: <see cref="FormidableFieldMessage{TValue}"/> and
-    /// <see cref="FormidableCollectionMessage{TValue}"/> render this id on their list, every kit
+    /// it: <see cref="FormidableFieldMessage{TValue}"/>,
+    /// <see cref="FormidableCollectionMessage{TValue}"/> and <see cref="FormidableModelMessage"/>
+    /// render this id on their lists, every kit
     /// input points <c>aria-describedby</c> at it while the field has issues, and
     /// <see cref="FormidableFieldContext.AriaDescribedBy"/> hands it to a hand-rolled control.
     /// Call this rather than concatenating the suffix, so a control wired by hand and the message

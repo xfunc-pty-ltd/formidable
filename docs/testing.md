@@ -105,7 +105,7 @@ public class SignupFormTests : BunitContext
         cut.Find("form").Submit();
 
         cut.WaitForAssertion(() =>
-            Assert.Contains("Name is required", cut.Find("ul.formidable-messages").TextContent));
+            Assert.Contains("Name is required", cut.Find("ul.formidable-message-list").TextContent));
     }
 }
 ```
@@ -150,17 +150,32 @@ double overrides it, it answers the conservative default named in the interface'
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
-`JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan every call the form
-makes: `orderFields` for the resolve itself, `observeLayout` and `disconnectLayoutObserver` for
-the browser-side layout observer the form establishes beside it, `registerClickRecovery` and
-`releaseClickRecovery` for the displaced-click guard, and `focusField` once a blocked submit is
-going to move focus. Strict mode is bUnit's default, and an unplanned call throws
+`JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan the calls the form in
+front of you reaches: `orderFields` for the resolve itself, `observeLayout` and
+`disconnectLayoutObserver` for the browser-side layout observer the form establishes beside it,
+`registerClickRecovery` and `releaseClickRecovery` for the displaced-click guard, `focusField`
+once a blocked submit is going to move focus, and `syncValue` once a `FormidableInputNumber` or
+`FormidableInputDate` blurs. Strict mode is bUnit's default, and an unplanned call throws
 `JSRuntimeUnhandledInvocationException`, which derives from `Exception` rather than `JSException`,
-so the form's own tolerance for a failed interop call never catches it. Render a `FormidableForm`
-at all with no plan for `orderFields`, fields or no fields, and the render itself throws. That is
-what Formidable's own `FocusServiceTests` do, because there the service *is* the thing under
-test.
-For a form test, the interface doubles are less machinery.
+so the order resolve's own tolerance for a failed interop call never catches it. Render a
+`FormidableForm` at all with no plan for `orderFields`, fields or no fields, and the render
+itself throws. That is what Formidable's own `FocusServiceTests` do, because there the
+service *is* the thing under test.
+
+For a form test, the interface doubles are both less machinery and the sturdier bet, and the
+difference is what each route couples the test to. The interfaces are what Formidable holds
+still for consumers: a double written against `IFormidableFocusService`,
+`IFormidableFieldOrderService` or `IFormidableDomValueSync` states what the library promises. The
+module is how the library talks to the browser, and the names invoked on it move with the
+features that need them, so a strict-mode plan naming today's set meets tomorrow's addition as a
+thrown `JSRuntimeUnhandledInvocationException` in a test that was asserting something else
+entirely. Treat the list above as the calls to expect rather than the calls there are.
+
+What a plan can lean on is the module path. `./_content/Formidable.Blazor/formidable.js` carries
+no version and no cache-busting query, by decision rather than by omission: cache policy over a
+static web asset belongs to the host serving it, through fingerprinting, `ETag` and
+`Cache-Control`, rather than to the library shipping it. A `SetupModule` on that literal, written
+exactly as the call above writes it, plans the import the loader actually makes.
 
 Some of the module is reached whichever route you take. The displaced-click guard belongs to the
 form outright, so a `FormidableForm` imports `formidable.js` on its first render and asks for

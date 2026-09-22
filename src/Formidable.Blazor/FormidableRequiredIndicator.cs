@@ -11,8 +11,10 @@ namespace Formidable.Blazor;
 /// <see cref="FormidableOptions.RequiredIndicatorContent"/> while
 /// <see cref="IFormValidationEngine.GetFieldRequirement"/> answers
 /// <see cref="FieldRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
+/// While <see cref="FormidableOptions.ShowRequiredIndicators"/> is off, the component renders
+/// nothing for any field, whatever the rules demand.
 /// Place it wherever the marker belongs — inside the field's <c>&lt;label&gt;</c>, after the
-/// label text, is the shape the samples use.
+/// label text, is the shape most samples use.
 /// </summary>
 /// <remarks>
 /// The marker is derived from the validator's rules rather than declared on the markup, so a
@@ -84,8 +86,8 @@ public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBas
             return;
         }
 
-        var content = Context.Engine.Options.RequiredIndicatorContent;
-        if (content is null || Context.Engine.GetFieldRequirement(_field) != FieldRequirement.Required)
+        if (!Context.Engine.Options.ShowRequiredIndicators
+            || Context.Engine.GetFieldRequirement(_field) != FieldRequirement.Required)
         {
             return;
         }
@@ -93,7 +95,7 @@ public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBas
         builder.OpenElement(0, "span");
         builder.AddAttribute(1, "class", "formidable-required");
         builder.AddAttribute(2, "aria-hidden", "true");
-        builder.AddContent(3, content);
+        builder.AddContent(3, Context.Engine.Options.RequiredIndicatorContent);
         builder.CloseElement();
     }
 }

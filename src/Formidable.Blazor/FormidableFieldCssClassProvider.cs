@@ -3,17 +3,18 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Internal fast-path reads two engine-adjacent components need without growing the public
+/// Internal fast-path reads engine-adjacent components need without growing the public
 /// <see cref="IFormValidationEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
 /// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
 /// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
-/// directly; <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide
-/// whether its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
-/// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
-/// does not, so each reader falls back to its own default for whichever member it needs.
+/// directly; any component that renders a message list reads <see cref="InlineMessageRole"/> and
+/// passes it to the shared list renderer, which adds the <c>role</c> attribute when the value is
+/// not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
+/// to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
 {

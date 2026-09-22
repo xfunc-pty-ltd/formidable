@@ -33,7 +33,7 @@ public class FormValidationEnginePassNotificationTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
-            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputText>(0);
                 inner.AddComponentParameter(1, "For", (Expression<Func<string?>>)(() => order.Description));

@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Formidable.Blazor;
 
 /// <summary>
@@ -70,4 +72,28 @@ public static class FormidableCss
             ValidationSeverity.Warning => warningClass,
             _ => infoClass,
         };
+
+    /// <summary>
+    /// Joins a consumer-splatted <c>class</c> value (first) with a computed class (last),
+    /// tolerating either being absent or empty — the one merge rule behind every kit element that
+    /// both accepts a splat and computes a class of its own, so an input's state class, a message
+    /// list's structural class and the summary wrapper's answer a consumer's <c>class</c>
+    /// identically. Behaviourally equivalent to the framework's internal splat/class merge,
+    /// reimplemented here rather than taken as a dependency on an internal type.
+    /// </summary>
+    internal static string CombineClassNames(IReadOnlyDictionary<string, object>? additionalAttributes, string computed)
+    {
+        if (additionalAttributes is null || !additionalAttributes.TryGetValue("class", out var splatted))
+        {
+            return computed;
+        }
+
+        var splattedClass = Convert.ToString(splatted, CultureInfo.InvariantCulture);
+        if (string.IsNullOrEmpty(splattedClass))
+        {
+            return computed;
+        }
+
+        return computed.Length == 0 ? splattedClass : $"{splattedClass} {computed}";
+    }
 }

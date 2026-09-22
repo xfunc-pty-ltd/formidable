@@ -22,7 +22,7 @@ public class FormidableFieldMessageTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
             builder.AddComponentParameter(2, "Options", options ?? new FormidableOptions { DisclosureOverride = _ => true });
-            builder.AddComponentParameter(3, "ChildContent", inner);
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner));
             builder.CloseComponent();
         });
         return cut.FindComponent<FormidableForm<EngineOrder>>();
@@ -39,7 +39,7 @@ public class FormidableFieldMessageTests : BunitContext
             inner.CloseComponent();
         });
 
-        var list = form.Find("ul.formidable-messages");
+        var list = form.Find("ul.formidable-message-list");
         Assert.Empty(list.Children);
         Assert.Null(list.GetAttribute("role"));
 
@@ -54,7 +54,7 @@ public class FormidableFieldMessageTests : BunitContext
             },
             new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
 
-        var roleList = withRole.Find("ul.formidable-messages");
+        var roleList = withRole.Find("ul.formidable-message-list");
         Assert.Empty(roleList.Children);
         Assert.Equal("status", roleList.GetAttribute("role"));
     }
@@ -80,7 +80,7 @@ public class FormidableFieldMessageTests : BunitContext
         // current through a clear and a re-fail: a container recreated on clear would remove this
         // exact node from the tree, and bUnit tracks that — the clear-side wait would throw
         // ElementRemovedFromDomException on this reference rather than ever observe it empty.
-        var container = form.Find("ul.formidable-messages");
+        var container = form.Find("ul.formidable-message-list");
         Assert.NotEmpty(container.Children);
         Assert.NotNull(container.ParentElement);
 
@@ -114,7 +114,7 @@ public class FormidableFieldMessageTests : BunitContext
         {
             var item = form.Find("li.formidable-message--warning");
             Assert.Contains("Avoid hyphens", item.TextContent);
-            var list = form.Find("ul.formidable-messages");
+            var list = form.Find("ul.formidable-message-list");
             Assert.Equal(
                 $"{FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description)))}-messages",
                 list.GetAttribute("id"));
@@ -134,7 +134,7 @@ public class FormidableFieldMessageTests : BunitContext
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
-        form.WaitForAssertion(() => Assert.Null(form.Find("ul.formidable-messages").GetAttribute("role")));
+        form.WaitForAssertion(() => Assert.Null(form.Find("ul.formidable-message-list").GetAttribute("role")));
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public class FormidableFieldMessageTests : BunitContext
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
-        form.WaitForAssertion(() => Assert.Equal("status", form.Find("ul.formidable-messages").GetAttribute("role")));
+        form.WaitForAssertion(() => Assert.Equal("status", form.Find("ul.formidable-message-list").GetAttribute("role")));
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public class FormidableFieldMessageTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableCollectionMessage<List<EngineItem>>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<List<EngineItem>>>)(() => order.Items));
@@ -219,6 +219,79 @@ public class FormidableFieldMessageTests : BunitContext
         // The count rule is model-level (Path ""), so it does NOT land on Items — this
         // asserts the boundary: FormidableCollectionMessage shows only ITS field's issues.
         form.WaitForAssertion(() => Assert.Empty(form.FindAll("li")));
+    }
+
+    [Fact]
+    public void A_splatted_class_merges_with_the_list_class()
+    {
+        var order = new EngineOrder { Description = "a-b" };
+        var form = RenderWithMessage(order, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.AddComponentParameter(2, "class", "custom-list");
+            inner.AddComponentParameter(3, "data-hook", "mine");
+            inner.CloseComponent();
+        });
+
+        // Exact equality pins the whole policy: the splat reached the element (data-hook), the
+        // consumer's class survived, the structural class was appended after it, and neither
+        // replaced the other.
+        var list = form.Find("ul.formidable-message-list");
+        Assert.Equal("custom-list formidable-message-list", list.GetAttribute("class"));
+        Assert.Equal("mine", list.GetAttribute("data-hook"));
+    }
+
+    [Fact]
+    public void A_splatted_id_is_ignored_in_favour_of_the_messages_id()
+    {
+        var order = new EngineOrder { Description = "a-b" };
+        var form = RenderWithMessage(order, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.AddComponentParameter(2, "id", "my-own-id");
+            inner.CloseComponent();
+        });
+
+        // The rendered id IS the aria-describedby contract, so the computed value must win the
+        // duplicate-attribute race — a splatted id landing here would strand every input that
+        // describes itself by this list.
+        var list = form.Find("ul.formidable-message-list");
+        Assert.Equal(
+            FormidableFieldId.MessagesFor(new FieldIdentifier(order, nameof(EngineOrder.Description))),
+            list.GetAttribute("id"));
+    }
+
+    [Fact]
+    public void A_configured_InlineMessageRole_wins_a_splatted_role()
+    {
+        var order = new EngineOrder { Description = "a-b" };
+        var withOption = RenderWithMessage(
+            order,
+            inner =>
+            {
+                inner.OpenComponent<FormidableFieldMessage<string>>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+                inner.AddComponentParameter(2, "role", "alert");
+                inner.CloseComponent();
+            },
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+
+        Assert.Equal("status", withOption.Find("ul.formidable-message-list").GetAttribute("role"));
+
+        // With the option unset the kit computes no role, so the splatted one stands — the
+        // documented boundary of the computed-wins policy, not an accident.
+        var bare = new EngineOrder { Description = "a-b" };
+        var withoutOption = RenderWithMessage(bare, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => bare.Description));
+            inner.AddComponentParameter(2, "role", "alert");
+            inner.CloseComponent();
+        });
+
+        Assert.Equal("alert", withoutOption.Find("ul.formidable-message-list").GetAttribute("role"));
     }
 
     [Fact]

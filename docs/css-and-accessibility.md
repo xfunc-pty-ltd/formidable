@@ -166,16 +166,17 @@ public sealed class FormidableCssClasses
 `FormidableInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for
 the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
 instance the form was built with, then merges the result with any consumer-splatted `class`. See
-[Component kit](component-kit.md) for the merge itself. `FormidableFieldMessage`/
-`FormidableCollectionMessage` and `FormidableSummary` use a related, fixed convention of their
+[Component kit](component-kit.md) for the merge itself. The message components and
+`FormidableSummary` use a related, fixed convention of their
 own for the messages they render — see [Severity](severity.md) for the
 `formidable-message--{severity}` and `formidable-summary__group--{severity}` class families, and
 [Component kit](component-kit.md#heading-each-band) for the `formidable-summary__band--{severity}`
 band each group sits inside.
 
 That's the entire class-name contract: rename the five strings, and the rule above still
-decides when each one applies. What follows is how to rename them, the rule a native `InputBase`
-picks up automatically, and the ids/aria/focus wiring built on top of the same field state.
+decides when each one applies. What follows is how to rename them, the fixed names on the
+library's own markup, the rule a native `InputBase` picks up automatically, and the
+ids/aria/focus wiring built on top of the same field state.
 
 ## Configuring `FormidableCssClasses`
 
@@ -192,6 +193,40 @@ handing the form a different `FormidableOptions` instance on a later render thro
 quietly changing nothing. See
 [Options](options.md#formidableoptions-is-read-once) for that rule.
 
+## The structural class inventory
+
+The five configurable names cover what the engine computes onto elements *you* render. Every
+class on an element the library itself renders is fixed: these names are contract, published
+here so a stylesheet can key on any of them and know it is keying on something that will not
+change. This is all of them — twenty-one names:
+
+| Class | Where it renders |
+|---|---|
+| `formidable-message-list` | the persistent message list (`<ul>`) all three message components render — `FormidableFieldMessage`, `FormidableCollectionMessage`, `FormidableModelMessage` |
+| `formidable-message` | every message item (`<li>`) in those lists |
+| `formidable-message--error`, `formidable-message--warning`, `formidable-message--info` | appended to the item for its severity |
+| `formidable-required` | the marker `<span>` `FormidableRequiredIndicator` renders |
+| `formidable-summary` | `FormidableSummary`'s persistent wrapper |
+| `formidable-summary__region` | every fixed-role live region the wrapper holds — which ones, `Show` decides |
+| `formidable-summary__region--errors` | appended to the `role="alert"` region |
+| `formidable-summary__region--advisories` | appended to the `role="status"` region |
+| `formidable-summary__band` | one band per non-empty severity group |
+| `formidable-summary__band--error`, `--warning`, `--info` | appended to the band for its severity |
+| `formidable-summary__group` | the band's message list (`<ul>`) |
+| `formidable-summary__group--error`, `--warning`, `--info` | appended to the group for its severity |
+| `formidable-summary__heading` | the optional heading above a band's list |
+| `formidable-summary__item` | each summary entry (`<li>`) |
+| `formidable-summary__link` | the entry's click-to-focus button |
+
+These names are deliberately not configurable, and that is a ruling rather than a gap: a
+`FormidableCssClasses`-style seam for the structural names is additive later — it could arrive
+without breaking anything — while the defaults above are what consumer stylesheets key on
+regardless, so the names stay fixed vocabulary either way. What exists today is the splat: the
+message lists and the summary wrapper accept unmatched attributes, so utility classes and data
+hooks reach the containers, with a splatted `class` merging ahead of the structural name. The
+fixed-role regions and everything inside them, the message items, and the required marker take
+no splat; they are what the table freezes.
+
 ## The `FieldCssClassProvider` bridge
 
 A field rendered by a plain Blazor `InputBase` (not a Formidable component) still needs a class
@@ -204,17 +239,18 @@ up the same configured class names automatically:
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Internal fast-path reads two engine-adjacent components need without growing the public
+/// Internal fast-path reads engine-adjacent components need without growing the public
 /// <see cref="IFormValidationEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
 /// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
 /// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
-/// directly; <c>FormidableMessageBase{TValue}</c> reads <see cref="InlineMessageRole"/> to decide
-/// whether its rendered list carries a <c>role</c> attribute. <see cref="FormValidationEngine{TModel}"/>
-/// implements this explicitly; any other <see cref="IFormValidationEngine"/> (a test double, say)
-/// does not, so each reader falls back to its own default for whichever member it needs.
+/// directly; any component that renders a message list reads <see cref="InlineMessageRole"/> and
+/// passes it to the shared list renderer, which adds the <c>role</c> attribute when the value is
+/// not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
+/// to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
 {
@@ -413,7 +449,7 @@ anything the field's current state is doing:
 
         if (issues.Count > 0)
         {
-            builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+            builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
         }
 ```
 
@@ -421,21 +457,35 @@ anything the field's current state is doing:
 
 `aria-invalid="true"` only appears for error-severity issues; `aria-describedby` appears for any
 issue, warnings and infos included, since those are still rendered and still worth announcing.
-The id it points at — `FormidableFieldId.MessagesFor(field)`, the field's id plus `-messages` — is
-exactly the id `FormidableFieldMessage`/`FormidableCollectionMessage` render on their message
-list:
+`ComputeAriaDescribedBy()` is the merge with whatever the consumer splatted: a persistent hint's
+own `aria-describedby` keeps its place at the front, and the messages id is appended after it
+while issues exist — the same consumer-first policy as the `class` merge, so an error joining
+the field extends the announced sequence instead of replacing the hint. With nothing splatted,
+the value is the messages id alone: `FormidableFieldId.MessagesFor(field)`, the field's id plus
+`-messages` — exactly the id a field's own message list carries, whether
+`FormidableFieldMessage` or `FormidableCollectionMessage` rendered it:
 
 ```csharp
         builder.OpenElement(sequence++, "ul");
-        builder.AddAttribute(sequence++, "id", _messagesElementId);
-        builder.AddAttribute(sequence++, "class", "formidable-messages");
+        builder.AddMultipleAttributes(sequence++, additionalAttributes!);
+        builder.AddAttribute(sequence++, "id", listElementId);
+        builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
 
+The id enters the render tree after any consumer-splatted attributes, so it wins the
+duplicate-attribute race: an `id` splatted onto a message component is ignored, because this one
+is the contract every `aria-describedby` on the page relies on. The splatted `class` merges with
+`formidable-message-list` instead of being replaced, the same policy the inputs apply to their
+state class.
+
 `FormidableFieldContext` — the renderless path's equivalent — computes the identical pair from
 the same inputs, and reports the field's requirement beside them, so a hand-rolled control driven
-by `FormidableField` gets the same wiring a `FormidableInputBase` descendant does:
+by `FormidableField` gets the same wiring a `FormidableInputBase` descendant does. One deliberate
+difference: `AriaDescribedBy` here is always the single messages id, never a merged list,
+because the consumer composes the markup themselves — a control that also carries a hint writes
+the hint's id and `field.AriaDescribedBy` into the attribute in that order by hand:
 
 ```csharp
         AriaInvalid = state.HasErrors;
@@ -454,11 +504,17 @@ render is a lookup. [`RequiredOverride`](options.md#requiredoverride) is the par
 on its own, so it alone is invoked on every ask rather than cached with the rest.
 
 It is `aria-required` rather than the native `required` attribute, and that is a deliberate
-choice rather than an oversight. `required` turns on the browser's own constraint validation: the
-browser refuses the submit before Formidable's pass ever runs and puts its own bubble in front of
-the message the form was going to show, in the browser's wording and the browser's placement.
-`aria-required` states the same fact to assistive technology and leaves the verdict where the rest
-of the form's verdicts live.
+choice rather than an oversight. `required` makes every empty required field match `:invalid`
+from first paint — the opposite of the untouched-fields-stay-quiet discipline the state classes
+above follow, and untouched by `novalidate`, which switches off interactive validation rather
+than the constraint computation. It also arms the browser's own submit-time enforcement:
+`FormidableForm`'s default `novalidate` (see
+[Component kit](component-kit.md#formidableformtmodel)) keeps that from firing, but in a form
+without it — attach mode's consumer-owned `EditForm`, or a splat that removed the default — the
+browser refuses the submit before Formidable's pass ever runs and puts its own bubble in front
+of the message the form was going to show, in the browser's wording and the browser's placement.
+`aria-required` states the same fact to assistive technology and leaves the verdict where the
+rest of the form's verdicts live.
 
 The visible mark and the announced fact are deliberately separate elements.
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) draws the mark
@@ -468,44 +524,66 @@ as `<span class="formidable-required" aria-hidden="true">`, and the input beside
 label around it, so the mark can sit inside the `<label>` — where sighted readers expect it —
 without changing the input's name by a character. Style the mark through
 `formidable-required`; the library ships no styling, and
-[`RequiredIndicatorContent`](options.md#requiredindicatorcontent) supplies the text inside it. Turning that
-option off removes the mark and leaves `aria-required` in place, because whether a value is
-demanded is a fact about the input rather than a decoration.
+[`RequiredIndicatorContent`](options.md#requiredindicatorcontent) supplies the text inside it (an
+empty string keeps the empty element for a glyph drawn with `::before`). Turning
+[`ShowRequiredIndicators`](options.md#showrequiredindicators) off removes the mark and leaves
+`aria-required` in place, because whether a value is demanded is a fact about the input rather
+than a decoration.
 
 ### `FormidableSummary` as a live region
 
-`FormidableSummary` renders a `role="alert"` region when any visible issue is error-severity, or
-the politer `role="status"` when the visible issues are advisories only, so assistive technology
-announces it whenever its content changes — a submit that fails, a live-typed correction that
-clears an error, a server-applied issue landing:
+A live region announces reliably only when the element carrying the role was in the DOM before
+the content arrived: assistive technology is inconsistent about a role that enters, or changes,
+in the same render as the text it should announce — and the announcement that matters most, the
+first blocked submit, is exactly the one that shape most plausibly drops. `FormidableSummary` is
+built so that moment cannot depend on it. Its persistent wrapper holds fixed-role region
+elements that render from the first paint and stand empty until there is something to say:
+`formidable-summary__region--errors` carrying `role="alert"`, and
+`formidable-summary__region--advisories` carrying the politer `role="status"`. No role on any
+element ever changes, and every issue that arrives after a region's own first render inserts into
+a live region whose role was already there:
 
 ```csharp
-        var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+    // One fixed-role region: the element and its role render whether or not any issue currently
+    // matches, so a band arriving later inserts into a live region assistive technology has
+    // already been told about — a role, once in the DOM, never changes, and the element carrying
+    // it outlives every band that comes and goes inside it. Show is what decides a region exists
+    // at all, so a runtime Show change is where a region and its first band still share a render.
 ```
 
 ```csharp
-        var sequence = 0;
         builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
+        builder.AddAttribute(sequence++, "class", regionClass);
+        builder.AddAttribute(sequence++, "role", role);
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is the heading-tag
-computation (`HeadingLevel`, see [Component kit](component-kit.md#formidablesummary)), unrelated to
-the role wiring shown here.
+*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between are the rest of
+that comment, `BuildRegion`'s signature, and its counter's initialisation; the class and role each
+call hands it are fixed at the call site, and each call is wrapped in its own sequence-number
+region so the element the role sits on is the same DOM node across renders (see
+[Component kit](component-kit.md#formidablesummary) for that half of the wiring).
 
-It subscribes to the engine's `StateChanged` event itself, so the region's content — and
+The component subscribes to the engine's `StateChanged` event itself, so a region's content — and
 whatever it announces — stays current through every kind of update, not just the moment of
-submit. Content and role change together in the same render, so a follow-up edit that clears the
-last error can flip the region from `alert` to `status` as part of the same update that removes
-the message.
+submit: a submit that fails, a live-typed correction that clears an error, a server-applied issue
+landing. Blocking problems and commentary announce at different urgencies by construction, since
+errors band into the `alert` region and warnings and infos into the `status` one; a follow-up
+edit that clears the last error empties the assertive region rather than changing what any
+element is.
 
-The role is per summary, not per form, which matters as soon as a page splits the bands with
-`Show` (see [Component kit](component-kit.md#showing-one-severity-band)). Each summary computes
-`hasError` over the issues *it* renders, so an `Errors` summary announces as `alert` whenever it
-has anything and an `Advisories` one always as `status`. That is two live regions on the page, and
-a submit that produces both kinds announces twice. One combined summary announces once, at the
-urgency of the worst thing in it — which is the reason `All` is the default.
+The regions are per summary, not per form, which matters as soon as a page splits the bands with
+`Show` (see [Component kit](component-kit.md#showing-one-severity-band)): `Show` decides which
+regions a summary renders, so an `Errors` summary carries only the `alert` region and an
+`Advisories` one only the `status` region. A submit that produces both kinds announces from both
+regions — the blocking half assertively, the advisory half politely — and that is equally true of
+one combined summary and a split pair, which render the same two regions between them. What `All`
+saves is coordination, not announcements: one summary cannot double-list an issue the way a
+default summary rendered beside a filtered one can.
+
+Because `Show` is a parameter, changing it at runtime is where a region's persistence has its
+boundary. A region added while matching issues are already on screen renders together with its
+first band; only what arrives afterwards lands in a region the DOM already held. A `Show` fixed
+in the markup, which is the usual case, never reaches that.
 
 ### Focus service
 
@@ -617,8 +695,9 @@ The first is a field scrolled out of a `Virtualize` window with no current DOM e
 miss `FocusFallback` exists to recover from (see [Component kit](component-kit.md#focusfallback)).
 The second is a raw or foreign control whose markup never actually rendered `field.ElementId` as
 its `id` attribute, which is why `FormidableField`'s `ForeignControl.razor` sample splats
-`@attributes="field.InputAttributes"` onto its `<select>`: the id, the state class and the aria
-pair in one go (see [Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
+`@attributes="field.InputAttributes"` onto its `<select>`: one splat carrying the id, the state
+class, and `aria-invalid`, `aria-describedby` and `aria-required` whenever each applies (see
+[Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
 with no id on the control it anchors has nothing for the focus service to find. The samples now
 close that gap rather than illustrate it, giving their native `InputText`s the field's id
 alongside the anchor.
@@ -673,7 +752,7 @@ opt-out.
   [Component kit](component-kit.md).
 - `aria-invalid`/`aria-describedby` on a hand-rolled control —
   [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor).
-- `FormidableSummary`'s live region and click-to-focus, including the virtualize limit —
+- `FormidableSummary`'s live regions and click-to-focus, including the virtualize limit —
   [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor).
 - The field id on markup the page renders itself — a native input, a collection's container —
   [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),

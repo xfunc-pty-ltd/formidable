@@ -33,7 +33,7 @@ public class FormidableInputNumberTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Booking>>(0);
             builder.AddComponentParameter(1, "Model", booking);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<int>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<int>>)(() => booking.Seats));
@@ -61,7 +61,7 @@ public class FormidableInputNumberTests : BunitContext
         {
             builder.OpenComponent<FormidableForm<Booking>>(0);
             builder.AddComponentParameter(1, "Model", booking);
-            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<decimal?>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<decimal?>>)(() => booking.Price));
@@ -92,10 +92,13 @@ public class FormidableInputNumberTests : BunitContext
         Assert.Equal("number", form.Find("input").GetAttribute("type"));
     }
 
-    // Without step="any", the HTML default (step=1) makes a fractional decimal
-    // value a native stepMismatch, and since FormidableForm renders no novalidate, a real submit
-    // button would never reach Blazor's OnSubmit at all — the browser's own constraint-validation
-    // tooltip would show instead of FluentValidation's message.
+    // Without step="any", the HTML default (step=1) makes a fractional decimal value a native
+    // stepMismatch. FormidableForm's novalidate keeps a mismatch from blocking the submit there,
+    // but the field would still match :invalid and the spinner would snap to whole numbers — and
+    // in a form without novalidate (attach mode's consumer-owned EditForm, or a splat that
+    // removed the form's default) the browser would still block a real submit and front its own
+    // constraint tooltip instead of FluentValidation's message. step="any" retires the mismatch
+    // at the source.
     [Fact]
     public void Decimal_field_renders_step_any()
     {
@@ -238,7 +241,7 @@ public class FormidableInputNumberTests : BunitContext
             builder.AddComponentParameter(1, "Model", booking);
             builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<Booking>(validator));
             builder.AddComponentParameter(3, "Options", new FormidableOptions());
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment)(inner =>
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
                 inner.OpenComponent<FormidableInputNumber<int>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<int>>)(() => booking.Seats));
@@ -361,7 +364,7 @@ public class FormidableInputNumberTests : BunitContext
             {
                 builder.OpenComponent<FormidableForm<Booking>>(0);
                 builder.AddComponentParameter(1, "Model", booking);
-                builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner =>
+                builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
                 {
                     inner.OpenComponent<FormidableInputNumber<bool>>(0);
                     inner.CloseComponent();

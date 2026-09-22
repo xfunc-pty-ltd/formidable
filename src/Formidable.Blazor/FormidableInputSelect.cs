@@ -48,7 +48,9 @@ namespace Formidable.Blazor;
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply otherwise: a
-/// consumer-splatted <c>class</c> merges with the computed state class, and a consumer-supplied
+/// consumer-splatted <c>class</c> merges with the computed state class, a consumer-splatted
+/// <c>aria-describedby</c> keeps its ids with the computed messages id appended after them while
+/// the field has issues, and a consumer-supplied
 /// <c>id</c> is ignored in favour of the deterministic <see cref="FormidableFieldId"/>.
 /// </para>
 /// </remarks>

@@ -59,6 +59,14 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] **Slide on clear:** type a name and tab away — Name's message eases CLOSED over roughly
       0.2 s and the Email field eases back up with it, the same motion in reverse rather than the
       message snapping out of existence; with reduce-motion on, it disappears instantly instead
+- [ ] **Screen reader hears the first blocked submit — no browser test can check this.** With a
+      screen reader running (Narrator: Win+Ctrl+Enter, or NVDA) and the page freshly loaded,
+      click Submit with both fields empty: the reader speaks the summary's errors — "Name is
+      required" and "Email is required" — without you moving focus anywhere. The summary's
+      alert region has been in the DOM since first paint, so this very first insertion is
+      announced, not dropped. The form's own auto-focus also lands in the Name box, so
+      expect the focused field's name and message too; what must NOT happen is silence from
+      the summary until a second submit
 
 ---
 
@@ -109,6 +117,8 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Progressive disclosure
 
+Work top to bottom: the steps build on each other.
+
 - [ ] *Try it* step 1 works as written (Show traveler details first; live required message on clear)
 - [ ] Hide the traveler details and submit: the traveler error lands in the diagnostic below
       IMMEDIATELY instead of appearing inline — a collapsed section cannot show a message
@@ -141,6 +151,21 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       form-level entry gives way to it. Hide the section once more and submit: the entry stays
       listed with the field gone — disclosed once, watched until the form passes or resets
 - [ ] Special requirements sits with a proper gap below the Type select
+- [ ] *Try it* steps 8-9 walk as written on the *Without a summary* form: the gate's explanation
+      arrives through the form-level message list under the heading, gives way to the three
+      inline messages once the trip details are shown, and the completed form (answer No)
+      confirms on its own status line
+- [ ] That form-level list occupies no visible space while it is empty — before the first
+      submit, and again once the inline messages take over — and the gate's explanation slides
+      open into it on the blocked submit the way a field's message does
+- [ ] **Required marks.** Destination wears the asterisk, and so does the accommodation question,
+      its mark trailing the legend text rather than sitting on the Yes or No label, since the
+      legend is what names that field. Accommodation type and Special requirements are both on
+      screen by now and wear none at all: their presence rules are conditional. Show the traveler
+      details once more and that label carries one too, and the *Without a summary* form below is
+      already showing the same three. In devtools both radios carry `aria-required="true"` and
+      every star carries `aria-hidden="true"`, so the accessibility pane computes the Destination
+      input's name as `Destination`, with no star in it
 
 ### Severity levels
 
@@ -151,7 +176,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] The two summaries stack at the top of the form, errors and advisories listed separately,
       and each bands what it holds into a panel per severity: with Title filled and the
       warning/info showing, what stands there is the advisory summary's Warnings panel above
-      its Info panel, and the error summary is absent entirely — not an empty box
+      its Info panel, and the error summary shows nothing — no empty panel, no tint, and no
+      stray gap where one would sit (its wrapper and live region stay in the page for screen
+      readers, drawing nothing)
 - [ ] Nothing is listed twice: clear Title and submit so an error and both advisories show at
       once, then read all three panels — each message appears in exactly one of them, so a
       screen reader hears it once

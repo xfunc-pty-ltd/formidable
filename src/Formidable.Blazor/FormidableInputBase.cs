@@ -25,11 +25,14 @@ namespace Formidable.Blazor;
 /// target the currently-active context.
 /// </summary>
 /// <remarks>
-/// Two guarantees a derived control inherits and should not work around: a consumer-splatted
+/// Three guarantees a derived control inherits and should not work around: a consumer-splatted
 /// <c>class</c> is merged with the computed state class rather than replaced (see
-/// <see cref="CssClass"/>), and a consumer-supplied <c>id</c> is ignored — the rendered id is
+/// <see cref="CssClass"/>); a consumer-splatted <c>aria-describedby</c> is likewise merged —
+/// while the field has issues, the computed messages id is appended after the splatted ids, so a
+/// persistent hint keeps its association through the field's whole issue lifecycle; and a
+/// consumer-supplied <c>id</c> is ignored — the rendered id is
 /// always <see cref="ElementId"/>, because message lists, <c>aria-describedby</c> and
-/// <see cref="IFormidableFocusService"/> all address the field by it. Both follow from rendering
+/// <see cref="IFormidableFocusService"/> all address the field by it. All three follow from rendering
 /// <see cref="AdditionalAttributes"/> first and the computed values after, which is what
 /// <see cref="AddCommonAttributes(RenderTreeBuilder, int)"/> does — the order is that call's to
 /// keep, not a sequence a derived control transcribes.
@@ -120,8 +123,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// The id of the element listing this field's messages — <see cref="ElementId"/> plus the
     /// suffix <see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/> owns, computed once
     /// alongside <see cref="ElementId"/> at registration rather than per render. This is what
-    /// <see cref="AddCommonAttributes"/> renders as <c>aria-describedby</c>, and what a control
-    /// rendering that attribute by hand should point at.
+    /// <see cref="AddCommonAttributes"/> renders as <c>aria-describedby</c> (appended after any
+    /// consumer-splatted value), and what a control rendering that attribute by hand should
+    /// point at.
     /// </summary>
     protected string MessagesElementId { get; private set; } = string.Empty;
 
@@ -183,12 +187,14 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// guarantees hold: <see cref="AdditionalAttributes"/> first, then <see cref="ElementId"/> as
     /// <c>id</c>, then <see cref="CssClass"/>, then the aria attributes —
     /// <c>aria-invalid="true"</c> while the field has error-severity issues,
-    /// <c>aria-describedby</c> pointing at <see cref="MessagesElementId"/> while it has issues
-    /// of any severity, and <c>aria-required="true"</c> while
+    /// <c>aria-describedby</c> while it has issues of any severity — any consumer-splatted
+    /// <c>aria-describedby</c> first, then <see cref="MessagesElementId"/> appended, the same
+    /// merge the <c>class</c> gets — and <c>aria-required="true"</c> while
     /// <see cref="IFormValidationEngine.GetFieldRequirement"/> reports the submit profile
     /// demands a value for it. Because the computed
     /// values enter the render tree after the splat, they win the duplicate-attribute race (Blazor
-    /// applies last-write-wins): a consumer's <c>class</c> merges with the state class, and a
+    /// applies last-write-wins): a consumer's <c>class</c> and <c>aria-describedby</c> merge with
+    /// the computed values, and a
     /// consumer's <c>id</c> is ignored in favour of the id messages, <c>aria-describedby</c> and
     /// <see cref="IFormidableFocusService"/> all address the field by. Call it once, immediately
     /// after opening the element: it consumes <paramref name="sequence"/> through
@@ -227,13 +233,33 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
 
         if (issues.Count > 0)
         {
-            builder.AddAttribute(sequence + 3, "aria-describedby", MessagesElementId);
+            builder.AddAttribute(sequence + 3, "aria-describedby", ComputeAriaDescribedBy());
         }
 
         if (Context.Engine.GetFieldRequirement(Field) == FieldRequirement.Required)
         {
             builder.AddAttribute(sequence + 3, "aria-required", "true");
         }
+    }
+
+    /// <summary>
+    /// The <c>aria-describedby</c> value <see cref="AddCommonAttributes"/> renders while the
+    /// field has issues: any consumer-splatted <c>aria-describedby</c> first, then
+    /// <see cref="MessagesElementId"/> — the same consumer-first, computed-appended merge
+    /// <see cref="CssClass"/> applies to <c>class</c>. Splatted first because the splatted ids
+    /// are the only ones present while the field is clean: appending the messages id when
+    /// issues arrive adds to the end of the announced sequence, where prepending would
+    /// reshuffle the consumer's hint at the exact moment an error joins it.
+    /// </summary>
+    private string ComputeAriaDescribedBy()
+    {
+        if (AdditionalAttributes is null || !AdditionalAttributes.TryGetValue("aria-describedby", out var splatted))
+        {
+            return MessagesElementId;
+        }
+
+        var splattedIds = Convert.ToString(splatted, CultureInfo.InvariantCulture);
+        return string.IsNullOrEmpty(splattedIds) ? MessagesElementId : $"{splattedIds} {MessagesElementId}";
     }
 
     /// <summary>
@@ -296,20 +322,29 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// default: a control whose DOM always displays exactly what it reports has nothing to
     /// reconcile. The kit's number and date inputs opt in, because their native elements can keep
     /// displaying text they report as empty — which no render-tree diff can overwrite, since the
-    /// rendered value and the reported value already agree.
+    /// rendered value and the reported value already agree. A derived control whose element has
+    /// the same property makes the identical two-override opt-in: return
+    /// <see langword="true"/> here, and put the write in <see cref="SyncDomValueAsync"/>. The
+    /// base owns the blur binding this flag turns on, and the ordering guarantees that come with
+    /// it — nothing else is the deriver's to wire.
     /// </summary>
-    private protected virtual bool SyncsDomValueOnBlur => false;
+    protected virtual bool SyncsDomValueOnBlur => false;
 
     /// <summary>
     /// Writes the field's authoritative value into the DOM element on <c>blur</c> — a no-op by
     /// default; a control opting in via <see cref="SyncsDomValueOnBlur"/> overrides this to pass
-    /// its currently-formatted <see cref="Value"/> to <see cref="IFormidableDomValueSync"/>. Runs
-    /// on every blur, whether or not anything committed — the box must revert either way — after
+    /// its currently-formatted <see cref="Value"/> to <see cref="IFormidableDomValueSync"/>
+    /// (injected into the derived class; addressed by <see cref="ElementId"/>). Runs
+    /// on every blur, whether or not anything committed — the box must revert either way — and
+    /// the base guarantees where in the blur chain it runs: after
     /// any consumer-splatted <c>onblur</c> and, under <see cref="InputUpdateMode.OnBlur"/>,
     /// before any engine notification the blur delivers, so the live pass renders against a box
-    /// that already matches the model.
+    /// that already matches the model. The override is the write alone — binding <c>blur</c>,
+    /// chaining the splatted handler, and delivering the pending notification all stay the
+    /// base's (see <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s remarks for the
+    /// chain).
     /// </summary>
-    private protected virtual ValueTask SyncDomValueAsync() => ValueTask.CompletedTask;
+    protected virtual ValueTask SyncDomValueAsync() => ValueTask.CompletedTask;
 
     /// <summary>
     /// Adds the attribute(s) that commit a value change, honouring <see cref="UpdateOn"/>: under
@@ -568,27 +603,5 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// by hand and the class the shared call renders are the same string by construction.
     /// </summary>
     private string ComputeCssClass(FieldState state) =>
-        CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
-
-    /// <summary>
-    /// Joins a consumer-splatted <c>class</c> value (first) with the computed state class (last),
-    /// tolerating either being absent or empty. Behaviourally equivalent to the framework's
-    /// internal splat/class merge, reimplemented here rather than taken as a dependency on an
-    /// internal type.
-    /// </summary>
-    private static string CombineClassNames(IReadOnlyDictionary<string, object>? additionalAttributes, string computed)
-    {
-        if (additionalAttributes is null || !additionalAttributes.TryGetValue("class", out var splatted))
-        {
-            return computed;
-        }
-
-        var splattedClass = Convert.ToString(splatted, CultureInfo.InvariantCulture);
-        if (string.IsNullOrEmpty(splattedClass))
-        {
-            return computed;
-        }
-
-        return computed.Length == 0 ? splattedClass : $"{splattedClass} {computed}";
-    }
+        FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 }

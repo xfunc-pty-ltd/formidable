@@ -34,7 +34,7 @@ public sealed class QuickstartJourney(SampleAppFixture app)
         await TabAsync(page);
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
-        await Expect(Summary(page)).ToHaveCountAsync(0);
+        await Expect(SummaryBands(page)).ToHaveCountAsync(0);
         await Expect(page.Locator("p[role='status']")).ToHaveTextAsync("Submitted — thanks, Ada Lovelace!");
     }
 
