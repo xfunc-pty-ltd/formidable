@@ -1,0 +1,144 @@
+@page "/stage4"
+@using FluentValidation
+
+<PageTitle>Stage 4</PageTitle>
+<h1>Stage 4: a list of members</h1>
+
+<div class="tutorial-styled">
+    <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+        <FormidableSummary />
+
+        <label>Name
+            <FormidableInputText @bind-Value="_contact.Name" />
+        </label>
+        <FormidableFieldMessage For="() => _contact.Name" />
+
+        <label>Email
+            <FormidableInputText @bind-Value="_contact.Email" />
+        </label>
+        <FormidableFieldMessage For="() => _contact.Email" />
+
+        <label>Bio
+            <FormidableInputTextArea @bind-Value="_contact.Bio" />
+        </label>
+        <FormidableFieldMessage For="() => _contact.Bio" />
+
+        <h2>Members</h2>
+        <FormidableCollectionMessage For="() => _contact.Members" />
+        <FormidableField For="() => _contact.Members" Context="membersField">
+            @foreach (var member in _contact.Members)
+            {
+                <div @key="member">
+                    <label>Member name
+                        <FormidableInputText @bind-Value="member.Name" />
+                    </label>
+                    <FormidableFieldMessage For="() => member.Name" />
+
+                    <label>Member email
+                        <FormidableInputText @bind-Value="member.Email" />
+                    </label>
+                    <FormidableFieldMessage For="() => member.Email" />
+
+                    <button type="button" @onclick="() => RemoveMember(_contact.Members, member, membersField)">Remove</button>
+                </div>
+            }
+
+            <button type="button" @onclick="() => AddMember(_contact.Members, membersField)">Add member</button>
+        </FormidableField>
+
+        <button type="submit">Submit</button>
+        <button type="button" @onclick="SaveDraft">Save draft</button>
+    </FormidableForm>
+
+    @if (_saved)
+    {
+        <p>Saved.</p>
+    }
+
+    @if (_draftFailureCount is not null)
+    {
+        <p>Draft check: @_draftFailureCount failure(s).</p>
+    }
+</div>
+
+@code {
+    [Inject]
+    private IValidator<Contact> Validator { get; set; } = default!;
+
+    private readonly Contact _contact = new();
+    private bool _saved;
+    private int? _draftFailureCount;
+
+    private void HandleValid()
+    {
+        _saved = true;
+    }
+
+    private async Task SaveDraft()
+    {
+        var result = await Validator.ValidateAsync(_contact, ValidationProfile.Draft);
+        _draftFailureCount = result.Errors.Count;
+    }
+
+    // Adding or removing a row mutates the list directly, and an edit the engine never hears
+    // about is one no pass starts for - NotifyChanged() engages the field, so the next live pass
+    // answers "Add at least one member" the moment the last row leaves.
+    private static void AddMember(List<Member> members, FormidableFieldContext field)
+    {
+        members.Add(new Member());
+        field.NotifyChanged();
+    }
+
+    private static void RemoveMember(List<Member> members, Member member, FormidableFieldContext field)
+    {
+        members.Remove(member);
+        field.NotifyChanged();
+    }
+
+    public class Contact
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Bio { get; set; } = string.Empty;
+        public List<Member> Members { get; set; } = [];
+    }
+
+    public class Member
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+    }
+
+    public class ContactValidator : DraftSubmitValidator<Contact>
+    {
+        protected override void ConfigureDraftRules()
+        {
+            RuleFor(c => c.Email)
+                .EmailAddress().WithMessage("Enter a valid email address")
+                .When(c => !string.IsNullOrEmpty(c.Email));
+            RuleFor(c => c.Bio)
+                .MaximumLength(280).WithMessage("Bio is 280 characters max")
+                .MaximumLength(200).WithSeverity(Severity.Warning).WithMessage("Bios over 200 characters may be truncated");
+
+            // Format only, same guarded-shape idiom as the top-level Email above - presence is a
+            // submit question, so an empty row's email stays quiet on draft.
+            RuleForEach(c => c.Members).ChildRules(member =>
+            {
+                member.RuleFor(m => m.Email)
+                    .EmailAddress().WithMessage("Enter a valid email address")
+                    .When(m => !string.IsNullOrEmpty(m.Email));
+            });
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
+            RuleFor(c => c.Email).NotEmpty().WithMessage("Email is required");
+            RuleFor(c => c.Members).Must(m => m.Count >= 1).WithMessage("Add at least one member");
+            RuleForEach(c => c.Members).ChildRules(member =>
+            {
+                member.RuleFor(m => m.Name).NotEmpty().WithMessage("Member name is required");
+            });
+        }
+    }
+}

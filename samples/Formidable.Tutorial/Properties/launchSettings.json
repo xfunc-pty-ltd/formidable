@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Formidable.Tutorial": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5182",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

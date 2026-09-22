@@ -165,7 +165,7 @@ already knows how to apply. Minimal APIs:
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
 ```
 
-*Source: `samples/Formidable.Sample.Api/Program.cs`*
+<!-- Source: `samples/Formidable.Sample.Api/Program.cs` -->
 
 MVC controllers:
 
@@ -173,7 +173,7 @@ MVC controllers:
 [Validate] // class-level: every action's validatable arguments run the Submit profile
 ```
 
-*Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
+<!-- Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs` -->
 
 Both filters return `ValidationProblemDetails`. On the client, deserialize the response and hand
 it to the form's `ApplyServerIssues(...)`, which lands each issue on the field it names. Guard

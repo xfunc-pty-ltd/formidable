@@ -39,7 +39,7 @@ public class DraftedBriefValidator : DraftSubmitValidator<DraftedBrief>
 }
 ```
 
-*Source: `samples/Formidable.Sample.Shared/DraftedBrief.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/DraftedBrief.cs` -->
 
 `ConfigureDraftRules()` routes to the validator's default (unnamed) rules; `ConfigureSubmitRules()`
 routes to a `"Submit"` ruleset layered on top of them. Skip the split and a blank field earns two
@@ -78,7 +78,7 @@ draft/submit pair it already gets for free.
         var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
 ```
 
-*Source: `tests/Formidable.Tests/DraftSubmitValidatorTests.cs`*
+<!-- Source: `tests/Formidable.Tests/DraftSubmitValidatorTests.cs` -->
 
 This profile runs the default rules, the `"Submit"` ruleset, and an `"Approve"` ruleset together.
 At least one ruleset is required when `includeDefaultRules` is `false` — a profile selecting
@@ -151,7 +151,7 @@ is doing — it's a separate, lenient validation call straight against the injec
     }
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs` -->
 
 **Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — draft-save next to
 an ordinary submit, both against the same `DraftSubmitValidator<T>`.

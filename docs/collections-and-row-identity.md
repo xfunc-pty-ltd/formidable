@@ -41,7 +41,7 @@ rule.
                         </ul>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
 
 `@key="member"` keys the `<li>` by the object itself, not its position in the list. Blazor's
 diffing then keeps that element attached to the row as it moves, instead of reusing DOM nodes by
@@ -101,7 +101,7 @@ least one team" would have nowhere to register and nowhere to become visible.
     <FormidableCollectionMessage For="() => _roster.Teams" />
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
 
 It renders the collection-level issues and registers the field in the same component, used once
 per collection that carries its own rule — the roster's teams and each team's members both get
@@ -128,7 +128,7 @@ reached:
 public readonly record struct ResolvedField(object Owner, string PropertyName);
 ```
 
-*Source: `src/Formidable/Introspection/ResolvedField.cs`*
+<!-- Source: `src/Formidable/Introspection/ResolvedField.cs` -->
 
 `Owner` is the deepest non-null object the walk actually reached — for `Teams[0].Members[1].Alias`,
 that's the real `Member` instance currently sitting at that position. The engine turns the result
@@ -148,7 +148,7 @@ into a Blazor `FieldIdentifier` built from the instance itself, not the path str
     }
 ```
 
-*Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs`*
+<!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
 
 (The value-type branch is a fallback for owners `FieldIdentifier` structurally can't hold — a
 struct intermediate on the path — and isn't the path collection rows normally take: a row object
@@ -225,7 +225,8 @@ idioms at both levels:
 </FormidableForm>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`* — the page also carries a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
+The page also carries a
 teaching panel above the form; the `class` attributes belong to the sample app's own styling,
 since the library ships none. `Options="_options"` is how this page turns `VerifyRowKeys` on for
 itself, covered above in [Need to know](#need-to-know). The `id`/`tabindex` pair on each container
@@ -247,7 +248,7 @@ teams and a second, nested level for each team's members:
         });
 ```
 
-*Source: `samples/Formidable.Sample.Shared/Roster.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/Roster.cs` -->
 
 Submit with gaps — an empty team name, an empty alias — then reorder or delete rows. Each error
 stays put on its row, because `@key="team"` / `@key="member"` keep the right DOM element attached

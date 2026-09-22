@@ -57,7 +57,7 @@ public enum ValidationSeverity
 }
 ```
 
-*Source: `src/Formidable/ValidationSeverity.cs`*
+<!-- Source: `src/Formidable/ValidationSeverity.cs` -->
 
 The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` one-to-one —
 `Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`,
@@ -98,7 +98,7 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 }
 ```
 
-*Source: `samples/Formidable.Sample.Shared/Listing.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/Listing.cs` -->
 
 Both advisory rules above live in `ConfigureDraftRules()`, Formidable's shared "common" bucket,
 which is folded into `"Submit"` as well (see [Profiles](profiles.md)) — so they are enforced when
@@ -131,7 +131,7 @@ it's shown.
     public bool IsValid => Errors.Count == 0;
 ```
 
-*Source: `src/Formidable/ValidationReport.cs`*
+<!-- Source: `src/Formidable/ValidationReport.cs` -->
 
 ```csharp
 /// <summary>The result of running the submit pipeline.</summary>
@@ -147,7 +147,7 @@ public sealed record SubmitOutcome(
     IReadOnlyList<string> VisibleErrorSummary);
 ```
 
-*Source: `src/Formidable.Blazor/SubmitOutcome.cs`*
+<!-- Source: `src/Formidable.Blazor/SubmitOutcome.cs` -->
 
 `FormidableForm<TModel>.SubmitAsync()` runs the submit pipeline and routes on exactly that flag:
 `OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` otherwise. Both handlers reach the full
@@ -179,7 +179,8 @@ for). So a model that's all warnings and infos, with no errors, submits successf
 <p role="status">@_status</p>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor`* — the page also carries a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor` -->
+The page also carries a
 teaching panel above the form.
 
 The submit handler in the code-behind routes purely on `CanProceed`, and reports what got
@@ -195,7 +196,7 @@ through without blocking:
     }
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor.cs` -->
 
 Warnings never reach the `EditContext`'s own message store, either — only error-severity issues
 are written there, which is what built-in `InputBase`/`ValidationMessage` interop sees. The full
@@ -217,7 +218,7 @@ straight from it:
                 FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
 
 `ErrorItemClass`/`WarningItemClass`/`InfoItemClass` are the three constant strings —
 `"formidable-message formidable-message--error"` and so on — and `FormidableCss.SelectBySeverity`
@@ -244,7 +245,8 @@ itself:
                 FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is each group's
+<!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
+Elided in between is each group's
 band wrapper and optional heading; see [Component kit](component-kit.md#formidablesummary) for
 both.
 

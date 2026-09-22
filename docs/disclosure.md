@@ -36,7 +36,7 @@ explanation instead of quietly doing nothing —
         "The form cannot be submitted because information that is not currently displayed is invalid.";
 ```
 
-*Source: `src/Formidable.Blazor/FormidableOptions.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableOptions.cs` -->
 
 That sentence is a default rather than a fixture. It is English, so a form that addresses its
 users in another language, or in a wording of its own, replaces it through
@@ -237,7 +237,7 @@ user has opened the section:
     }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor`*
+<!-- Source: `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
 The corresponding rule has no `.When(...)` at all:
 
@@ -245,7 +245,7 @@ The corresponding rule has no `.When(...)` at all:
         RuleFor(t => t.TravelerName).NotEmpty().WithMessage("Traveler name is required");
 ```
 
-*Source: `samples/Formidable.Sample.Shared/TravelRequest.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/TravelRequest.cs` -->
 
 Submit while collapsed and the missing-name error is genuinely suppressed — logged to the
 diagnostic, not shown inline. Expanding the section registers the field, but (per the refresh
@@ -299,7 +299,7 @@ way it would for a Formidable-wrapped input:
     }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/Disclosure.razor`*
+<!-- Source: `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
 ```csharp
         RuleFor(t => t.AccommodationType).NotEmpty().WithMessage("Choose an accommodation type")
@@ -308,7 +308,7 @@ way it would for a Formidable-wrapped input:
             .When(t => t.NeedsAccommodation == true && t.AccommodationType == "Accessible");
 ```
 
-*Source: `samples/Formidable.Sample.Shared/TravelRequest.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/TravelRequest.cs` -->
 
 Because the rule simply does not run unless `NeedsAccommodation == true`, there is never a
 hidden failing issue to suppress in the first place — the model's own state keeps the rule and
@@ -343,7 +343,7 @@ are the same wiring):
     </div>
 ```
 
-*Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor`*
+<!-- Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor` -->
 
 The `id`, `aria-describedby` and `aria-invalid` alongside it answer a different question —
 click-to-focus and the input's assistive-technology story, both covered in

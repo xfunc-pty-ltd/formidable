@@ -58,7 +58,7 @@ it resolves what it needs from either an argument or the DI container, and refus
         (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+<!-- Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs` -->
 
 Three things get resolved, under one rule: what you passed wins.
 
@@ -97,7 +97,7 @@ form fails to start:
             "circuit resolves from the server's, so register there too.");
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+<!-- Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs` -->
 
 ```csharp
     /// <summary>Names the missing validator registration and the two ways to make it.</summary>
@@ -111,7 +111,7 @@ form fails to start:
     }
 ```
 
-*Source: `src/Shared/MissingFluentValidatorMessage.cs`*
+<!-- Source: `src/Shared/MissingFluentValidatorMessage.cs` -->
 
 The first fires when the container this render is resolving from has no
 `IModelValidator<TModel>`. A
@@ -197,7 +197,7 @@ expects standard Blazor forms interop (native `InputBase` descendants, `Validati
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
 
 The attributes `FormidableForm` sets on that `<form>` itself take three positions against the
 splat rather than two: `id` and `tabindex` win it outright, `novalidate` loses it outright, and
@@ -314,7 +314,7 @@ parameter change.)
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
 
 The Model-swap branch also caches the model-level field's rendered id (`_modelLevelFieldId`)
 alongside the engine it is derived from, rather than recomputing it on every render — the same
@@ -381,7 +381,7 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
 
 Both branches hand their handler the outcome. `OnValidSubmit` is an
 `EventCallback<SubmitOutcome>` and hands it over directly: a passing submit can
@@ -591,7 +591,7 @@ about them. `DiscloseLoadedValuesAsync` is the one call that answers for what is
         await _form!.DiscloseLoadedValuesAsync();
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs` -->
 
 It validates the whole model under `SubmitProfile` and then decides field by field, on whether the
 field **holds a value**. Three outcomes, because a good value, a wrong value and a field nobody
@@ -684,7 +684,7 @@ set, rebind when the context instance is replaced, release on disposal.
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableComponentBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableComponentBase.cs` -->
 
 The leading `IsBound` check is a fast exit for the common case — a parent re-render with the same
 cascaded context — so a steady-state render returns before it touches the registration or the
@@ -717,7 +717,7 @@ the component stays mounted (see [Disclosure](disclosure.md)):
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 `Register` runs only when the binding targets a new context instance — the first render, and every
 rebind after it — which is why the field resolves there rather than per render: a rebind is exactly
@@ -752,7 +752,7 @@ for the shared call below:
         FormidableCss.CombineClassNames(AdditionalAttributes, FormidableCss.Compute(state, Context!.Engine.Options.CssClasses));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 ```csharp
     internal static string CombineSplatted(IReadOnlyDictionary<string, object>? attributes, string attributeName, string computed)
@@ -772,7 +772,8 @@ for the shared call below:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCss.cs`* — `CombineClassNames` is this method's `class`
+<!-- Source: `src/Formidable.Blazor/FormidableCss.cs` -->
+`CombineClassNames` is this method's `class`
 case; the merge lives on `FormidableCss` because it is not the inputs' alone — the message
 components, `FormidableSummary`'s wrapper, and the `aria-describedby` merges on the `<form>`
 element and on a kit input all answer a consumer's splatted value through this one
@@ -828,7 +829,7 @@ consumer-facing guarantees rest on:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 `AdditionalAttributes` enters the render tree first and the computed values after, so the computed
 values win the duplicate-attribute race (Blazor applies last-write-wins): that is what merges a
@@ -886,7 +887,7 @@ becomes the field's value, and one implementation underneath all three:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 Each overload hands that method a commit step: something that commits whatever the DOM sent and
 reports whether it committed anything. What `UpdateOn` decides at render time is then settled in
@@ -915,7 +916,7 @@ validation pass runs:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 Under `OnBlur`, `AddValueBinding` calls the same two steps apart instead: `CommitValueAsync` alone
 on `change` (assigns `Value`, invokes `ValueChanged`, arms a pending notification — no touch, no
@@ -947,7 +948,7 @@ public sealed class FormidableInputText : FormidableInputBase<string?>
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputText.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputText.cs` -->
 
 The whole body is the element, the base's two calls, and the value between them. Those two calls
 carry the ordering — `AdditionalAttributes` splats inside `AddCommonAttributes`, and every value
@@ -968,7 +969,7 @@ the context's id instead of assuming a consumer id sticks:
         <FormidableFieldMessage For="() => _contact.Name" /></div>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Quickstart.razor` -->
 
 — label-wrapping is what every sample using `FormidableInputText` does, since the label needs no
 explicit `for` when it wraps the control. `FormidableField`'s renderless template is the other
@@ -1062,7 +1063,7 @@ public sealed class RatingInput : FormidableInputBase<int>
 }
 ```
 
-*Source: `tests/Formidable.Blazor.Tests/FormidableInputBaseDerivationTests.cs`*
+<!-- Source: `tests/Formidable.Blazor.Tests/FormidableInputBaseDerivationTests.cs` -->
 
 That control comes from the library's own derivation test, quoted whole. The test renders it
 inside a `FormidableForm` and asserts what the base hands it: the field registers for progressive
@@ -1149,7 +1150,7 @@ usually isn't. `FormidableInputSelect<TValue>` renders the element and `ChildCon
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputSelect.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputSelect.cs` -->
 
 That is the same `AddValueBinding` the text box calls, in its string-projected overload: the
 control hands over the formatted value it just rendered and a try-parse-and-commit step that
@@ -1216,7 +1217,7 @@ attributes, not form values):
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputSelect.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputSelect.cs` -->
 
 `TValue` can be `string`, `bool`, an enum, or anything else `BindConverter` converts from a
 string — the same set native `InputSelect<TValue>` supports, no broader. A `TValue` it cannot
@@ -1243,7 +1244,7 @@ the property it names:
     private string CategoryId => FormidableFieldId.For(_post, p => p.Category);
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/CustomProfiles.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/CustomProfiles.razor.cs` -->
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
 `Category`, required under the `Submit` ruleset exactly like `Slug`, is the select, carrying
@@ -1270,7 +1271,7 @@ public sealed class FormidableInputTextArea : FormidableInputBase<string?>
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputTextArea.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputTextArea.cs` -->
 
 Unlike a `<select>`, a `<textarea>`'s accessible name from an implicit label wrap behaves the
 same as an `<input>`'s — its content is its value, not enumerable child elements — so the usual
@@ -1308,7 +1309,7 @@ parser rather than the base's own conversion:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputNumber.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputNumber.cs` -->
 
 `TValue` is checked once, in a static constructor, against the same set native
 `InputNumber<TValue>` supports — `int`, `long`, `short`, `float`, `double`, `decimal`, and their
@@ -1331,7 +1332,7 @@ generic type is touched, the standard shape for any failing static constructor.
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputNumber.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputNumber.cs` -->
 
 `step="any"` renders first, *before* `AddCommonAttributes`' splat — the consumer-wins position,
 the opposite of `type` below. HTML's own default `step` is `1`, which makes any fractional value
@@ -1402,7 +1403,7 @@ under `CultureInfo.InvariantCulture`:
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputDate.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputDate.cs` -->
 
 `TValue` is checked the same way `FormidableInputNumber` checks its own — a static constructor
 against `DateTime`, `DateTimeOffset`, `DateOnly`, and their nullable forms, failing the same
@@ -1472,7 +1473,7 @@ One base method decides whether rendering a message list also registers the fiel
     private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
 
 `FormidableFieldMessage` takes the base's default — it never registers:
 
@@ -1494,7 +1495,7 @@ public sealed class FormidableFieldMessage<TValue> : FormidableMessageBase<TValu
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
 
 Practically: `FormidableFieldMessage` always needs to be paired with something else that registers
 the same field — a `FormidableInputBase` descendant, `FormidableField`, or `FormidableFieldAnchor`
@@ -1527,7 +1528,7 @@ fixed:
         <FormidableModelMessage />
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
 It renders the same persistent list as the field messages, through the same implementation: the
 always-rendered `<ul class="formidable-message-list">`, empty while the form has nothing to say,
@@ -1568,7 +1569,7 @@ otherwise — and nothing at all for a field the rules do not demand:
         <FormidableFieldMessage For="() => _proposal.Title" /></div>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor` -->
 
 Inside the `<label>`, after the label text, is where most samples put it. The mark is derived from
 the validator's rules rather than declared on the markup, so a presence rule moving between
@@ -1731,7 +1732,8 @@ and its first band still share a render:
         }
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — `BuildRegion` renders one region
+<!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
+`BuildRegion` renders one region
 element carrying the class and fixed role it is handed, then whichever severity bands currently
 belong inside it. The `OpenRegion` calls give each region its own sequence-number space, which is
 what makes the persistence real at the DOM level: Blazor's diff matches sibling frames by
@@ -1752,7 +1754,7 @@ focus to the offending field through `IFormidableFocusService`:
                 builder.AddAttribute(entrySequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableSummary.cs` -->
 
 Click-to-focus reaches a rendered element that will take focus. A row scrolled out of a
 virtualized container's window has no DOM element yet, and an element inside a collapsed section
@@ -1783,7 +1785,7 @@ The seam's currency is the field, not its rendered element id:
     ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields);
 ```
 
-*Source: `src/Formidable.Blazor/IFormidableFieldOrderService.cs`*
+<!-- Source: `src/Formidable.Blazor/IFormidableFieldOrderService.cs` -->
 
 A `FieldIdentifier` maps to the id its element carries through
 `FormidableFieldId.For(field)`, so a field-based seam can express DOM position and anything else
@@ -2182,7 +2184,7 @@ public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCollectionMessage.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableCollectionMessage.cs` -->
 
 `FormidableCollectionMessage` needs no pairing with anything else — it is its own registration,
 because a `List<T>` property with a collection-level rule otherwise has no rendered input to
@@ -2309,7 +2311,7 @@ public sealed class FormidableFieldContext
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldContext.cs` -->
 
 Everything a hand-rolled control needs is on that context: `ElementId` for the id to render,
 `CssClass` for the same state class a Formidable input would compute, `AriaInvalid` and
@@ -2378,7 +2380,7 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableAccessorComponentB
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldAnchor.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldAnchor.cs` -->
 
 The whole component is its registration: the shared base does the binding, and an anchor is the one
 component that opts out of the engine subscription, since it has no markup of its own to re-render.
@@ -2436,7 +2438,8 @@ cannot know how to, wrap itself:
 </FormidableForm>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor`* — the page also carries a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor` -->
+The page also carries a
 teaching panel above the form.
 
 The page uses `<label for="@field.ElementId">` rather than wrapping the control in a label,
@@ -2451,7 +2454,7 @@ it. The change handler lives in the code-behind:
     }
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/ForeignControl.razor.cs` -->
 
 `field.NotifyChanged()` in the change handler is doing exactly what the base's own `NotifyChanged`
 does for `FormidableInputBase` descendants — mark touched, notify the `EditContext` — just called
@@ -2482,7 +2485,7 @@ inside a closed `<details>` has one that refuses. `FocusFallback` is the escape 
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableSummary.cs` -->
 
 Give `FormidableSummary` a `FocusFallback` for controls it might miss. The callback receives the field
 identifier on a focus miss: make the element reachable (scroll the virtualized container to the
@@ -2513,7 +2516,7 @@ makes (see [above](#formidableformtmodel)) can miss the same way a summary click
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableForm.cs` -->
 
 Same name, same delegate type, same try-fallback-retry-once shape — a page that already wrote a
 fallback for its summary hands the identical method to the form. `/workout` does exactly that: the
@@ -2636,7 +2639,7 @@ mirrors) plus the three JS-backed services: focus, DOM value sync, and field ord
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs` -->
 
 `TryAddScoped` means a consumer that has already registered its own `IFormidableFocusService` (a
 custom focus/scroll behavior) keeps it — `AddFormidableBlazor()` never overwrites an existing
@@ -2688,7 +2691,7 @@ app-wide default, which every form that omits its own `Options` parameter then u
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableBlazorServiceCollectionExtensions.cs` -->
 
 That is the second step of the three-step options order stated in [Need to
 know](#need-to-know): parameter, then this, then `new FormidableOptions()`. A design system's
@@ -2718,7 +2721,7 @@ await CultureBootstrap.ApplyStoredCultureAsync(
 await host.RunAsync();
 ```
 
-*Excerpt from `samples/Formidable.Sample/Program.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Program.cs` -->
 
 A missing, blank or unrecognisable value applies the fallback instead. Pass no fallback and the app
 keeps the culture it booted with, so a stale or corrupted stored value cannot stop it from starting.
@@ -2767,7 +2770,8 @@ render window is both kept disclosed and reachable by a summary click:
 </FormidableForm>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor`* — the full page wraps this in a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor` -->
+The full page wraps this in a
 `TeachingPanel` (rules plus a "Show the code" accordion with the real source); the form markup
 itself is unchanged from what's shown here.
 
@@ -2804,7 +2808,7 @@ does — no click required to reach the row a submit's first error names. What's
     }
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor.cs` -->
 
 Clicking a summary entry for a row inside the current render window still focuses it directly.
 For a row scrolled far away, the miss triggers `ScrollToRowAsync`, which scrolls `.scroll-panel`
@@ -2849,7 +2853,8 @@ form:
 </FormidableForm>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/VanillaInterop.razor`* — the page also carries a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/VanillaInterop.razor` -->
+The page also carries a
 teaching panel above the form.
 
 The native `InputText` gets the same state classes a Formidable input would, because the engine
@@ -2860,7 +2865,7 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableEngine.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableEngine.cs` -->
 
 (See [CSS and accessibility](css-and-accessibility.md) for exactly which classes that
 provider applies, and how they differ from what a Formidable input's own `CssClass` computes.)

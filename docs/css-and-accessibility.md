@@ -80,7 +80,7 @@ public static class FormidableCss
     }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCss.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableCss.cs` -->
 
 In order: **errors win** — a field with error-severity issues is always `Invalid`, regardless of
 touched/modified state. Failing that, touched-or-modified gates everything else: an untouched,
@@ -177,7 +177,7 @@ public sealed class FormidableCssClasses
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableCssClasses.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableCssClasses.cs` -->
 
 `FormidableInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for
 the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
@@ -388,13 +388,13 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldCssClassProvider.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldCssClassProvider.cs` -->
 
 ```csharp
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableEngine.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableEngine.cs` -->
 
 This is the same class names as `FormidableCss.Compute`, and genuinely the same rule: the provider
 builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the `EditContext`,
@@ -471,7 +471,7 @@ name together:
     }
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableFieldId.cs`*
+<!-- Excerpt from `src/Formidable.Blazor/FormidableFieldId.cs` -->
 
 The shape is `formidable-{owner-hash}-{name-hash}-{sanitized-name}`, and the name reaches it
 twice because each trip does a different job. Sanitizing lowercases letters and digits and turns
@@ -556,7 +556,7 @@ anything the field's current state is doing:
         }
 ```
 
-*Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableInputBase.cs` -->
 
 `aria-invalid="true"` only appears for error-severity issues; `aria-describedby` appears for any
 issue, warnings and infos included, since those are still rendered and still worth announcing.
@@ -575,7 +575,7 @@ the value is the messages id alone: `FormidableFieldId.MessagesFor(field)`, the 
         builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldMessage.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldMessage.cs` -->
 
 The id enters the render tree after any consumer-splatted attributes, so it wins the
 duplicate-attribute race: an `id` splatted onto a message component is ignored, because this one
@@ -595,7 +595,7 @@ the hint's id and `field.AriaDescribedBy` into the attribute in that order by ha
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFieldContext.cs` -->
 
 `aria-required="true"` follows a different question from the other two. `aria-invalid` and
 `aria-describedby` describe what the field's values are currently doing; `aria-required` describes
@@ -714,7 +714,8 @@ a live region whose role was already there:
         builder.AddAttribute(sequence++, "aria-atomic", "false");
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between are the rest of
+<!-- Excerpt from `src/Formidable.Blazor/FormidableSummary.cs` -->
+Elided in between are the rest of
 that comment, `BuildRegion`'s signature, and its counter's initialisation; the class and role each
 call hands it are fixed at the call site, and each call is wrapped in its own sequence-number
 region so the element the role sits on is the same DOM node across renders (see
@@ -810,7 +811,7 @@ public interface IFormidableFocusService
 }
 ```
 
-*Source: `src/Formidable.Blazor/IFormidableFocusService.cs`*
+<!-- Source: `src/Formidable.Blazor/IFormidableFocusService.cs` -->
 
 The shipped implementation is a thin JS-interop wrapper: it computes the field's
 `FormidableFieldId` for the focus target and its `MessagesFor` id for the scroll target, and
@@ -824,7 +825,7 @@ passes both id strings across the interop boundary, returning whatever the JS si
             FormidableFieldId.MessagesFor(field));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableFocusService.cs`*
+<!-- Source: `src/Formidable.Blazor/FormidableFocusService.cs` -->
 
 ```javascript
 export function focusField(id, scrollId) {
@@ -855,7 +856,7 @@ export function focusField(id, scrollId) {
 }
 ```
 
-*Source: `src/Formidable.Blazor/wwwroot/formidable.js`*
+<!-- Source: `src/Formidable.Blazor/wwwroot/formidable.js` -->
 
 Focus and scroll come apart there, deliberately. Focus always lands on the field's own element,
 because that is what a keyboard visitor has to be able to type into. The scroll prefers the

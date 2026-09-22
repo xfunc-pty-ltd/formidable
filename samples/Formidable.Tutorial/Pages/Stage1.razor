@@ -1,0 +1,53 @@
+@page "/stage1"
+@using FluentValidation
+
+<PageTitle>Stage 1</PageTitle>
+<h1>Stage 1: a validated form</h1>
+
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+    <FormidableSummary />
+
+    <label>Name
+        <FormidableInputText @bind-Value="_contact.Name" />
+    </label>
+    <FormidableFieldMessage For="() => _contact.Name" />
+
+    <label>Email
+        <FormidableInputText @bind-Value="_contact.Email" />
+    </label>
+    <FormidableFieldMessage For="() => _contact.Email" />
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@if (_saved)
+{
+    <p>Saved.</p>
+}
+
+@code {
+    private readonly Contact _contact = new();
+    private bool _saved;
+
+    private void HandleValid()
+    {
+        _saved = true;
+    }
+
+    public class Contact
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+    }
+
+    public class ContactValidator : AbstractValidator<Contact>
+    {
+        public ContactValidator()
+        {
+            RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
+            RuleFor(c => c.Email).Cascade(CascadeMode.Stop)
+                .NotEmpty().WithMessage("Email is required")
+                .EmailAddress().WithMessage("Enter a valid email address");
+        }
+    }
+}

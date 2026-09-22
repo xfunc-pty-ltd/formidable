@@ -27,7 +27,7 @@ var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
 orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, lines = order.Lines.Count }));
 ```
 
-*Source: `samples/Formidable.Sample.Api/Program.cs`*
+<!-- Source: `samples/Formidable.Sample.Api/Program.cs` -->
 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
 adapters funnel into one wire format, defined once in the core package (no ASP.NET Core or
@@ -152,7 +152,7 @@ public sealed class FormidableValidationProblem
 }
 ```
 
-*Source: `src/Formidable/FormidableValidationProblem.cs`*
+<!-- Source: `src/Formidable/FormidableValidationProblem.cs` -->
 
 `ToIssues()` deliberately tolerates a null or hostile payload shape rather than throwing — a
 foreign 400 body (a proxy, a gateway, a handwritten test double) can carry explicit JSON nulls
@@ -177,7 +177,7 @@ public sealed record ValidationProblemAdvisory(
     string? DisplayName = null);
 ```
 
-*Source: `src/Formidable/ValidationProblemAdvisory.cs`*
+<!-- Source: `src/Formidable/ValidationProblemAdvisory.cs` -->
 
 Building the other side of that contract — turning a `ValidationReport` into the two wire pieces
 — is one static mapper in `Formidable.AspNetCore`, shared by both server adapters below:
@@ -262,7 +262,7 @@ public static class ValidationReportProblemMapper
 }
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidationReportProblemMapper.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidationReportProblemMapper.cs` -->
 
 **Messages can echo user input.** A FluentValidation message built with `{PropertyValue}` embeds
 the field's own value into the response body verbatim. Formidable's own components already render
@@ -385,7 +385,7 @@ public static class FormidableEndpointFilterExtensions
 }
 ```
 
-*Source: `src/Formidable.AspNetCore/FormidableEndpointFilterExtensions.cs`*
+<!-- Source: `src/Formidable.AspNetCore/FormidableEndpointFilterExtensions.cs` -->
 
 Both overloads default to `ValidationProfile.Submit` and install the same filter — the group
 overload just attaches it to every endpoint the group defines, checking each handler's own
@@ -474,7 +474,7 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 }
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidationEndpointFilter.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidationEndpointFilter.cs` -->
 
 A missing parameter and a null-bound one are different problems, and they surface at different
 moments. An endpoint with no `TModel`-typed argument at all is a wiring bug, not something a
@@ -529,7 +529,7 @@ types regardless of how their `IModelValidator<T>` adapter is registered:
     public ValidateAttribute(params Type[] modelTypes) => _modelTypes = modelTypes;
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
 
 ```csharp
     private bool ShouldValidate(Type argumentType, IServiceProvider services)
@@ -546,7 +546,7 @@ types regardless of how their `IModelValidator<T>` adapter is registered:
     }
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
 
 Placed on a class, `[Validate]` applies to every action on it — the sample uses exactly this
 shape, with no explicit model types, relying on discovery:
@@ -563,7 +563,7 @@ public class AgreementsController : ControllerBase
 }
 ```
 
-*Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
+<!-- Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs` -->
 
 An action can bind more than one validatable argument. `[Validate]` runs normalize-then-validate
 on every one of them and aggregates every issue from every argument into a single `ValidationReport`
@@ -664,7 +664,7 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
     }
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
 `IsValid` gate runs once, after the loop. None of the filter's own checks in the loop can throw
@@ -720,7 +720,7 @@ type is resolved by `ResolveValidatedType`:
     }
 ```
 
-*Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
+<!-- Source: `src/Formidable.AspNetCore/ValidateAttribute.cs` -->
 
 `declaredType` there is the action parameter's DECLARED type (looked up on
 `context.ActionDescriptor.Parameters` by argument name), not the argument's own runtime type, and
@@ -815,7 +815,7 @@ string, shared by any other string-typed configuration surface too:
     }
 ```
 
-*Source: `src/Formidable/ValidationProfile.cs`*
+<!-- Source: `src/Formidable/ValidationProfile.cs` -->
 
 `"Draft"` and `"Submit"` match case-insensitively; any other name becomes a custom profile
 shaped the same way `Submit` itself is built — default rules plus one ruleset with the same name.
@@ -891,7 +891,7 @@ public interface INormalizableModel
 }
 ```
 
-*Source: `src/Formidable/INormalizableModel.cs`*
+<!-- Source: `src/Formidable/INormalizableModel.cs` -->
 
 The sample's order model implements it to drop rows filled with only whitespace, keeping
 truly-empty rows alone:
@@ -911,7 +911,7 @@ public class RoundTripOrder : INormalizableModel
 }
 ```
 
-*Excerpt from `samples/Formidable.Sample.Shared/RoundTripOrder.cs`*
+<!-- Excerpt from `samples/Formidable.Sample.Shared/RoundTripOrder.cs` -->
 
 Both `ValidationEndpointFilter<TModel>` and `[Validate]` call
 `(model as INormalizableModel)?.Normalize()` in place, on the exact instance the framework
@@ -966,7 +966,7 @@ wire-deserialized one.
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
-*Source: `src/Formidable.Blazor/IFormidableEngine.cs`*
+<!-- Source: `src/Formidable.Blazor/IFormidableEngine.cs` -->
 
 **Replace, not accumulate.** Each call is the server's current verdict, full stop. The server's
 issues live apart from the client's own answer, so applying one swaps that set outright and
@@ -1099,7 +1099,7 @@ press Send and the server's 400 lands on the exact fields.
     }
 ```
 
-*Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs`*
+<!-- Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs` -->
 
 ### What the applied verdict does
 

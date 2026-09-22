@@ -23,7 +23,7 @@ see [App-wide defaults](#app-wide-defaults)) is a fully working configuration:
                 @ref="_form">
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor` -->
 
 `Options` is the parameter this page is quoted for. Any attribute `FormidableForm<TModel>` does
 not recognise is splatted onto the `<form>` element it renders, and the attributes
@@ -771,7 +771,8 @@ exactly what the sample below does:
     }
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs`* — `_options` is a
+<!-- Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs` -->
+`_options` is a
 `FormidableOptions?` field on the page, built once here and never reassigned.
 
 ## App-wide defaults

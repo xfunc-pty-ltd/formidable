@@ -351,7 +351,7 @@ advisories defer to it like the client's own, since a hidden advisory blocks not
         await _form!.DiscloseLoadedValuesAsync();
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs` -->
 
 Fill the instance, rather than replacing it. A new instance reaches the form as a `Model`
 parameter, and a parameter arrives on the form's next render — which cannot happen between

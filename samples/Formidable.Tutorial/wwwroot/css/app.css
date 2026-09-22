@@ -1,0 +1,29 @@
+.tutorial-styled .formidable-invalid {
+    border: 2px solid red;
+}
+
+.tutorial-styled .formidable-valid {
+    border: 2px solid green;
+}
+
+.tutorial-styled .formidable-warning {
+    border: 2px solid orange;
+}
+
+.tutorial-styled .formidable-info {
+    border: 2px solid blue;
+}
+
+.tutorial-styled .formidable-pending {
+    border: 2px dashed gray;
+}
+
+.tutorial-styled .formidable-message {
+    font-size: 0.85em;
+    color: red;
+}
+
+.tutorial-styled .formidable-message-list {
+    list-style: none;
+    padding: 0;
+}

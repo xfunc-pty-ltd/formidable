@@ -91,7 +91,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
 }
 ```
 
-*Source: `samples/Formidable.Sample.Shared/Handle.cs`*
+<!-- Source: `samples/Formidable.Sample.Shared/Handle.cs` -->
 
 The `CancellationToken` that `MustAsync` hands the rule is load-bearing, not decoration. A fast
 run of keystrokes cancels each prior pass the moment the next one starts, and a rule that
@@ -126,7 +126,7 @@ as `field.State.IsValidating`:
     </FormidableField>
 ```
 
-*Excerpt from `samples/Formidable.Sample/Pages/AsyncRules.razor`*
+<!-- Excerpt from `samples/Formidable.Sample/Pages/AsyncRules.razor` -->
 
 Both fields use `UpdateOn="InputUpdateMode.OnInput"` so a live pass starts on every keystroke,
 not just on blur — otherwise there'd be nothing to cancel until the user tabbed away.
