@@ -87,6 +87,26 @@ is the committed walkthrough checklist covering every sample page in both light 
 colour schemes; [Recipes](docs/recipes.md) is a task-oriented "I want to…" index if
 you're trying to find where a particular behaviour lives before changing it.
 
+## How to contribute a change
+
+Contributions follow GitHub's standard fork-and-pull-request flow. `main` is the only
+long-lived branch: there is no develop branch, releases are tags on `main`, and pull requests
+are squash-merged, so history stays linear whatever your fork looks like.
+
+1. Fork the repository on GitHub and clone your fork.
+2. Add this repository as `upstream`:
+   `git remote add upstream https://github.com/xfunc/formidable.git`.
+3. Branch off `main` for one change (`fix/summary-focus`, `docs/quickstart-typo`).
+4. Commit following [Commit conventions](#commit-conventions) below, and run the checks in
+   [Before opening a PR](#before-opening-a-pr).
+5. Push the branch to your fork and open a pull request against `xfunc/formidable`'s `main`.
+6. CI runs the build, the tests and the commit-shape check; the maintainer reviews and
+   squash-merges. The squash subject is taken from the pull request title, so give the PR a
+   title in the same `type(scope): subject` shape.
+7. Keep your fork current by syncing its `main` (the Sync fork button on GitHub, or
+   `git fetch upstream` followed by `git rebase upstream/main`), and rebase your branch on it
+   rather than merging, so the PR stays a clean line.
+
 ## Commit conventions
 
 Commits follow [Angular Conventional Commits](https://www.conventionalcommits.org/):
