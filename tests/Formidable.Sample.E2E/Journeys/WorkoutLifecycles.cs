@@ -177,6 +177,39 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     }
 
     [E2EFact]
+    public async Task A_submit_revealed_deadline_error_clears_from_the_summary_when_only_the_event_date_is_fixed()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+
+        // A submit, not a bare edit, is what reveals the deadline here — the same channel the
+        // unit-level pin FormValidationEngineViewTests.A_field_revealed_at_submit_clears_when_only_the_field_it_depends_on_is_engaged
+        // exercises, which cannot see this page's summary region at all. FillValidRegistrationAsync
+        // already leaves the event date at 2027-05-01, so a deadline after it is the one thing
+        // left to block the submit.
+        await FillValidRegistrationAsync(page);
+        await Field(page, "earlybirddeadline").FillAsync("2027-06-15");
+        await Field(page, "description").ClickAsync();
+        await SubmitAsync(page);
+
+        await Expect(MessagesFor(page, "earlybirddeadline"))
+            .ToHaveTextAsync([DeadlineAfterEventDate], new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DeadlineAfterEventDate)).ToBeVisibleAsync();
+
+        // The deadline is never touched again — the fix names only the event date. A submit's
+        // revealed error is served from the submit channel's own projection, and the live pass
+        // this edit starts rebuilds that projection from its own whole-model report, so the stale
+        // entry clears with no second submit and no refresh to wait on — on the summary's
+        // assertive region exactly as on the inline list.
+        await Field(page, "eventdate").FillAsync("2027-09-01");
+        await Field(page, "description").ClickAsync();
+
+        await Expect(MessagesFor(page, "earlybirddeadline"))
+            .ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DeadlineAfterEventDate)).ToHaveCountAsync(0);
+    }
+
+    [E2EFact]
     public async Task A_tab_through_of_a_blur_mode_field_discloses_nothing()
     {
         await using var session = await app.NewPageAsync("/workout");

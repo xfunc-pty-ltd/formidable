@@ -72,4 +72,27 @@ public class PropertyPathTests
         Assert.True(PropertyPath.TryParse("LineItems[3]", out var segments));
         Assert.Equal([PathSegment.Property("LineItems"), PathSegment.Indexer("3")], segments);
     }
+
+    [Fact]
+    public void A_megabyte_of_dotted_segments_parses_without_rescanning_the_remainder()
+    {
+        // A property segment ends at the first '.' or '[', so finding that boundary must be
+        // one scan, not one per separator kind: a bracket-free path searched for a '[' that is
+        // never there re-reads the whole remainder per segment, which is quadratic. The size
+        // is reachable — FormValidationEngine.Resolve parses the paths a server response
+        // carries, verbatim, so the input is whatever a 400 body says it is. The budget is
+        // deliberately loose: a single-scan parse of this input is milliseconds, and the
+        // rescanning one misses it by seconds.
+        var path = string.Join('.', Enumerable.Repeat("ab", 350_000));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var parsed = PropertyPath.TryParse(path, out var segments);
+        stopwatch.Stop();
+
+        Assert.True(parsed);
+        Assert.Equal(350_000, segments.Count);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Parsing {path.Length} bracket-free characters took {stopwatch.ElapsedMilliseconds} ms.");
+    }
 }

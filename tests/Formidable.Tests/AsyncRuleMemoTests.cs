@@ -283,4 +283,23 @@ public class AsyncRuleMemoTests
 
         public string Suburb { get; } = suburb;
     }
+
+    [Fact]
+    public async Task A_factory_that_hands_back_no_task_is_rejected_without_poisoning_the_memo()
+    {
+        // A null task cannot be waited on, joined, or asked whether it faulted -- and the
+        // sweep that makes room for later entries asks exactly that of every entry it holds.
+        // Storing one turns a single consumer mistake into a failure on every later key, with
+        // a symptom pointing at the library rather than at the factory that caused it.
+        var memo = new AsyncRuleMemo<string, bool>(TimeSpan.FromSeconds(30));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => memo.GetAsync("a", (_, _) => null!));
+
+        Assert.Contains("factory", exception.Message);
+
+        // The memo is still usable, for the key that failed and for every other one.
+        Assert.True(await memo.GetAsync("a", (_, _) => Task.FromResult(true)));
+        Assert.True(await memo.GetAsync("b", (_, _) => Task.FromResult(true)));
+    }
 }

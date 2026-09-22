@@ -332,6 +332,59 @@ public class FormValidationEngineViewTests
     }
 
     [Fact]
+    public async Task The_gate_stands_through_a_live_pass_that_fixes_nothing_and_dissolves_once_the_live_pass_fixes_everything()
+    {
+        // All-suppressed route: nothing registered, so the description's and the customer's
+        // failures are both hidden behind the gate's single explanation.
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, new FormidableOptions(), new FakeTimeProvider());
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+        var location = new FieldIdentifier(order, nameof(EngineOrder.Location));
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+
+        // Location carries no rule at all, so committing a change to it engages a field and
+        // starts a live pass that answers for the whole model — a rebuild that touches nothing
+        // the two hidden failures depend on, leaving the gate exactly as armed as it was.
+        editContext.NotifyFieldChanged(location);
+
+        Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));
+
+        // Fix both hidden failures and notify only one of the two fields that changed: the live
+        // pass this starts answers for the whole model regardless of which field triggered it, so
+        // the gate dissolves at THIS pass rather than waiting on a second submit.
+        order.Description = "ok";
+        order.Customer = new EngineCustomer();
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        Assert.Empty(engine.GetIssues(modelLevel));
+        Assert.Empty(engine.GetVisibleIssues());
+        Assert.Empty(editContext.GetValidationMessages());
+    }
+
+    [Fact]
+    public void A_live_pass_never_arms_the_gate()
+    {
+        // No submit has ever run here, so _gateArmed defaults false. The live channel runs the
+        // submit profile by default, so this edit's own pass answers with both hidden failures —
+        // description and customer — in its report; that report's content must not be able to
+        // stand a gate up with no submit behind it. Location carries no rule, so engaging it
+        // discloses nothing of its own and leaves the gate the only thing left to check for.
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, new FormidableOptions(), new FakeTimeProvider());
+        var modelLevel = new FieldIdentifier(order, string.Empty);
+
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Location)));
+
+        Assert.Empty(engine.GetIssues(modelLevel));
+        Assert.Empty(engine.GetVisibleIssues());
+        Assert.Empty(editContext.GetValidationMessages());
+    }
+
+    [Fact]
     public void An_engaged_unrendered_fields_live_error_reaches_every_surface()
     {
         // The bridge default, stated as contract: the live channel discloses an engaged field's
@@ -585,6 +638,35 @@ public class FormValidationEngineViewTests
         var messages = editContext.GetValidationMessages(description).ToList();
         Assert.DoesNotContain("Server rejected this description", messages);
         Assert.NotEmpty(messages); // the client's own still-failing rule is what shows
+    }
+
+    [Fact]
+    public async Task A_field_revealed_at_submit_clears_when_only_the_field_it_depends_on_is_engaged()
+    {
+        // The revealed field, Description, is never engaged here — only Customer.Name, the field
+        // its submit rule reads, is. Submit blocks with Description's cross-field error disclosed;
+        // fixing the name it depends on is the only committed change this test ever makes.
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name));
+        using var descReg = engine.Registry.Register(description);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Contains(engine.GetIssues(description), i => i.Message == "Description needs a named customer");
+
+        order.Customer.Name = "Bo";
+        editContext.NotifyFieldChanged(customerName);
+
+        Assert.Empty(engine.GetIssues(description));
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Field.Equals(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
     }
 
     private static FormValidationEngine<EngineOrder> Build(

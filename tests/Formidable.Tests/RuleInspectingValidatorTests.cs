@@ -12,7 +12,7 @@ namespace Formidable.Tests;
 /// Pins <see cref="IRuleInspectingValidator{TModel}"/> on the FluentValidation adapter: the
 /// answer is scoped by the profile's rule selection, a conditional presence rule is told apart
 /// from an unconditional one however the condition was written, inspection survives a
-/// class-level cascade stop that bars per-rule execution, a validator that cannot be read says
+/// class-level cascade stop that bars rule-level execution, a validator that cannot be read says
 /// so instead of throwing, and the declared-path enumeration reports the validator's own shape
 /// — child validators and Include()d rules included, collection indexes left open.
 /// </summary>
@@ -520,10 +520,10 @@ public class RuleInspectingValidatorTests
     }
 
     /// <summary>
-    /// Inspection has its own gate. A class-level cascade stop bars per-rule execution because
-    /// separate executions cannot reproduce it, but it does not stop the validator enumerating
-    /// what it declares — so the field still reports required. Reusing the execution gate would
-    /// refuse this validator for a reason inspection never runs into.
+    /// Inspection has its own gate. A class-level cascade stop bars rule-level execution because
+    /// executing part of a profile cannot reproduce it, but it does not stop the validator
+    /// enumerating what it declares — so the field still reports required. Reusing the execution
+    /// gate would refuse this validator for a reason inspection never runs into.
     /// </summary>
     [Fact]
     public void A_cascade_stop_validator_is_inspectable_though_it_cannot_be_executed_by_rule()

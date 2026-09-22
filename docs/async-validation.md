@@ -307,11 +307,11 @@ for one edit. It doesn't, because the engine keeps a verdict store: every rule's
 answer, keyed by the rule itself and stamped with the engine's count of committed field changes
 as the producing pass
 began. A pass reads that count at its own beginning, executes only the selected rules with no
-fresh verdict at that stamp, and assembles its report from every selected rule in declaration
-order, served from the store or just executed. What it publishes is always a whole-profile
-answer, however little it actually ran. An async rule written in `ConfigureDraftRules()` (the
-uniqueness check at the top of this page) answers once per post-submit edit: the live pass runs
-it, and the refresh serves the stored verdict.
+fresh verdict at that stamp, and assembles its report from every selected rule, served from the
+store or just executed. What it publishes is always a whole-profile answer, however little it
+actually ran. An async rule written in `ConfigureDraftRules()` (the uniqueness check at the top
+of this page) answers once per post-submit edit: the live pass runs it, and the refresh serves
+the stored verdict.
 
 On the default profiles that is the usual shape of a whole refresh rather than of one rule in it.
 The live pass selects everything the refresh selects, so once it has landed the refresh executes
@@ -380,11 +380,11 @@ before the field's own live message does, and the settled state is identical eit
 `LiveDebounce`/`RefreshDebounce` combination for a post-submit edit agrees on what ends up on
 screen, and on what it costs to get there.
 
-One validator-wide setting opts a form out of per-rule execution rather than misbehaving under
+One validator-wide setting opts a form out of rule-level execution rather than misbehaving under
 it. `ClassLevelCascadeMode.Stop` makes a validator give up after its first failing rule, and
-separate per-rule executions could reproduce neither the stopping nor its verdict: a failing
-rule cannot suppress later rules it never shares a run with. So a validator that sets it is
-never taken rule by rule — the FluentValidation adapter reports the capability absent, and the
+running part of a profile could reproduce neither the stopping nor its verdict: a failing rule
+cannot suppress later rules it never shares a run with. So a validator that sets it is never
+handed part of its profile — the FluentValidation adapter reports the capability absent, and the
 engine gives every pass the whole profile in one call. Correct, and priced exactly as it reads:
 each pass validates its full profile, with nothing reused between passes. The same whole-profile
 path serves any `IModelValidator<TModel>` that never exposes rule-level access at all.

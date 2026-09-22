@@ -60,6 +60,59 @@ public sealed class OrdersController : ControllerBase
     [HttpPost("strict-optional")]
     [Validate(RequireValidator = true)]
     public IActionResult StrictOptional([FromBody] SampleOrder? order) => Ok(order);
+
+    [HttpPost("explicit-unregistered")]
+    [Validate(typeof(UnregisteredModel))]
+    public IActionResult ExplicitUnregistered([FromBody] UnregisteredModel model) => Ok(model);
+
+    [HttpPost("many-messages")]
+    [Validate(typeof(ManyMessageModel))]
+    public IActionResult ManyMessages([FromBody] ManyMessageModel model) => Ok(model);
+
+    [HttpPost("empty-message")]
+    [Validate(typeof(EmptyMessageModel))]
+    public IActionResult EmptyMessage([FromBody] EmptyMessageModel model) => Ok(model);
+}
+
+/// <summary>Validated by a validator reporting an error with no message — the shape the wire
+/// mapper's null-message tolerance produces, and the one the two adapters carry differently.</summary>
+public class EmptyMessageModel
+{
+    public string Field { get; set; } = string.Empty;
+}
+
+public sealed class EmptyMessageValidator : IModelValidator<EmptyMessageModel>
+{
+    public Task<ValidationReport> ValidateAsync(
+        EmptyMessageModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Validate(model, profile));
+
+    public ValidationReport Validate(EmptyMessageModel model, ValidationProfile profile) =>
+        new([new ValidationIssue("Field", null!)]);
+}
+
+/// <summary>Validated by <see cref="ManyMessageValidator"/>, which reports the shapes the
+/// wire mapping has to carry across both server adapters: two messages under one path, two
+/// paths whose report order is not their sorted order, and an issue with no message at
+/// all.</summary>
+public class ManyMessageModel
+{
+    public string Zebra { get; set; } = string.Empty;
+
+    public string Apple { get; set; } = string.Empty;
+}
+
+public sealed class ManyMessageValidator : IModelValidator<ManyMessageModel>
+{
+    public Task<ValidationReport> ValidateAsync(
+        ManyMessageModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Validate(model, profile));
+
+    public ValidationReport Validate(ManyMessageModel model, ValidationProfile profile) => new([
+        new ValidationIssue("Zebra", "z first"),
+        new ValidationIssue("Apple", "a first"),
+        new ValidationIssue("Apple", "a second")
+    ]);
 }
 
 /// <summary>Base of a polymorphic pair pinning the declared-type validator-resolution fix: the
@@ -235,6 +288,8 @@ public class ValidateAttributeTests
             {
                 services.AddControllers().AddApplicationPart(typeof(OrdersController).Assembly);
                 services.AddSingleton<IModelValidator<ExplicitModel>>(new ExplicitModelValidator());
+                services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator());
+                services.AddSingleton<IModelValidator<EmptyMessageModel>>(new EmptyMessageValidator());
                 services.AddScoped<FluentValidation.IValidator<PolymorphicSampleOrder>, PolymorphicSampleOrderValidator>();
                 services.AddScoped<FluentValidation.IValidator<RushOnlyPolymorphicOrder>, RushOnlyPolymorphicOrderValidator>();
             });
@@ -584,5 +639,172 @@ public class ValidateAttributeTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
         Assert.Contains("Required", problem!.Errors["Description"]);
+    }
+
+    [Fact]
+    public async Task An_explicit_type_with_no_FluentValidation_validator_names_the_missing_registration()
+    {
+        // The explicit-types path never probes IValidator<T> -- naming the type is the whole
+        // point of it -- so resolving the adapter for a type FluentValidation knows nothing
+        // about fails during activation, and the message a consumer sees told them to call
+        // AddFormidable(), which this app does call. What is actually missing is the validator.
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/explicit-unregistered", new UnregisteredModel());
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains(nameof(UnregisteredModel), body);
+        Assert.Contains("AddValidatorsFromAssembly", body);
+        Assert.DoesNotContain("AddFormidable", body);
+    }
+
+    private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartProblemDetailsAppAsync() =>
+        TestApp.StartAsync(
+            app => app.MapControllers(),
+            services =>
+            {
+                services.AddControllers().AddApplicationPart(typeof(OrdersController).Assembly);
+                services.AddSingleton<IModelValidator<ExplicitModel>>(new ExplicitModelValidator());
+                services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator());
+                services.AddSingleton<IModelValidator<EmptyMessageModel>>(new EmptyMessageValidator());
+                services.AddScoped<FluentValidation.IValidator<PolymorphicSampleOrder>, PolymorphicSampleOrderValidator>();
+                services.AddScoped<FluentValidation.IValidator<RushOnlyPolymorphicOrder>, RushOnlyPolymorphicOrderValidator>();
+                services.AddProblemDetails();
+                services.Configure<ApiBehaviorOptions>(options =>
+                    options.ClientErrorMapping[StatusCodes.Status400BadRequest].Link =
+                        "https://example.test/bad-request");
+            });
+
+    [Fact]
+    public async Task The_mvc_400_is_built_the_way_the_apps_other_400s_are()
+    {
+        // A hand-built ObjectResult carries whatever the filter puts in it and nothing else:
+        // no traceId, and none of the customisation ControllerBase.ValidationProblem() honours,
+        // so a 400 from this filter reads differently from every other 400 the same app
+        // returns. Building it through the app's own ProblemDetailsFactory is what closes that.
+        await using var app = await StartProblemDetailsAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/orders",
+            new SampleOrder { Description = "a-b", Items = [new SampleItem()] });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+
+        Assert.True(document.RootElement.TryGetProperty("traceId", out var traceId));
+        Assert.False(string.IsNullOrEmpty(traceId.GetString()));
+        Assert.Equal("https://example.test/bad-request", document.RootElement.GetProperty("type").GetString());
+
+        // The parts the filter owns are untouched by the change of builder.
+        var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(body, JsonSerializerOptions.Web);
+        Assert.Contains("Sku required", problem!.Errors["Items[0].Sku"]);
+        Assert.Contains(problem.Advisories, advisory => advisory.Path == "Description");
+        Assert.Equal(400, document.RootElement.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public async Task The_mvc_400_keeps_every_message_for_one_path_in_report_order()
+    {
+        // The error dictionary reaches the response through a ModelStateDictionary, which holds
+        // a LIST per key: a path carrying more than one message keeps all of them, in the order
+        // the report gave them. Two messages under one path is what makes this an assertion
+        // rather than a restatement — with one message each, keeping the first and keeping all
+        // of them are the same answer.
+        await using var app = await StartProblemDetailsAppAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("mvc/many-messages", new ManyMessageModel());
+
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>(
+            JsonSerializerOptions.Web);
+
+        Assert.Equal(["a first", "a second"], problem!.Errors["Apple"]);
+        Assert.Equal(["z first"], problem.Errors["Zebra"]);
+    }
+
+    [Fact]
+    public async Task The_two_adapters_order_the_error_keys_differently()
+    {
+        // A divergence the wire contract does not cover and the corpus records rather than
+        // hides. The endpoint filter serves the dictionary the mapper built, so its keys come
+        // out in report order; the action filter's keys come back from a ModelStateDictionary,
+        // which is a prefix trie and enumerates its own way. Every key and every message is
+        // present on both sides — it is the key SEQUENCE that belongs to each framework half.
+        await using var mvc = await StartProblemDetailsAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/many-messages", new ManyMessageModel());
+        var mvcProblem = await mvcResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
+            JsonSerializerOptions.Web);
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/many-messages", (ManyMessageModel model) => Results.Ok())
+                .Validate<ManyMessageModel>(),
+            services => services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator()));
+        var minimalResponse = await minimal.GetTestClient()
+            .PostAsJsonAsync("/many-messages", new ManyMessageModel());
+        var minimalProblem = await minimalResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
+            JsonSerializerOptions.Web);
+
+        Assert.Equal(["Zebra", "Apple"], minimalProblem!.Errors.Keys);
+        Assert.Equal(["Apple", "Zebra"], mvcProblem!.Errors.Keys);
+
+        // Same keys, same messages under each: only the sequence parts company.
+        Assert.Equal(
+            minimalProblem.Errors.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Value),
+            mvcProblem.Errors.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Value));
+    }
+
+    [Fact]
+    public async Task The_mvc_400_carries_a_trace_id_without_AddProblemDetails()
+    {
+        // The asymmetry the corpus states: MVC's ProblemDetailsFactory writes the trace
+        // identifier whatever the host configured, while the endpoint filter's
+        // TypedResults.ValidationProblem gets one only where an IProblemDetailsService exists.
+        // Neither app here calls AddProblemDetails(), which is the whole point of the pair.
+        await using var mvc = await StartMvcAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/many-messages", new ManyMessageModel());
+        using var mvcBody = JsonDocument.Parse(await mvcResponse.Content.ReadAsStringAsync());
+        Assert.True(mvcBody.RootElement.TryGetProperty("traceId", out var traceId));
+        Assert.False(string.IsNullOrEmpty(traceId.GetString()));
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/many-messages", (ManyMessageModel model) => Results.Ok())
+                .Validate<ManyMessageModel>(),
+            services => services.AddSingleton<IModelValidator<ManyMessageModel>>(new ManyMessageValidator()));
+        var minimalResponse = await minimal.GetTestClient()
+            .PostAsJsonAsync("/many-messages", new ManyMessageModel());
+        using var minimalBody = JsonDocument.Parse(await minimalResponse.Content.ReadAsStringAsync());
+        Assert.False(minimalBody.RootElement.TryGetProperty("traceId", out _));
+    }
+
+    [Fact]
+    public async Task An_empty_message_reaches_the_two_adapters_differently()
+    {
+        // The one place the errors dictionary itself parts company, and it is reachable through
+        // the tolerance the mapper applies to a null message: ValidationProblemDetails built
+        // from a ModelStateDictionary substitutes its own text for an empty one, so what the
+        // endpoint filter sends as "" arrives from the action filter as a sentence of the
+        // framework's. The exact wording is MVC's to choose; that it is not the empty string is
+        // the divergence the corpus records.
+        await using var mvc = await StartProblemDetailsAppAsync();
+        var mvcResponse = await mvc.GetTestClient().PostAsJsonAsync("mvc/empty-message", new EmptyMessageModel());
+        var mvcProblem = await mvcResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
+            JsonSerializerOptions.Web);
+
+        await using var minimal = await TestApp.StartAsync(
+            app => app.MapPost("/empty-message", (EmptyMessageModel model) => Results.Ok())
+                .Validate<EmptyMessageModel>(),
+            services => services.AddSingleton<IModelValidator<EmptyMessageModel>>(new EmptyMessageValidator()));
+        var minimalResponse = await minimal.GetTestClient()
+            .PostAsJsonAsync("/empty-message", new EmptyMessageModel());
+        var minimalProblem = await minimalResponse.Content.ReadFromJsonAsync<FormidableValidationProblem>(
+            JsonSerializerOptions.Web);
+
+        Assert.Equal([string.Empty], minimalProblem!.Errors["Field"]);
+        Assert.NotEqual([string.Empty], mvcProblem!.Errors["Field"]);
+        Assert.NotEmpty(Assert.Single(mvcProblem.Errors["Field"]));
     }
 }

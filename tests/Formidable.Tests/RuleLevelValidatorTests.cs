@@ -1,16 +1,19 @@
 using FluentValidation;
+using FluentValidation.Internal;
 using FluentValidation.Results;
 
 namespace Formidable.Tests;
 
 /// <summary>
 /// Pins <see cref="IRuleLevelValidator{TModel}"/> on the FluentValidation adapter: enumeration
-/// selects exactly what whole-profile execution runs, per-rule execution reproduces the
-/// whole-profile verdict issue for issue under the profile it is handed, identities are stable
-/// enough to key a store, and <see cref="RuleLevelResult.IsProfileScoped"/> flags exactly the
-/// verdicts whose child scope the profile's name list filtered. Every equivalence assertion
-/// compares against a real whole-profile run of the same validator instance — the selector
-/// semantics are pinned by comparison, not re-derived from documentation.
+/// selects exactly what whole-profile execution runs, executing the selection a rule at a time
+/// reproduces the whole-profile verdict issue for issue under the profile it is handed,
+/// identities are stable enough to key a store, and
+/// <see cref="RuleLevelResult.IsProfileScoped"/> flags exactly the verdicts whose child scope the
+/// profile's name list filtered. Every equivalence assertion compares against a real
+/// whole-profile run of the same validator instance — the selector semantics are pinned by
+/// comparison, not re-derived from documentation. A set of one is the sharpest shape for these:
+/// it attributes every issue to the rule that produced it, which a wider set cannot.
 /// </summary>
 public class RuleLevelValidatorTests
 {
@@ -220,7 +223,7 @@ public class RuleLevelValidatorTests
         var perRule = new List<ValidationIssue>();
         foreach (var rule in adapter.SelectRules(profile))
         {
-            var result = await adapter.ValidateRuleAsync(model, profile, rule);
+            var result = await adapter.ValidateRulesAsync(model, profile, [rule]);
             perRule.AddRange(result.Report.Issues);
         }
 
@@ -258,7 +261,7 @@ public class RuleLevelValidatorTests
         var perRuleCodes = new HashSet<string?>();
         foreach (var rule in selection)
         {
-            var result = await adapter.ValidateRuleAsync(model, profile, rule);
+            var result = await adapter.ValidateRulesAsync(model, profile, [rule]);
             Assert.NotEmpty(result.Report.Issues);
             foreach (var issue in result.Report.Issues)
             {
@@ -267,6 +270,16 @@ public class RuleLevelValidatorTests
         }
 
         Assert.Equal(executedCodes, perRuleCodes.Order().ToList());
+
+        // The covering half of the partition contract, asked of every profile shape: the groups
+        // carry the selection over exactly once. A caller runs the groups and nothing else, so a
+        // dropped identity is a rule that never executes and a duplicated one reports its issues
+        // twice — and both are silent, since either still returns a well-formed report. The
+        // count catches a duplicate that set comparison alone would swallow.
+        var groups = adapter.GroupBySelectionClass(selection);
+        var grouped = groups.SelectMany(group => group).ToList();
+        Assert.Equal(selection.Count, grouped.Count);
+        Assert.Equal(selection.ToHashSet(), grouped.ToHashSet());
     }
 
     [Fact]
@@ -295,7 +308,7 @@ public class RuleLevelValidatorTests
         var reports = new List<ValidationReport>();
         foreach (var rule in adapter.SelectRules(ValidationProfile.Draft))
         {
-            reports.Add((await adapter.ValidateRuleAsync(model, ValidationProfile.Draft, rule)).Report);
+            reports.Add((await adapter.ValidateRulesAsync(model, ValidationProfile.Draft, [rule])).Report);
         }
 
         var collectionReport = Assert.Single(reports, report => report.Issues.Count > 0);
@@ -320,7 +333,7 @@ public class RuleLevelValidatorTests
         var perRule = new List<ValidationIssue>();
         foreach (var rule in selection)
         {
-            perRule.AddRange((await adapter.ValidateRuleAsync(model, wildcard, rule)).Report.Issues);
+            perRule.AddRange((await adapter.ValidateRulesAsync(model, wildcard, [rule])).Report.Issues);
         }
 
         Assert.Equal(whole.Issues, perRule);
@@ -367,6 +380,26 @@ public class RuleLevelValidatorTests
     }
 
     [Fact]
+    public void SelectRules_serves_the_same_list_for_the_same_profile_reference()
+    {
+        var adapter = new FluentValidationModelValidator<RuleModel>(new RuleFixtureValidator());
+
+        var first = adapter.SelectRules(ValidationProfile.Submit);
+        var second = adapter.SelectRules(ValidationProfile.Submit);
+
+        // The stored profile instance serves the identical list back — no second walk of the
+        // validator's rules built an equal-but-distinct one.
+        Assert.Same(first, second);
+
+        // A value-equal profile under its own reference misses the cache and is read fresh — the
+        // key is the profile INSTANCE, not its shape, matching DeclaredFields' own cache.
+        var distinctSubmit = ValidationProfile.Named("Submit", includeDefaultRules: true, "Submit");
+        var third = adapter.SelectRules(distinctSubmit);
+        Assert.NotSame(first, third);
+        Assert.Equal(first, third);
+    }
+
+    [Fact]
     public async Task A_foreign_identity_throws()
     {
         var adapter = new FluentValidationModelValidator<RuleModel>(new RuleFixtureValidator());
@@ -378,16 +411,16 @@ public class RuleLevelValidatorTests
         // indistinguishable from "rule passed" — the silent under-validation the guard exists
         // to prevent. A default identity carries no rule at all and fails the same way.
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.ValidateRuleAsync(model, ValidationProfile.Submit, foreign));
+            () => adapter.ValidateRulesAsync(model, ValidationProfile.Submit, [foreign]));
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.ValidateRuleAsync(model, ValidationProfile.Submit, default));
+            () => adapter.ValidateRulesAsync(model, ValidationProfile.Submit, [default]));
     }
 
     [Fact]
     public async Task Capability_reflects_the_wrapped_validator_shape()
     {
         // The tester beside the doers: an AbstractValidator with the default class-level
-        // cascade answers true; both false shapes throw from the doers when the signal is
+        // cascade answers true; both false shapes throw from every doer when the signal is
         // ignored, never silently under-validate.
         var capable = new FluentValidationModelValidator<RuleModel>(new RuleFixtureValidator());
         Assert.True(capable.CanValidateByRule);
@@ -396,11 +429,12 @@ public class RuleLevelValidatorTests
         Assert.False(handRolled.CanValidateByRule);
         var fromHandRolled = Assert.Throws<NotSupportedException>(() => handRolled.SelectRules(ValidationProfile.Draft));
         Assert.Contains(nameof(HandRolledValidator), fromHandRolled.Message);
+        Assert.Throws<NotSupportedException>(() => handRolled.GroupBySelectionClass([]));
         await Assert.ThrowsAsync<NotSupportedException>(
-            () => handRolled.ValidateRuleAsync(new RuleModel(), ValidationProfile.Draft, default));
+            () => handRolled.ValidateRulesAsync(new RuleModel(), ValidationProfile.Draft, [default]));
 
         // A class-level cascade stop lets a failing rule suppress later rules within one
-        // whole-profile pass; separate per-rule executions cannot reproduce that, so the
+        // whole-profile pass; executing part of a profile cannot reproduce that, so the
         // capability is off rather than quietly divergent.
         var cascadeStop = new FluentValidationModelValidator<RuleModel>(new CascadeStopValidator());
         Assert.False(cascadeStop.CanValidateByRule);
@@ -417,7 +451,7 @@ public class RuleLevelValidatorTests
         var scopedByCode = new Dictionary<string, bool>();
         foreach (var rule in adapter.SelectRules(ValidationProfile.Submit))
         {
-            var result = await adapter.ValidateRuleAsync(model, ValidationProfile.Submit, rule);
+            var result = await adapter.ValidateRulesAsync(model, ValidationProfile.Submit, [rule]);
             Assert.NotEmpty(result.Report.Issues);
             scopedByCode[result.Report.Issues[0].Code!] = result.IsProfileScoped;
         }
@@ -460,8 +494,8 @@ public class RuleLevelValidatorTests
         var engagedIdentity = Assert.Single(adapter.SelectRules(engaged));
         Assert.Equal(submitIdentity, engagedIdentity);
 
-        var underSubmit = await adapter.ValidateRuleAsync(model, ValidationProfile.Submit, submitIdentity);
-        var underEngaged = await adapter.ValidateRuleAsync(model, engaged, engagedIdentity);
+        var underSubmit = await adapter.ValidateRulesAsync(model, ValidationProfile.Submit, [submitIdentity]);
+        var underEngaged = await adapter.ValidateRulesAsync(model, engaged, [engagedIdentity]);
 
         // The children genuinely ran (indexed path present) and neither execution was scoped
         // to its profile — both produce the same verdict.
@@ -487,9 +521,223 @@ public class RuleLevelValidatorTests
         var model = new RuleModel { Notes = "flagged" };
 
         var rule = Assert.Single(adapter.SelectRules(ValidationProfile.Submit));
-        var result = await adapter.ValidateRuleAsync(model, ValidationProfile.Submit, rule);
+        var result = await adapter.ValidateRulesAsync(model, ValidationProfile.Submit, [rule]);
 
         var issue = Assert.Single(result.Report.Issues);
         Assert.Same(NotesState, issue.State);
+    }
+
+    /// <summary>
+    /// Every equivalence pin above calls <c>ValidateRulesAsync</c> with a single rule, so the
+    /// "own rules' issues in <c>SelectRules</c> order" half of the contract is true by
+    /// construction there. This hands the whole draft selection to ONE call and compares its
+    /// report against the same rules run one at a time and concatenated in that order — the
+    /// shape only a genuine multi-rule set can exercise.
+    /// </summary>
+    [Fact]
+    public async Task A_multi_rule_call_orders_its_issues_the_way_SelectRules_orders_its_rules()
+    {
+        var adapter = new FluentValidationModelValidator<RuleModel>(new RuleFixtureValidator());
+        var model = EveryRuleFails();
+        var selection = adapter.SelectRules(ValidationProfile.Draft);
+        Assert.True(selection.Count > 1);
+
+        var combined = await adapter.ValidateRulesAsync(model, ValidationProfile.Draft, selection);
+
+        var expected = new List<ValidationIssue>();
+        foreach (var rule in selection)
+        {
+            var single = await adapter.ValidateRulesAsync(model, ValidationProfile.Draft, [rule]);
+            expected.AddRange(single.Report.Issues);
+        }
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, combined.Report.Issues);
+    }
+
+    /// <summary>
+    /// The covering half of the partition contract (every rule in exactly one group, none
+    /// dropped, none duplicated) is pinned in <see cref="Selection_matches_execution_for_every_profile_shape"/>.
+    /// This is the other half the interface promises: a group is never half-selected by any
+    /// profile. Formed from the Submit selection, which spans several membership classes, then
+    /// checked against three differently shaped profiles' own selections.
+    /// </summary>
+    [Fact]
+    public void No_profile_splits_a_group()
+    {
+        var adapter = new FluentValidationModelValidator<RuleModel>(new RuleFixtureValidator());
+        var submitSelection = adapter.SelectRules(ValidationProfile.Submit);
+        var groups = adapter.GroupBySelectionClass(submitSelection);
+        Assert.True(groups.Count > 1);
+
+        foreach (var profileName in new[] { "Draft", "Engaged", "EngagedOnly" })
+        {
+            var selected = adapter.SelectRules(ResolveProfile(profileName)).ToHashSet();
+            foreach (var group in groups)
+            {
+                var selectedInGroup = group.Count(selected.Contains);
+                Assert.True(
+                    selectedInGroup == 0 || selectedInGroup == group.Count,
+                    $"profile '{profileName}' selected {selectedInGroup} of {group.Count} rules in one group");
+            }
+        }
+    }
+
+    private sealed class OwnerModel
+    {
+        public string Tag { get; set; } = string.Empty;
+        public List<OwnerRow> Rows { get; set; } = [new OwnerRow()];
+    }
+
+    private sealed class OwnerRow
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Two top-level rules with unrelated ruleset tags: a plain rule tagged "Extra", and a
+    /// <c>ChildRules</c> collection rule tagged "Submit,Shared" whose children carry that SAME
+    /// propagated tag pair rather than anything borrowed from its sibling. Exists so a mixed set
+    /// can show whether the profile-scoped flag is read from the rule that actually owns a
+    /// child consultation or from every rule the call was handed.
+    /// </summary>
+    private sealed class MixedOwnerValidator : AbstractValidator<OwnerModel>
+    {
+        public MixedOwnerValidator()
+        {
+            RuleSet("Extra", () =>
+                RuleFor(x => x.Tag).NotEmpty()
+                    .WithMessage("Tag is required").WithErrorCode("TAG_REQUIRED"));
+            RuleSet("Submit,Shared", () =>
+                RuleForEach(x => x.Rows).ChildRules(row =>
+                    row.RuleFor(r => r.Name).NotEmpty()
+                        .WithMessage("Row name is required").WithErrorCode("ROW_NAME_REQUIRED")));
+        }
+    }
+
+    /// <summary>
+    /// The profile-scoped flag is read from the rule that owns a child consultation, not
+    /// from every rule the call was handed. The row rule's children carry its OWN propagated
+    /// tags, so every profile selecting the row rule also reaches them — the verdict is
+    /// genuinely reusable across profiles. Mixing in the unrelated "Extra"-tagged sibling, whose
+    /// own tag matches neither propagated tag, must not change that answer: the sibling never
+    /// touches this child, so it contributes no scope decision of its own.
+    /// </summary>
+    [Fact]
+    public async Task Owner_tracking_keeps_an_unrelated_sibling_from_contaminating_the_scope_flag()
+    {
+        var adapter = new FluentValidationModelValidator<OwnerModel>(new MixedOwnerValidator());
+        var model = new OwnerModel(); // Tag empty, Rows[0].Name empty — both rules fail.
+
+        var both = ValidationProfile.Named("Both", includeDefaultRules: false, "Extra", "Submit", "Shared");
+        var rules = adapter.SelectRules(both);
+        Assert.Equal(2, rules.Count);
+
+        // Called directly on the adapter: an engine never forms a set spanning two selection
+        // classes like this one (GroupBySelectionClass keeps them apart), but the flag has to
+        // stay correct even when handed one, since that is exactly the property this pin exists
+        // to guarantee.
+        var result = await adapter.ValidateRulesAsync(model, both, rules);
+
+        Assert.Contains(result.Report.Issues, i => i.Code == "TAG_REQUIRED");
+        Assert.Contains(result.Report.Issues, i => i.Code == "ROW_NAME_REQUIRED");
+        Assert.False(result.IsProfileScoped);
+    }
+
+    private sealed class OrderModel
+    {
+        public string First { get; set; } = string.Empty;
+        public List<OrderRow> Rows { get; set; } = [new OrderRow()];
+        public List<OrderNote> Notes { get; set; } = [new OrderNote()];
+    }
+
+    private sealed class OrderRow
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    private sealed class OrderNote
+    {
+        public string Text { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// TWO child-bearing top-level rules, each over a collection of its own, and each child
+    /// carrying a property name only its own owner reaches. One would not do: with a single
+    /// child-bearing rule every child consultation belongs to the same owner however the calls
+    /// are ordered, so an attribution reading them all off one admission cannot be wrong.
+    /// </summary>
+    private sealed class OrderValidator : AbstractValidator<OrderModel>
+    {
+        public OrderValidator()
+        {
+            RuleFor(x => x.First).NotEmpty();
+            RuleForEach(x => x.Rows).ChildRules(row => row.RuleFor(r => r.Name).NotEmpty());
+            RuleForEach(x => x.Notes).ChildRules(note => note.RuleFor(n => n.Text).NotEmpty());
+        }
+    }
+
+    /// <summary>
+    /// Records every selector consultation FluentValidation makes, in order, admitting
+    /// everything so both the top-level rules and every child genuinely run.
+    /// </summary>
+    private sealed class RecordingSelector(List<(string? RuleName, bool IsChildContext)> calls) : IValidatorSelector
+    {
+        public bool CanExecute(IValidationRule rule, string propertyPath, IValidationContext context)
+        {
+            calls.Add((rule.PropertyName, context.IsChildContext));
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The owner-tracking selector attributes every child-context consultation to
+    /// whichever top-level rule was admitted most recently — sound only if FluentValidation
+    /// asks <c>CanExecute</c> for a top-level rule immediately before running it, sequentially,
+    /// with no interleaving. This exercises FluentValidation directly with no Formidable code
+    /// in between, so an upgrade that changed the dispatch order fails here by name rather than
+    /// surfacing later as a wrong <see cref="RuleLevelResult.IsProfileScoped"/> flag — modelled
+    /// on the two existing member-presence upgrade guards for the same library.
+    /// </summary>
+    [Fact]
+    public void FluentValidation_still_asks_CanExecute_for_a_top_level_rule_at_the_start_of_its_own_execution()
+    {
+        var validator = new OrderValidator();
+        var calls = new List<(string? RuleName, bool IsChildContext)>();
+        var context = new ValidationContext<OrderModel>(new OrderModel(), new PropertyChain(), new RecordingSelector(calls));
+
+        validator.Validate(context);
+
+        // Which top-level rule each child belongs to, read off the declarations rather than off
+        // the dispatch this test is measuring.
+        var owners = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [nameof(OrderRow.Name)] = nameof(OrderModel.Rows),
+            [nameof(OrderNote.Text)] = nameof(OrderModel.Notes),
+        };
+
+        // Attribute every child consultation the way the owner-tracking selector does — to the
+        // top-level rule admitted most recently before it — and require that answer to be the
+        // rule the child actually belongs to. This is the property owner tracking rests on, and
+        // it is stronger than any ordering the calls happen to arrive in: a dispatch that
+        // admitted both collection rules before running either would attribute both sets of
+        // children to whichever was admitted second, which no ordering check can see.
+        string? admitted = null;
+        var attributed = new List<(string Child, string? Owner)>();
+        foreach (var (ruleName, isChildContext) in calls)
+        {
+            if (!isChildContext)
+            {
+                admitted = ruleName;
+            }
+            else if (ruleName is { } child && owners.ContainsKey(child))
+            {
+                attributed.Add((child, admitted));
+            }
+        }
+
+        // Both children ran, so neither entry below is vacuous.
+        Assert.Equal(owners.Count, attributed.Count);
+        Assert.All(attributed, entry => Assert.Equal(owners[entry.Child], entry.Owner));
     }
 }

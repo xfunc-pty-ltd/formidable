@@ -10,12 +10,12 @@ namespace Formidable;
 /// inspector.CanInspectRules</c> — never the type test alone.
 /// </summary>
 /// <remarks>
-/// Inspection is a weaker ask than per-rule execution, and the two capabilities gate
+/// Inspection is a weaker ask than rule-level execution, and the two capabilities gate
 /// independently: a validator whose class-level cascade mode stops on the first failure
-/// enumerates its rules perfectly even though they cannot be executed one at a time, so the
-/// cascade stop that makes <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/>
-/// <see langword="false"/> does not bear on <see cref="CanInspectRules"/>, which answers from
-/// its own gate.
+/// enumerates its rules perfectly even though a chosen set of them cannot be executed on its
+/// own, so the cascade stop that makes
+/// <see cref="IRuleLevelValidator{TModel}.CanValidateByRule"/> <see langword="false"/> does not
+/// bear on <see cref="CanInspectRules"/>, which answers from its own gate.
 /// <para>
 /// Neither reader throws when the capability is absent — an inspection answer decorates a
 /// form rather than deciding a verdict, so a validator that cannot be read reports "nothing

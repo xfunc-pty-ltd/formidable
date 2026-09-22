@@ -46,7 +46,12 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
     /// <param name="includeDefaultRules">Whether default (unnamed) rules also run.</param>
     /// <param name="ruleSets">Named rulesets to include. At least one is required when
     /// <paramref name="includeDefaultRules"/> is <see langword="false"/> — otherwise the
-    /// profile would select no rules at all.</param>
+    /// profile would select no rules at all. Each entry names one ruleset: blank entries and
+    /// entries joining several names with <c>,</c> or <c>;</c> are rejected, because
+    /// FluentValidation splits a joined name where a rule is DECLARED and never where a
+    /// selection is made, so such an entry matches no ruleset and quietly selects nothing.
+    /// FluentValidation's own <c>"*"</c> (every rule) and <c>"default"</c> (the unnamed rules)
+    /// are names its selector honours and are accepted as they are.</param>
     /// <remarks>
     /// Give each profile name one composition app-wide. A profile carried as a string resolves
     /// through <see cref="FromName"/>, which shapes any non-built-in name the conventional way —
@@ -68,6 +73,25 @@ public sealed class ValidationProfile : IEquatable<ValidationProfile>
             throw new ArgumentException(
                 "A profile must include default rules or at least one ruleset; excluding both would select no rules.",
                 nameof(ruleSets));
+        }
+
+        foreach (var ruleSet in ruleSets)
+        {
+            // The guard above refuses a profile that would select no rules; without this one
+            // an entry deeper in reaches the same place — a blank name matches no ruleset, and
+            // a joined one matches none either, because the selector compares whole names.
+            // Both construct silently and validate nothing, while a ProfiledValidator throws
+            // for the very same profile: two entry points disagreeing about one shape.
+            ArgumentException.ThrowIfNullOrWhiteSpace(ruleSet, nameof(ruleSets));
+
+            if (ruleSet.AsSpan().IndexOfAny(',', ';') >= 0)
+            {
+                throw new ArgumentException(
+                    $"Ruleset name '{ruleSet}' joins several names. FluentValidation splits a joined name where a " +
+                    "rule is declared, not where one is selected, so a profile naming it selects no rules — pass " +
+                    "each name as its own argument instead.",
+                    nameof(ruleSets));
+            }
         }
 
         return new ValidationProfile(name, includeDefaultRules, ruleSets);

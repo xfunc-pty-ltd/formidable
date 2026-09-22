@@ -154,8 +154,8 @@ with everything else.
 
 **Keeping one rule live while the rest wait.** Narrowing is per profile, so a rule that has to
 answer live needs membership in the narrow profile as well as in `"Submit"` — without existing
-twice. FluentValidation's own `RuleSet` accepts a comma-separated name and tags every rule inside
-with all of them, which is what one declaration answering to two moments looks like:
+twice. A ruleset name may join several names with a comma, which tags every rule inside with all
+of them, and that is what one declaration answering to two moments looks like:
 
 ```csharp
 public class SignupValidator : DraftSubmitValidator<Signup>
@@ -170,13 +170,10 @@ public class SignupValidator : DraftSubmitValidator<Signup>
         // the expensive presence and business rules the narrowing keeps off the live path
     }
 
-    protected override void ConfigureAdditionalProfiles()
-    {
-        Profile("Live", () => { });
-        RuleSet("Submit,Live", () =>
+    protected override void ConfigureAdditionalProfiles() =>
+        Profile("Submit,Live", () =>
             RuleForEach(s => s.Guests).ChildRules(guest =>
                 guest.RuleFor(g => g.Name).NotEmpty().WithMessage("Guest name is required")));
-    }
 }
 ```
 
@@ -185,12 +182,14 @@ Options.LiveProfile = ValidationProfile.Named("Live", includeDefaultRules: true,
 // SubmitProfile is left at its default, ValidationProfile.Submit - the rule is already a member.
 ```
 
-`Profile(name, ...)`, the usual way to register a ruleset, cannot express that membership: it
-registers ruleset-name verification under the exact string it is given, so
-`Profile("Submit,Live", ...)` would register as its own, wrong name rather than as `"Submit"` and
-`"Live"` separately. The empty `Profile("Live", () => { })` alongside the raw call exists only to
-register the name `"Live"` for that same verification, so a typo'd `LiveProfile` ruleset name
-throws loudly instead of silently selecting nothing.
+`Profile(name, ...)` splits a joined name the way FluentValidation's own `RuleSet` does — on `,`
+or `;`, trimming each part — so the one call above declares `"Submit"` and `"Live"` separately and
+tags the guest-name rule with both. Each part registers for ruleset-name verification too, so a
+typo'd `LiveProfile` ruleset name throws loudly instead of silently selecting nothing. A
+`ValidationProfile` names one ruleset per entry, though: FluentValidation splits a joined name
+where a rule is *declared*, never where a selection is made, so
+`ValidationProfile.Named("Live", true, "Submit,Live")` would match neither ruleset — and `Named`
+rejects it rather than let it select nothing.
 
 What the shape buys, and what it doesn't. The guest-name rule answers live on the field the
 visitor engages, exactly as it would on the defaults; every other rule in `ConfigureSubmitRules()`
@@ -217,7 +216,7 @@ app.MapGroup("/api/signups").Validate<Signup>(
 unless `ClassLevelCascadeMode.Stop` opts it out), sharing a rule between the two profiles does not
 execute it twice. The pair looks disjoint by *name* — `ValidationProfile.Submit`'s own
 ruleset list is just `["Submit"]`, with `"Live"` nowhere in it — but the engine reuses verdicts by
-*rule*, and a `RuleSet("Submit,Live", ...)` rule is one declared rule however many names reach it.
+*rule*, and a `Profile("Submit,Live", ...)` rule is one declared rule however many names reach it.
 A post-submit edit runs each shared rule once across its live pass and the refresh that follows:
 whichever lands first executes it, and the other serves the stored verdict.
 `FormValidationEngineRuleReuseTests.One_post_submit_edit_runs_each_selected_rule_at_most_once_across_both_passes`
@@ -1005,10 +1004,10 @@ public sealed class StagedUploadsValidator(
     public override ValidationReport Validate(Brief model, ValidationProfile profile) =>
         base.Validate(Staged(model), profile);
 
-    public override Task<RuleLevelResult> ValidateRuleAsync(
-        Brief model, ValidationProfile profile, RuleIdentity rule,
+    public override Task<RuleLevelResult> ValidateRulesAsync(
+        Brief model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
         CancellationToken cancellationToken = default) =>
-        base.ValidateRuleAsync(Staged(model), profile, rule, cancellationToken);
+        base.ValidateRulesAsync(Staged(model), profile, rules, cancellationToken);
 }
 ```
 
@@ -1020,11 +1019,11 @@ public sealed class StagedUploadsValidator(
 
 `IModelValidator<TModel>` is the seam a form validates through, and two capabilities sit beside it
 rather than inside it: `IRuleInspectingValidator<TModel>` answers what the rules demand of a field,
-and `IRuleLevelValidator<TModel>` runs them one rule at a time. The shipped FluentValidation
-adapter implements all three. A wrapper written against the seam alone compiles and validates
-correctly and presents neither of the other two, and nothing reports the difference, because the
-capability test a form makes reads the same for that wrapper as for a validator whose rules
-genuinely cannot be read. Three things go quiet. Required markers and `aria-required` stop
+and `IRuleLevelValidator<TModel>` runs a chosen set of them in one pass. The shipped
+FluentValidation adapter implements all three. A wrapper written against the seam alone compiles
+and validates correctly and presents neither of the other two, and nothing reports the difference,
+because the capability test a form makes reads the same for that wrapper as for a validator whose
+rules genuinely cannot be read. Three things go quiet. Required markers and `aria-required` stop
 appearing, since the requirement answer has no other source. `DiscloseLoadedValuesAsync` goes on
 disclosing a wrong saved value and stops confirming a good one, since confirming needs the
 validator's own list of the fields it has rules for. And every pass evaluates its whole profile for
@@ -1043,10 +1042,10 @@ interface, each degrades the way its own interface documents: inspection reports
 and rule-level selection and execution throw `NotSupportedException`.
 
 Override every entry point that validates, not one of them. `Validate`, `ValidateAsync` and
-`ValidateRuleAsync` all take a model, and which of them runs is the caller's choice: a form that
-finds the rule-level capability present validates through `ValidateRuleAsync`, rule by rule, and
-reaches neither of the other two. A wrapper staging its model at `ValidateAsync` alone therefore
-changes nothing that form sees.
+`ValidateRulesAsync` all take a model, and which of them runs is the caller's choice: a form that
+finds the rule-level capability present validates through `ValidateRulesAsync`, a set of rules at a
+time, and reaches neither of the other two. A wrapper staging its model at `ValidateAsync` alone
+therefore changes nothing that form sees.
 
 State the wrapper reads from outside the model needs telling. Staging a new upload writes nothing
 the form is watching: it raises no `EditContext` field-changed notification, so no live pass starts
@@ -1116,5 +1115,5 @@ which render the kit exactly this way.
 | The server's errors land inline but its advisories show nowhere. | Server-declared errors bypass the disclosure registry; advisories defer to it, so an advisory whose field nothing rendered has nowhere to go. | Render the field (or a `FormidableFieldAnchor` for one the page draws itself); the browser console names each dropped advisory with `Formidable: issue at '...' is suppressed`. [Validate on the server and show its verdict](#i-want-to-validate-on-the-server-and-show-its-verdict). |
 | A warning is on screen but the submit succeeded. | Warnings and infos never affect validity: `CanProceed` counts error-severity issues only. | That is the severity doing its job — give the rule error severity if it must block. [Advise without blocking](#i-want-to-advise-without-blocking). |
 | Submit is blocked but no field shows a message. | Every failing field is unwatched and unrendered, so the defensive gate blocks with one model-level explanation instead of a silent no-op — and no background refresh takes that explanation away while nothing on screen explains the block. | Give that explanation a surface: a `FormidableSummary` lists it among everything else, and a form built on inline messages alone renders a [`FormidableModelMessage`](component-kit.md#formidablemodelmessage), which is fixed to the model-level field the explanation belongs to. Then check the browser console for `Formidable: issue at '...' is suppressed` (or watch `SuppressedIssueDiagnostic` for the same events in code), and check whether the rule needed a mirrored `.When(...)`. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
-| The summary names a field that is not on screen. | A field a submit has shown stays watched until the form passes or is reset, so hiding it afterwards takes the message off its own row without taking the entry out of the summary. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Fix the value: the entry goes when the rule stops producing the issue, on the refresh behind the next edit. Keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
-| A message lingers after the value was fixed. | After a submit, submit-profile messages are updated by the debounced refresh — 300 ms of quiet after the value commits, which under the default `UpdateOn` means after blur — and that refresh waits for any live pass still in flight. | Wait out the debounce, commit on input instead, or tune `FormidableOptions.RefreshDebounce`. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator). |
+| The summary names a field that is not on screen. | A field a submit has shown stays watched until the form passes or is reset, so hiding it afterwards takes the message off its own row without taking the entry out of the summary. A `DisclosureOverride` returning `true` also discloses fields that were never rendered. | Fix the value: the entry goes when the rule stops producing the issue, at the next pass to answer the submit profile. Keep the override where it is deliberate, as virtualized rows are. [Reveal fields conditionally without losing their rules](#i-want-to-reveal-fields-conditionally-without-losing-their-rules). |
+| A message lingers after the value was fixed. | On the default `LiveProfile`, the live pass a commit starts re-answers the submit profile and takes the message with it — so a lingering message is one no such pass has answered for yet. A change that never committed starts none (under the default `UpdateOn` the commit is the blur); a `LiveDebounce` window holds one back until the typing quiets; and a `LiveProfile` narrowed past the rule leaves the message to the debounced refresh instead, 300 ms of quiet after the value commits, with that refresh waiting on any live pass still in flight. | Commit the change: leave the field, set `UpdateOn="InputUpdateMode.OnInput"` to commit on every keystroke, or call `field.NotifyChanged()` from a control the page wires itself. Where the debounce or the narrowing is deliberate, wait it out or tune `FormidableOptions.RefreshDebounce`. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [async check with a pending indicator](#i-want-an-async-check-with-a-pending-indicator). |

@@ -254,12 +254,13 @@ On the submit channel, submit is the disclosure event for a warning or an info e
 for an error. `ValidateForSubmitAsync` decides which currently-rendered fields carry a visible
 issue of any severity, and each field it names joins a watched set: an error site on the error
 side, an advisory site on the advisory one, and a field watched on either count keeps its
-advisories refreshed. That set only grows while the form stays short of a passing submit: a
-later blocked submit adds to it, a server apply adds to it, and nothing takes a field back
-out. Every further edit arms the debounced refresh (`RefreshDebounce`, see
-[Options](options.md)), which re-validates
-the whole model and re-answers the watched fields rather than deciding membership again. It never
-goes looking for newly warning-worthy fields outside the set.
+advisories refreshed. That set only grows while the form stays short of a passing submit: a later
+blocked submit adds to it, a server apply adds to it, and nothing takes a field back out. Every
+further edit arms the debounced refresh (`RefreshDebounce`, see [Options](options.md)), which
+re-validates the whole model and re-answers the watched fields rather than deciding membership
+again. On the default `LiveProfile` that edit's own live pass rebuilds this channel's answer too,
+so with no `LiveDebounce` set neither direction waits out a debounce at all. It never goes
+looking for newly warning-worthy fields outside the set.
 
 A warning that was showing when the user last submitted keeps refreshing live as they keep
 editing: it clears the moment they fix it, and comes back if they break it again, since fixing it

@@ -98,11 +98,13 @@ blocked submits add to it, applying a server's verdict adds to it, and nothing r
 until a successful submit or a `ResetAsync` empties the set. So the debounced refresh that follows
 a submit re-validates the whole model and re-answers the watched fields, rather than deciding
 membership again: a field whose error the user fixed loses its message because the rule stopped
-producing one, and if the value breaks again the message returns on the next refresh, with no
-second submit needed. The entry follows the answer; the watch follows the submit. A field nothing
-has ever watched contributes nothing to this channel even while it's failing, and rendering it
-doesn't change that — it surfaces here at the *next* submit. Whether anything is already speaking
-for it meanwhile is the live channel's business, on its own rule, below.
+producing one, and if the value breaks again the message returns, with no second submit needed.
+On the default `LiveProfile` this channel's answer is rebuilt by the live pass behind that same
+edit as well, so with no `LiveDebounce` set neither direction waits out a debounce at all. The
+entry follows the answer; the watch follows the submit. A field nothing has ever watched
+contributes nothing to this channel even while it's failing, and rendering it doesn't change
+that — it surfaces here at the *next* submit. Whether anything is already speaking for it
+meanwhile is the live channel's business, on its own rule, below.
 
 End to end, that's submit as the disclosure event, an unregistered field's issue getting
 suppressed, the watch a shown field keeps, and the defensive gate catching the case where nothing

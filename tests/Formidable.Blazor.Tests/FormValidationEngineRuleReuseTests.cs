@@ -331,10 +331,13 @@ public class FormValidationEngineRuleReuseTests
     }
 
     /// <summary>
-    /// The refresh's assembled verdict — fresh-from-store and just-executed rule reports
-    /// concatenated in declaration order — is issue-for-issue what a fresh whole-profile
-    /// validation of the same model state produces. Every counted rule fails at submit and
-    /// keeps failing after the edit, so the comparison is over a non-empty issue set.
+    /// The refresh's assembled verdict — the reports it serves from the store together with the
+    /// ones it just executed — carries the same issues, by path and message, as a fresh
+    /// whole-profile validation of the same model state. Both sides are sorted before the
+    /// comparison: an assembled report orders its issues by the call each came from, where a
+    /// whole-profile run orders them by declaration, so the agreement pinned here is over the
+    /// SET of issues rather than their order. Every counted rule fails at submit and keeps
+    /// failing after the edit, so the comparison is over a non-empty issue set.
     /// </summary>
     [Fact]
     public async Task The_assembled_refresh_verdict_equals_a_fresh_full_validation()
@@ -609,5 +612,95 @@ public class FormValidationEngineRuleReuseTests
             .ToList();
 
         return (issues, (validator.DraftRuns, validator.SubmitOnlyRuns, validator.DualRuns));
+    }
+
+    /// <summary>
+    /// A pass executes its stale selection in ONE adapter call, not one per rule. Only an
+    /// ENGINE-side call counter can prove this — a fake could loop the per-rule doer internally
+    /// and still leave a validator's own embedded execution counters reading the right totals.
+    /// <see cref="SetCallModel"/>'s three submit rules share no tags and reach no child
+    /// validator, so they land in exactly one selection class: a submit answers all three in one
+    /// call, and the post-submit edit's live pass — invalidated wholesale by the global edit
+    /// stamp — answers them again in a second single call.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_over_several_rules_in_one_class_issues_one_adapter_call()
+    {
+        var model = new SetCallModel();
+        var validator = new SetCallValidator();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var counting = new SetCallCountingValidator<SetCallModel>(
+            new FluentValidationModelValidator<SetCallModel>(validator));
+        using var engine = new FormValidationEngine<SetCallModel>(
+            model, editContext,
+            counting,
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            time);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(1, counting.SetCallCount);
+        Assert.Equal(3, Assert.Single(counting.SetSizes));
+
+        // One post-submit edit to any one of the three fields bumps the engine's global edit
+        // stamp, which stales the whole stored group — not just the edited field's rule — so the
+        // live pass that follows re-answers the selection whole, in one call again.
+        model.A = "filled";
+        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(SetCallModel.A)));
+
+        Assert.Equal(2, counting.SetCallCount);
+        Assert.Equal(3, counting.SetSizes[1]);
+    }
+
+    /// <summary>
+    /// The capability-less path is unchanged and still correct. Two shapes fail
+    /// <see cref="FluentValidationModelValidator{TModel}.CanValidateByRule"/> for different
+    /// reasons — a hand-rolled <see cref="IValidator{T}"/> cannot enumerate its rules at all, and
+    /// a class-level cascade stop enumerates rules fine but cannot reproduce cascade-Stop
+    /// semantics from executing part of a profile — and both still validate correctly through
+    /// the engine's whole-profile fallback. A wrong routing decision here would surface as a
+    /// fault issue (the adapter's capability guard throwing from inside the rule-level doers),
+    /// not as a wrong verdict silently accepted.
+    /// </summary>
+    [Fact]
+    public async Task A_hand_rolled_validator_still_validates_correctly_at_the_engine()
+    {
+        var adapter = new FluentValidationModelValidator<SetCallModel>(new HandRolledSetCallValidator());
+        Assert.False(adapter.CanValidateByRule);
+
+        var model = new SetCallModel();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<SetCallModel>(
+            model, editContext, adapter, new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(["A is required"], engine.GetVisibleIssues().Select(v => v.Issue.Message));
+    }
+
+    /// <summary>See <see cref="A_hand_rolled_validator_still_validates_correctly_at_the_engine"/> — the other capability-less shape.</summary>
+    [Fact]
+    public async Task A_cascade_stop_validator_still_validates_correctly_at_the_engine()
+    {
+        var adapter = new FluentValidationModelValidator<SetCallModel>(new CascadeStopSetCallValidator());
+        Assert.False(adapter.CanValidateByRule);
+
+        var model = new SetCallModel();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<SetCallModel>(
+            model, editContext, adapter, new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(["A is required"], engine.GetVisibleIssues().Select(v => v.Issue.Message));
     }
 }

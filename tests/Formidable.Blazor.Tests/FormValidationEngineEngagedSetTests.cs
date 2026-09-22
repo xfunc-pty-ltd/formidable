@@ -129,9 +129,10 @@ public class FormValidationEngineEngagedSetTests
         Assert.True(engine.HasSubmitted);
         Assert.Contains(DeadlineMessage, editContext.GetValidationMessages(deadline));
 
-        // Fix the pair from the other field, then let the refresh this edit arms run: the live
-        // pass re-answers every engaged field and the refresh re-answers what submit revealed,
-        // so both channels end clean for Deadline.
+        // Fix the pair from the other field: the live pass that edit starts re-answers every
+        // engaged field and, running the default submit-profile LiveProfile, rebuilds the submit
+        // channel's own source too — so both channels end clean for Deadline at that pass. The
+        // refresh armed below lands after and finds the same clean answer already standing.
         model.EventDay = 30;
         editContext.NotifyFieldChanged(eventDay);
         time.Advance(TimeSpan.FromMilliseconds(301));

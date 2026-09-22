@@ -158,11 +158,11 @@ public sealed class FormidableOptions
     /// submit, or server apply has revealed discloses its current submit-selected errors whole,
     /// with no per-issue re-check — the override's authority is over revealing, not over
     /// filtering a revealed field's answer. A submit's advisories are filtered per issue as they
-    /// are captured; the next refresh recaptures a watched field's advisories from the rules
-    /// unfiltered. <c>ApplyServerIssues</c> asks per issue at apply: a server error is stored
-    /// whether or not anything renders its field, only an explicit <see langword="false"/> drops
-    /// one, and a dropped error reveals nothing either; a server advisory defers to the registry
-    /// like a client one. The live channel consults this only under
+    /// are captured; every other pass that answers the submit profile recaptures a watched
+    /// field's advisories from the rules unfiltered. <c>ApplyServerIssues</c> asks per issue at
+    /// apply: a server error is stored whether or not anything renders its field, only an explicit
+    /// <see langword="false"/> drops one, and a dropped error reveals nothing either; a server
+    /// advisory defers to the registry like a client one. The live channel consults this only under
     /// <see cref="LiveIssueDisclosure.EngagedAndVisible"/> — under the default
     /// <see cref="LiveIssueDisclosure.Engaged"/> policy no answer here reaches a live issue in
     /// either direction — and even where the opt-in applies it, per issue at every read,

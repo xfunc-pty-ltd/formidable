@@ -634,7 +634,7 @@ steps build on each other.
       box
 - [ ] Scroll the panel back to the top, then click that summary entry: the panel scrolls
       itself, Virtualize renders the row, focus lands in its Seats box. Set it back to `0` —
-      the post-submit refresh takes both the inline message and the summary entry away
+      that edit's live pass takes both the inline message and the summary entry away
 - [ ] Set **Ticket tier** to the blank *Choose…*: choosing is a committed change, so the foreign
       select takes the same inline message and summary entry as any wrapped input, with NO
       submit. Tab out and the red border joins them — a focused box wears the accent border

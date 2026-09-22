@@ -104,11 +104,10 @@ public class MyValidator : ProfiledValidator<MyModel>
 }
 ```
 
-A rule that needs membership in two rulesets without existing twice skips `Profile(...)` for that
-one rule and calls FluentValidation's own `RuleSet` directly instead, since it accepts a
-comma-separated name and tags every rule inside with all of them — see [narrow what the live
-channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates) for a worked
-example.
+A rule that needs membership in two rulesets without existing twice takes a comma-separated name:
+`Profile("Step1,Step2", ...)` tags every rule inside with both, and either name composes into a
+profile on its own — see [narrow what the live channel
+validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates) for a worked example.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a
 third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.

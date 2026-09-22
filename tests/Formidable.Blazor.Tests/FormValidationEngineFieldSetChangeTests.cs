@@ -211,6 +211,37 @@ public class FormValidationEngineFieldSetChangeTests
     }
 
     [Fact]
+    public async Task A_field_set_change_with_no_live_pass_rebuilds_the_submit_projection_on_its_own()
+    {
+        // Nothing here ever calls NotifyFieldChanged, so HandleFieldChanged never runs and no
+        // live pass ever answers for the fix below — the field-set change is the only thing
+        // that arms anything, which is what isolates the refresh's own rebuild from the live
+        // channel's.
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        using var descReg = engine.Registry.Register(description);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.NotEmpty(editContext.GetValidationMessages(description));
+
+        // Fixed directly on the model, with no committed change behind it.
+        order.Description = "ok";
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
+
+        Assert.Empty(editContext.GetValidationMessages(description));
+    }
+
+    [Fact]
     public async Task A_reconciliation_armed_refresh_lights_no_pending_indicator()
     {
         // A field-set change is the one arm site that can start a refresh with NOTHING in

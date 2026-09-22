@@ -16,9 +16,9 @@ namespace Formidable;
 /// both of which <see cref="FluentValidationModelValidator{TModel}"/> implements. A wrapper
 /// written against <see cref="IModelValidator{TModel}"/> alone compiles, validates correctly and
 /// presents neither capability; a caller's capability test then reads exactly what it reads for a
-/// validator that genuinely cannot read its own rules or run them one at a time, so nothing
-/// reports the difference. Three things go missing with those two capabilities: the per-field
-/// requirement a form draws its marker and its announcement from, which falls to
+/// validator that genuinely cannot read its own rules or run a chosen set of them on its own, so
+/// nothing reports the difference. Three things go missing with those two capabilities: the
+/// per-field requirement a form draws its marker and its announcement from, which falls to
 /// <see cref="FieldRequirement.NotRequired"/> everywhere; the half of a draft load that confirms
 /// values the rules pass, which needs the declared-path list and has no other source, leaving a
 /// loaded form silent about the values it holds while still disclosing the wrong ones; and the
@@ -33,24 +33,24 @@ namespace Formidable;
 /// without the capability, which is a different answer for each of the two:
 /// <see cref="CanInspectRules"/> reads <see langword="false"/> and both inspection readers report
 /// the empty answer, since an inspection answer decorates a form rather than deciding a verdict;
-/// <see cref="CanValidateByRule"/> reads <see langword="false"/> and both rule-level members throw
-/// <see cref="NotSupportedException"/>, since running part of a profile and reporting it as the
-/// whole would under-validate in silence.
+/// <see cref="CanValidateByRule"/> reads <see langword="false"/> and every rule-level member
+/// throws <see cref="NotSupportedException"/>, since running part of a profile and reporting it as
+/// the whole would under-validate in silence.
 /// </para>
 /// <para>
 /// A derived class that changes WHAT is validated changes it at every entry point that validates.
 /// Three members take a model — <see cref="Validate"/>, <see cref="ValidateAsync"/> and
-/// <see cref="ValidateRuleAsync"/> — and which of them runs is the caller's choice: a caller that
+/// <see cref="ValidateRulesAsync"/> — and which of them runs is the caller's choice: a caller that
 /// finds <see cref="CanValidateByRule"/> <see langword="true"/> may validate entirely through
-/// <see cref="ValidateRuleAsync"/>, rule by rule, reaching neither of the other two. Formidable's
-/// own form engine is such a caller and takes that path without exception: every pass it runs, and
-/// the form-validity probe beside them, go rule by rule wherever the capability is present. So a
-/// subclass overriding <see cref="ValidateAsync"/> alone leaves that engine validating what the
-/// wrapped validator would have validated, and breaks the equivalence
-/// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/> promises between the rules
-/// concatenated and the profile run whole. Overriding all three gives one answer whoever asks. The
-/// other consistent choice is to withdraw the capability, which takes three overrides rather than
-/// one: <see cref="CanValidateByRule"/> to <see langword="false"/>, and both doers to throw
+/// <see cref="ValidateRulesAsync"/>, a set of rules at a time, reaching neither of the other two.
+/// Formidable's own form engine is such a caller and takes that path without exception: every pass
+/// it runs, and the form-validity probe beside them, go through it wherever the capability is
+/// present. So a subclass overriding <see cref="ValidateAsync"/> alone leaves that engine
+/// validating what the wrapped validator would have validated, and breaks the equivalence
+/// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/> promises between the rules run in
+/// sets and the profile run whole. Overriding all three gives one answer whoever asks. The other
+/// consistent choice is to withdraw the capability, which takes four overrides rather than one:
+/// <see cref="CanValidateByRule"/> to <see langword="false"/>, and the three doers to throw
 /// <see cref="NotSupportedException"/>, since <see cref="IRuleLevelValidator{TModel}"/> holds a
 /// tester and its doers to one answer. Withdrawing costs the per-rule sharing.
 /// </para>
@@ -128,7 +128,7 @@ public abstract class DelegatingModelValidator<TModel>
     /// <inheritdoc />
     /// <remarks>
     /// The identities are the wrapped validator's own, and
-    /// <see cref="ValidateRuleAsync(TModel, ValidationProfile, RuleIdentity, CancellationToken)"/>
+    /// <see cref="ValidateRulesAsync(TModel, ValidationProfile, IReadOnlyList{RuleIdentity}, CancellationToken)"/>
     /// hands them back to it, so the instance scoping <see cref="RuleIdentity"/> describes holds
     /// across the wrapper. Throws <see cref="NotSupportedException"/> where the wrapped validator
     /// does not implement <see cref="IRuleLevelValidator{TModel}"/>.
@@ -143,14 +143,29 @@ public abstract class DelegatingModelValidator<TModel>
     /// Throws <see cref="NotSupportedException"/> where the wrapped validator does not implement
     /// <see cref="IRuleLevelValidator{TModel}"/>.
     /// </remarks>
-    public virtual Task<RuleLevelResult> ValidateRuleAsync(
-        TModel model, ValidationProfile profile, RuleIdentity rule,
+    public virtual Task<RuleLevelResult> ValidateRulesAsync(
+        TModel model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
         CancellationToken cancellationToken = default) =>
         _inner is IRuleLevelValidator<TModel> ruleLevel
-            ? ruleLevel.ValidateRuleAsync(model, profile, rule, cancellationToken)
+            ? ruleLevel.ValidateRulesAsync(model, profile, rules, cancellationToken)
+            : throw NoRuleLevelCapability();
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The wrapped validator's own partition, which is what keeps a wrapper's verdicts as
+    /// reusable as the wrapped validator's are: a coarser answer of the wrapper's own would cost
+    /// the reuse without changing a single verdict, so nothing would report the loss. Throws
+    /// <see cref="NotSupportedException"/> where the wrapped validator does not implement
+    /// <see cref="IRuleLevelValidator{TModel}"/>.
+    /// </remarks>
+    public virtual IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(
+        IReadOnlyList<RuleIdentity> rules) =>
+        _inner is IRuleLevelValidator<TModel> ruleLevel
+            ? ruleLevel.GroupBySelectionClass(rules)
             : throw NoRuleLevelCapability();
 
     private NotSupportedException NoRuleLevelCapability() =>
         new($"'{_inner.GetType().Name}' does not implement IRuleLevelValidator<{typeof(TModel).Name}>, " +
-            $"so the rules it holds cannot be selected or run one at a time. Check {nameof(CanValidateByRule)} first.");
+            $"so the rules it holds cannot be selected or run apart from a whole-profile pass. " +
+            $"Check {nameof(CanValidateByRule)} first.");
 }

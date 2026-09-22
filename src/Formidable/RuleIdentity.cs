@@ -5,7 +5,7 @@ namespace Formidable;
 /// <summary>
 /// Opaque identity of one validation rule, produced by
 /// <see cref="IRuleLevelValidator{TModel}.SelectRules"/> and consumed by
-/// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/>. Suitable as a dictionary key:
+/// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/>. Suitable as a dictionary key:
 /// equal identities hash equally, and identity is stable for the lifetime of the validator
 /// that produced it.
 /// </summary>
@@ -29,7 +29,7 @@ public readonly struct RuleIdentity : IEquatable<RuleIdentity>
     /// The wrapped key, or <see langword="null"/> for a <see langword="default"/> identity.
     /// Only meaningful to the validator that produced it: an
     /// <see cref="IRuleLevelValidator{TModel}"/> implementation resolves an identity handed to
-    /// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/> by reading back here the rule
+    /// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/> by reading back here the rule
     /// object it wrapped in <see cref="IRuleLevelValidator{TModel}.SelectRules"/>, with no side
     /// lookup. Any other reader holds an object whose type and content promise nothing.
     /// </summary>

@@ -9,6 +9,7 @@
     </ItemGroup>
     <ItemGroup>
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
+        <Compile Include="..\Shared\MissingFluentValidatorMessage.cs" Link="Shared\MissingFluentValidatorMessage.cs" />
         <Using Include="Formidable.Shared" />
     </ItemGroup>
 </Project>

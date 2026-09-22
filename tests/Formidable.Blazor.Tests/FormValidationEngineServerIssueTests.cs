@@ -62,6 +62,29 @@ public class FormValidationEngineServerIssueTests
         Assert.Empty(_editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
     }
 
+    /// <summary>
+    /// The refresh clears the server source at its own settling point — the sibling above pins
+    /// that. A live pass is a different event: an edit's own answer, not the debounced point the
+    /// server snapshot yields to. A server-applied error has no client rule reproducing it, so its
+    /// survival with no time advanced at all is what tells the two apart, with no round trip owed.
+    /// </summary>
+    [Fact]
+    public void A_server_issue_survives_the_live_pass_the_correcting_edit_starts()
+    {
+        _order.Description = string.Empty; // also fails client submit rules
+        _engine.ApplyServerIssues([new ValidationIssue("Description", "Server rejected this description")]);
+        Assert.NotEmpty(_editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
+
+        _order.Description = "ok"; // fix
+        _editContext.NotifyFieldChanged(new FieldIdentifier(_order, nameof(EngineOrder.Description)));
+
+        // No time advanced: the live pass this edit starts completes synchronously for wholly
+        // synchronous rules, so this is that pass's own answer, not a race against the debounce.
+        Assert.Contains(
+            "Server rejected this description",
+            _editContext.GetValidationMessages(new FieldIdentifier(_order, nameof(EngineOrder.Description))));
+    }
+
     [Fact]
     public void Disclosure_override_false_suppresses_server_issue()
     {

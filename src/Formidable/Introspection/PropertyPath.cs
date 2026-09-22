@@ -107,15 +107,11 @@ public static class PropertyPath
     /// <summary>Consumes a bare property name up to the next '.', '[', or end of input.</summary>
     private static bool TryConsumeProperty(ref ReadOnlySpan<char> remaining, List<PathSegment> result)
     {
-        var nextDot = remaining.IndexOf('.');
-        var nextBracket = remaining.IndexOf('[');
-        var end = (nextDot, nextBracket) switch
-        {
-            (< 0, < 0) => remaining.Length,
-            (< 0, _) => nextBracket,
-            (_, < 0) => nextDot,
-            _ => Math.Min(nextDot, nextBracket)
-        };
+        // One scan for either separator. Searching for each in turn re-reads the whole
+        // remainder whenever one of them is absent, which makes a bracket-free path cost a
+        // scan per segment — quadratic in the length of a path the caller does not control.
+        var next = remaining.IndexOfAny('.', '[');
+        var end = next < 0 ? remaining.Length : next;
 
         if (remaining[..end].IndexOf(']') >= 0)
         {

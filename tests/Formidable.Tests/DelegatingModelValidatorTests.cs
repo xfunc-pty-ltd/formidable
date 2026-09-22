@@ -44,10 +44,10 @@ public class DelegatingModelValidatorTests
         public override ValidationReport Validate(TestOrder model, ValidationProfile profile) =>
             base.Validate(Staged(model), profile);
 
-        public override Task<RuleLevelResult> ValidateRuleAsync(
-            TestOrder model, ValidationProfile profile, RuleIdentity rule,
+        public override Task<RuleLevelResult> ValidateRulesAsync(
+            TestOrder model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
             CancellationToken cancellationToken = default) =>
-            base.ValidateRuleAsync(Staged(model), profile, rule, cancellationToken);
+            base.ValidateRulesAsync(Staged(model), profile, rules, cancellationToken);
     }
 
     /// <summary>
@@ -78,8 +78,8 @@ public class DelegatingModelValidatorTests
     }
 
     /// <summary>
-    /// Enumerates its rules perfectly and cannot execute them one at a time — the shape that
-    /// tells a capability tester reading the wrapped validator's own answer apart from one
+    /// Enumerates its rules perfectly and cannot run a chosen set of them on its own — the shape
+    /// that tells a capability tester reading the wrapped validator's own answer apart from one
     /// reading only whether the interface is there.
     /// </summary>
     private sealed class CascadeStoppingOrderValidator : AbstractValidator<TestOrder>
@@ -127,7 +127,7 @@ public class DelegatingModelValidatorTests
         var byRule = new List<ValidationIssue>();
         foreach (var rule in rules)
         {
-            byRule.AddRange((await ruleLevel.ValidateRuleAsync(order, ValidationProfile.Submit, rule)).Report.Issues);
+            byRule.AddRange((await ruleLevel.ValidateRulesAsync(order, ValidationProfile.Submit, [rule])).Report.Issues);
         }
 
         Assert.Equal(
@@ -157,8 +157,9 @@ public class DelegatingModelValidatorTests
         var ruleLevel = Assert.IsAssignableFrom<IRuleLevelValidator<TestOrder>>(subject);
         Assert.False(ruleLevel.CanValidateByRule);
         Assert.Throws<NotSupportedException>(() => ruleLevel.SelectRules(ValidationProfile.Submit));
+        Assert.Throws<NotSupportedException>(() => ruleLevel.GroupBySelectionClass([]));
         await Assert.ThrowsAsync<NotSupportedException>(
-            () => ruleLevel.ValidateRuleAsync(new TestOrder(), ValidationProfile.Submit, default));
+            () => ruleLevel.ValidateRulesAsync(new TestOrder(), ValidationProfile.Submit, [default]));
 
         // And validation itself is untouched by any of that: the seam every validator has still
         // reaches the wrapped one.
@@ -166,11 +167,11 @@ public class DelegatingModelValidatorTests
     }
 
     // A tester answers the wrapped validator's own answer, not the presence of its interface. This
-    // validator enumerates its rules perfectly and cannot execute them one at a time, so the two
-    // gates part company — and the doer still throws, because forwarding hands the question to the
-    // validator whose contract already promises that. Mutation that must break this: test the
-    // interface alone (`_inner is IRuleLevelValidator<TModel>`), which reports a capability the
-    // wrapped validator disclaims.
+    // validator enumerates its rules perfectly and cannot run a chosen set of them on its own, so
+    // the two gates part company — and the doer still throws, because forwarding hands the
+    // question to the validator whose contract already promises that. Mutation that must break
+    // this: test the interface alone (`_inner is IRuleLevelValidator<TModel>`), which reports a
+    // capability the wrapped validator disclaims.
     [Fact]
     public void A_capability_tester_answers_the_wrapped_validators_answer_rather_than_its_type()
     {
@@ -212,7 +213,7 @@ public class DelegatingModelValidatorTests
     // point runs is the caller's choice, so a wrapper that changes what is validated at one of
     // them answers two ways. A caller taking the rule-level path sees the description still
     // missing; the same wrapper written at every entry point answers the same both ways.
-    // Mutation that must break this: drop the ValidateRuleAsync override from
+    // Mutation that must break this: drop the ValidateRulesAsync override from
     // StagedAtEveryEntryPoint, and the second half stops agreeing.
     [Fact]
     public async Task Changing_what_is_validated_at_one_entry_point_leaves_the_rule_level_path_unchanged()
@@ -240,10 +241,10 @@ public class DelegatingModelValidatorTests
         Assert.Throws<ArgumentNullException>(() => new PassThroughValidator(null!));
 
     /// <summary>
-    /// Every submit-profile error <paramref name="validator"/> produces when its rules are run
-    /// one at a time — the path a caller that finds the rule-level capability present takes, and
-    /// asked for the way such a caller asks, so a validator that has stopped presenting the
-    /// capability fails the assertion rather than the compile.
+    /// Every submit-profile error <paramref name="validator"/> produces through the rule-level
+    /// seam — one call per rule, the shape that attributes every error to the rule that produced
+    /// it — asked for the way a caller finding the capability present asks, so a validator that
+    /// has stopped presenting the capability fails the assertion rather than the compile.
     /// </summary>
     private static async Task<List<ValidationIssue>> SubmitErrorsByRuleAsync(
         IModelValidator<TestOrder> validator, TestOrder order)
@@ -252,9 +253,95 @@ public class DelegatingModelValidatorTests
         var errors = new List<ValidationIssue>();
         foreach (var rule in ruleLevel.SelectRules(ValidationProfile.Submit))
         {
-            errors.AddRange((await ruleLevel.ValidateRuleAsync(order, ValidationProfile.Submit, rule)).Report.Errors);
+            errors.AddRange((await ruleLevel.ValidateRulesAsync(order, ValidationProfile.Submit, [rule])).Report.Errors);
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// Implements both optional interfaces and disclaims both capabilities — the shape a type
+    /// test and an answer-forwarding tester disagree about, in the direction that matters:
+    /// present but disclaimed. A wrapped validator whose own testers change answer over its
+    /// lifetime has exactly this shape at the moment it says no.
+    /// </summary>
+    private sealed class DisclaimingValidator
+        : IModelValidator<TestOrder>, IRuleInspectingValidator<TestOrder>, IRuleLevelValidator<TestOrder>
+    {
+        public bool AskedForARequirement { get; private set; }
+
+        public bool AskedForDeclaredPaths { get; private set; }
+
+        public bool CanInspectRules => false;
+
+        public bool CanValidateByRule => false;
+
+        public Task<ValidationReport> ValidateAsync(
+            TestOrder model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Validate(model, profile));
+
+        public ValidationReport Validate(TestOrder model, ValidationProfile profile) => new([]);
+
+        public FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
+        {
+            AskedForARequirement = true;
+            return FieldRequirement.NotRequired;
+        }
+
+        public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
+        {
+            AskedForDeclaredPaths = true;
+            return System.Collections.Frozen.FrozenSet<string>.Empty;
+        }
+
+        public IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile) =>
+            throw new NotSupportedException();
+
+        public Task<RuleLevelResult> ValidateRulesAsync(
+            TestOrder model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(
+            IReadOnlyList<RuleIdentity> rules) =>
+            throw new NotSupportedException();
+    }
+
+    // BOTH testers answer the wrapped validator's own answer rather than the presence of its
+    // interface. The sibling above reaches the rule-level half of this through a cascade-stopping
+    // FluentValidation validator, where the two gates part company for a reason of FV's own; this
+    // one asks the question directly, and reaches the INSPECTION half, which no other test does
+    // -- every other inner here either implements neither interface or answers true to both, so a
+    // type test and a forwarded answer agree and nothing discriminates. Mutation that must break
+    // this: either tester reduced to `_inner is I...Validator<TModel>`, which reports a capability
+    // the wrapped validator disclaims.
+    [Fact]
+    public void Both_capability_testers_answer_a_wrapped_validator_that_disclaims_them()
+    {
+        IModelValidator<TestOrder> subject = new PassThroughValidator(new DisclaimingValidator());
+
+        Assert.False(Assert.IsAssignableFrom<IRuleInspectingValidator<TestOrder>>(subject).CanInspectRules);
+        Assert.False(Assert.IsAssignableFrom<IRuleLevelValidator<TestOrder>>(subject).CanValidateByRule);
+    }
+
+    // The readers forward on the interface being there, not on the tester's answer, so a wrapped
+    // validator that disclaims inspection is still the one that answers -- which is what lets a
+    // validator whose tester changes answer over its lifetime be followed rather than frozen.
+    // Mutation that must break this: gate either reader on CanInspectRules and return the degrade,
+    // which produces the same values from the wrapper while never asking the wrapped validator.
+    [Fact]
+    public void An_inspection_reader_asks_a_wrapped_validator_that_disclaims_the_capability()
+    {
+        var inner = new DisclaimingValidator();
+        var inspector = Assert.IsAssignableFrom<IRuleInspectingValidator<TestOrder>>(
+            new PassThroughValidator(inner));
+
+        Assert.Equal(
+            FieldRequirement.NotRequired,
+            inspector.GetFieldRequirement(nameof(TestOrder.Description), ValidationProfile.Submit));
+        Assert.Empty(inspector.GetDeclaredFieldPaths(ValidationProfile.Submit));
+
+        Assert.True(inner.AskedForARequirement);
+        Assert.True(inner.AskedForDeclaredPaths);
     }
 }

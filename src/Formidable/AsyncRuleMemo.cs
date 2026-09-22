@@ -130,7 +130,15 @@ public sealed class AsyncRuleMemo<TKey, TResult>
                 // guarantee — releasing first would leave a window for a duplicate call. The lock
                 // is never held across an await: this returns as soon as the check has begun, not
                 // when it finishes.
-                shared = factory(key, CancellationToken.None);
+                shared = factory(key, CancellationToken.None)
+                    ?? throw new InvalidOperationException(
+                        "The factory returned no task. A memo entry is joined, awaited and asked whether it " +
+                        "faulted, so there is nothing to store — return a task, faulted if the check itself " +
+                        "cannot run.");
+
+                // Checked before the store, or the null outlives this call: every later miss
+                // sweeps the entries it holds and asks each one whether it faulted, so one
+                // null entry fails lookups of every other key too.
                 _entries[key] = new Entry(shared, now);
 
                 // Every caller reaches a failure through its own wait below, and every one of those

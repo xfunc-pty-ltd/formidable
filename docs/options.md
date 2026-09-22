@@ -108,10 +108,11 @@ against the 300 ms default, as [`/async`](../samples/Formidable.Sample/Pages/Asy
 does) and the refresh comes due first instead. The order is free to vary because the cost is not:
 verdict reuse is keyed by rule and edit stamp rather than by which pass ran first, so whichever
 pass lands first executes the stale rules and the other serves the stored verdicts. What each pass
-files differs — a live pass files the engaged fields' verdicts, a refresh files the whole model's
-submit-profile answer — and what a field shows is read from both. With the refresh in front, what
-submit disclosed updates a beat before the field's own live message does, a transient reordering
-that leaves the settled state identical.
+files overlaps rather than divides: a live pass files the engaged fields' verdicts and, while
+`LiveProfile` leaves the submit profile in force, the whole model's submit-profile answer beside
+them; a refresh files that same answer and supersedes the server's. What a field shows is read from
+both. With the refresh in front, what submit disclosed updates a beat before the field's own live
+message does, a transient reordering that leaves the settled state identical.
 
 Same verdicts, same per-rule cost, in either order. The reuse a post-submit edit gets without
 `LiveDebounce` set applies here unchanged — see

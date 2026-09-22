@@ -31,7 +31,18 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
 adapters funnel into one wire format, defined once in the dependency-free core package, so
-whichever one rejects a request, the shape it sends back is identical. On the client side,
+whichever one rejects a request, the same paths carry the same messages and the `advisories`
+extension is identical. Each then builds the ProblemDetails around them the way its own half of
+the framework does — the endpoint filter through `TypedResults.ValidationProblem`, the action
+filter through the app's `ProblemDetailsFactory` — and three differences follow from that, all of
+them the framework's rather than Formidable's. The action filter's `errors` reach the response
+through a `ModelStateDictionary`, which is a prefix trie, so it **orders its keys its own way**
+where the endpoint filter serves them in report order; a `ModelStateDictionary` also **substitutes
+its own text for an empty message**, so an issue carrying none arrives as `""` from the endpoint
+filter and as a sentence of MVC's from the action filter; and MVC's factory writes a **`traceId`
+whatever the host configured**, where `TypedResults.ValidationProblem` writes one only under
+`AddProblemDetails()`. A client keying on paths and reading messages is unaffected by all three.
+On the client side,
 closing the loop is two calls: deserialize the 400 body, and hand it to
 `FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
 it carries — errors block and mark their fields `formidable-invalid`, and warnings and infos land
@@ -101,8 +112,14 @@ public sealed class FormidableValidationProblem
                 continue;
             }
 
+            // Enum.TryParse admits a numeric string ("99", "-1") and a comma-joined list
+            // ("Info, Warning") as readily as a member name, so the parse alone would let a
+            // foreign body name a severity no member defines — one that then reaches every
+            // severity switch and the field-state class provider as an advisory of no band.
+            // IsDefined is what keeps "unknown reads as Warning" true of every unknown.
             var severity =
                 Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed)
                 && parsed != ValidationSeverity.Error
                     ? parsed
                     : ValidationSeverity.Warning;
@@ -163,30 +180,64 @@ public static class ValidationReportProblemMapper
     /// <summary>The ProblemDetails extension key carrying non-error issues.</summary>
     public const string AdvisoriesExtensionKey = "advisories";
 
-    /// <summary>Error messages grouped by path, preserving issue order within each path.</summary>
+    /// <summary>
+    /// Error messages grouped by path, preserving issue order within each path. A
+    /// <see langword="null"/> path reads as <c>""</c>, the model-level path, and a
+    /// <see langword="null"/> message as <c>""</c> — the same tolerance
+    /// <see cref="FormidableValidationProblem.ToIssues"/> applies on the client, because
+    /// <see cref="IModelValidator{TModel}"/> is a consumer-implementable seam and a hand-rolled
+    /// one can hand back either however the type is annotated.
+    /// </summary>
     public static Dictionary<string, string[]> ToErrorDictionary(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
         return report.Errors
-            .GroupBy(issue => issue.Path)
-            .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message).ToArray());
+            .GroupBy(issue => issue.Path ?? string.Empty)
+            .ToDictionary(group => group.Key, group => group.Select(issue => issue.Message ?? string.Empty).ToArray());
     }
 
-    /// <summary>Non-error issues as the advisories-extension payload, in issue order.</summary>
+    /// <summary>
+    /// Non-error issues as the advisories-extension payload, in issue order. Null paths and
+    /// messages are tolerated exactly as in <see cref="ToErrorDictionary"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// An issue carries a <see cref="ValidationSeverity"/> value no member defines. The wire
+    /// field is a member NAME, so there is nothing honest to write: the value's own
+    /// <c>ToString</c> would put a number there, which the client reads as
+    /// <see cref="ValidationSeverity.Warning"/> — relabelling a caller's bug rather than
+    /// reporting it. Nothing shipped can produce one (the FluentValidation adapter maps
+    /// exhaustively), so the value comes from a cast in a hand-rolled validator, and naming it
+    /// is the only way its author learns of it.
+    /// </exception>
     public static List<ValidationProblemAdvisory> ToAdvisories(ValidationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
         return report.Issues
             .Where(issue => issue.Severity != ValidationSeverity.Error)
             .Select(issue => new ValidationProblemAdvisory(
-                issue.Path, issue.Message, issue.Severity.ToString(), issue.Code, issue.DisplayName))
+                issue.Path ?? string.Empty,
+                issue.Message ?? string.Empty,
+                SeverityName(issue, nameof(report)),
+                issue.Code,
+                issue.DisplayName))
             .ToList();
     }
+
+    private static string SeverityName(ValidationIssue issue, string parameterName) =>
+        Enum.IsDefined(issue.Severity)
+            ? issue.Severity.ToString()
+            : throw new ArgumentException(
+                $"Issue '{issue.Path}' carries severity {(int)issue.Severity}, which no ValidationSeverity member " +
+                "defines. The advisories extension carries a member name, so there is no name to write — give the " +
+                "issue Error, Warning or Info.",
+                parameterName);
 
     // The ProblemDetails extensions dictionary for `report`, keyed under
     // AdvisoriesExtensionKey -- or null when there are no advisories to carry, so a caller can
     // attach it only when non-empty rather than repeating that count check itself. Both server
-    // adapters (the minimal-API filter and the MVC action filter) share this one step.
+    // adapters (the minimal-API filter and the MVC action filter) share this one step, so
+    // ToAdvisories' rejection of an undefined severity is a rejection on both: a report carrying
+    // one fails the request it was built for, whichever adapter is serving it.
     internal static Dictionary<string, object?>? ToAdvisoriesExtensions(ValidationReport report)
     {
         var advisories = ToAdvisories(report);
@@ -495,10 +546,20 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
                 validator = services.GetRequiredService(typeof(IModelValidator<>).MakeGenericType(argumentType));
             }
             catch (InvalidOperationException ex)
+                when (services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is null)
             {
-                // The IValidator<T> probe in ShouldValidate succeeded, so FluentValidation is
-                // registered — this failure means the IModelValidator<T> adapter itself was
-                // never wired up, almost always because AddFormidable() was never called.
+                // The open-generic adapter is registered but the validator it wraps is not, so
+                // resolving it throws during activation rather than returning null. Reached
+                // through the explicit-types path, which names the type instead of probing for
+                // a validator — the discovery path cannot get here, because ShouldValidate only
+                // returns true for a type whose IValidator<T> it just found.
+                throw new InvalidOperationException(MissingFluentValidatorMessage.For(argumentType), ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // A registered IValidator<T> contradicts the diagnosis above, so this failure
+                // has some other cause — the adapter itself was never wired up, almost always
+                // because AddFormidable() was never called.
                 throw new InvalidOperationException(
                     $"No IModelValidator<{FriendlyTypeName.Of(argumentType)}> is resolvable — call services.AddFormidable() to register the FluentValidation adapter.",
                     ex);
@@ -526,11 +587,7 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
         if (!aggregate.IsValid)
         {
-            var problem = new ValidationProblemDetails(ValidationReportProblemMapper.ToErrorDictionary(aggregate))
-            {
-                Status = StatusCodes.Status400BadRequest,
-                Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
-            };
+            var problem = BuildProblem(context.HttpContext, aggregate);
 
             var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
             if (extensions is not null)
@@ -541,8 +598,9 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
                 }
             }
 
-            // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on
-            // BadRequestObjectResult's implicit content negotiation for the media type.
+            // The media type is set outright rather than left to BadRequestObjectResult's
+            // implicit content negotiation, which is what makes this a problem+json response
+            // whatever the request's Accept header asks for.
             context.Result = new ObjectResult(problem)
             {
                 StatusCode = StatusCodes.Status400BadRequest,
@@ -559,7 +617,14 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
 `IsValid` gate runs once, after the loop; a `null` argument does not count toward
-`RequireValidator`'s "did this action bind anything at all" check below. The merge is
+`RequireValidator`'s "did this action bind anything at all" check below. `BuildProblem`, just out
+of view above, is where the errors become a response: it copies the mapper's dictionary into a
+`ModelStateDictionary` — lifting that dictionary's default error cap, since a validation report
+legitimately runs to one issue per collection row — and hands it to the app's own
+`ProblemDetailsFactory`, which is what `ControllerBase.ValidationProblem()` uses. That is where
+this filter's 400 picks up the trace identifier, the `ApiBehaviorOptions.ClientErrorMapping` type
+link and any consumer factory's own additions, and it is the hop the three differences at the top
+of this page come from. The merge is
 deliberately flat: the 400's `errors` dictionary keys each issue by its own property path with
 no per-argument prefix, so two validated models sharing a property name land under one key. The
 stash just above the `IsValid` gate is what `GetFormidableValidationReport` reads back: the
@@ -915,7 +980,7 @@ has already been deserialized.
 the Minimal API endpoint, with its MVC twin at
 [`samples/Formidable.Sample.Api/Controllers/OrdersController.cs`](../samples/Formidable.Sample.Api/Controllers/OrdersController.cs).
 The page's endpoint picker posts to either one, with a caption under the radios naming the live
-URL, so the two otherwise-identical 400s are traceable to their source.
+URL, so the two 400s are traceable to their source.
 [`samples/Formidable.Sample.Api/requests.http`](../samples/Formidable.Sample.Api/requests.http)
 has ready-made requests against both endpoints for use outside the browser. Run the API first
 (`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the Blazor sample

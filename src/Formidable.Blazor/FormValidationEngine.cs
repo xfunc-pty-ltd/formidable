@@ -90,9 +90,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
 
-    // The submit channel's client verdict source: the last whole-model answer a submit, a refresh
-    // or a load produced, resolved to fields — every error and every advisory, undisclosed ones
-    // included.
+    // The submit channel's client verdict source: the last whole-model answer a submit, a refresh,
+    // a load, or a live pass that ran the submit profile itself produced, resolved to fields —
+    // every error and every advisory, undisclosed ones included.
     // What the channel SHOWS is this source read through the reveal ledgers below; keeping the
     // full answer is what lets a ledger that grows mid-standing (a server apply reveals fields)
     // disclose an already-computed error without another pass. On a rule-capable validator the
@@ -106,10 +106,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     // error sites, and which as advisory sites. Reveal is FIELD-granular — one issue's yes
     // reveals its field, and a revealed field's answer discloses whole, per-issue answers
     // notwithstanding — and merges by UNION: once revealed, a field stays watched, so an error
-    // that returns after being fixed rediscloses on the next refresh. Only a successful submit
-    // resets them (errors un-reveal wholesale; advisories re-freeze to the fresh sites). Two
-    // sets because the two channels reveal independently: a field can be an advisory site
-    // without ever having been an error site.
+    // that returns after being fixed rediscloses at the next pass to answer the submit profile,
+    // with no further submit. Only a successful submit resets them (errors un-reveal wholesale;
+    // advisories re-freeze to the fresh sites). Two sets because the two channels reveal
+    // independently: a field can be an advisory site without ever having been an error site.
     private readonly HashSet<FieldIdentifier> _revealedErrorFields = [];
     private readonly HashSet<FieldIdentifier> _revealedAdvisoryFields = [];
 
@@ -163,12 +163,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     // holds values nothing notified for. Nothing covers the rest.
     private int _editStamp;
 
-    // Every rule's most recent verdict, keyed by the rule's own identity — which is what makes
-    // reuse bidirectional and order-independent: whichever pass ran a rule last at the current
-    // stamp has answered it for every later pass at that stamp, whatever profile either ran.
-    // An edit leaves the entries in place and merely strands their stamps; only a
-    // rendered-field-set change empties the dictionary, so its size stays bounded by rule count.
-    private readonly Dictionary<RuleIdentity, RuleVerdict> _ruleVerdicts = [];
+    // Every rule's most recent verdict, held one entry per executed SET rather than one per
+    // rule: a pass runs the stale remainder of its selection in as few validator calls as its
+    // rules' selection classes allow, and the issues one call produced answer for exactly the
+    // set it was given. _ruleToSet indexes each rule to the set that answered it, so the
+    // per-rule questions the engine asks — is this rule covered, and is that answer fresh —
+    // stay a dictionary read. Reuse stays bidirectional and order-independent for a rule:
+    // whichever pass ran it last at the current stamp has answered it for every later pass at
+    // that stamp, whatever profile either ran, for as long as the whole set it was run in sits
+    // within that later pass's own selection — which is what a selection-class partition
+    // guarantees, since no profile can take part of a class. Filing a set drops every stored set
+    // answering for a different model state and every one sharing a rule with it, and a
+    // rendered-field-set change empties both structures, so their size stays bounded by rule
+    // count.
+    private readonly List<SetVerdict> _setVerdicts = [];
+    private readonly Dictionary<RuleIdentity, SetVerdict> _ruleToSet = [];
 
     // Names the rendered field set the stored verdicts were computed against, the one staleness
     // the edit counter cannot see. OnRenderedFieldsChanged bumps it as it clears the store, and
@@ -217,9 +226,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private ValidationProfile? _heldCoverageProfile;
     private HashSet<FieldIdentifier>? _heldCoverageErrorFields;
 
-    // The capability-less coverage source: the edit stamp at which the last COMPLETED
-    // whole-model SubmitProfile evaluation — any pass but a live one, or a fallback probe — began,
-    // and the fields its report failed. A validator with no rule-level seam has no verdicts to
+    // The capability-less coverage source: the edit stamp at which the last whole-model
+    // SubmitProfile evaluation this source takes — a COMPLETED submit, refresh or load pass, or a
+    // fallback probe — began, and the fields its report failed. A live pass is excluded by kind
+    // rather than by the profile it ran: LiveProfile decides that, and a narrowed one answers for
+    // fewer rules than a submit would. A validator with no rule-level seam has no verdicts to
     // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is
     // the current stamp"; -1 until one completes, which is what keeps a never-evaluated form
     // from wearing green it has not earned.
@@ -435,14 +446,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// per-field, because a failing answer names its fields itself. What "coverage" means is
     /// the capability split: a rule-capable validator's coverage is the verdict store (every
     /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
-    /// validator's coverage is the last completed whole-model SubmitProfile evaluation —
-    /// submit, refresh, load, or probe — current exactly while its begin stamp is still the
-    /// current edit stamp. The rule-capable coverage can also be a HELD answer: a rendered-field-set
-    /// change empties the store while the edit stamp says the model those verdicts described has
-    /// not moved, and <see cref="ServeHeldCoverage"/> covers that gap, so green describes the
-    /// model rather than the page's registration churn. The fallback needs no cover of its own —
-    /// its source is not the store, and a field-set change leaves it exactly as current as the
-    /// edit stamp already found it.
+    /// validator's coverage is the last whole-model SubmitProfile evaluation a submit, a refresh,
+    /// a load or a probe completed, current exactly while its begin stamp is still the current
+    /// edit stamp — a live pass is excluded by kind, whatever profile it ran. The rule-capable
+    /// coverage can also be a HELD answer: a rendered-field-set change empties the store while the
+    /// edit stamp says the model those verdicts described has not moved, and
+    /// <see cref="ServeHeldCoverage"/> covers that gap, so green describes the model rather than
+    /// the page's registration churn. The fallback needs no cover of its own — its source is not
+    /// the store, and a field-set change leaves it exactly as current as the edit stamp already
+    /// found it.
     /// </summary>
     private bool WouldPassSubmit(FieldIdentifier field)
     {
@@ -494,21 +506,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         HashSet<FieldIdentifier>? errorFields = null;
         try
         {
-            foreach (var rule in ruleLevel.SelectRules(profile))
+            var plan = BuildRulePlan(ruleLevel, profile, executeAll: false, _editStamp);
+            if (plan.Remainder.Count > 0)
             {
-                if (!_ruleVerdicts.TryGetValue(rule, out var verdict)
-                    || !verdict.IsFreshFor(_editStamp, profile))
-                {
-                    // A rule with no current answer. The held answer stands in for it while it
-                    // still answers for the model as it stands — a rendered-field-set change
-                    // empties the store without moving the edit stamp, so an answer computed at
-                    // that stamp is one nothing since has invalidated. Otherwise coverage is
-                    // stale and its fields are moot.
-                    ServeHeldCoverage(profile);
-                    return;
-                }
+                // A rule with no current answer. The held answer stands in for it while it
+                // still answers for the model as it stands — a rendered-field-set change
+                // empties the store without moving the edit stamp, so an answer computed at
+                // that stamp is one nothing since has invalidated. Otherwise coverage is
+                // stale and its fields are moot.
+                ServeHeldCoverage(profile);
+                return;
+            }
 
-                foreach (var issue in verdict.Issues)
+            foreach (var stored in plan.Reused)
+            {
+                foreach (var issue in stored.Issues)
                 {
                     if (issue.Severity == ValidationSeverity.Error)
                     {
@@ -1286,7 +1298,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // stood before the move. The generation bump extends the same argument to a pass already
         // in flight: its verdict apply checks the generation it captured at begin and declines
         // to write, so the clear cannot be undone by work that predates it.
-        _ruleVerdicts.Clear();
+        _setVerdicts.Clear();
+        _ruleToSet.Clear();
         _storeGeneration++;
         // The emptied store answers for nothing, so the coverage read re-derives — or, while the
         // edit stamp says the model it described still stands, holds the answer it last gave.
@@ -1481,11 +1494,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// stop clearing a flag, that the others still do. How the validation step itself runs is
     /// a capability split: a validator that can validate rule by rule gets the verdict store —
     /// only the rules with no fresh verdict at this pass's stamp execute, and the report handed
-    /// downstream is ASSEMBLED, every selected rule's issues in declaration order whether served
-    /// from the store or just executed, so downstream never sees less than a whole-profile
-    /// answer. Any other validator gets the whole profile in one call — correct, unoptimised. A
-    /// pass whose every selected rule is fresh executes nothing and still runs this entire
-    /// lifecycle, publishing its assembled verdict like any other.
+    /// downstream is ASSEMBLED, every selected rule's issues whether served from the store or
+    /// just executed, so downstream never sees less than a whole-profile answer. Any other
+    /// validator gets the whole profile in one call — correct, unoptimised. A pass whose every
+    /// selected rule is fresh executes nothing and still runs this entire lifecycle, publishing
+    /// its assembled verdict like any other.
     /// </summary>
     /// <param name="kind">
     /// Which lifecycle this is; it also decides the fault policy below, and whether freshness is
@@ -1534,7 +1547,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             await SetValidating(true, pass, beginScope()).ConfigureAwait(false);
 
             var report = ValidationReport.Empty;
-            Dictionary<RuleIdentity, RuleVerdict>? executed = null;
+            List<SetVerdict>? executed = null;
             try
             {
                 if (_validator is IRuleLevelValidator<TModel> ruleLevel && ruleLevel.CanValidateByRule)
@@ -1545,7 +1558,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                     // from off it. A selection error (a typo'd ruleset name, say) surfaces here
                     // exactly as a whole-profile validation surfaces it, through the fault
                     // policy below.
-                    List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan = null!;
+                    RulePlan plan = null!;
                     await _renderDispatch(() =>
                     {
                         plan = BuildRulePlan(ruleLevel, profile, kind == PassKind.Submit, editStamp);
@@ -1593,19 +1606,22 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // writes anything, store included.
                 if (executed is not null && generation == _storeGeneration)
                 {
-                    foreach (var (rule, verdict) in executed)
+                    foreach (var verdict in executed)
                     {
-                        _ruleVerdicts[rule] = verdict;
+                        StoreSetVerdict(verdict);
                     }
                 }
 
                 applyVerdict(report);
 
                 // Coverage bookkeeping, after the apply so the submit channel's source is the
-                // one this pass just rebuilt. Every kind but a live pass IS a completed whole-model
-                // SubmitProfile evaluation, so its begin stamp and its resolved error fields
-                // become the capability-less coverage source — the apply resolved every error,
-                // undisclosed ones included, which is exactly what "would fail submit" needs.
+                // one this pass just rebuilt. A submit, a refresh and a load each run the submit
+                // profile itself, so any of them landing is a completed whole-model SubmitProfile
+                // evaluation whose begin stamp and resolved error fields become the
+                // capability-less coverage source — the apply resolved every error, undisclosed
+                // ones included, which is exactly what "would fail submit" needs. A live pass is
+                // excluded by kind rather than by the profile it ran: LiveProfile decides that,
+                // and a narrowed one answers for fewer rules than a submit would.
                 // The coverage version moves for every landing, live passes included: any
                 // landing can have written verdicts the coverage read derives from.
                 if (kind != PassKind.Live)
@@ -1644,77 +1660,163 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// Decides, rule by rule, what a capability evaluation has left to execute: the profile's
-    /// whole selection in declaration order, each rule paired with its fresh stored verdict
-    /// where one exists — or with nothing, meaning the caller must run it. A submit sets
-    /// <paramref name="executeAll"/> and pairs every rule with nothing by fiat: it is the
-    /// disclosure event, and its full run is also what repopulates the store so everything
-    /// behind it starts from answered rules; every other kind, and the validity
-    /// probe, consults freshness. Runs on the dispatcher (the caller marshals), because the
-    /// store is read here and mutates only there.
+    /// Decides what a capability evaluation has left to execute: the stored sets it may serve
+    /// from, and the rules of the profile's selection none of them answers. A stored set is
+    /// servable only where the current selection CONTAINS it, because a set's issues belong to
+    /// the set as a whole and there is no per-rule attribution to strip the ones a narrower
+    /// profile does not select — so a set answers a selection it is part of and never one it
+    /// straddles. A submit sets <paramref name="executeAll"/> and serves nothing by fiat: it is
+    /// the disclosure event, and its full run is also what repopulates the store so everything
+    /// behind it starts from answered rules; every other kind, and the validity probe, consults
+    /// freshness. Runs on the dispatcher (the caller marshals), because the store is read here
+    /// and mutates only there.
     /// </summary>
-    private List<(RuleIdentity Rule, RuleVerdict? Fresh)> BuildRulePlan(
+    private RulePlan BuildRulePlan(
         IRuleLevelValidator<TModel> ruleLevel,
         ValidationProfile profile,
         bool executeAll,
         int editStamp)
     {
         var selection = ruleLevel.SelectRules(profile);
-        var plan = new List<(RuleIdentity, RuleVerdict?)>(selection.Count);
+        var reused = new List<SetVerdict>();
+        HashSet<RuleIdentity>? covered = null;
 
-        foreach (var rule in selection)
+        if (!executeAll && _setVerdicts.Count > 0)
         {
-            var fresh = !executeAll
-                && _ruleVerdicts.TryGetValue(rule, out var verdict)
-                && verdict.IsFreshFor(editStamp, profile)
-                    ? verdict
-                    : (RuleVerdict?)null;
-            plan.Add((rule, fresh));
+            var selected = new HashSet<RuleIdentity>(selection);
+            covered = [];
+            foreach (var rule in selection)
+            {
+                if (covered.Contains(rule)
+                    || !_ruleToSet.TryGetValue(rule, out var stored)
+                    || !stored.IsFreshFor(editStamp, profile)
+                    || !stored.Rules.IsSubsetOf(selected)
+                    || stored.Rules.Overlaps(covered))
+                {
+                    continue;
+                }
+
+                reused.Add(stored);
+                covered.UnionWith(stored.Rules);
+            }
         }
 
-        return plan;
+        var remainder = new List<RuleIdentity>(selection.Count);
+        foreach (var rule in selection)
+        {
+            if (covered is null || !covered.Contains(rule))
+            {
+                remainder.Add(rule);
+            }
+        }
+
+        return new RulePlan(reused, remainder);
     }
 
     /// <summary>
-    /// Runs a capability pass's plan: executes the rules with no fresh verdict, sequentially —
-    /// the order FluentValidation itself runs rules in — under the pass's own token, and
-    /// assembles the report downstream consumes from every selected rule's issues in declaration
-    /// order, served from the store or just computed. The verdicts for what actually executed
-    /// are returned beside the report, stamped with the pass's begin stamp, for the
-    /// version-and-generation-gated apply to write; nothing here touches the store itself, so a
-    /// superseded or faulted pass's work simply evaporates with its locals.
+    /// Runs a capability pass's plan: the rules no stored set answers are executed under the
+    /// pass's own token, one call per SELECTION CLASS — the partition the validator says no
+    /// profile can split. Running the whole remainder as one set instead would file a verdict a
+    /// narrower profile could never serve from, since its issues mix in rules that profile does
+    /// not select, so the two passes over one edit would each run the rules they share; the
+    /// partition costs one validator call per class and keeps a set servable to whichever
+    /// selection contains it. The report downstream consumes is assembled from the sets served
+    /// and the sets just run. The groups' total size is compared with the plan's remainder and
+    /// any mismatch throws, whether the groups drop a rule or repeat one: the groups are the only
+    /// thing that runs, so a dropped identity is a rule that never executes under a report
+    /// carrying no sign of it, and a repeated one is a rule executed twice whose issues report
+    /// twice. Failing on either is the posture the seam takes toward an identity it cannot
+    /// resolve, though only the drop is a wrong answer — a repeat by itself costs the second
+    /// execution. The comparison is of counts rather than sets, so a drop and a repeat that
+    /// cancel in the total pass it. The verdicts for what actually executed are returned
+    /// beside it, stamped with the pass's begin stamp, for the version-and-generation-gated
+    /// apply to write; nothing here touches the store itself, so a superseded or faulted pass's
+    /// work simply evaporates with its locals.
     /// </summary>
-    private async Task<(ValidationReport Report, Dictionary<RuleIdentity, RuleVerdict> Executed)> ExecuteRulePlanAsync(
+    private async Task<(ValidationReport Report, List<SetVerdict>? Executed)> ExecuteRulePlanAsync(
         IRuleLevelValidator<TModel> ruleLevel,
         ValidationProfile profile,
-        List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan,
+        RulePlan plan,
         int editStamp,
         CancellationToken token)
     {
-        var executed = new Dictionary<RuleIdentity, RuleVerdict>();
         List<ValidationIssue>? issues = null;
 
-        foreach (var (rule, fresh) in plan)
+        foreach (var stored in plan.Reused)
         {
-            IReadOnlyList<ValidationIssue> ruleIssues;
-            if (fresh is { } verdict)
+            if (stored.Issues.Count > 0)
             {
-                ruleIssues = verdict.Issues;
+                (issues ??= []).AddRange(stored.Issues);
             }
-            else
+        }
+
+        List<SetVerdict>? executed = null;
+        if (plan.Remainder.Count > 0)
+        {
+            var grouped = 0;
+            foreach (var group in ruleLevel.GroupBySelectionClass(plan.Remainder))
             {
-                var result = await ruleLevel.ValidateRuleAsync(_model, profile, rule, token).ConfigureAwait(false);
-                ruleIssues = result.Report.Issues;
-                executed[rule] = new RuleVerdict(ruleIssues, editStamp, result.IsProfileScoped, profile);
+                grouped += group.Count;
+                if (group.Count == 0)
+                {
+                    continue;
+                }
+
+                var result = await ruleLevel.ValidateRulesAsync(_model, profile, group, token).ConfigureAwait(false);
+                (executed ??= []).Add(new SetVerdict(
+                    [.. group], result.Report.Issues, editStamp, result.IsProfileScoped, profile));
+                if (result.Report.Issues.Count > 0)
+                {
+                    (issues ??= []).AddRange(result.Report.Issues);
+                }
             }
 
-            if (ruleIssues.Count > 0)
+            // One addition per group, against the failure the assembled report cannot show: a
+            // rule left out of every group is a rule this pass never runs, and its issues are
+            // missing from a report that looks complete. An equality rather than a floor, so a
+            // grouping that repeats a rule is caught by the same count.
+            if (grouped != plan.Remainder.Count)
             {
-                (issues ??= []).AddRange(ruleIssues);
+                throw new InvalidOperationException(
+                    $"GroupBySelectionClass on this validator " +
+                    $"('{ruleLevel.GetType().Name}') returned {grouped} rules for a set of " +
+                    $"{plan.Remainder.Count} — the groups must hold each of the set's rules " +
+                    "exactly once, because they are the only thing a caller runs.");
             }
         }
 
         return (issues is null ? ValidationReport.Empty : new ValidationReport(issues), executed);
+    }
+
+    /// <summary>
+    /// Files a set verdict, dropping every stored set it supersedes: one that answers for an
+    /// older model state, and one that shares a rule with it, since two sets holding one rule
+    /// between them would let a plan serve that rule's issues twice. Runs on the dispatcher,
+    /// like every other store mutation.
+    /// </summary>
+    private void StoreSetVerdict(SetVerdict verdict)
+    {
+        for (var i = _setVerdicts.Count - 1; i >= 0; i--)
+        {
+            var stored = _setVerdicts[i];
+            if (stored.EditStamp != verdict.EditStamp || stored.Rules.Overlaps(verdict.Rules))
+            {
+                _setVerdicts.RemoveAt(i);
+                foreach (var rule in stored.Rules)
+                {
+                    if (_ruleToSet.TryGetValue(rule, out var owner) && ReferenceEquals(owner, stored))
+                    {
+                        _ruleToSet.Remove(rule);
+                    }
+                }
+            }
+        }
+
+        _setVerdicts.Add(verdict);
+        foreach (var rule in verdict.Rules)
+        {
+            _ruleToSet[rule] = verdict;
+        }
     }
 
     /// <summary>
@@ -1800,6 +1902,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                         _liveVerdicts[field] = byField.TryGetValue(field, out var forField) ? forField : [];
                     }
                 }
+
+                // When the live channel ran the submit profile itself — the default — this
+                // report IS a completed whole-model submit-profile answer, indistinguishable from
+                // the one a refresh produces, so it rebuilds the submit channel's source too. The
+                // server source is NOT cleared here, unlike a refresh: a live pass is an edit's
+                // own answer, not the debounced settling point the server snapshot yields to.
+                // Both projections split byField rather than re-walking the report: a severity
+                // filter and a field filter commute over one fixed issue order, so splitting the
+                // grouping already built above reproduces what grouping report.Errors and the
+                // non-error remainder separately would, at one Resolve call per issue instead of
+                // three.
+                if (ReferenceEquals(liveProfile, _options.SubmitProfile))
+                {
+                    (_submitVerdictErrors, _submitVerdictAdvisories) = SplitBySeverity(byField);
+                }
             }).ConfigureAwait(false);
     }
 
@@ -1863,7 +1980,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         var ruleCapable = ruleLevel is not null && ruleLevel.CanValidateByRule;
 
         ValidationReport report;
-        Dictionary<RuleIdentity, RuleVerdict>? executed = null;
+        List<SetVerdict>? executed = null;
         try
         {
             if (ruleCapable)
@@ -1871,7 +1988,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // The same dispatch discipline the pass skeleton uses: the store is read on the
                 // dispatcher, where it mutates. A selection error surfaces through the fault
                 // policy below, exactly as a whole-profile validation would surface it.
-                List<(RuleIdentity Rule, RuleVerdict? Fresh)> plan = null!;
+                RulePlan plan = null!;
                 await _renderDispatch(() =>
                 {
                     plan = BuildRulePlan(ruleLevel!, profile, executeAll: false, editStamp);
@@ -1908,9 +2025,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
             if (executed is { Count: > 0 } && generation == _storeGeneration && editStamp == _editStamp)
             {
-                foreach (var (rule, verdict) in executed)
+                foreach (var verdict in executed)
                 {
-                    _ruleVerdicts[rule] = verdict;
+                    StoreSetVerdict(verdict);
                 }
 
                 movedCoverage = true;
@@ -2094,6 +2211,49 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         }
 
         return grouped;
+    }
+
+    /// <summary>
+    /// Splits an already field-grouped set of issues into its error and non-error projections,
+    /// each field's list keeping its original relative order. A severity filter and a field
+    /// filter commute over one fixed issue order, so this reproduces exactly what grouping the
+    /// report's errors and its non-error remainder separately by resolved field would — without
+    /// resolving any issue a second time.
+    /// </summary>
+    private static (Dictionary<FieldIdentifier, List<ValidationIssue>> Errors, Dictionary<FieldIdentifier, List<ValidationIssue>> Advisories)
+        SplitBySeverity(Dictionary<FieldIdentifier, List<ValidationIssue>> byField)
+    {
+        var errors = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
+        var advisories = new Dictionary<FieldIdentifier, List<ValidationIssue>>();
+
+        foreach (var (field, issues) in byField)
+        {
+            List<ValidationIssue>? fieldErrors = null;
+            List<ValidationIssue>? fieldAdvisories = null;
+            foreach (var issue in issues)
+            {
+                if (issue.Severity == ValidationSeverity.Error)
+                {
+                    (fieldErrors ??= []).Add(issue);
+                }
+                else
+                {
+                    (fieldAdvisories ??= []).Add(issue);
+                }
+            }
+
+            if (fieldErrors is not null)
+            {
+                errors[field] = fieldErrors;
+            }
+
+            if (fieldAdvisories is not null)
+            {
+                advisories[field] = fieldAdvisories;
+            }
+        }
+
+        return (errors, advisories);
     }
 
     /// <summary>
@@ -2943,28 +3103,53 @@ internal enum PassKind
 /// <param name="Token">The pass's cancellation token, linked to whatever the caller supplied.</param>
 internal readonly record struct PassScope(PassKind Kind, int Version, CancellationToken Token);
 
+/// <summary>What one pass may serve from the store, and what it is left to execute.</summary>
+/// <param name="Reused">The stored sets the current selection contains, each answering for every
+/// rule it holds.</param>
+/// <param name="Remainder">The selected rules no reused set answers, in declaration order.</param>
+internal sealed record RulePlan(List<SetVerdict> Reused, List<RuleIdentity> Remainder);
+
 /// <summary>
-/// One rule's most recent answer, together with everything that decides whether a later pass may
-/// serve it instead of running the rule again. Held as one value because the parts are
+/// One executed SET of rules' answer, together with everything that decides whether a later pass
+/// may serve it instead of running those rules again. Held as one value because the parts are
 /// meaningless apart: issues with no idea which model state or which profile produced them
-/// cannot be checked against anything.
+/// cannot be checked against anything. The issues belong to the set as a whole rather than to any
+/// one member, which is why no per-rule attribution is needed and why a set answers only for a
+/// selection that contains it: each rule's failures land in exactly one set's report.
 /// </summary>
-/// <param name="Issues">The issues the rule produced — empty when it passed, which is as much a
+/// <param name="rules">The rules the set was executed for.</param>
+/// <param name="issues">The issues they produced — empty when they all passed, which is as much a
 /// fact worth reusing as a failure is.</param>
-/// <param name="EditStamp">The engine's edit count as the producing pass began — the model state
+/// <param name="editStamp">The engine's edit count as the producing pass began — the model state
 /// this verdict answers for.</param>
-/// <param name="IsProfileScoped">Whether the execution consulted a child-scope decision that can
+/// <param name="isProfileScoped">Whether the execution consulted a child-scope decision that can
 /// differ across profiles (see <see cref="RuleLevelResult.IsProfileScoped"/>) — when it did, the
-/// verdict answers only for <paramref name="Profile"/> and an honest store re-runs the rule for
+/// verdict answers only for <paramref name="profile"/> and an honest store re-runs the set for
 /// any other.</param>
-/// <param name="Profile">The profile the producing pass ran under, remembered by reference
+/// <param name="profile">The profile the producing pass ran under, remembered by reference
 /// because the options holding the profiles are settable.</param>
-internal readonly record struct RuleVerdict(
-    IReadOnlyList<ValidationIssue> Issues,
-    int EditStamp,
-    bool IsProfileScoped,
-    ValidationProfile Profile)
+internal sealed class SetVerdict(
+    HashSet<RuleIdentity> rules,
+    IReadOnlyList<ValidationIssue> issues,
+    int editStamp,
+    bool isProfileScoped,
+    ValidationProfile profile)
 {
+    /// <summary>The rules this verdict answers for.</summary>
+    internal HashSet<RuleIdentity> Rules { get; } = rules;
+
+    /// <summary>The issues the set produced.</summary>
+    internal IReadOnlyList<ValidationIssue> Issues { get; } = issues;
+
+    /// <summary>The edit stamp the producing pass began at.</summary>
+    internal int EditStamp { get; } = editStamp;
+
+    /// <summary>Whether the verdict answers only for <see cref="Profile"/>.</summary>
+    internal bool IsProfileScoped { get; } = isProfileScoped;
+
+    /// <summary>The profile the producing pass ran under.</summary>
+    internal ValidationProfile Profile { get; } = profile;
+
     /// <summary>
     /// Whether this verdict may be served to a pass that read <paramref name="editStamp"/> at
     /// its beginning and runs <paramref name="profile"/>: the stamps must agree, and a

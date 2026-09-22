@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.AspNetCore;
@@ -113,10 +115,20 @@ public sealed class ValidateAttribute : ActionFilterAttribute
                 validator = services.GetRequiredService(typeof(IModelValidator<>).MakeGenericType(argumentType));
             }
             catch (InvalidOperationException ex)
+                when (services.GetService(typeof(FluentValidation.IValidator<>).MakeGenericType(argumentType)) is null)
             {
-                // The IValidator<T> probe in ShouldValidate succeeded, so FluentValidation is
-                // registered — this failure means the IModelValidator<T> adapter itself was
-                // never wired up, almost always because AddFormidable() was never called.
+                // The open-generic adapter is registered but the validator it wraps is not, so
+                // resolving it throws during activation rather than returning null. Reached
+                // through the explicit-types path, which names the type instead of probing for
+                // a validator — the discovery path cannot get here, because ShouldValidate only
+                // returns true for a type whose IValidator<T> it just found.
+                throw new InvalidOperationException(MissingFluentValidatorMessage.For(argumentType), ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // A registered IValidator<T> contradicts the diagnosis above, so this failure
+                // has some other cause — the adapter itself was never wired up, almost always
+                // because AddFormidable() was never called.
                 throw new InvalidOperationException(
                     $"No IModelValidator<{FriendlyTypeName.Of(argumentType)}> is resolvable — call services.AddFormidable() to register the FluentValidation adapter.",
                     ex);
@@ -144,11 +156,7 @@ public sealed class ValidateAttribute : ActionFilterAttribute
 
         if (!aggregate.IsValid)
         {
-            var problem = new ValidationProblemDetails(ValidationReportProblemMapper.ToErrorDictionary(aggregate))
-            {
-                Status = StatusCodes.Status400BadRequest,
-                Type = "https://tools.ietf.org/html/rfc9110#section-15.5.1"
-            };
+            var problem = BuildProblem(context.HttpContext, aggregate);
 
             var extensions = ValidationReportProblemMapper.ToAdvisoriesExtensions(aggregate);
             if (extensions is not null)
@@ -159,8 +167,9 @@ public sealed class ValidateAttribute : ActionFilterAttribute
                 }
             }
 
-            // Match TypedResults.ValidationProblem's wire shape exactly rather than relying on
-            // BadRequestObjectResult's implicit content negotiation for the media type.
+            // The media type is set outright rather than left to BadRequestObjectResult's
+            // implicit content negotiation, which is what makes this a problem+json response
+            // whatever the request's Accept header asks for.
             context.Result = new ObjectResult(problem)
             {
                 StatusCode = StatusCodes.Status400BadRequest,
@@ -170,6 +179,31 @@ public sealed class ValidateAttribute : ActionFilterAttribute
         }
 
         await next();
+    }
+
+    // Built through the app's own ProblemDetailsFactory, which is what ControllerBase's
+    // ValidationProblem() uses: the response then carries the trace identifier, the
+    // ApiBehaviorOptions.ClientErrorMapping type link, and any consumer-registered factory's
+    // own additions, so a 400 from this filter reads like every other 400 the same app returns.
+    // Building the ValidationProblemDetails by hand carried none of that. The errors travel
+    // through a ModelStateDictionary because that is the shape the factory takes; its error cap
+    // is lifted, since a validation report legitimately runs to one issue per collection row and
+    // silently dropping the overflow is exactly what a report is for.
+    private static ValidationProblemDetails BuildProblem(HttpContext httpContext, ValidationReport report)
+    {
+        var modelState = new ModelStateDictionary { MaxAllowedErrors = int.MaxValue };
+
+        foreach (var (path, messages) in ValidationReportProblemMapper.ToErrorDictionary(report))
+        {
+            foreach (var message in messages)
+            {
+                modelState.AddModelError(path, message);
+            }
+        }
+
+        return httpContext.RequestServices
+            .GetRequiredService<ProblemDetailsFactory>()
+            .CreateValidationProblemDetails(httpContext, modelState, StatusCodes.Status400BadRequest);
     }
 
     private bool ShouldValidate(Type argumentType, IServiceProvider services)

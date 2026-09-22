@@ -29,10 +29,19 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     // FormValidationEngine.Resolve calls Resolve with a server response's issue paths
     // verbatim, and almost any attacker-chosen string parses as a valid single-segment path.
     // A few thousand entries comfortably covers even a large virtualized form (hundreds of
-    // rows, each legitimately producing its own path, e.g. "Sessions[437].Title") at a
-    // bounded worst-case cost of a few hundred KB (a short string key plus a handful of
-    // PathSegment structs per entry) — see MaxCachedPaths below for where the cap applies.
+    // rows, each legitimately producing its own path, e.g. "Sessions[437].Title"). Two caps
+    // bound the cost together, because an entry costs a copy of the key plus a PathSegment
+    // per segment — several bytes per byte of path — so a count alone bounds nothing: this
+    // one caps how MANY paths are remembered, MaxCachedPathLength below caps how LONG one may
+    // be to earn an entry, and their product is the ceiling on what is retained.
     private const int MaxCachedPaths = 4096;
+
+    // The longest path worth remembering. FluentValidation property paths are tens of
+    // characters — a deeply nested one with indexed rows is still well inside this — while the
+    // paths a server response can carry are whatever that response says they are. A longer one
+    // is parsed and answered exactly as any other, just never cached, so an unbounded key
+    // cannot buy an unbounded entry.
+    private const int MaxCachedPathLength = 256;
 
     // The (declaring type, member name) key here is only half app-controlled: the type comes
     // from the real object graph, but the member name is read from a path segment, which (like
@@ -157,8 +166,8 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     /// Parses <paramref name="propertyPath"/> via the path cache. A cache hit (success or
     /// previously-cached failure) short-circuits <see cref="PropertyPath.TryParse"/> entirely.
     /// A cache miss is always parsed to answer this call, but is only added to the cache below
-    /// <see cref="MaxCachedPaths"/> — beyond the cap it's still parsed and answered correctly
-    /// every time, just not remembered.
+    /// <see cref="MaxCachedPaths"/> and at or under <see cref="MaxCachedPathLength"/> — past
+    /// either cap it's still parsed and answered correctly every time, just not remembered.
     /// </summary>
     private bool TryParsePath(string propertyPath, [NotNullWhen(true)] out IReadOnlyList<PathSegment>? segments)
     {
@@ -170,7 +179,8 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         var parsed = PropertyPath.TryParse(propertyPath, out var result);
         segments = parsed ? result : null;
 
-        if (Interlocked.Increment(ref _cachedPathCount) <= MaxCachedPaths)
+        if (propertyPath.Length <= MaxCachedPathLength
+            && Interlocked.Increment(ref _cachedPathCount) <= MaxCachedPaths)
         {
             _pathCache.TryAdd(propertyPath, segments);
         }
@@ -248,15 +258,15 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 
     private object? TryIndexerProperty(object collection, string indexToken)
     {
-        var indexer = GetOrCacheProperty(collection.GetType(), "Item");
-
-        if (indexer is null)
-        {
-            return null;
-        }
-
         try
         {
+            var indexer = GetOrCacheIndexer(collection.GetType(), int.TryParse(indexToken, out _));
+
+            if (indexer is null)
+            {
+                return null;
+            }
+
             var parameterType = indexer.GetIndexParameters()[0].ParameterType;
             var key = Convert.ChangeType(indexToken, parameterType);
             return indexer.GetValue(collection, [key]);
@@ -266,6 +276,91 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
             // Missing key, wrong key type, or index conversion failure — fall back.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Looks up the indexer <paramref name="numericToken"/> asks for via the property cache.
+    /// Cached under a key no declared member name can collide with, so a type's two indexers
+    /// get an entry each and both count against <see cref="MaxCachedProperties"/> the way any
+    /// other member does.
+    /// </summary>
+    private PropertyInfo? GetOrCacheIndexer(Type type, bool numericToken)
+    {
+        var key = (type, numericToken ? "this[int]" : "this[string]");
+
+        if (_propertyCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var indexer = FindIndexer(type, numericToken);
+
+        if (Interlocked.Increment(ref _cachedPropertyCount) <= MaxCachedProperties)
+        {
+            _propertyCache.TryAdd(key, indexer);
+        }
+
+        return indexer;
+    }
+
+    /// <summary>
+    /// Picks the indexer a path token addresses. Indexers overload, so a type declaring more
+    /// than one — JsonObject and JsonArray (every JsonNode declares both), NameValueCollection,
+    /// the non-generic OrderedDictionary, a consumer's own keyed bag — makes
+    /// <c>GetProperty("Item")</c> ambiguous, and the token itself is what resolves it: one that
+    /// parses as an int addresses the int indexer, anything else the string one. The wanted
+    /// parameter type is preferred exactly, then a parameter type it fits (an <c>object</c> key,
+    /// which is what OrderedDictionary declares), and a type with a single indexer answers with
+    /// it whatever its key type, so a Guid-keyed dictionary still reaches the conversion that
+    /// decides it. Anything still ambiguous returns null and navigation falls back on the
+    /// deepest owner — the same answer a member hidden by <c>new</c> gets.
+    /// </summary>
+    private static PropertyInfo? FindIndexer(Type type, bool numericToken)
+    {
+        var wanted = numericToken ? typeof(int) : typeof(string);
+        PropertyInfo? exact = null;
+        PropertyInfo? assignable = null;
+        PropertyInfo? only = null;
+        var exactCount = 0;
+        var assignableCount = 0;
+        var totalCount = 0;
+
+        foreach (var candidate in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            var parameters = candidate.GetIndexParameters();
+
+            if (parameters.Length != 1)
+            {
+                continue;
+            }
+
+            totalCount++;
+            only = candidate;
+            var parameterType = parameters[0].ParameterType;
+
+            if (parameterType == wanted)
+            {
+                exactCount++;
+                exact = candidate;
+            }
+            else if (parameterType.IsAssignableFrom(wanted))
+            {
+                assignableCount++;
+                assignable = candidate;
+            }
+        }
+
+        if (exactCount == 1)
+        {
+            return exact;
+        }
+
+        if (exactCount == 0 && assignableCount == 1)
+        {
+            return assignable;
+        }
+
+        return totalCount == 1 ? only : null;
     }
 
     private static string RejoinFrom(IReadOnlyList<PathSegment> segments, int start)

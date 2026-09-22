@@ -159,23 +159,124 @@ public class FormValidationEngineSubmitTests
         Assert.Empty(_editContext.GetValidationMessages(Field(good, nameof(EngineItem.Sku))));
     }
 
+    /// <summary>
+    /// The refresh window slides on every committed change and fires once it settles. The
+    /// observable is the SERVER source, which only a refresh clears: the client's own submit
+    /// projection is rebuilt by the live pass each committed edit starts, so a client message
+    /// cannot stand in for whether the refresh has fired.
+    /// </summary>
     [Fact]
     public async Task Refresh_is_debounced()
     {
-        using var descReg = _engine.Registry.Register(Field(_order, nameof(EngineOrder.Description)));
+        var description = Field(_order, nameof(EngineOrder.Description));
+        using var descReg = _engine.Registry.Register(description);
         await _engine.ValidateForSubmitAsync();
 
+        _engine.ApplyServerIssues(
+            [new ValidationIssue(nameof(EngineOrder.Description), "Reference already used", ValidationSeverity.Error)]);
         _order.Description = "ok";
-        _editContext.NotifyFieldChanged(Field(_order, nameof(EngineOrder.Description)));
-        _time.Advance(TimeSpan.FromMilliseconds(150));
-        Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description)))); // not yet
 
-        _editContext.NotifyFieldChanged(Field(_order, nameof(EngineOrder.Description))); // restarts window
+        _editContext.NotifyFieldChanged(description);
         _time.Advance(TimeSpan.FromMilliseconds(150));
-        Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description)))); // still not
+        Assert.Contains("Reference already used", _editContext.GetValidationMessages(description)); // not yet
+
+        _editContext.NotifyFieldChanged(description); // restarts window
+        _time.Advance(TimeSpan.FromMilliseconds(150));
+        Assert.Contains("Reference already used", _editContext.GetValidationMessages(description)); // still not
 
         _time.Advance(TimeSpan.FromMilliseconds(151));
-        Assert.Empty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
+        Assert.Empty(_editContext.GetValidationMessages(description));
+    }
+
+    /// <summary>
+    /// What the visitor sees when they correct a field a blocked submit revealed: the message
+    /// goes with the live pass that edit starts, not with the debounced refresh behind it. The
+    /// live channel runs the submit profile by default, so its report is the same whole-model
+    /// submit-profile answer the refresh would produce — it rebuilds the submit channel's source
+    /// itself rather than leaving a stale entry standing for a debounce.
+    /// </summary>
+    [Fact]
+    public async Task A_corrected_field_clears_at_the_live_pass_not_at_the_refresh()
+    {
+        var description = Field(_order, nameof(EngineOrder.Description));
+        using var descReg = _engine.Registry.Register(description);
+        await _engine.ValidateForSubmitAsync();
+        Assert.NotEmpty(_editContext.GetValidationMessages(description));
+
+        _order.Description = "ok";
+        _editContext.NotifyFieldChanged(description);
+
+        // No time advanced: the window the refresh needs has not opened, and the message is gone.
+        Assert.Empty(_editContext.GetValidationMessages(description));
+    }
+
+    /// <summary>
+    /// A correction shape sharper than one that simply passes every rule: a value that clears
+    /// the rule the submit reported and trips a different one shows the fresh message ALONE,
+    /// never alongside the one it replaces.
+    /// </summary>
+    [Fact]
+    public async Task A_correction_that_trips_a_second_rule_shows_only_the_fresh_message()
+    {
+        var description = Field(_order, nameof(EngineOrder.Description));
+        using var descReg = _engine.Registry.Register(description);
+        await _engine.ValidateForSubmitAsync();
+        Assert.Equal(["'Order description' must not be empty."], _editContext.GetValidationMessages(description));
+
+        _order.Description = "0123456789abc"; // clears NotEmpty, trips MaximumLength(10)
+        _editContext.NotifyFieldChanged(description);
+
+        var shown = _editContext.GetValidationMessages(description).ToList();
+        Assert.Single(shown);
+        Assert.Contains("10 characters or fewer", shown[0]);
+    }
+
+    /// <summary>
+    /// The rebuild is keyed to the live channel running the submit profile ITSELF: a narrowed
+    /// <see cref="FormidableOptions.LiveProfile"/> runs a different rule selection, whose report
+    /// cannot stand in for a submit-profile answer, so the stale message stands until the
+    /// debounced refresh answers under the submit profile itself.
+    /// </summary>
+    [Fact]
+    public async Task A_narrowed_live_profile_leaves_the_stale_message_for_the_refresh()
+    {
+        _options.LiveProfile = ValidationProfile.Draft;
+        var description = Field(_order, nameof(EngineOrder.Description));
+        using var descReg = _engine.Registry.Register(description);
+        await _engine.ValidateForSubmitAsync();
+        Assert.NotEmpty(_editContext.GetValidationMessages(description));
+
+        _order.Description = "ok";
+        _editContext.NotifyFieldChanged(description);
+
+        // No time advanced: the live pass this edit starts ran only the Draft bucket, which has
+        // nothing to say about an empty Description, so the submit projection is untouched.
+        Assert.NotEmpty(_editContext.GetValidationMessages(description));
+
+        _time.Advance(TimeSpan.FromMilliseconds(301));
+        Assert.Empty(_editContext.GetValidationMessages(description));
+    }
+
+    /// <summary>
+    /// The rebuild covers advisories the same way it covers errors: a revealed field carrying a
+    /// warning that no longer applies loses it at the live pass rather than standing until the
+    /// refresh — the same lifetime symmetry warnings and errors already share at submit.
+    /// </summary>
+    [Fact]
+    public async Task A_corrected_warning_clears_at_the_live_pass_not_at_the_refresh()
+    {
+        var description = Field(_order, nameof(EngineOrder.Description));
+        using var descReg = _engine.Registry.Register(description);
+        _order.Description = "a-b"; // passes NotEmpty, trips the warning-severity no-hyphen rule
+        _order.Customer = new EngineCustomer();
+        await _engine.ValidateForSubmitAsync();
+        Assert.Contains(_engine.GetIssues(description), i => i.Message == "Avoid hyphens");
+
+        _order.Description = "ab"; // clears the hyphen
+        _editContext.NotifyFieldChanged(description);
+
+        // No time advanced: the warning is gone before the refresh could ever fire.
+        Assert.Empty(_engine.GetIssues(description));
     }
 
     [Fact]

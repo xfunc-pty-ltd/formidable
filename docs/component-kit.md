@@ -86,10 +86,13 @@ form fails to start:
             "services.AddFormidableBlazor() and register the FluentValidation validator.");
 ```
 
+*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+
 ```csharp
-    private static string MissingFluentValidatorMessage<TModel>()
+    /// <summary>Names the missing validator registration and the two ways to make it.</summary>
+    internal static string For(Type modelType)
     {
-        var name = FriendlyTypeName.Of(typeof(TModel));
+        var name = FriendlyTypeName.Of(modelType);
         return $"No FluentValidation validator for '{name}' is registered, so Formidable's " +
             $"IModelValidator<{name}> adapter cannot be constructed. Register one with " +
             $"services.AddScoped<IValidator<{name}>, {name}Validator>(), or register a whole " +
@@ -97,13 +100,14 @@ form fails to start:
     }
 ```
 
-*Excerpt from `src/Formidable.Blazor/FormidableEngineFactory.cs`*
+*Source: `src/Shared/MissingFluentValidatorMessage.cs`*
 
 The first fires when nothing is registered — no `AddFormidableBlazor()` call anywhere. The second
 is the far commoner one: Formidable is registered, so the open-generic adapter exists, but the
 FluentValidation validator it wraps does not. That state makes the container throw while
 *building* the adapter rather than return null, so it gets caught and renamed; the container's own
-exception is preserved as the inner one. Both strings are Formidable's, which is what keeps them
+exception is preserved as the inner one. `Formidable.AspNetCore` reports the same state in the same
+words, from that one shared source file. Both strings are Formidable's, which is what keeps them
 readable in a trimmed WebAssembly build.
 
 None of the three resolutions is configurable beyond that — it's the one place the kit fails

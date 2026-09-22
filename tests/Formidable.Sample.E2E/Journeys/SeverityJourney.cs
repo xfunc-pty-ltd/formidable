@@ -37,7 +37,9 @@ public sealed class SeverityJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "description"))
             .ToContainTextAsync("Exclamation marks read as shouty — consider removing them");
 
-        // Symmetry: fixing the field lets the debounced refresh withdraw the advisory.
+        // Symmetry: fixing the field lets the live pass that commit starts withdraw the advisory
+        // — this page runs the default LiveProfile, so that pass rebuilds the submit channel's
+        // own source; the refresh behind it only reconfirms what already cleared.
         await Field(page, "description").FillAsync("Great synth");
         await TabAsync(page);
         await Expect(MessagesFor(page, "description")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });

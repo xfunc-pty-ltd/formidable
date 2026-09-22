@@ -46,8 +46,14 @@ public sealed class FormidableValidationProblem
                 continue;
             }
 
+            // Enum.TryParse admits a numeric string ("99", "-1") and a comma-joined list
+            // ("Info, Warning") as readily as a member name, so the parse alone would let a
+            // foreign body name a severity no member defines — one that then reaches every
+            // severity switch and the field-state class provider as an advisory of no band.
+            // IsDefined is what keeps "unknown reads as Warning" true of every unknown.
             var severity =
                 Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed)
                 && parsed != ValidationSeverity.Error
                     ? parsed
                     : ValidationSeverity.Warning;

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Text.Json.Nodes;
 using Formidable.Introspection;
 using Formidable.Tests.Fixtures;
 
@@ -31,6 +32,13 @@ public class ReflectionModelIntrospectorTests
     {
         var field = typeof(ReflectionModelIntrospector)
             .GetField("MaxCachedPaths", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (int)field.GetRawConstantValue()!;
+    }
+
+    private static int GetMaxCachedPathLength()
+    {
+        var field = typeof(ReflectionModelIntrospector)
+            .GetField("MaxCachedPathLength", BindingFlags.NonPublic | BindingFlags.Static)!;
         return (int)field.GetRawConstantValue()!;
     }
 
@@ -348,5 +356,144 @@ public class ReflectionModelIntrospectorTests
         Assert.False(_introspector.TryReadValue(order, string.Empty, out _, out _));
         Assert.False(_introspector.TryReadValue(order, "Missing", out _, out _));
         Assert.False(_introspector.TryReadValue(order, "[0]", out _, out _));
+    }
+
+    private sealed class IndexedRow
+    {
+        public string City { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Two public indexers, which is what <c>Type.GetProperty("Item")</c> cannot answer: the
+    /// shape <see cref="System.Text.Json.Nodes.JsonObject"/>, <c>NameValueCollection</c> and
+    /// the non-generic <c>OrderedDictionary</c> all have, and the one a consumer's own keyed
+    /// bag reaches for.
+    /// </summary>
+    private sealed class TwoIndexerBag
+    {
+        private readonly IndexedRow _byInt = new() { City = "reached by int" };
+        private readonly IndexedRow _byString = new() { City = "reached by string" };
+
+        public IndexedRow this[int index] => _byInt;
+
+        public IndexedRow this[string key] => _byString;
+    }
+
+    private sealed class TwoIndexerHolder
+    {
+        public TwoIndexerBag Bag { get; } = new();
+
+        public JsonObject Json { get; } = new() { ["a"] = new JsonObject { ["Foo"] = 1 } };
+    }
+
+    [Fact]
+    public void An_intermediate_with_two_indexers_navigates_by_the_token_rather_than_throwing()
+    {
+        // The index token decides the overload — a token that parses as an int wants the int
+        // indexer, anything else wants the string one — so both halves of a two-indexer type
+        // stay reachable. Resolving the ambiguity here is what keeps the class's stated
+        // fallback contract honest: reflection's own "Item" lookup throws for this shape.
+        var holder = new TwoIndexerHolder();
+
+        var byInt = _introspector.Resolve(holder, "Bag[0].City");
+        var byString = _introspector.Resolve(holder, "Bag[k].City");
+
+        Assert.Same(holder.Bag[0], byInt.Owner);
+        Assert.Equal(nameof(IndexedRow.City), byInt.PropertyName);
+        Assert.Same(holder.Bag["k"], byString.Owner);
+        Assert.Equal(nameof(IndexedRow.City), byString.PropertyName);
+    }
+
+    [Fact]
+    public void A_JsonObject_intermediate_resolves_through_its_string_indexer()
+    {
+        // Every JsonNode declares both this[int] and this[string], so a RuleForEach over a
+        // JsonObject of extensible fields navigates through exactly the shape reflection's own
+        // lookup calls ambiguous. The engine's Resolve has no catch around it, so the failure
+        // this shape produced was a thrown pass rather than a mis-filed message.
+        var holder = new TwoIndexerHolder();
+
+        var field = _introspector.Resolve(holder, "Json[a].Foo");
+
+        Assert.Same(holder.Json["a"], field.Owner);
+        Assert.Equal("Foo", field.PropertyName);
+    }
+
+    [Fact]
+    public void A_path_longer_than_the_cache_length_cap_resolves_but_is_never_remembered()
+    {
+        // The cache holds a copy of the key plus a segment per property, so the retained cost
+        // of one entry scales with the path's length, not with the entry count the total cap
+        // measures. A path no validator would ever produce is answered and dropped, which is
+        // what holds the byte bound the two caps claim together against a flood of long keys.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var overlong = new string('a', GetMaxCachedPathLength() + 1);
+
+        var field = introspector.Resolve(order, overlong);
+
+        Assert.Same(order, field.Owner);
+        Assert.Equal(overlong, field.PropertyName);
+        Assert.False(TryGetCachedParse(introspector, overlong, out _));
+        Assert.Equal(0, GetPathCacheCount(introspector));
+    }
+
+    [Fact]
+    public void A_path_at_the_cache_length_cap_is_still_remembered()
+    {
+        // The control for the refusal above: the length cap is a ceiling on what is worth
+        // remembering, not one that swallows ordinary paths — a path exactly at it is cached.
+        var order = new TestOrder();
+        var introspector = new ReflectionModelIntrospector();
+        var atCap = new string('a', GetMaxCachedPathLength());
+
+        introspector.Resolve(order, atCap);
+
+        Assert.True(TryGetCachedParse(introspector, atCap, out _));
+    }
+
+    private class NonPublicMembers
+    {
+        public NonPublicMembers(TestAddress hidden) => Hidden = hidden;
+
+        public string Visible { get; set; } = string.Empty;
+
+        internal TestAddress Hidden { get; }
+
+        private string Secret { get; } = "private";
+
+        protected string Guarded { get; } = "protected";
+
+        public static string Shared { get; } = "static";
+
+        internal string Reveal() => $"{Secret}{Guarded}";
+    }
+
+    [Fact]
+    public void Member_resolution_reaches_public_instance_members_only()
+    {
+        // Every path this walks can arrive from outside the app -- FormValidationEngine.Resolve
+        // hands it a server response's issue paths verbatim -- so the members it will read are
+        // deliberately the ones a model declares as its public shape. A non-public or static
+        // member is answered exactly as a member that does not exist: unreadable, and
+        // unnavigable, so navigation stops on the deepest owner it did reach.
+        var model = new NonPublicMembers(new TestAddress { City = "Adelaide" });
+
+        Assert.True(_introspector.TryReadValue(model, nameof(NonPublicMembers.Visible), out _, out _));
+        Assert.False(_introspector.TryReadValue(model, "Hidden", out _, out var hiddenType));
+        Assert.Null(hiddenType);
+        Assert.False(_introspector.TryReadValue(model, "Secret", out _, out _));
+        Assert.False(_introspector.TryReadValue(model, "Guarded", out _, out _));
+        Assert.False(_introspector.TryReadValue(model, nameof(NonPublicMembers.Shared), out _, out _));
+
+        // The navigation half of the same rule: an internal intermediate is not stepped through,
+        // so the field resolves on the model with the whole remaining path as its name.
+        var field = _introspector.Resolve(model, "Hidden.City");
+        Assert.Same(model, field.Owner);
+        Assert.Equal("Hidden.City", field.PropertyName);
+
+        // The control that keeps the assertions above about ACCESSIBILITY rather than about the
+        // members being absent: the same members are there, and readable, from inside the type.
+        Assert.Equal("privateprotected", model.Reveal());
     }
 }

@@ -54,31 +54,26 @@ public class ProfiledValidatorRuleSetVerificationTests
     }
 
     [Fact]
-    public void Verification_is_cached_by_profile_name_not_by_profile_instance()
+    public void Two_same_named_profiles_of_different_shapes_are_each_verified_on_their_own()
     {
         var validator = new TestOrderValidator();
 
-        // Two DIFFERENT ValidationProfile objects sharing one Name -- the cache key -- prove the
-        // cache is real: the first (valid) profile named "Once" gets verified and cached under
-        // that name. A second, differently-shaped profile object that reuses the same name but
-        // names an unregistered ruleset is never re-checked, because the cache short-circuits on
-        // the name alone -- a deliberately looser key than ValidationProfile's full-shape
-        // equality, documented in the class remarks.
-        // The typo'd ruleset therefore reaches FluentValidation itself, which silently runs zero
-        // rules under a name it doesn't recognize -- exactly the failure mode this whole feature
-        // exists to catch, except here the cache is the reason it slips through. This is
-        // a known, accepted edge case (constructing two same-named profiles is already unusual;
-        // see the class remarks), not a gap this test is pretending doesn't exist.
+        // Two DIFFERENT ValidationProfile objects sharing one Name. The cache key is the whole
+        // profile, which compares by its full shape, so the first (valid) profile named "Once"
+        // being verified and cached vouches for nothing about the second: a same-named profile
+        // naming an unregistered ruleset is a different profile and gets its own check. Keying
+        // on the name alone lets that typo through to FluentValidation, which runs zero rules
+        // under a name it does not recognize and says nothing about it -- the exact failure
+        // this verification exists to catch.
         var first = ValidationProfile.Named("Once", includeDefaultRules: true, "Submit");
         var second = ValidationProfile.Named("Once", includeDefaultRules: true, "Sumbit");
 
         validator.Validate(new TestOrder(), first);
-        var result = validator.Validate(new TestOrder(), second);
 
-        // Only the draft rule ran (Description's default "" passes MaximumLength(10)); the
-        // "Sumbit" ruleset matched nothing and FluentValidation stayed silent about it -- proof
-        // the second call skipped verification entirely rather than catching the typo.
-        Assert.True(result.IsValid);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => validator.Validate(new TestOrder(), second));
+
+        Assert.Contains("Sumbit", exception.Message);
     }
 
     [Fact]
@@ -165,5 +160,86 @@ public class ProfiledValidatorRuleSetVerificationTests
         {
             // deliberately empty -- pins the empty-ruleset-still-registered behavior above
         }
+    }
+
+    private sealed class CommaRuleSetValidator : ProfiledValidator<TestOrder>
+    {
+        protected override void ConfigureProfiles()
+        {
+            Profile("Alpha, Beta", () => RuleFor(x => x.Description).NotEmpty());
+            Profile(" Gamma ", () => RuleFor(x => x.Customer).NotNull());
+        }
+    }
+
+    [Theory]
+    [InlineData("Alpha")]
+    [InlineData("Beta")]
+    [InlineData("Gamma")]
+    public void A_ruleset_declared_in_a_comma_joined_name_is_registered_under_each_part(string requested)
+    {
+        // FluentValidation's own RuleSet splits a name on ',' and ';' and trims each part, so
+        // one Profile call declaring "Alpha, Beta" tags its rules with two rulesets FV selects
+        // individually. Recording the literal instead rejects the very names FV honours, which
+        // turns a guard against a typo into a guard against FluentValidation's own idiom.
+        var validator = new CommaRuleSetValidator();
+        var profile = ValidationProfile.Named(requested, includeDefaultRules: false, requested);
+
+        var result = validator.Validate(new TestOrder(), profile);
+
+        // No throw during verification, and the ruleset's own rule ran: the empty default
+        // Description fails NotEmpty and the null default Customer fails NotNull.
+        Assert.False(result.IsValid);
+    }
+
+    private sealed class PlainCommaRuleSetValidator : AbstractValidator<TestOrder>
+    {
+        public PlainCommaRuleSetValidator() =>
+            RuleSet("Alpha, Beta", () => RuleFor(x => x.Description).NotEmpty());
+    }
+
+    [Fact]
+    public void A_plain_FluentValidation_validator_selects_the_same_comma_joined_ruleset()
+    {
+        // The ground truth the test above mirrors, taken from FluentValidation itself rather
+        // than from a reading of it: the identical rule on a plain AbstractValidator, selected
+        // by one of the two names the joined declaration carries, runs.
+        var plain = new PlainCommaRuleSetValidator();
+
+        var result = plain.Validate(new TestOrder(), options => options.IncludeRuleSets("Beta"));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.PropertyName == nameof(TestOrder.Description));
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData("DEFAULT")]
+    public void The_default_pseudo_ruleset_selects_the_unnamed_rules(string pseudo)
+    {
+        // "default" is FluentValidation's name for the rules outside every ruleset. It is not a
+        // ruleset a validator can declare, so matching it against the declared names rejects a
+        // selection FluentValidation carries out.
+        var validator = new TestOrderValidator();
+        var profile = ValidationProfile.Named("Pseudo" + pseudo, includeDefaultRules: false, pseudo);
+
+        var result = validator.Validate(new TestOrder(), profile);
+
+        // Only the draft rules ran, and a default TestOrder passes them: the submit bucket's
+        // NotNull on Customer would have failed had the selection reached it.
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void A_wildcard_profile_runs_every_rule_the_validator_declares()
+    {
+        // The pseudo-ruleset above is not merely tolerated: "*" is what FluentValidation reads
+        // it as, so the submit-bucket rules run without the profile naming their ruleset.
+        var validator = new TestOrderValidator();
+        var everything = ValidationProfile.Named("Everything", includeDefaultRules: false, "*");
+
+        var result = validator.Validate(new TestOrder(), everything);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.PropertyName == nameof(TestOrder.Customer));
     }
 }

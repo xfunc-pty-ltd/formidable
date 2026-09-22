@@ -1,4 +1,5 @@
 using FluentValidation;
+using FluentValidation.Results;
 using Formidable;
 using Formidable.Blazor;
 
@@ -764,6 +765,109 @@ public sealed class TypedDraftValidator : DraftSubmitValidator<TypedDraft>
         RuleFor(d => d.Accepted).NotEmpty().WithMessage("Acceptance is required");
         RuleFor(d => d.Subscribed).NotEmpty().WithMessage("A subscription answer is required");
     }
+}
+
+/// <summary>Three independent submit-only presence rules, none tagged and none reaching a child
+/// validator — the shape that lands whole in ONE <see cref="IRuleLevelValidator{TModel}.GroupBySelectionClass"/>
+/// class, so a pass over all three is the sharpest shape for pinning that the engine issues one
+/// adapter call per pass rather than one per rule.</summary>
+public sealed class SetCallModel
+{
+    public string A { get; set; } = string.Empty;
+    public string B { get; set; } = string.Empty;
+    public string C { get; set; } = string.Empty;
+}
+
+/// <summary>Validator for <see cref="SetCallModel"/>: three untagged submit rules, one per field.</summary>
+public sealed class SetCallValidator : DraftSubmitValidator<SetCallModel>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.A).NotEmpty().WithMessage("A is required");
+        RuleFor(x => x.B).NotEmpty().WithMessage("B is required");
+        RuleFor(x => x.C).NotEmpty().WithMessage("C is required");
+    }
+}
+
+/// <summary>Hand-rolled <see cref="IValidator{T}"/> for <see cref="SetCallModel"/> with no rule
+/// enumeration surface at all — fails on an empty <see cref="SetCallModel.A"/>, mirroring
+/// <see cref="SetCallValidator"/>'s own presence rule so an engine-level pin can compare the two
+/// paths' verdicts directly.</summary>
+public sealed class HandRolledSetCallValidator : IValidator<SetCallModel>
+{
+    private static ValidationResult Check(SetCallModel model) => model.A.Length == 0
+        ? new ValidationResult([new ValidationFailure(nameof(SetCallModel.A), "A is required")])
+        : new ValidationResult();
+
+    public ValidationResult Validate(SetCallModel instance) => Check(instance);
+
+    public Task<ValidationResult> ValidateAsync(SetCallModel instance, CancellationToken cancellation = default) =>
+        Task.FromResult(Check(instance));
+
+    public ValidationResult Validate(IValidationContext context) => Check((SetCallModel)context.InstanceToValidate);
+
+    public Task<ValidationResult> ValidateAsync(IValidationContext context, CancellationToken cancellation = default) =>
+        Task.FromResult(Check((SetCallModel)context.InstanceToValidate));
+
+    public IValidatorDescriptor CreateDescriptor() => throw new NotSupportedException();
+
+    public bool CanValidateInstancesOfType(Type type) => type == typeof(SetCallModel);
+}
+
+/// <summary>An <c>AbstractValidator&lt;SetCallModel&gt;</c> with a class-level cascade stop — a
+/// second capability-less shape, distinct from <see cref="HandRolledSetCallValidator"/>: the
+/// adapter test for its type succeeds (it IS an <c>AbstractValidator</c>) and only the cascade
+/// mode fails <see cref="FluentValidationModelValidator{TModel}.CanValidateByRule"/>. Carries the
+/// same single presence rule so its verdict is directly comparable.</summary>
+public sealed class CascadeStopSetCallValidator : AbstractValidator<SetCallModel>
+{
+    public CascadeStopSetCallValidator()
+    {
+        ClassLevelCascadeMode = CascadeMode.Stop;
+        RuleFor(x => x.A).NotEmpty().WithMessage("A is required");
+    }
+}
+
+/// <summary>
+/// Forwards a real rule-level validator whole, counting every <see cref="ValidateRulesAsync"/>
+/// call rather than the rule executions inside it — the ADAPTER call the engine issues once per
+/// selection class, never once per rule. A fake that looped the per-rule doer internally would
+/// still leave a validator's own embedded execution counters reading the right totals; only
+/// counting calls to this member can tell a set call from a loop of single-rule calls.
+/// </summary>
+public sealed class SetCallCountingValidator<TModel>(FluentValidationModelValidator<TModel> inner)
+    : IModelValidator<TModel>, IRuleLevelValidator<TModel>
+{
+    public int SetCallCount { get; private set; }
+
+    public List<int> SetSizes { get; } = [];
+
+    public bool CanValidateByRule => inner.CanValidateByRule;
+
+    public IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile) => inner.SelectRules(profile);
+
+    public async Task<RuleLevelResult> ValidateRulesAsync(
+        TModel model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
+        CancellationToken cancellationToken = default)
+    {
+        SetCallCount++;
+        SetSizes.Add(rules.Count);
+        return await inner.ValidateRulesAsync(model, profile, rules, cancellationToken).ConfigureAwait(false);
+    }
+
+    public IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules) =>
+        inner.GroupBySelectionClass(rules);
+
+    public Task<ValidationReport> ValidateAsync(
+        TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
+        ((IModelValidator<TModel>)inner).ValidateAsync(model, profile, cancellationToken);
+
+    public ValidationReport Validate(TModel model, ValidationProfile profile) =>
+        ((IModelValidator<TModel>)inner).Validate(model, profile);
 }
 
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>

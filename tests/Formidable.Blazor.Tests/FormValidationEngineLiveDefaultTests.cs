@@ -278,10 +278,13 @@ public class FormValidationEngineLiveDefaultTests
             return inner.SelectRules(profile);
         }
 
-        public Task<RuleLevelResult> ValidateRuleAsync(
-            TModel model, ValidationProfile profile, RuleIdentity rule,
+        public Task<RuleLevelResult> ValidateRulesAsync(
+            TModel model, ValidationProfile profile, IReadOnlyList<RuleIdentity> rules,
             CancellationToken cancellationToken = default) =>
-            inner.ValidateRuleAsync(model, profile, rule, cancellationToken);
+            inner.ValidateRulesAsync(model, profile, rules, cancellationToken);
+
+        public IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules) =>
+            inner.GroupBySelectionClass(rules);
 
         public Task<ValidationReport> ValidateAsync(
             TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>

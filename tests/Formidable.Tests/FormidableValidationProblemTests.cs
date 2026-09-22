@@ -188,4 +188,47 @@ public class FormidableValidationProblemTests
             i.Path == "Description" && i.Message == "Avoid hyphens" && i.Severity == ValidationSeverity.Warning
             && i.Code == "HYPHENS" && i.DisplayName == "Description");
     }
+
+    [Theory]
+    [InlineData("99")]
+    [InlineData("-1")]
+    [InlineData("Info, Warning")]
+    public void ToIssues_reads_an_undefined_severity_as_a_warning(string severity)
+    {
+        // Enum.TryParse admits a numeric string and a comma-joined flag list as well as a
+        // member name, so a foreign 400 body can hand the engine a ValidationSeverity value no
+        // member defines -- one that then reaches every severity switch and the field-state
+        // class provider as an advisory belonging to no band.
+        var problem = new FormidableValidationProblem
+        {
+            Advisories = [new ValidationProblemAdvisory("Description", "Heads up", severity)]
+        };
+
+        var issue = Assert.Single(problem.ToIssues());
+
+        Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+    }
+
+    [Fact]
+    public void ToIssues_still_reads_the_defined_severity_names()
+    {
+        // The control for the coercion above: a name a member does define is read as itself,
+        // case-insensitively, and "Error" alone falls to Warning because the errors dictionary
+        // is the only error channel.
+        var problem = new FormidableValidationProblem
+        {
+            Advisories =
+            [
+                new ValidationProblemAdvisory("A", "m", "Info"),
+                new ValidationProblemAdvisory("B", "m", "warning"),
+                new ValidationProblemAdvisory("C", "m", "Error")
+            ]
+        };
+
+        var issues = problem.ToIssues();
+
+        Assert.Equal(ValidationSeverity.Info, issues[0].Severity);
+        Assert.Equal(ValidationSeverity.Warning, issues[1].Severity);
+        Assert.Equal(ValidationSeverity.Warning, issues[2].Severity);
+    }
 }

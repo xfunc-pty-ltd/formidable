@@ -69,13 +69,18 @@ public class FormValidationEngineLiveRefreshRaceTests
 
         var customerName = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
 
-        // Submit with the field failing, so it is an error site the refresh - and only the
-        // refresh - keeps current.
+        // Submit with the field failing, so it is a revealed error site.
         var submit = engine.ValidateForSubmitAsync();
         validator.Gate.SetResult();
         await submit;
         Assert.NotEmpty(editContext.GetValidationMessages(customerName));
         validator.Reset();
+
+        // A server verdict on the same field. The server source is what only a refresh clears,
+        // so its survival is what tells "the refresh deferred" from "the refresh ran" — the
+        // client's own message cannot, because the live pass rebuilds the submit projection.
+        engine.ApplyServerIssues(
+            [new ValidationIssue("Customer.Name", "Server says no", ValidationSeverity.Error)]);
 
         // Fix it. The refresh this edit armed comes due while the edit's own live pass is still
         // running.
@@ -87,9 +92,10 @@ public class FormValidationEngineLiveRefreshRaceTests
         validator.Gate.SetResult();
         await liveSettled;
 
-        // Deferred, not cancelled: the live pass is the one that just landed, and it does not
-        // own submit issues, so the submit-time error still stands.
-        Assert.NotEmpty(editContext.GetValidationMessages(customerName));
+        // Deferred, not cancelled. The live pass that just landed owns the client's submit
+        // projection and has cleared its own error; the server's answer is untouched, because
+        // nothing has superseded it yet.
+        Assert.Equal(["Server says no"], editContext.GetValidationMessages(customerName));
 
         var refreshSettled = Quiescence(engine);
         time.Advance(TimeSpan.FromMilliseconds(301)); // the re-armed refresh runs

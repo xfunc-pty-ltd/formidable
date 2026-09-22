@@ -38,4 +38,52 @@ public class ValidationReportProblemMapperTests
     {
         Assert.Equal("advisories", ValidationReportProblemMapper.AdvisoriesExtensionKey);
     }
+
+    [Fact]
+    public void ToErrorDictionary_reads_a_null_path_as_the_model_level_path()
+    {
+        // An IModelValidator is a consumer-implementable seam, so a hand-rolled one can hand
+        // back an issue whose Path is null however the type is annotated. The client's ToIssues
+        // reads that as "" -- the model-level path -- and the server grouping it as a
+        // dictionary key threw instead, turning one nullable-reference slip into a 500 on every
+        // rejected request.
+        var report = new ValidationReport([new ValidationIssue(null!, "Something is wrong")]);
+
+        var errors = ValidationReportProblemMapper.ToErrorDictionary(report);
+
+        Assert.Equal(["Something is wrong"], errors[string.Empty]);
+    }
+
+    [Fact]
+    public void ToAdvisories_reads_a_null_path_and_message_the_way_the_client_does()
+    {
+        // Same tolerance on the advisory half, and for the same reason: "" is the model-level
+        // path on both sides of the wire, and a null message has nothing to show.
+        var report = new ValidationReport(
+            [new ValidationIssue(null!, null!, ValidationSeverity.Warning)]);
+
+        var advisory = Assert.Single(ValidationReportProblemMapper.ToAdvisories(report));
+
+        Assert.Equal(string.Empty, advisory.Path);
+        Assert.Equal(string.Empty, advisory.Message);
+    }
+
+    [Fact]
+    public void ToAdvisories_refuses_a_severity_no_member_defines()
+    {
+        // Severity is the wire's member NAME, and an undefined value has none: ToString would
+        // write "99", which the client reads as a warning, so the consumer's own bug is
+        // relabelled rather than reported. Nothing the library ships can produce one -- the
+        // FluentValidation adapter maps exhaustively -- so this is a cast in a hand-rolled
+        // validator, and naming it is the only way the author learns of it.
+        var report = new ValidationReport(
+            [new ValidationIssue("Description", "Odd", (ValidationSeverity)99)]);
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => ValidationReportProblemMapper.ToAdvisories(report));
+
+        Assert.Equal("report", exception.ParamName);
+        Assert.Contains("99", exception.Message);
+        Assert.Contains("Description", exception.Message);
+    }
 }

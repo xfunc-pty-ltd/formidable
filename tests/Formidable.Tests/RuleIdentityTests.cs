@@ -7,7 +7,7 @@ namespace Formidable.Tests;
 /// <see cref="IRuleLevelValidator{TModel}"/> implementation wraps in
 /// <see cref="RuleIdentity(object)"/> is readable back through the public
 /// <see cref="RuleIdentity.Key"/> when an engine hands the identity to
-/// <see cref="IRuleLevelValidator{TModel}.ValidateRuleAsync"/>. Without that read an
+/// <see cref="IRuleLevelValidator{TModel}.ValidateRulesAsync"/>. Without that read an
 /// implementor must carry a side dictionary mapping its own identities back to its own
 /// rules, while the identity already holds the rule it minted.
 /// </summary>
@@ -29,12 +29,17 @@ public class RuleIdentityTests
         public IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile) =>
             [new RuleIdentity(_rule)];
 
-        public Task<RuleLevelResult> ValidateRuleAsync(string model, ValidationProfile profile,
-            RuleIdentity rule, CancellationToken cancellationToken = default)
+        public Task<RuleLevelResult> ValidateRulesAsync(string model, ValidationProfile profile,
+            IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default)
         {
-            ObservedKey = rule.Key;
+            ObservedKey = rules.Single().Key;
             return Task.FromResult(new RuleLevelResult(ValidationReport.Empty, false));
         }
+
+        // One group holding everything, which for a single rule IS the group-per-rule answer
+        // the interface documents as always sound — there is nothing here to refine.
+        public IReadOnlyList<IReadOnlyList<RuleIdentity>> GroupBySelectionClass(IReadOnlyList<RuleIdentity> rules) =>
+            [rules];
     }
 
     [Fact]
@@ -51,7 +56,7 @@ public class RuleIdentityTests
         var validator = new KeyReadingValidator();
         var rule = validator.SelectRules(ValidationProfile.Submit).Single();
 
-        await validator.ValidateRuleAsync("model", ValidationProfile.Submit, rule);
+        await validator.ValidateRulesAsync("model", ValidationProfile.Submit, [rule]);
 
         Assert.Same(validator.WrappedRule, validator.ObservedKey);
     }

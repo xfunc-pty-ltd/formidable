@@ -106,4 +106,47 @@ public class ValidationProfileTests
         Assert.True(profile.IncludeDefaultRules);
         Assert.Equal(new[] { "Custom" }, profile.RuleSets);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Named_rejects_a_blank_ruleset_entry(string blank)
+    {
+        // A blank entry selects nothing at all, which is exactly what the guard below it
+        // refuses to construct: a profile that would run no rules. Validating the array
+        // reference without validating what is in it lets the same profile through one entry
+        // deeper, and a ProfiledValidator then throws for it at validation time -- two entry
+        // points disagreeing about one shape.
+        var exception = Assert.Throws<ArgumentException>(
+            () => ValidationProfile.Named("Blank", includeDefaultRules: false, blank));
+
+        Assert.Equal("ruleSets", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("First,Second")]
+    [InlineData("First; Second")]
+    public void Named_rejects_a_separator_joined_ruleset_entry(string joined)
+    {
+        // FluentValidation splits a joined name where a rule is DECLARED, never where a
+        // selection is made, so a profile naming "First,Second" matches neither ruleset and
+        // runs nothing. The two names go in as two entries -- which is what params is for.
+        var exception = Assert.Throws<ArgumentException>(
+            () => ValidationProfile.Named("Joined", includeDefaultRules: false, joined));
+
+        Assert.Equal("ruleSets", exception.ParamName);
+        Assert.Contains("First", exception.Message);
+    }
+
+    [Fact]
+    public void Named_accepts_FluentValidations_own_pseudo_ruleset_names()
+    {
+        // "*" and "default" are names FluentValidation's selector honours, so the element
+        // guard must let them through: neither is a typo, and both select real rules.
+        var wildcard = ValidationProfile.Named("Everything", includeDefaultRules: false, "*");
+        var defaults = ValidationProfile.Named("Defaults", includeDefaultRules: false, "default");
+
+        Assert.Equal(["*"], wildcard.RuleSets);
+        Assert.Equal(["default"], defaults.RuleSets);
+    }
 }
