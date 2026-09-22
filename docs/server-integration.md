@@ -503,21 +503,22 @@ use for it twice.
 An apply is also a disclosure event for the fields it names, so a client error the last submit
 computed but had nowhere to show surfaces alongside the server's (see [Disclosure](disclosure.md)).
 
-The server's verdict then stands until a newer whole-model answer supersedes it (the debounced
-refresh behind the next edit, the next submit, or a page saying what its freshly loaded values have
-earned). At that point a server-only issue with no matching client rule goes, and one the client
-agrees with carries on through the client's own answer.
+The server's verdict then stands until a newer whole-form answer replaces it: the whole-form
+re-check (behind the next edit, or a change to which fields are on screen), the next submit, or a
+page saying what its freshly loaded values have earned. At that point a server-only issue with no
+matching client rule goes, and one the client agrees with carries on through the client's own
+answer. A live check leaves it standing.
 
 **An apply is a submit result, so it sets `HasSubmitted`.** A page whose only validation is
 server-side reaches the submitted state through this call alone. It also clears any standing
 incomplete-validation fault, whatever the client is doing: a verdict has arrived to stand in for the
-one a faulted pass could not finish.
+one a check that threw could not finish.
 
 **The severity is the server's to set.** An error lands on its field, blocks the submit and reaches
 the EditContext's message store. A warning or an info lands on the same field as an advisory:
-visible in Formidable's own message components and in the summary, blocking nothing. An advisory is
-never written to the store, which carries errors only, and the page writes no advisory plumbing of
-its own.
+visible in Formidable's own message components and in the summary, blocking nothing. An advisory
+never reaches the `EditContext`'s message store, which carries errors only, and the page writes no
+advisory plumbing of its own.
 
 **A rejection moves focus, the way a blocked submit does.** `FormidableForm.ApplyServerIssues` is a
 submit's verdict arriving late, so a payload carrying an error lands the visitor on the first error
@@ -532,23 +533,23 @@ error, through its own `ValidateForSubmitAsync()`, but the round trip is the pag
 happens after a rejection is the page's to choose. `FocusFirstErrorAsync()` on the validator is how
 it chooses the same move, once the applied verdict is on screen.
 
-### The store as a compatibility bridge
+### The message store as a compatibility bridge
 
 The `EditContext`'s message store exists so a page that already renders a native `ValidationSummary`
 or `ValidationMessage`, or calls `GetValidationMessages` directly, keeps working without swapping in
 Formidable's own summary and message components.
 
-The store is a projection of the same channel views the engine's own reads answer from, rebuilt
-whenever one of them moves. So a native component reads the same answer `FormidableFieldMessage`
-does, as far as the store is able to carry it.
+That message store is rebuilt from the same answers the engine's own reads give, whenever one of
+them changes. So a native component reads the same answer `FormidableFieldMessage` does, as far as
+the message store is able to carry it.
 
-The store carries errors only, at no severity it can express, and collapses repeats on its own terms
-rather than the issue reads'.
+The message store carries errors only, at no severity it can express, and collapses repeats on its
+own terms rather than the issue reads'.
 
-The errors those channel views disclose reach it, and the projection asks nothing further about
-registration. A field the submit channel is watching keeps its store entry after it leaves the page,
-until a later pass answers for it again. The live channel's default policy discloses an engaged
-field's error whether or not anything renders it.
+The errors each channel discloses reach it, and the message store asks nothing further about
+registration. A field the submit channel is watching keeps its entry there after it leaves the
+page, until a later check answers for it again. The live channel's default policy discloses an
+engaged field's error whether or not anything renders it.
 
 That last one matters most to a form with no Formidable components at all: nothing registers its
 fields, so a registration-gated live channel would leave that page's own errors out of the only
@@ -556,9 +557,9 @@ surface it reads. A page that wants the narrower behaviour opts into it with
 [`FormidableOptions.LiveDisclosure`](options.md#livedisclosure), which moves every surface together
 rather than splitting them.
 
-What the store does not carry is the curated reading experience. Severities, disclosure, document
-order and focus are what Formidable's own summary and message components provide, by reading the
-engine directly rather than the store.
+What the message store does not carry is the curated reading experience. Severities, disclosure,
+document order and focus are what Formidable's own summary and message components provide, by
+reading the engine directly rather than the message store.
 
 ### Reading the rejection body
 

@@ -148,7 +148,7 @@ once: the summary lists them, and each message repeats where its own field rende
 > `Stage N` heading. Stage 2 adds a small stylesheet, and `samples/Formidable.Sample` dresses its
 > own form in full on [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor).
 
-Now type a name and leave the field. Its message goes at once, with no second submit. A live pass
+Now type a name and leave the field. Its message goes at once, with no second submit. A live check
 answered for the field you changed.
 
 Fill the email in properly and submit again. The page says `Saved.`, so the handler ran. Empty a

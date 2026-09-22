@@ -173,8 +173,9 @@ public partial class Workout : IDisposable
     {
         _registration.IncludeCatering = args.Value is true;
 
-        // The engine only sees a change it is told about: mutating the model silently would
-        // leave the live and refresh passes running against a state the form never announced.
+        // The engine only sees a change it is told about: mutating the model silently would leave
+        // the live check and the whole-form re-check running against a state the form never
+        // announced.
         field.NotifyChanged();
     }
 
@@ -244,7 +245,7 @@ public partial class Workout : IDisposable
 
     // The engine notifies the components bound to it, not the page, so the aria-invalid above
     // would otherwise be one interaction stale: right at submit, then still "true" through the
-    // pass that cleared the error. The kit's own components subscribe for exactly this reason.
+    // check that cleared the error. The kit's own components subscribe for exactly this reason.
     // This page's model never swaps, so the first engine it sees is the only one.
     protected override void OnAfterRender(bool firstRender)
     {

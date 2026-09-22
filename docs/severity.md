@@ -244,8 +244,8 @@ A warning that was showing when the user last submitted keeps refreshing live as
 It clears the moment they fix it, and comes back if they break it again, since fixing it ends the
 message rather than the watch. Neither direction waits for a second submit.
 
-The live channel answers as the user edits. It files a whole verdict, advisories and errors alike,
-for every field the visitor has *engaged*, and by default it evaluates the same rules a submit would
+The live channel answers as the user edits. Its answer carries advisories and errors alike, for
+every field the visitor has *engaged*, and by default it evaluates the same rules a submit would
 (see [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)).
 
 On the submit channel, submit is the disclosure event for a warning or an info exactly as it is for
@@ -256,15 +256,15 @@ A field watched on either count keeps its advisories refreshed.
 The watched set only grows while the form stays short of a passing submit. A later blocked submit
 adds to it, a server apply adds to it, and nothing takes a field back out.
 
-Every further edit arms the debounced refresh (`RefreshDebounce`, see [Options](options.md)). It
-re-validates the whole model and re-answers the watched fields rather than deciding membership
-again. On the default `LiveProfile` that edit's own live pass rebuilds this channel's answer too, so
-with no `LiveDebounce` set neither direction waits out a debounce at all. The refresh never goes
-looking for newly warning-worthy fields outside the set.
+Every further edit re-checks the whole form after the `RefreshDebounce` wait (see
+[Options](options.md)). That re-check updates what the watched fields say rather than deciding
+membership again. On the default `LiveProfile` the edit's own live check updates this channel's
+answer too, so with no `LiveDebounce` set neither direction waits out a debounce at all. The
+re-check never goes looking for newly warning-worthy fields outside the set.
 
 A field that was an error site at submit picks up a newly-appearing warning too, because it is
 already in the watched set. That holds whether or not it carried a warning at submit time. Only a
-field with no visible issue of any severity at submit is left outside that refresh when it starts
+field with no visible issue of any severity at submit is left outside that re-check when it starts
 failing a warning-severity rule — the same way a newly-failing error field is.
 
 A passing submit is where the two watched sets part company. It clears the error watches outright,

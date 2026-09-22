@@ -591,6 +591,10 @@ yourself once the dialog closes.
     private async Task ReturnToFirstErrorAsync() => await _form!.FocusFirstErrorAsync();
 ```
 
+**Two nestings in that markup are load-bearing.** The summary sits inside the dialog so its
+clickable entries are in front of the overlay. The dialog sits inside the form, since
+`FormidableSummary` throws outside a root's cascade.
+
 **Suppressing the form's own move is not optional:** left alone, the form moves focus to the first
 error the moment the handler returns, and the caret lands in a field the overlay is covering. In
 attach mode the page owns the submit call, so set `FocusFirstErrorOnInvalidSubmit="false"` on

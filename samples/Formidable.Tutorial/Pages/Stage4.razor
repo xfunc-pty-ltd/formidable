@@ -81,7 +81,7 @@
     }
 
     // Adding or removing a row mutates the list directly, and an edit the engine never hears
-    // about is one no pass starts for - NotifyChanged() engages the field, so the next live pass
+    // about starts no live check - NotifyChanged() engages the field, so the live check it starts
     // answers "Add at least one member" the moment the last row leaves.
     private static void AddMember(List<Member> members, FormidableFieldContext field)
     {

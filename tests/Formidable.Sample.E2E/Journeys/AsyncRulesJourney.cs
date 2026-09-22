@@ -241,7 +241,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // live pass back; the lower-bound assert at the end reasons about when it can fire.
         const int refreshDebounceMs = 300;
         await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
-        await page.GetByLabel("Debounce live checks (batch fast typing into one pass)", new() { Exact = true })
+        await page.GetByLabel("Debounce live checks (batch fast typing into one check)", new() { Exact = true })
             .CheckAsync();
 
         // An available username, checked through the debounced live path and settled once, then

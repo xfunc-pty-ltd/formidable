@@ -46,7 +46,11 @@ public interface IFormidableEngine
     /// </summary>
     bool IsValidating { get; }
 
-    /// <summary>True once the submit pipeline has run (and validation failed or succeeded).</summary>
+    /// <summary>
+    /// True once the submit pipeline has run (and validation failed or succeeded) or a server
+    /// verdict has been applied through <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>:
+    /// either one starts the whole-form re-check that follows every later edit.
+    /// </summary>
     bool HasSubmitted { get; }
 
     /// <summary>

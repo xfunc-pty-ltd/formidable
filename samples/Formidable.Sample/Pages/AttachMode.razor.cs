@@ -95,7 +95,7 @@ public partial class AttachMode : IDisposable
     private void AddLine() => _report.Lines.Add(new ExpenseLine());
 
     // No NotifyChanged and no NotifyFieldSetChanged: nothing here rules on the list itself, so
-    // there is no live verdict to refresh, and FormidableValidator notices the field the removed
+    // there is no live answer to re-check, and FormidableValidator notices the field the removed
     // line's own input unregisters without being told.
     private void RemoveLine(ExpenseLine line) => _report.Lines.Remove(line);
 

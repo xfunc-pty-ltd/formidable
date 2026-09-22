@@ -129,20 +129,20 @@ custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
 [Options](options.md)):
 
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
-  `ValidationProfile.Submit`). The debounced refresh that follows it answers for that same profile.
-  The refresh executes only the rules no pass has answered for the current edit, and serves stored
-  verdicts for the rest (see
+  `ValidationProfile.Submit`). After a submit, the whole-form re-check that follows each edit
+  answers for that same profile. On a validator the engine can take rule by rule, that re-check
+  runs only the rules nothing has yet answered for that edit (see
   [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)).
-- **Live passes** run `LiveProfile` (`FormidableOptions.LiveProfile`). It is nullable and defaults
+- **Live** checks run `LiveProfile` (`FormidableOptions.LiveProfile`). It is nullable and defaults
   to `null`, which means the live channel evaluates the submit profile itself, whichever instance
   `SubmitProfile` currently holds. Point `LiveProfile` somewhere narrower and the live channel
   evaluates that profile instead.
 
 Following the submit profile is what lets a live message say what a submit would actually complain
 about, presence rules included. What keeps that from nagging is not the rule selection but the
-engaged set. A live pass files a verdict only for the fields something has engaged, so a field
-nobody has reached stays silent however loudly its rule is failing underneath (see
-[Disclosure](disclosure.md#why-isnt-my-message-showing-yet)).
+engaged set. Short of a submit or a server reply, a live check discloses only for the fields
+something has engaged, so a field nobody has reached stays silent however loudly its rule is
+failing underneath (see [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)).
 
 Narrowing `LiveProfile` is the blunter lever beside the engaged set, and it is worth reaching for
 when a submit rule is genuinely too expensive to run on every change, such as a uniqueness check
@@ -198,5 +198,9 @@ Formidable puts no translation or renaming layer between a rule and the message 
 A rule's `WithName(...)` call lands on `ValidationIssue.DisplayName`, and from there in
 `SubmitOutcome.VisibleErrorSummary` — ready for a dialog or summary without any extra mapping step
 on your end. A localized message from FluentValidation's own resource pipeline takes the same route.
+
+A rule with no `WithName(...)` gets FluentValidation's own display name there: the property path
+with its words split apart, so `ContactEmail` reads as "Contact Email" and `Address.CityName` as
+"Address City Name".
 
 **Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor)

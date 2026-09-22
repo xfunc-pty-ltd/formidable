@@ -2,7 +2,7 @@
 
 <PageTitle>Async rules</PageTitle>
 <h1>Async rules</h1>
-<p>Type "admin" and pause: each keystroke starts the check immediately (the delay simulates a server call — 600 ms by default, adjustable below), shows a pending state, and a new keystroke supersedes the in-flight check — its verdict is discarded, and on this page's memoized validator the call itself runs on so a retyped value can reuse its answer.</p>
+<p>Type "admin" and pause: each keystroke starts the check immediately (the delay simulates a server call, 600 ms by default, adjustable below), shows a pending state, and a new keystroke stops waiting for the check still running, so you only ever see the answer for what you last typed; on this page's memoized validator the call itself runs on, so a retyped value can reuse its answer.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Handle.cs", "MemoizedHandleValidator.cs", "AsyncRules.razor", "AsyncRules.razor.cs" })">
     <Rules>
@@ -10,24 +10,24 @@
             <li><strong>Username</strong>: checked for uniqueness asynchronously while you type (a delay stands in for the server — 600&nbsp;ms by default, adjustable below). Taken usernames: <code>admin</code>, <code>root</code>, <code>formidable</code>.</li>
             <li><strong>Display name</strong>: checked for uniqueness the same way, independently of Username. Taken display names: <code>Administrator</code>, <code>Root User</code>, <code>Formidable</code>.</li>
             <li><strong>Username</strong>: also required to submit, and the live channel answers that rule too: clear a username you have already typed and "Username is required" lands with no submit anywhere.</li>
-            <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
-            <li>Editing after a submit still runs each check once. The refresh executes only the rules still owed an answer at the current edit, so a live pass that has already landed leaves it nothing to run, and where the two would overlap, the refresh stands down for a pass in flight and assembles from its answer. What the memo below catches is the caller the store cannot help — a Submit pressed while a check is still in flight joins the call in progress instead of starting a second.</li>
-            <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
+            <li>Editing after a submit also re-checks the whole form once you pause (300&nbsp;ms), so what the submit showed stays honest, but the pending indicator stays on the field you edited, before and after submit alike.</li>
+            <li>Editing after a submit still runs each check once: the live check and the whole-form re-check share the answer rather than each paying for it. What the memo below adds is the case that sharing cannot cover: a Submit pressed while a check is still running joins the call in progress instead of starting a second. The docs' page <em>How the engine works</em> has the mechanism.</li>
+            <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live check skip a repeat round trip too.</li>
             <li><strong>Validator override</strong>: <code>FormidableForm</code>'s <code>Validator</code> parameter resolves from DI when left unset, which is what every other page here does; this page supplies <code>MemoizedHandleValidator</code> directly instead, which is why the memoizing shows up here rather than on <code>/field-state</code>.</li>
             <li>Each field's <code>checking…</code> sits in an element that renders from the first paint with its <code>role="status"</code> already on it; only the text inside comes and goes. A live region announces reliably when assistive technology was told about it before the content arrived, and a role that arrives in the same render as its own first message is the shape assistive technology is inconsistent about — the same reason <code>FormidableSummary</code> holds two fixed-role regions of its own.</li>
             <li><strong>Reading the form inline</strong>: <code>Context="formidable"</code> names the form's body, so markup inside it reads <code>formidable.Engine</code> directly, with nothing captured or injected to reach it — the line under the Submit button does exactly that. Reaching the engine and keeping the read current are separate jobs, though: an inline read is only as fresh as the form's last render, so this page also holds an <code>@@ref</code> to the form and subscribes to <code>Engine.StateChanged</code> through it. Keeping that subscription fed is the <code>@@ref</code>'s only job here; the read itself never touches it.</li>
-            <li><strong>LiveDebounce</strong>: batches keystrokes. Tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce sets when one starts. After a submit, the same edit also arms the refresh; whichever of the two runs first pays for the check, and the other reuses its answer instead of running it again — ticking the box costs nothing extra there either.</li>
+            <li><strong>LiveDebounce</strong>: batches keystrokes. Tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce sets when one starts. After a submit, the same edit also starts the whole-form re-check's own wait; whichever of the two runs first pays for the check, and the other reuses its answer instead of running it again, so ticking the box costs nothing extra there either.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
             <li>Type <code>admin</code> and pause — a spinner and "checking…" appear on that field only, then the taken message lands.</li>
-            <li>Type quickly — each keystroke supersedes the in-flight check; only the final value gets a verdict.</li>
+            <li>Type quickly — each keystroke stops waiting for the check before it; only the value you last typed gets an answer.</li>
             <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
-            <li>Clear Username — "Username is required" appears as soon as that edit's live pass does, with no submit: you engaged the field, and the live channel runs the rules a submit would. The same pass answers Display name's rule as well, so if more than ten seconds have passed since you typed there, this edit waits on a fresh check of that value first. Submit anyway and the same rule blocks.</li>
+            <li>Clear Username — "Username is required" appears as soon as that edit's live check does, with no submit: you engaged the field, and the live channel runs the rules a submit would. The same check answers Display name's rule as well, so if more than ten seconds have passed since you typed there, this edit waits on a fresh check of that value first. Submit anyway and the same rule blocks.</li>
             <li>Drag the delay to 2000 ms and type — the slider only changes how long the check itself takes, not when it starts or how often; watch the pending state hold for the full two seconds before the verdict lands.</li>
-            <li>Submit, then type again — one "checking…" cycle, not two, even though editing after a submit also arms the background refresh (see above).</li>
-            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke, and pausing lands one check rather than two. Editing after a submit arms the background refresh as well, and the pair share the answer rather than each paying for it, exactly as the <code>LiveDebounce</code> rule above describes.</li>
+            <li>Submit, then type again — one "checking…" cycle, not two, even though editing after a submit also re-checks the whole form (see above).</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke, and pausing lands one check rather than two. Editing after a submit starts the whole-form re-check's wait as well, and the pair share the answer rather than each paying for it, exactly as the <code>LiveDebounce</code> rule above describes.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
@@ -40,7 +40,7 @@
 </p>
 
 <p>
-    <label><input type="checkbox" @bind="LiveDebounceEnabled" /> Debounce live checks (batch fast typing into one pass)</label>
+    <label><input type="checkbox" @bind="LiveDebounceEnabled" /> Debounce live checks (batch fast typing into one check)</label>
 </p>
 
 <FormidableForm Model="_handle" Options="_options" Validator="_validator" OnValidSubmit="HandleValid" @ref="_form" Context="formidable">
@@ -68,9 +68,9 @@
         <button type="submit">Submit</button>
     </div>
 
-    <p><small><code>Context="formidable"</code> names the form's own body, so this line reads <code>formidable.Engine.IsValidating</code> inline, with nothing captured or injected to reach it: <strong>@(formidable.Engine.IsValidating ? "a pass is in flight" : "no pass is in flight")</strong>. It answers for the whole form, where each field's own indicator above answers for that field alone.</small></p>
+    <p><small><code>Context="formidable"</code> names the form's own body, so this line reads <code>formidable.Engine.IsValidating</code> inline, with nothing captured or injected to reach it: <strong>@(formidable.Engine.IsValidating ? "a check is running" : "no check is running")</strong>. It answers for the whole form, where each field's own indicator above answers for that field alone.</small></p>
 </FormidableForm>
 
 <p role="status">@_status</p>
 
-<p><small>The pending flag is scoped to the field being edited during a live pass — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>
+<p><small>The pending flag is scoped to the field being edited during a live check — type in Username or Display name and only that field's "checking…" indicator shows, not both.</small></p>

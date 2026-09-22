@@ -43,7 +43,7 @@ public sealed class EventRegistration : INormalizableModel
 
 public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration>
 {
-    // Held as a field so it outlives a pass: the engine keeps one validator instance for as long
+    // Held as a field so it outlives a check: the engine keeps one validator instance for as long
     // as it is registered, while a memo built inside a rule's own lambda is rebuilt on every call
     // and never once hits. AsyncRuleMemo's own remarks say so.
     private readonly AsyncRuleMemo<string, bool> _availabilityMemo = new(TimeSpan.FromMinutes(5));
@@ -67,7 +67,7 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
         // the adjustable-delay lesson.
         //
         // Memoized because this is the one slow rule on a form full of fast ones, and it sits in
-        // the always-on bucket: every committed change anywhere on the page starts a pass that
+        // the always-on bucket: every committed change anywhere on the page starts a check that
         // selects it, so without a memo a message about the ticket tier or a session row waits
         // behind a check of an address nobody touched. The window is sized to the pause it has to
         // survive, which here is the gap between one committed edit and the next while the address

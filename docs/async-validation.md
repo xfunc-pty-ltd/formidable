@@ -75,7 +75,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         // Async uniqueness sits in the always-on (Draft) bucket so a lenient draft save answers
         // it too; what runs it on each committed change is the live channel, which evaluates
         // whatever would block a submit. The delay stands in for a server call and honours
-        // cancellation, so a superseded keystroke's check is abandoned.
+        // cancellation: a newer keystroke cancels the older check before it can answer.
         RuleFor(h => h.Username)
             .MustAsync(async (username, cancellationToken) =>
             {
@@ -85,8 +85,8 @@ public class HandleValidator : DraftSubmitValidator<Handle>
             .WithMessage("That username is taken")
             .When(h => !string.IsNullOrEmpty(h.Username));
 
-        // A second, independent async field — demonstrates that the pending indicator during a
-        // live pass is scoped to the field being edited, not the whole form.
+        // A second, independent async field — demonstrates that the pending flag is scoped to
+        // the field being edited, not the whole form.
         RuleFor(h => h.DisplayName)
             .MustAsync(async (displayName, cancellationToken) =>
             {
@@ -295,11 +295,11 @@ current on every field change, or once per window when `LiveDebounce` is set, ju
 model by the submit profile. It shows no message and no "checking". `IsFormValid` answers for the
 untouched form as soon as the check started at construction lands, before anything is typed.
 
-Where every rule answers without waiting, it adds no rule executions on the default profiles:
-whichever of the validity check and the check your edit started runs first has answered by the
-time the other looks, and the other reuses those answers. It costs extra in two places. Narrowing
-`LiveProfile` does not save the work: the rules the live check skipped still run on every edit to
-keep `IsFormValid` honest.
+Where every rule answers without waiting, it adds no rule executions per edit on the default
+profiles: whichever of the validity check and the check your edit started runs first has answered
+by the time the other looks, and the other reuses those answers. It costs extra in two places.
+Narrowing `LiveProfile` does not save the work: the rules the live check skipped still run on every
+edit to keep `IsFormValid` honest.
 
 And an async rule the live check also runs (on the default profiles, every submit rule) is paid
 twice per edit: the validity check starts beside the check your edit started, and neither can

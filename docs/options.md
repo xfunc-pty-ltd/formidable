@@ -1,8 +1,8 @@
 # Engine options
 
 **You should already know:** the live/submit split and why one validator serves both moments
-([Profiles](profiles.md)), and the debounced refresh a submitted form runs on every further edit
-([Async validation](async-validation.md)).
+([Profiles](profiles.md)), and the whole-form re-check a submitted form runs after every further
+edit ([Async validation](async-validation.md)).
 
 Every setting the engine reads lives on one class, `FormidableOptions`, handed to a form through
 `FormidableForm<TModel>`'s `Options` parameter. This page catalogs each property, then `UpdateOn`,
@@ -30,8 +30,9 @@ passes `Options` into the constructor there. A whole new `FormidableOptions` ins
 `Model` throws (see [`FormidableOptions` is read once](#formidableoptions-is-read-once)).
 
 The engine does keep re-reading that instance's *properties*. Mutating one takes effect at that
-property's next read (a pass selecting its profile, a timer arming, a render asking for a class
-name). A change notifies nothing by itself; it shows when something next validates or renders.
+property's next read (a check choosing its profile, a debounce window opening, a render asking
+for a class name). A change notifies nothing by itself; it shows when something next validates or
+renders.
 
 Where an entry below states a coarser read it governs: [`ClickRecovery`](#clickrecovery) is read
 once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrowkeys) and
@@ -39,12 +40,12 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 
 | Option | Type | Default | What it decides |
 |---|---|---|---|
-| [`LiveProfile`](#liveprofile) | `ValidationProfile?` | `null` (tracks `SubmitProfile`) | Which profile a live pass validates against. |
-| [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile the submit, refresh, load and validity probe run. |
-| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the refresh waits before it re-answers. |
-| [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | The window a field change opens instead of a pass at once. |
-| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Turns on the validity probe behind `IsFormValid`. |
-| [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether the submit pass calls `Normalize()` first. |
+| [`LiveProfile`](#liveprofile) | `ValidationProfile?` | `null` (tracks `SubmitProfile`) | Which profile live checking runs. |
+| [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
+| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | After a submit, how long after an edit before the whole form is re-checked. |
+| [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
+| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check. |
+| [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
 | [`ClickRecovery`](#clickrecovery) | `DisplacedClickRecovery` | `Buttons` | Whether a click the page displaced is re-delivered. |
 | [`DisclosureOverride`](#disclosureoverride) | `Func<ValidationIssue, bool?>?` | `null` | A per-issue answer to whether an issue may be shown. |
 | [`RequiredOverride`](#requiredoverride) | `Func<FieldIdentifier, FieldRequirement?>?` | `null` | Declares a field required, or not, where the rules cannot say. |
@@ -59,7 +60,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`InlineMessageLive`](#inlinemessagelive) | `string?` | `null` (no attribute) | The `aria-live` politeness every message list carries. |
 | [`DefensiveGateMessage`](#defensivegatemessage) | `string` | `"The form cannot be submitted because information that is not currently displayed is invalid."` | The sentence the all-suppressed defensive gate carries. |
 | [`ModelLevelDisplayName`](#modelleveldisplayname) | `string` | `"This form"` | The name a fieldless error is listed under. |
-| [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The sentence a faulted pass files against the form. |
+| [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The form-level message shown when a live check or the whole-form re-check throws. |
 | [`OrderIssues`](#orderissues) | `Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?` | `null` (document order) | Re-sorts the order visible issues are reported in. |
 | [`CssClasses`](#cssclasses) | `FormidableCssClasses` | a new instance | The five field-state class names. |
 
@@ -67,89 +68,111 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 
 ### `LiveProfile`
 
-`ValidationProfile?`, defaults to `null`. The profile every live pass validates against. `null`
-means `SubmitProfile`, so a live message says what a submit would actually complain about, presence
-rules included. The engine resolves it at each pass's beginning and follows the instance the options
-hold, a runtime swap included.
+`ValidationProfile?`, defaults to `null`. Which rules run as you edit: the profile every live
+check validates against. `null` means `SubmitProfile`, so a live message says what a submit would
+actually complain about, presence rules included. It is read as each live check begins and follows
+the instance the options hold, so a runtime swap takes effect at the next check.
 
 Set it where a submit rule is genuinely too expensive to run per change; `ValidationProfile.Draft`
 is the usual answer. [Profiles](profiles.md) has why narrowing is the blunter of the two levers that
-keep a live channel from nagging, and why a save-progress flow is unaffected either way.
+keep a live channel from nagging, and why a save-progress flow is unaffected either way. Why:
+[how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
 
 **Recipe:**
 [narrow what the live channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates).
 
 ### `SubmitProfile`
 
-`ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile the submit pipeline
-validates against, the profile the debounced refresh re-validates against, the profile
-`IFormidableEngine.DiscloseLoadedValuesAsync` runs, and the profile `TrackFormValidity`'s probe
-answers for. Unless `LiveProfile` narrows it, every live pass validates against it too. See
+`ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile a submit validates
+against, the profile the whole-form re-check runs, the profile
+`IFormidableEngine.DiscloseLoadedValuesAsync` runs, and the profile `TrackFormValidity`'s validity
+check answers for. Unless `LiveProfile` narrows it, every live check validates against it too. See
 [Profiles](profiles.md).
 
 ### `RefreshDebounce`
 
-`TimeSpan`, defaults to 300 ms. How long the engine waits before the debounced refresh re-answers
-`SubmitProfile`, keeping inline errors current and the `Valid` class's vouch with them. Two things
-arm it: a field change once a submit has happened, and any move in the rendered field set. It arms
-at this duration whether or not `LiveDebounce` is set, and a burst of field-set changes collapses to
-one pass, since they share a single timer.
+`TimeSpan`, defaults to 300 ms. After a submit, how long after an edit before the whole form is
+re-checked, so what the submit showed stays truthful: the messages on screen follow your fixes, and
+the `Valid` class stays honest, with no second submit.
 
-[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has why the two
-arm sites are not symmetric. This timer and `LiveDebounce`'s both come from the DI container's
-`TimeProvider` where one is registered, so a test can land either window with `Advance`. See
-[Testing](testing.md#faking-the-clock).
+Before the first submit or server reply, an edit gets one live check, which answers every field
+you have engaged, and no whole-form re-check follows it. A change to which fields are on screen (a
+row leaving, a section collapsing) re-checks the whole form after the same wait at any point in
+the form's life.
+
+It is a second debounce because the re-check is whole-form work, too much to repeat on every
+keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst of edits or
+field-set changes inside it is one re-check, since they share one timer. This timer and
+`LiveDebounce`'s both come from the DI container's `TimeProvider` where one is registered, so a
+test can land either window with `Advance` (see [Testing](testing.md#faking-the-clock)).
+
+[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
+has what the re-check waits for. Why:
+[how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
 
 ### `LiveDebounce`
 
-`TimeSpan?`, defaults to `null` — a live pass runs immediately on every field change. Set it and a
-change arms a single timer instead: another change inside the window re-arms it, and when the window
-elapses quietly one pass runs, scoped to every field it collected (one shared window, not one per
-field).
+`TimeSpan?`, defaults to `null`: a field change starts its live check at once. Set it and a change
+opens a wait instead. Another change inside the wait restarts it, and when it passes quietly one
+check runs for every field changed since it opened (one shared wait for the form, not one per
+field), with the "checking" cue on those fields alone.
 
 Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. With
-`TrackFormValidity` on, the probe rides this window too, and after a submit the same edit arms the
-refresh as well.
+`TrackFormValidity` on, its validity check waits for the same window, and after a submit the same
+edit starts the whole-form re-check's own wait as well.
 
-The two timers arm independently;
+The two waits run independently;
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has what setting one wider
-costs.
+costs. Why: [how the engine works: the two timers](how-the-engine-works.md#the-five-pass-kinds).
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps the
 immediate default for a 400 ms window.
 
 ### `TrackFormValidity`
 
-`bool`, defaults to `false`. Turns on the whole-form validity probe behind
-`IFormidableEngine.IsFormValid` (the answer a disabled Submit button needs).
+`bool`, defaults to `false`. Keeps `IFormidableEngine.IsFormValid` current (the answer a disabled
+Submit button needs) with a whole-form validity check by the submit profile: once when the form is
+built, then on every field change, or once per window when `LiveDebounce` is set. It shows no
+message and no "checking".
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work. On a
-validator the engine can take rule by rule, the probe shares the verdict store; on any other, each
-probe is one whole `SubmitProfile` validation on top of the live pass.
-[Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the sharing, the cadence
-and what overlapping probes do.
+validator the engine can take rule by rule, where every rule answers without waiting, tracking adds
+no rule executions per edit on the default profiles: whichever of the validity check and the check
+your edit started runs first has answered by the time the other looks, and the other reuses those
+answers.
+
+It costs extra where `LiveProfile` narrows (the rules the live check skipped still run on every
+edit) and on any other validator, where each validity check is one whole `SubmitProfile`
+validation on top of the live check.
+[Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the
+async-rule cost and what happens when several validity checks overlap.
 
 ```razor
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
 ```
 
-With tracking off `IsFormValid` always reads `false`; with it on, `false` until the probe has
-answered once. Issues a server applied through `ApplyServerIssues` are not part of the answer.
+With tracking off `IsFormValid` always reads `false`; with it on, `false` until a whole-form check
+has answered once (a validity check, a submit, a load, or the whole-form re-check). Issues a server
+applied through `ApplyServerIssues` are not part of the answer.
+
+Tracking also feeds the `Valid` class, so it can put green on a field a narrowed live check could
+not ([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:
+[how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
 
 **Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor) — a
-Submit button disabled until the probe says yes.
+Submit button disabled until the validity check says yes.
 
 ### `NormalizeOnSubmit`
 
-`bool`, defaults to `false`. When `true` and the model implements `INormalizableModel`, the submit
-pass calls `model.Normalize()` in place before running `SubmitProfile`, so the profile judges the
+`bool`, defaults to `false`. When `true` and the model implements `INormalizableModel`, a submit
+calls `model.Normalize()` in place before running `SubmitProfile`, so the profile judges the
 cleaned values rather than whatever was typed. It mirrors the ASP.NET Core validation filters, and
 it is the only automatic client-side invocation there is.
 
-The mutation happens before the pass, so the submit's own re-render repaints every bound input
-straight from the normalized model, with no extra wiring. Calling `model.Normalize()` yourself takes
-one more step this option does for free: the engine starts a live pass only when it hears
-`EditContext.NotifyFieldChanged`, so name each field the mutation changed.
+The mutation happens before the submit's rules run, so the submit's own re-render repaints every
+bound input straight from the normalized model, with no extra wiring. Calling `model.Normalize()`
+yourself takes one more step this option does for free: the engine starts a live check only when it
+hears `EditContext.NotifyFieldChanged`, so name each field the mutation changed.
 
 **Sample:** [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) — a checkbox, and a
 Submit button that never calls `Normalize()` itself.
@@ -195,8 +218,9 @@ written as a predicate answers `FieldRequirement.NotRequired`, as does every fie
 uninspectable validator. `NotRequired` means "not known to be required", never "proven optional".
 
 It declares in both directions: `Required` marks a field the rules cannot be read to demand,
-`NotRequired` unmarks one they can. Invoked on every ask (once per bound component per render) so
-keep it cheap and pure.
+`NotRequired` unmarks one they can. The marker and `aria-required` are read from that one answer
+rather than decided apart. Invoked on every ask (once per bound component per render) so keep it
+cheap and pure.
 
 **Recipe:**
 [mark fields required when the rules cannot say so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
@@ -229,7 +253,7 @@ the text inside the marker's `formidable-required` element and nothing else.
 issues the live channel discloses (the one lever over a channel registration never touches).
 
 Under the default, engagement alone discloses: a field a committed change has named, or one a draft
-load adopted, shows its live verdict on every surface, rendered or not.
+load adopted, shows its live issues on every surface, rendered or not.
 [Disclosure](disclosure.md#why-isnt-my-message-showing-yet) has why that default exists and what
 departure means. Departure is the one thing registration decides here.
 
@@ -238,6 +262,8 @@ the submit channel consults, message store included. Reach for it when a page de
 unrendered fields and would rather they stayed quiet until they appear. To list less without
 changing disclosure, use [`FormidableSummary`'s `Show`](component-kit.md#showing-one-severity-band)
 instead.
+
+Why: [how the engine works: what the live channel discloses](how-the-engine-works.md#the-live-view).
 
 ### `SuppressedIssueDiagnostic`
 
@@ -347,9 +373,8 @@ The gate's issue is built where this property is read, so the engine's own reads
 `GetVisibleIssues` and the components on them) answer with a replacement from the next read, and
 the `EditContext`'s message store from its next rebuild.
 
-No gate entry is filed that could hold the old sentence in between. The gate is a predicate over
-source state. This option decides the gate's explanation and nothing else; `ModelLevelDisplayName`,
-next, names what it is listed under.
+Nothing holds the old sentence in between. This option decides the gate's explanation and nothing
+else; `ModelLevelDisplayName`, next, names what it is listed under.
 
 ### `ModelLevelDisplayName`
 
@@ -368,8 +393,9 @@ instead.
 ### `ValidationFaultMessage`
 
 `string`, defaults to `"Validation could not run to completion; recent changes may not be fully
-validated."` — the sentence a faulted pass files against the form. The pass threw before finishing,
-so what the form shows is incomplete rather than wrong.
+validated."` — the form-level message for a check that threw before finishing. It appears when a
+live check or the whole-form re-check throws, since what the form shows is then incomplete rather
+than wrong; a submit or a load of values throws to the code that awaited it instead.
 
 Its read timing is not `DefensiveGateMessage`'s. The issue is filed when the fault is reported and
 then stored, so
@@ -377,8 +403,8 @@ a change reaches the *next* fault while one already on screen goes on saying wha
 was written.
 
 It says nothing about what threw: the exception goes to the engine's `ValidationFaulted` event,
-where a host logs it. The stored issue clears at the next pass that completes without faulting, and
-at `ApplyServerIssues`, with no pass involved.
+where a host logs it. The stored issue clears at the next check that completes without throwing,
+and at `ApplyServerIssues`, with no check involved.
 
 ### `OrderIssues`
 
@@ -417,7 +443,7 @@ do, when the delegate runs, and where exceptions go.
 | `Warning` | touched or modified, no errors, and has a warning-severity issue | `formidable-warning` |
 | `Info` | touched or modified, no errors or warnings, and has an info-severity issue | `formidable-info` |
 | `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
-| `Pending` | a validation pass involving the field is in flight | `formidable-pending` |
+| `Pending` | a check involving the field is still running | `formidable-pending` |
 
 This is read at each class computation, on every surface, so mutating this instance's properties and
 assigning a whole new `FormidableCssClasses` are the same lever, and nothing latches a class map at
@@ -432,8 +458,8 @@ condition and how the five compose.
 `FormidableInputBase<TValue>` (see
 [Component kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member
 of `FormidableOptions`, so it is not set through `Options`. It answers the other half of "when does
-a rule get to answer": `RefreshDebounce` governs the refresh's timing, and `UpdateOn` governs a live
-pass's.
+a rule get to answer": `RefreshDebounce` governs the whole-form re-check's timing, and `UpdateOn`
+governs a live check's.
 
 `InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the
 element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke

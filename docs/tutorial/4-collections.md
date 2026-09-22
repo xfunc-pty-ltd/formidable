@@ -79,7 +79,7 @@ private static void RemoveMember(List<Member> members, Member member, Formidable
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
 Adding or removing a row edits the list directly. An edit the engine never hears about starts no
-pass, so `NotifyChanged()` tells it.
+live check, so `NotifyChanged()` tells it.
 
 ## Give each row its rules
 
@@ -143,7 +143,7 @@ A `List<Member>` property has no input of its own, so that failure has nowhere t
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
-Remove both rows, then submit, and the message lands there.
+Remove both rows and the message lands there straight away, before you submit.
 
 ## Recap
 

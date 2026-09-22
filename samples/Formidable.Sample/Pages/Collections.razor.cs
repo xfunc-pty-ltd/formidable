@@ -27,13 +27,13 @@ public partial class Collections
     private void HandleValid() => _status = "Submitted — every row passed.";
 
     // Add, Remove and MoveUp all mutate a list directly, and an edit the engine never hears
-    // about is one no pass starts for - so each handler notifies the field context afterward.
-    // NotifyChanged() engages the field, and a live pass answers only the fields such
-    // notifications have engaged. A rule that
-    // starts or stops failing because of the edit, "every team needs at least one member" going
-    // red the moment the last one leaves, needs a fresh pass to say so; no prune can invent an
-    // issue no pass produced. MoveUp notifies too, for the same contract, even though reordering
-    // doesn't change what any rule here has to say.
+    // about starts no live check - so each handler notifies the field context afterward.
+    // NotifyChanged() engages the field, and the live check it starts answers only the fields
+    // such notifications have engaged. A rule that starts or stops failing because of the
+    // edit, "every team needs at least one member" going red the moment the last one leaves,
+    // needs a fresh check to say so; no prune can invent an issue no check produced. MoveUp
+    // notifies too, for the same contract, even though reordering doesn't change what any rule
+    // here has to say.
     private static void AddItem<T>(List<T> list, T item, FormidableFieldContext field)
     {
         list.Add(item);

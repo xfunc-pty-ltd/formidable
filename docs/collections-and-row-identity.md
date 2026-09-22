@@ -83,19 +83,21 @@ wrapping `FormidableField` hands its content (the wrapper itself is in
 [Nested collections](#nested-collections) below), and `NotifyChanged()` on it tells the engine a
 page-driven edit happened.
 
-Without that call the edit is silent. A live pass discloses only for the fields something has
-engaged, so an edit to a field nothing has engaged is one whose fresh answer nothing shows.
+Without that call the edit is silent. Short of a submit or a server reply, live checking discloses
+only for the fields something has engaged, so an edit to a field nothing has engaged is one whose
+fresh answer nothing shows.
 
-The next pass to run still judges the new value. Putting that verdict on screen takes an engaged
+The next check to run still judges the new value. Putting that verdict on screen takes an engaged
 field, a submit, or a server apply naming it, and a silent page-driven edit supplies none of those.
 
 Removing the last member does more than shrink a list on screen. It can flip a collection rule from
-passing to failing, and no prune can invent a failure no pass produced.
+passing to failing, and no prune can invent a failure no check produced.
 
 The engine does notice the row leave. It prunes that row's live issues rather than go on showing a
-verdict for a row that is gone, and arms a reconciling refresh. After a submit, or a server apply
-that put fields on watch, that refresh brings the disclosed verdict back into line with the shorter
-list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's promise current.
+verdict for a row that is gone, and re-checks the whole form. After a submit, or a server apply
+that put fields on watch, that re-check brings the messages on screen back into line with the
+shorter list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's promise
+current.
 
 ## Why did my message move rows?
 

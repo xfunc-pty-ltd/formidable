@@ -158,11 +158,11 @@ the interface's own remarks.
 The clock is a fourth stand-in, beside the three seams above. It needs no Formidable interface,
 because .NET already ships the seam. The engine creates its timers from the `TimeProvider`
 registered in the container, falling back to `TimeProvider.System` when there is none. Those timers
-are the refresh window behind [`RefreshDebounce`](options.md#refreshdebounce) and the live window
-behind [`LiveDebounce`](options.md#livedebounce).
+are the two windows, one behind [`RefreshDebounce`](options.md#refreshdebounce) and one behind
+[`LiveDebounce`](options.md#livedebounce).
 
 Register `Microsoft.Extensions.Time.Testing.FakeTimeProvider` as `TimeProvider` and every debounced
-pass waits for the test: nothing a timer owes fires until `Advance(...)` crosses its window.
+check waits for the test: nothing a timer owes fires until `Advance(...)` crosses its window.
 Registration order doesn't matter for this one, since Formidable never registers a `TimeProvider` of
 its own and has nothing to get in ahead of.
 
@@ -250,8 +250,9 @@ time the rule answers. Hold the rule open with a `TaskCompletionSource` the test
 `IsValidating` (engine-wide) or `GetFieldState(field).IsValidating` (field-scoped) while the gate is
 closed, then complete it and wait for the verdict.
 
-Formidable's own engine tests use exactly that gate, and [Async validation](async-validation.md)
-explains which scope each pass reports.
+Formidable's own engine tests use exactly that gate, and
+[Async validation](async-validation.md#where-does-checking-show-and-where-doesnt-it) explains where
+"checking" shows for each kind of check.
 
 ## Unit and component tests
 
@@ -261,7 +262,7 @@ Three projects, unconditional — no environment variable, no running server, no
 |---|---|
 | `tests/Formidable.Tests` | Core: `Formidable` — profiles (Draft/Submit, `ProfiledValidator<T>`), the `IModelValidator<T>` seam, the reflection-based introspector, path resolution, service registration. |
 | `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/advisories wire mapping. |
-| `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormidableEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
+| `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — the engine (live checks, submits and the whole-form re-check after a submit, a newer check overtaking an older one and other races, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
 The focus service implements both `IDisposable` and `IAsyncDisposable`, so a bUnit container built
 through `AddFormidableBlazor()` tears down on ordinary synchronous dispose (nothing extra to write).
@@ -307,8 +308,8 @@ The tests fall into a few groups:
 - A navigation smoke test that walks the sidebar itself.
 - A render smoke per sample page: the page loads, its heading renders, nothing throws.
 - A journey per behavior-bearing page, one file each under `Journeys/`. Each pins that page's
-  central lesson with at least one real-typed, real-blurred path: a blocked submit, a live pass, a
-  suppression reveal, whatever the page teaches.
+  central lesson with at least one real-typed, real-blurred path: a blocked submit, a live check,
+  a suppression reveal, whatever the page teaches.
   - `/workout`'s journeys go deepest. They pin a blocked submit and every summary-entry kind
     landing: native input, collection fieldset, wrapped input, the disclosure gate. They also cover
     attendee add/remove and per-item rules, async pending state and server-applied coupon

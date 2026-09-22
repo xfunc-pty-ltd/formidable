@@ -13,11 +13,13 @@ public partial class FieldStateVisualizer : IDisposable
 
     private void HandleValid() => _status = "Submitted — state flags above tell the story.";
 
-    // TrackFormValidity's probe lands its verdicts and the IsFormValid flip off the render
-    // sync context (it awaits the async username/display-name checks), so without this the
-    // readout, the disabled attribute, and the valid borders fed by the store's answer would
-    // only catch up on the next unrelated re-render. The live pass beside it lands the same
-    // way, for the same reason.
+    // The readout and the disabled attribute in the markup read IsFormValid off the engine. The
+    // validity check behind it (see docs/how-the-engine-works.md, the TrackFormValidity probe
+    // section) awaits the async username/display-name checks, and when its answer lands the
+    // engine notifies the components bound to it rather than the page, so without this
+    // subscription both would only catch up on the next unrelated re-render. The live check
+    // beside it lands the same way, for the same reason; the kit's own inputs make this
+    // subscription for themselves.
     protected override void OnAfterRender(bool firstRender)
     {
         if (_subscribedEngine is null && _form?.Engine is { } engine)

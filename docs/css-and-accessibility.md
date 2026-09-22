@@ -28,7 +28,7 @@ and pending is decided separately, on top of whatever that left:
 | 3 | It has a warning-severity issue | `Warning` (`formidable-warning`) |
 | 4 | Its only issues are info-severity | `Info` (`formidable-info`) |
 | 5 | It has no issues left to show *and* would pass submit | `Valid` (`formidable-valid`) |
-| Always | A pass involving the field is in flight | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
+| Always | A check involving the field is still running | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
 
 #### What puts green on a field
 
@@ -50,7 +50,7 @@ flowchart TD
     I -- "no" --> S{"Have the submit rules answered for this value, and passed it?"}
     S -- "yes" --> OK["formidable-valid"]
     S -- "not yet, or failed" --> NONE
-    P{"A pass involving the field in flight?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
+    P{"A check involving the field still running?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
     P -- "no" --> SAME["Nothing is appended"]
 ```
 
@@ -59,34 +59,36 @@ info is not `Valid`: it still has something the user might act on. Green is a pr
 rather than a note that the visitor stopped by, so a failing answer counts even where no message
 shows it. That is why an emptied required box wears no confirmation border.
 
-On the default profiles, the live pass behind a committed change supplies that answer on a
+On the default profiles, the live check behind a committed change supplies that answer on a
 validator the engine can take rule by rule. [`LiveProfile`](options.md#liveprofile) tracks the
-submit profile, so that pass runs the submit rules.
+submit profile, so that check runs the submit rules.
 
-One landing covers the form, not only the changed field. A submit and the debounced refresh answer
-the same way. A validator the engine cannot take rule by rule earns green only from a pass or probe
-answering the whole model.
+One answer covers the form, not only the changed field. A submit, and the whole-form re-check
+after one, turn fields green the same way. A validator the engine cannot take rule by rule earns
+green only from a check that answers the whole model: a submit, the whole-form re-check, a load of
+values, or `TrackFormValidity`, never a live check.
 
 Two things you will see follow from the way that answer is kept. A row arriving or a virtualized
 panel scrolling does not blink a green border. The engine keeps the answer it last gave until the
-refresh that same move arms lands a fresh one. That refresh also re-answers for a model changed
-alongside the markup without a notification, so green describes the model, not the markup.
+whole-form re-check that same move starts lands a fresh one. That re-check also answers for a model
+changed alongside the markup without a notification, so green describes the model, not the markup.
 
-And while a pass that answers the submit rules is on its way, one edit does not blank every other
+And while a check that answers the submit rules is on its way, one edit does not blank every other
 field's confirmation border. On the default profiles every committed change has one on its way.
-Every field the edit did not touch keeps its green while that pass is on its way, and the landing
+Every field the edit did not touch keeps its green while that check is on its way, and its answer
 then decides. The edited field itself earns no green until its own answer lands.
 
-The hold across an edit is bounded rather than indefinite: a pass still running past thirty seconds
-loses it. A pass that ends without landing (a fault, or a caller's cancellation of a submit or a
-load) drops either hold outright. A pass a newer one supersedes is not a drop. Until the pass behind
-a held answer lands, the border describes the values that answer was computed from.
+The hold across an edit is bounded rather than indefinite: a check still running past thirty
+seconds loses it. A check that throws, or a submit or load its caller cancels, drops either hold
+outright. A check a newer one replaces is not a drop while a fresh answer is still on its way.
+Until the check behind a held answer lands, the border describes the values that answer was
+computed from.
 
-[`TrackFormValidity`](options.md#trackformvalidity)'s probe covers what is left: a form that narrows
-`LiveProfile` past the submit rules, and a validator the engine cannot take rule by rule. On that
-last shape a live pass is never taken as a coverage source. A page that calls
-`DiscloseLoadedValuesAsync` answers for the values it loaded itself, with no probe. Until an answer
-has landed, a clean-looking field wears no tier class rather than a green one.
+[`TrackFormValidity`](options.md#trackformvalidity)'s validity check covers what is left: a form
+that narrows `LiveProfile` past the submit rules, and a validator the engine cannot take rule by
+rule. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded itself, with
+no validity check needed. Until an answer has landed, a clean-looking field wears no tier class
+rather than a green one.
 
 **Where the computed class is applied.** `FormidableInputBase<TValue>.CssClass`, and
 `FormidableFieldContext.CssClass` for the renderless path, call `FormidableCss.Compute` with
@@ -325,7 +327,7 @@ demand.
 |---|---|---|
 | `aria-invalid="true"` | the field has an error-severity issue | Fixed. Warnings and infos do not raise it. |
 | `aria-describedby` | the field has an issue of any severity, warnings and infos included, since those are still rendered and still worth announcing | The field's messages id, merged behind anything the consumer splatted. |
-| `aria-required="true"` | `IFormidableEngine.GetFieldRequirement` reports `FieldRequirement.Required` | Fixed, and untouched by any validation pass. |
+| `aria-required="true"` | `IFormidableEngine.GetFieldRequirement` reports `FieldRequirement.Required` | Fixed, and untouched by any check. |
 
 The `aria-describedby` merge puts a persistent hint's own value first and appends the messages id
 after it while issues exist. That is the same consumer-first policy as the `class` merge, so an
@@ -348,7 +350,7 @@ the hint's id and `field.AriaDescribedBy` into the attribute in that order, by h
 
 **`aria-required` follows a different question from the other two.** `aria-invalid` and
 `aria-describedby` describe what the field's values are currently doing. `aria-required` describes
-what the submit profile's rules demand of it, so no validation pass touches it.
+what the submit profile's rules demand of it, so no check touches it.
 
 That requirement answer is reused, so asking per field per render is a lookup.
 [`RequiredOverride`](options.md#requiredoverride) is the part that can change on its own, so it
@@ -363,9 +365,9 @@ It also arms the browser's own submit-time enforcement. `FormidableForm`'s defau
 [Component kit](component-kit.md#formidableformtmodel)) keeps that from firing.
 
 A form without it is the case to know: attach mode's consumer-owned `EditForm`, or a splat that
-removed the default. There the browser refuses the submit before Formidable's pass ever runs. It
-puts its own bubble in front of the message the form was going to show, in the browser's wording and
-placement.
+removed the default. There the browser refuses the submit before Formidable's submit check ever
+runs. It puts its own bubble in front of the message the form was going to show, in the browser's
+wording and placement.
 
 **The visible mark and the announced fact are deliberately separate elements.**
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) draws the mark
@@ -407,9 +409,9 @@ validation-state change arriving before it puts `"true"` on the input over whate
 for.
 
 An edit is not the case to watch, because its change event runs through the page and re-renders it.
-Formidable's other passes do not. A debounced live pass, an async rule landing, the post-submit
-refresh and a background `ApplyServerIssues` all move validation state with no render of the page in
-the loop.
+Formidable's other updates do not. A debounced live check, an async rule landing, the whole-form
+re-check after a submit and a background `ApplyServerIssues` all move validation state with no
+render of the page in the loop.
 
 What supplies one is a subscription a hand-rendering page already wants. `Engine.StateChanged` keeps
 an engine-derived attribute fresh, and the render it triggers is also what puts the page's own
