@@ -1,9 +1,12 @@
 // Sample-local helper: scrolls the virtualized panel so Virtualize renders the target row.
 window.formidableSample = {
+    // "instant" rather than the panel's own scroll-behavior: the fallback's whole job is to have
+    // the row rendered by the time the retried focus arrives a fixed delay later, and an animated
+    // jump would still be travelling. The focus that follows it is what moves smoothly.
     scrollPanelTo: function (selector, top) {
         const panel = document.querySelector(selector);
         if (panel) {
-            panel.scrollTop = top;
+            panel.scrollTo({ top: top, behavior: 'instant' });
         }
     },
     // The chosen culture has to outlive the reload that applies it, so it lives in

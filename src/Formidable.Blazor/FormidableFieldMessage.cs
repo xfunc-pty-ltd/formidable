@@ -12,7 +12,7 @@ namespace Formidable.Blazor;
 /// list, and renders an accessible message list from <see cref="IFormValidationEngine.GetIssues"/>.
 /// The list element renders always — empty when the field currently has no issues — so a
 /// consumer's CSS can transition its opening and closing, and so a configured
-/// <see cref="FormidableOptions.InlineMessageRole"/> sits on an element that persists across
+/// <see cref="FormidableOptions.InlineMessageLive"/> sits on an element that persists across
 /// renders rather than one that enters alongside the text it announces. This type is public only
 /// because a public component cannot inherit a less accessible base; it is not an extension
 /// point, and unlike
@@ -54,10 +54,10 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
     /// rendered id is the <c>aria-describedby</c> contract
     /// (<see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/>) that every input
     /// describing itself by this list points at. And while
-    /// <see cref="FormidableOptions.InlineMessageRole"/> is set, the <c>role</c> it configures
-    /// wins a splatted one — the list's live-region behaviour is that option's to decide,
-    /// form-wide; with the option unset the kit computes no <c>role</c>, so a splatted one
-    /// stands.
+    /// <see cref="FormidableOptions.InlineMessageLive"/> is set, the <c>aria-live</c> it
+    /// configures wins a splatted one — the list's live-region behaviour is that option's to
+    /// decide, form-wide; with the option unset the kit computes no <c>aria-live</c>, so a
+    /// splatted one stands.
     /// </remarks>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
@@ -103,7 +103,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
             builder,
             AdditionalAttributes,
             _messagesElementId,
-            (Context.Engine as IValidatingFieldReader)?.InlineMessageRole,
+            (Context.Engine as IValidatingFieldReader)?.InlineMessageLive,
             Context.Engine.GetIssues(_field));
     }
 }
@@ -115,7 +115,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
 /// <c>aria-describedby</c> target, the structural classes, and the severity-classed items — has
 /// one place to be right. The splat policy is the kit's usual one: the consumer's attributes
 /// enter the render tree first and the computed values after, so Blazor's last-write-wins hands
-/// the computed <c>id</c>, the merged <c>class</c> and any configured <c>role</c> the
+/// the computed <c>id</c>, the merged <c>class</c> and any configured <c>aria-live</c> the
 /// duplicate-attribute race.
 /// </summary>
 internal static class FormidableMessageList
@@ -128,7 +128,7 @@ internal static class FormidableMessageList
         RenderTreeBuilder builder,
         IReadOnlyDictionary<string, object>? additionalAttributes,
         string listElementId,
-        string? role,
+        string? live,
         IReadOnlyList<ValidationIssue> issues)
     {
         var sequence = 0;
@@ -136,9 +136,9 @@ internal static class FormidableMessageList
         builder.AddMultipleAttributes(sequence++, additionalAttributes!);
         builder.AddAttribute(sequence++, "id", listElementId);
         builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
-        if (role is not null)
+        if (live is not null)
         {
-            builder.AddAttribute(sequence++, "role", role);
+            builder.AddAttribute(sequence++, "aria-live", live);
         }
 
         foreach (var issue in issues)

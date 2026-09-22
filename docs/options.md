@@ -419,17 +419,24 @@ with the mistake should misfile a message rather than take the page down.
 this corpus: it leaves the check on unconditionally, since demonstrating the guard is the page's
 own point.
 
-### `InlineMessageRole`
+### `InlineMessageLive`
 
-`string?`, defaults to `null`, which renders no `role` attribute at all. Set it to `"status"` and
-every message list — field-, collection- and model-level alike — becomes its own polite live
-region, announced as its content changes. The list element renders always, so the role sits on a
-container that persists across renders rather than one that enters alongside its own text — the
-reliable shape for a live region, since assistive technology is inconsistent about announcing a
-role that arrives together with the content it describes. Recommended on forms that render no
-`FormidableSummary` — the summary already announces on its own, and two live regions saying the
-same thing is worse than one. See [CSS and accessibility](css-and-accessibility.md) for the
-summary's own fixed-role regions.
+`string?`, defaults to `null`, which renders no `aria-live` attribute at all. Set it to `"polite"`
+and every message list — field-, collection- and model-level alike — is announced as its content
+changes; `"assertive"` interrupts whatever is being read instead. The list element renders always,
+so the attribute sits on a container that persists across renders rather than one that enters
+alongside its own text: the reliable shape for a live region, since assistive technology is
+inconsistent about announcing a region that arrives together with the content it describes.
+Recommended on forms that render no `FormidableSummary`, which already announces on its own, and
+two live regions saying the same thing is worse than one. See [CSS and
+accessibility](css-and-accessibility.md) for the summary's own fixed-role regions.
+
+`aria-live` rather than a `role`, and the difference is not cosmetic. A `role` on the `<ul>`
+replaces the list role, which drops every `<li>` out of the accessibility tree as presentational:
+the announcement arrives, and the messages stop being a list the visitor can move through.
+`status` and `alert` also carry an implicit `aria-atomic` of true, so correcting one field reads
+back every message still standing. `aria-live` costs neither. The list stays a list, atomicity
+stays false, and only what changed is announced.
 
 ### `DefensiveGateMessage`
 
@@ -551,6 +558,12 @@ blocking ones first" toggle for instance, is not picked up until one of those tw
 | `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
 | `Pending` | a validation pass involving the field is in flight | `formidable-pending` |
 
+This is read at each class computation, on every surface, so mutating this instance's properties
+and assigning a whole new `FormidableCssClasses` are the same lever: both reach field components
+and native `InputBase` descendants alike, from the next computation each makes. Nothing latches a
+class map at engine construction. (The `FormidableOptions` object around it is still the one that
+cannot be swapped — see [`FormidableOptions` is read once](#formidableoptions-is-read-once).)
+
 A field carrying only advisories earns `Warning`/`Info`, not `Valid` — deliberately, so it never
 reads as cleared while it still has something to say. `Valid` asks for that third condition
 because green is a promise about submit: a field whose submit-selected rules have no answer for
@@ -657,9 +670,36 @@ there is no merging between the steps: an `Options` parameter replaces the app-w
 whole rather than overriding a property of it. See [Component
 kit](component-kit.md#addformidableblazor) for the registration itself.
 
+The copy constructor is how a form differs in one setting without restating the rest. It takes an
+instance and holds every property that instance holds, which leaves an object initializer to say
+what changes and nothing else:
+
+```razor
+@inject FormidableOptions AppWide
+
+@code {
+    private FormidableOptions? _options;
+
+    protected override void OnInitialized() =>
+        _options = new FormidableOptions(AppWide) { LiveProfile = ValidationProfile.Draft };
+}
+```
+
+That form narrows its live channel and keeps everything else the app-wide instance holds, its
+class names and debounce among them. The injection resolves the singleton registered above, so it
+needs the `Action<FormidableOptions>` overload to have been called: an app with no app-wide
+defaults has nothing to inject and nothing to copy. `OnInitialized` is where the copy belongs,
+because a copy is an options instance like any other and [is read
+once](#formidableoptions-is-read-once).
+
 The configured instance is a singleton the whole app shares. That makes property mutation a
 wider lever than it looks: changing `RefreshDebounce` on it at runtime changes every live form
-that resolved it, not the one on screen.
+that resolved it, not the one on screen. A copy takes each property's value as that value stands
+when the copy is built, so a later change on the shared instance reaches the forms that resolved
+it directly and stops at the ones holding copies. `CssClasses` is the exception, deliberately: the
+copy holds the same `FormidableCssClasses` instance rather than a clone of it, so mutating that
+map's properties goes on reaching every form, copies included. A form that wants different class
+names assigns a new map to its own copy.
 
 ## Where each option is demonstrated
 
@@ -700,7 +740,7 @@ that is the smallest page that reproduces the shift.
 linked from its entry is its worked example.
 
 Several others have no sample page, deliberately. `NeverRegisteredFieldDiagnostic` reports into
-your telemetry rather than onto the screen; `InlineMessageRole` changes only what a screen reader
+your telemetry rather than onto the screen; `InlineMessageLive` changes only what a screen reader
 announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a reading order every
 sample page is already content with, since each lays its fields out top to bottom; and
 `DefensiveGateMessage`, `ModelLevelDisplayName` and `ValidationFaultMessage` replace strings the

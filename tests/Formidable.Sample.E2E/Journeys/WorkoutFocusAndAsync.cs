@@ -198,10 +198,11 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         await SummaryEntry(page, warning).ClickAsync();
 
         // The message list, addressed the way every collection message list is: the field's id
-        // with "-messages" appended, not a spelled-out id. The scroll is smooth, so what proves
-        // the landing is the list coming to rest inside the viewport — polled for, because a
-        // snapshot taken at any single instant can read a stalled animation instead (the
-        // mechanism is on WaitForTopInBandAsync).
+        // with "-messages" appended, not a spelled-out id. The library asks for no scroll
+        // behaviour of its own, and app.css answers with scroll-behavior: smooth, so the move
+        // animates and what proves the landing is the list coming to rest inside the viewport —
+        // polled for, because a snapshot taken at any single instant can read a stalled animation
+        // instead (the mechanism is on WaitForTopInBandAsync).
         var top = await WaitForTopInBandAsync(
             page.Locator("ul[id$='-attendees-messages']"),
             t => t >= 0 && t < viewportHeight);
@@ -255,9 +256,10 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     private static Task SubmitRegistrationAsync(IPage page) =>
         page.GetByRole(AriaRole.Button, new() { Name = "Submit registration", Exact = true }).ClickAsync();
 
-    // A smooth scrollIntoView is frame-driven on the main thread, which is busy with validation
-    // and render work at the very moment these scrolls start, so under a Debug-build WASM load
-    // the animation can stall flat for hundreds of milliseconds on its way to a correct rest.
+    // A scrollIntoView the page's own scroll-behavior has made smooth is frame-driven on the main
+    // thread, which is busy with validation and render work at the very moment these scrolls
+    // start, so under a Debug-build WASM load the animation can stall flat for hundreds of
+    // milliseconds on its way to a correct rest.
     // Equal scrollY reads a poll apart therefore establish nothing: the same flat window appears
     // before the scroll starts, mid-stall, and in the easing tail. The discriminating fact is the
     // position the caller's assert demands, so this polls the target's viewport top until it

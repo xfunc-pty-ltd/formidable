@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -31,9 +32,11 @@ namespace Formidable.AspNetCore;
 /// types regardless of how their <see cref="IModelValidator{TModel}"/> is registered. The one
 /// residual this resolution order leaves: a derived-only validator registration, or an
 /// unregistered <c>$type</c>, combined with no validator for the declared type either, still
-/// skips the argument silently — set <see cref="RequireValidator"/> to turn that into a thrown
-/// misconfiguration instead, recommended for any endpoint that accepts polymorphic model
-/// binding.
+/// skips the argument silently — name the base type on the attribute
+/// (<c>[Validate(typeof(Order))]</c>) to close it, which is the recommended shape for any action
+/// that accepts polymorphic model binding: an explicit type is validated as the declared type
+/// whatever the runtime type turns out to be, and a missing <c>IValidator&lt;T&gt;</c> for it
+/// throws rather than being skipped.
 /// An action can bind more than one validatable argument; their issues aggregate into a single
 /// report and, on rejection, a single <c>errors</c> dictionary keyed by each issue's own
 /// property path with no per-argument prefix, so two validated models sharing a property name
@@ -48,7 +51,7 @@ namespace Formidable.AspNetCore;
     "Type.MakeGenericType and invokes ValidateAsync via MethodInfo.Invoke; trimming can " +
     "remove the closed generic instantiation or the ValidateAsync method for argument " +
     "types not otherwise statically referenced, breaking validation for those types.")]
-public sealed class ValidateAttribute : ActionFilterAttribute
+public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConvention, IControllerModelConvention
 {
     private readonly Type[] _modelTypes;
 
@@ -67,18 +70,25 @@ public sealed class ValidateAttribute : ActionFilterAttribute
 
     /// <summary>
     /// When <see langword="true"/>, throws <see cref="InvalidOperationException"/> — naming the
-    /// argument type(s) considered and how to register a validator for them — if this filter
-    /// would otherwise validate none of the action's arguments at all (e.g. a dropped
-    /// <c>AddValidatorsFromAssembly</c> call, or an explicit constructor type that no longer
-    /// matches any parameter). Off by default: an action mixing validatable models with
-    /// ordinary parameters (route values, query strings, injected services) legitimately
-    /// validates nothing on every request when it has no model argument, which is not a
-    /// misconfiguration. The throw only fires when the action bound at least one non-null
-    /// argument: a request that binds nothing at all (e.g. a null or empty body for a nullable
-    /// parameter) is a client-triggerable condition, not a misconfiguration, so strict mode
-    /// can't flag anything for it either — it only catches a genuinely bound-but-unvalidated
-    /// argument.
+    /// action and the model type it declares no parameter for — if the action could never hand
+    /// this filter anything to validate. Decided from the action's DECLARED parameters when MVC
+    /// builds its application model, so it fires once, before the host serves a request, and no
+    /// request shape can reach it: an explicit constructor type
+    /// (<c>[Validate(typeof(Order), RequireValidator = true)]</c>) that matches no declared
+    /// parameter is the case it catches, and it catches it whether or not any request ever
+    /// arrives. Off by default: an action mixing validatable models with ordinary parameters
+    /// (route values, query strings, injected services) is free to declare no model at all,
+    /// which is not a misconfiguration.
     /// </summary>
+    /// <remarks>
+    /// With no explicit types this attribute discovers what to validate from validator
+    /// REGISTRATION, which an application-model convention cannot see — there is no DI at model
+    /// build — so strict mode there can only insist the action declares parameters at all. The
+    /// registration failures are reported where they already are, when a resolution actually
+    /// fails: a named type with no <c>IValidator&lt;T&gt;</c> names
+    /// <c>AddValidatorsFromAssembly</c>, and an unwired adapter names <c>AddFormidable()</c>.
+    /// Naming the model types is therefore what makes strict mode strict.
+    /// </remarks>
     public bool RequireValidator { get; set; }
 
     /// <inheritdoc />
@@ -89,7 +99,6 @@ public sealed class ValidateAttribute : ActionFilterAttribute
         var services = context.HttpContext.RequestServices;
         var issues = new List<ValidationIssue>();
         var validatedAny = false;
-        var boundAnyArgument = false;
 
         foreach (var (name, argument) in context.ActionArguments)
         {
@@ -97,8 +106,6 @@ public sealed class ValidateAttribute : ActionFilterAttribute
             {
                 continue;
             }
-
-            boundAnyArgument = true;
 
             var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
             if (argumentType is null)
@@ -136,11 +143,6 @@ public sealed class ValidateAttribute : ActionFilterAttribute
 
             var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
             issues.AddRange(report.Issues);
-        }
-
-        if (RequireValidator && boundAnyArgument && !validatedAny)
-        {
-            throw new InvalidOperationException(BuildRequireValidatorMessage(context));
         }
 
         var aggregate = new ValidationReport(issues);
@@ -246,20 +248,86 @@ public sealed class ValidateAttribute : ActionFilterAttribute
     private static Type? DeclaredParameterType(ActionDescriptor actionDescriptor, string parameterName) =>
         actionDescriptor.Parameters.FirstOrDefault(p => p.Name == parameterName)?.ParameterType;
 
-    private static string BuildRequireValidatorMessage(ActionExecutingContext context)
-    {
-        var consideredTypes = context.ActionArguments
-            .Where(pair => pair.Value is not null)
-            .Select(pair => DeclaredParameterType(context.ActionDescriptor, pair.Key) ?? pair.Value!.GetType())
-            .Distinct()
-            .Select(FriendlyTypeName.Of)
-            .ToArray();
-        var subject = consideredTypes.Length > 0 ? string.Join(", ", consideredTypes) : "any argument";
+    // Strict mode is decided from the action's DECLARED parameters while MVC builds its
+    // application model — before the host serves anything — so a misconfiguration check can
+    // never be reached by a request's shape. It reports through the same convention seam the
+    // framework gives any attribute: MVC applies IActionModelConvention for a METHOD-level
+    // attribute and IControllerModelConvention for a CLASS-level one, both without an
+    // AddControllers(options => ...) registration, so [Validate] needs neither a startup hook
+    // nor DI to be checked. This is the shape the minimal-API half already ships
+    // (FormidableEndpointFilterExtensions.ThrowIfNoDeclaredParameter, which reads the handler's
+    // MethodInfo at filter-build time for the same reason).
+    void IActionModelConvention.Apply(ActionModel action) => ThrowIfNothingToValidate(action);
 
-        return $"[Validate(RequireValidator = true)] on {context.ActionDescriptor.DisplayName ?? "this action"} " +
-            $"found no registered validator for {subject} — register a FluentValidation IValidator<T> for at " +
-            "least one argument type and call services.AddFormidable() to install the adapter, or set RequireValidator = false.";
+    // A class-level [Validate] reaches MVC as a CONTROLLER convention and never as an action
+    // one: ActionModel.Attributes carries only the action method's own attributes, so
+    // IActionModelConvention alone would leave every class-level placement unchecked. Each
+    // action is judged on its own parameters, exactly as the group overload of the minimal-API
+    // extension checks each endpoint's own signature rather than sharing one answer.
+    void IControllerModelConvention.Apply(ControllerModel controller)
+    {
+        foreach (var action in controller.Actions)
+        {
+            ThrowIfNothingToValidate(action);
+        }
     }
+
+    private void ThrowIfNothingToValidate(ActionModel action)
+    {
+        if (!RequireValidator)
+        {
+            return;
+        }
+
+        if (_modelTypes.Length == 0)
+        {
+            // Discovery mode names no type: what makes a parameter validatable is a validator
+            // REGISTRATION, and no application-model convention can read DI. An action with no
+            // parameters at all is still decidable, and is the whole of what strict discovery
+            // mode can honestly claim.
+            if (action.Parameters.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"[Validate(RequireValidator = true)] on {Describe(action)} declares no parameters at all — " +
+                    "there is nothing to validate. Declare the model as a parameter, or set RequireValidator = false.");
+            }
+
+            return;
+        }
+
+        // Assignability, and in THIS direction, because it has to admit exactly what
+        // ResolveValidatedType would validate: an argument is validated as its DECLARED type
+        // when that type is one of _modelTypes, and otherwise as its own RUNTIME type when THAT
+        // is — and a bound instance's runtime type is always assignable to the parameter it
+        // bound to. So a parameter can carry a validated model exactly when some model type is
+        // assignable TO it, which covers the exact match and the base-typed parameter of a
+        // polymorphic hierarchy alike. (The minimal-API check tests the opposite direction
+        // because OfType<TModel> there matches a more DERIVED declared parameter; both checks
+        // say one thing — accept exactly what the runtime path would validate.)
+        foreach (var parameter in action.Parameters)
+        {
+            foreach (var modelType in _modelTypes)
+            {
+                if (parameter.ParameterInfo.ParameterType.IsAssignableFrom(modelType))
+                {
+                    return;
+                }
+            }
+        }
+
+        var subject = string.Join(", ", _modelTypes.Select(FriendlyTypeName.Of));
+        var declared = action.Parameters.Count == 0
+            ? "no parameters at all"
+            : string.Join(", ", action.Parameters.Select(p => FriendlyTypeName.Of(p.ParameterInfo.ParameterType)));
+
+        throw new InvalidOperationException(
+            $"[Validate(RequireValidator = true)] on {Describe(action)} found no parameter that could carry {subject} — " +
+            $"it declares {declared}. Declare the model as a parameter, drop the type from the attribute, " +
+            "or set RequireValidator = false.");
+    }
+
+    private static string Describe(ActionModel action) =>
+        $"{FriendlyTypeName.Of(action.Controller.ControllerType)}.{action.ActionMethod.Name}";
 
     // Closed-generic ValidateAsync MethodInfo per argument type, built once and reused for
     // every later request: the argument type set for a running app is small and fixed (it's

@@ -10,9 +10,9 @@ namespace Formidable.Blazor;
 /// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
-/// directly; any component that renders a message list reads <see cref="InlineMessageRole"/> and
-/// passes it to the shared list renderer, which adds the <c>role</c> attribute when the value is
-/// not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// directly; any component that renders a message list reads <see cref="InlineMessageLive"/> and
+/// passes it to the shared list renderer, which adds the <c>aria-live</c> attribute when the value
+/// is not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
 /// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
 /// to its own default for whichever member it needs.
 /// </summary>
@@ -38,8 +38,8 @@ internal interface IValidatingFieldReader
     /// </summary>
     bool WouldPassSubmit(FieldIdentifier field);
 
-    /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
-    string? InlineMessageRole { get; }
+    /// <summary>The configured <see cref="FormidableOptions.InlineMessageLive"/>, or null.</summary>
+    string? InlineMessageLive { get; }
 }
 
 /// <summary>
@@ -52,23 +52,26 @@ internal interface IValidatingFieldReader
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssClasses _classes;
     private readonly IFormValidationEngine _engine;
     private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
-    /// Creates a provider using the given class names, reading touched, pending, and advisory
-    /// state from <paramref name="engine"/>. Construction is a consumer's business only when their own
+    /// Creates a provider reading class names, touched, pending, and advisory state from
+    /// <paramref name="engine"/>. Construction is a consumer's business only when their own
     /// <c>EditContext.SetFieldCssClassProvider</c> call has replaced the installed one and they
     /// want Formidable's classes back, or when their own provider wants to delegate to this one:
-    /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
-    /// <see cref="FormidableFormContext.Engine"/>.
+    /// pass the engine, reachable through <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssClasses classes, IFormValidationEngine engine)
+    /// <remarks>
+    /// The class names are the engine's, deliberately, and there is no overload taking a
+    /// different set: a form whose native inputs answered with names its kit inputs did not
+    /// would be reporting the same field state two ways. A consumer who genuinely wants a
+    /// different map has the whole rule in public API — <see cref="FormidableCss.Compute"/> over
+    /// <see cref="IFormValidationEngine.GetFieldState"/> — and writes their own provider.
+    /// </remarks>
+    public FormidableFieldCssClassProvider(IFormValidationEngine engine)
     {
-        ArgumentNullException.ThrowIfNull(classes);
         ArgumentNullException.ThrowIfNull(engine);
-        _classes = classes;
         _engine = engine;
         _reader = engine as IValidatingFieldReader;
     }
@@ -105,6 +108,10 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             WouldPassSubmit = wouldPassSubmit
         };
 
-        return FormidableCss.Compute(state, _classes);
+        // Read at each computation, not held from construction: the options object is what a
+        // consumer reaches for to rename a class, and a provider holding the instance it was
+        // built with would leave native inputs answering with the old names while kit inputs,
+        // which read through the options at each render, answered with the new ones.
+        return FormidableCss.Compute(state, _engine.Options.CssClasses);
     }
 }

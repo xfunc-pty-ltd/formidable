@@ -14,6 +14,71 @@ namespace Formidable.Blazor;
 /// </remarks>
 public sealed class FormidableOptions
 {
+    /// <summary>Creates an instance holding each property's own default.</summary>
+    public FormidableOptions()
+    {
+    }
+
+    /// <summary>
+    /// Creates an instance holding every property's value from <paramref name="defaults"/> — the
+    /// answer to "app-wide defaults, and one form that differs in one setting". Resolution has no
+    /// merging step, so a form's <c>Options</c> parameter replaces the app-wide instance whole;
+    /// copying is how such a form keeps the settings it never meant to change, rather than
+    /// restating a design system's class names and a team's debounce to narrow a profile:
+    /// <c>new FormidableOptions(appWide) { LiveProfile = ValidationProfile.Draft }</c>.
+    /// </summary>
+    /// <param name="defaults">
+    /// The instance to copy from — usually the app-wide singleton that
+    /// <see cref="FormidableBlazorServiceCollectionExtensions"/>'s
+    /// <c>AddFormidableBlazor(Action&lt;FormidableOptions&gt;)</c> overload registered, injected
+    /// into the page. Nothing stops a form copying any other instance.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="defaults"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// What is copied is each property's VALUE, read once, here. Every value but one is a string,
+    /// a struct, an immutable <see cref="ValidationProfile"/> or a delegate, so for those the copy
+    /// and its source part company the moment it is built: a later change to the source's
+    /// <see cref="RefreshDebounce"/> does not reach a copy already made.
+    /// <see cref="CssClasses"/> is the exception, and it is SHARED rather than cloned
+    /// deliberately: its value is a mutable object, and the copy holds the same
+    /// <see cref="FormidableCssClasses"/> instance, so mutating that map's properties goes on
+    /// reaching this form as it reaches every other form resolving it. Cloning would split the
+    /// copying form off from the rest — a class map is read at each computation precisely so a
+    /// change reaches kit components and native <c>InputBase</c> components alike, and a private
+    /// clone would reintroduce that split one level up. The snapshot rule still applies to the
+    /// property itself: assigning a different <see cref="FormidableCssClasses"/> to the source
+    /// afterwards leaves the copy holding the map it was handed. A form that wants different class
+    /// names assigns a new map to its own copy.
+    /// Build the copy once and hold it, exactly as the class remarks above require of any instance
+    /// a form is handed.
+    /// </remarks>
+    public FormidableOptions(FormidableOptions defaults)
+    {
+        ArgumentNullException.ThrowIfNull(defaults);
+
+        LiveProfile = defaults.LiveProfile;
+        SubmitProfile = defaults.SubmitProfile;
+        RefreshDebounce = defaults.RefreshDebounce;
+        LiveDebounce = defaults.LiveDebounce;
+        TrackFormValidity = defaults.TrackFormValidity;
+        NormalizeOnSubmit = defaults.NormalizeOnSubmit;
+        ClickRecovery = defaults.ClickRecovery;
+        DisclosureOverride = defaults.DisclosureOverride;
+        RequiredOverride = defaults.RequiredOverride;
+        ShowRequiredIndicators = defaults.ShowRequiredIndicators;
+        RequiredIndicatorContent = defaults.RequiredIndicatorContent;
+        LiveDisclosure = defaults.LiveDisclosure;
+        SuppressedIssueDiagnostic = defaults.SuppressedIssueDiagnostic;
+        NeverRegisteredFieldDiagnostic = defaults.NeverRegisteredFieldDiagnostic;
+        VerifyRowKeys = defaults.VerifyRowKeys;
+        InlineMessageLive = defaults.InlineMessageLive;
+        DefensiveGateMessage = defaults.DefensiveGateMessage;
+        ModelLevelDisplayName = defaults.ModelLevelDisplayName;
+        ValidationFaultMessage = defaults.ValidationFaultMessage;
+        OrderIssues = defaults.OrderIssues;
+        CssClasses = defaults.CssClasses;
+    }
+
     /// <summary>
     /// Profile run on field changes. Defaults to <see langword="null"/>, which tracks
     /// <see cref="SubmitProfile"/> — including a custom one, and including one swapped at
@@ -304,14 +369,24 @@ public sealed class FormidableOptions
     public bool VerifyRowKeys { get; set; }
 
     /// <summary>
-    /// Role attribute applied to every message list — field-, collection- and model-level alike
+    /// The <c>aria-live</c> politeness applied to every message list — field-, collection- and
+    /// model-level alike
     /// (<c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>/<c>FormidableModelMessage</c>).
-    /// Defaults to <see langword="null"/>, which renders no <c>role</c> attribute at all. Set to
-    /// <c>"status"</c> to make each list its own polite live region, announced
-    /// to assistive technology as its content changes; recommended on forms that render no
-    /// <see cref="FormidableSummary"/>, which already announces on its own.
+    /// Defaults to <see langword="null"/>, which renders no <c>aria-live</c> attribute at all. Set
+    /// to <c>"polite"</c> to have each list announced to assistive technology as its content
+    /// changes, or <c>"assertive"</c> to interrupt whatever is being read; recommended on forms
+    /// that render no <see cref="FormidableSummary"/>, which already announces on its own.
     /// </summary>
-    public string? InlineMessageRole { get; set; }
+    /// <remarks>
+    /// <c>aria-live</c> rather than a <c>role</c>, and the difference is not cosmetic. A
+    /// <c>role</c> on the list element replaces the list role, which drops every <c>li</c> inside
+    /// out of the accessibility tree as presentational: the announcement arrives and the messages
+    /// stop being a list the visitor can move through. <c>status</c> and <c>alert</c> also carry
+    /// an implicit <c>aria-atomic</c> of true, so correcting one field reads back every message
+    /// still standing. <c>aria-live</c> costs neither — the list stays a list, and atomicity
+    /// stays false, so only what changed is announced.
+    /// </remarks>
+    public string? InlineMessageLive { get; set; }
 
     /// <summary>
     /// The sentence the all-suppressed defensive gate carries — the one model-level explanation a
@@ -418,11 +493,10 @@ public sealed class FormidableOptions
 
     /// <summary>Class names field components and native InputBase components apply based on field state.</summary>
     /// <remarks>
-    /// Change class names by mutating this instance's properties — every reader sees the change
-    /// at its next class computation. Replacing the instance reaches only the kit components,
-    /// which read it through the options at each render: the provider that classes native
-    /// InputBase components is handed the instance the engine was built with and keeps it, so a
-    /// replacement leaves kit and native inputs answering with different names.
+    /// Read at each class computation, on every surface. Mutating this instance's properties and
+    /// assigning a whole new instance are therefore the same lever: both reach kit components and
+    /// native InputBase components alike, from the next computation each makes. Nothing latches a
+    /// class map at engine construction.
     /// </remarks>
     public FormidableCssClasses CssClasses { get; set; } = new();
 }

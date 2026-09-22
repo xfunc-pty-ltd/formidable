@@ -23,8 +23,12 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
 
-        // Formidable's verdict rendered by the framework's own ValidationMessage, and the
-        // conditional aria pair on the NATIVE input (the deterministic focus-id convention).
+        // Formidable's verdict rendered by the framework's own ValidationMessage, and the two
+        // aria attributes this page renders by hand on the NATIVE input, both conditional on the
+        // field's current verdict: aria-invalid and aria-describedby (addressed through the
+        // deterministic focus-id convention). The page renders no aria-required, since its
+        // requirement is the one aria attribute a Formidable input answers from the rules rather
+        // than from a pass.
         await Expect(page.Locator(".validation-message")).ToHaveTextAsync("Nickname is required");
         await Expect(nickname).ToHaveAttributeAsync("aria-invalid", "true");
         await Expect(nickname).ToHaveAttributeAsync("aria-describedby", new Regex("-nickname-messages$"));

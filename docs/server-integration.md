@@ -31,8 +31,8 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 
 MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
 adapters funnel into one wire format, defined once in the dependency-free core package, so
-whichever one rejects a request, the same paths carry the same messages and the `advisories`
-extension is identical. Each then builds the ProblemDetails around them the way its own half of
+whichever one rejects a request on its validators' verdict, the same paths carry the same
+messages and the `advisories` extension is identical. Each then builds the ProblemDetails around them the way its own half of
 the framework does — the endpoint filter through `TypedResults.ValidationProblem`, the action
 filter through the app's `ProblemDetailsFactory` — and three differences follow from that, all of
 them the framework's rather than Formidable's. The action filter's `errors` reach the response
@@ -42,6 +42,8 @@ its own text for an empty message**, so an issue carrying none arrives as `""` f
 filter and as a sentence of MVC's from the action filter; and MVC's factory writes a **`traceId`
 whatever the host configured**, where `TypedResults.ValidationProblem` writes one only under
 `AddProblemDetails()`. A client keying on paths and reading messages is unaffected by all three.
+The one divergence that is not presentation happens before either adapter has a verdict to send
+at all, over a request body that bound to `null`: [Minimal APIs](#minimal-apis) below.
 On the client side,
 closing the loop is two calls: deserialize the 400 body, and hand it to
 `FormidableForm.ApplyServerIssues`. That second call applies the server's verdict at the severity
@@ -287,12 +289,14 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="InvalidOperationException"/> when the endpoint's request pipeline is built (a
     /// wiring bug) — routing materializes every mapped endpoint before it can match any
     /// request, so the throw fails every request to the application, loudly, rather than hiding
-    /// as a 500 on the one broken route; a declared <typeparamref name="TModel"/> parameter
-    /// bound to <see langword="null"/> — e.g. a nullable body parameter posted the JSON literal
-    /// <c>null</c> — returns the standard 400 validation shape with a model-level "A request
-    /// body is required." error instead, since a client can trigger that on every request. When
-    /// the handler declares more than one parameter of type <typeparamref name="TModel"/>, only
-    /// the first one is validated.
+    /// as a 500 on the one broken route. Whether a declared <typeparamref name="TModel"/>
+    /// parameter bound to <see langword="null"/> is acceptable is left to the PLATFORM, which
+    /// decides it from the declaration: a parameter the handler declared optional — nullable, or
+    /// carrying a default — reaches the handler with <see langword="null"/> exactly as it would
+    /// without this filter, and one the platform refuses gets the standard 400 validation shape
+    /// with a model-level "A request body is required." error in place of the bare, bodiless 400
+    /// the platform writes for it. When the handler declares more than one parameter of type
+    /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -326,9 +330,9 @@ public static class FormidableEndpointFilterExtensions
     /// bug), which fails route materialization as a whole: a group carrying a mis-wired
     /// endpoint fails every request to the application, loudly, rather than leaving that one
     /// endpoint to 500 among working siblings. An endpoint that HAS the parameter but received
-    /// <see langword="null"/> for it gets the standard 400 validation shape instead, per the
-    /// single-handler overload above. When an endpoint declares more than one parameter of type
-    /// <typeparamref name="TModel"/>, only the first one is validated.
+    /// <see langword="null"/> for it leaves that to the platform and enriches only a refusal,
+    /// per the single-handler overload above. When an endpoint declares more than one parameter
+    /// of type <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -350,8 +354,9 @@ public static class FormidableEndpointFilterExtensions
     // cannot hide as a 500 on one rarely-hit route: routing materializes every mapped endpoint
     // before it can match any request, so the mis-wiring fails every request to the application
     // until it is fixed. It also leaves ValidationEndpointFilter<TModel> free to read a null
-    // argument as exactly one thing: "the declared argument was bound null" (400 — a client can
-    // trigger this on every request).
+    // argument as exactly one thing: "the declared argument was bound null" — which it hands
+    // straight back to the platform to judge, since the declaration that decides it is not
+    // readable from the argument.
     // Assignability, not exact-type equality: a handler may declare a MORE DERIVED parameter
     // type than TModel, and InvokeAsync's own retrieval (context.Arguments.OfType<TModel>())
     // already treats that as a match — an exact-type check here would disagree and misreport a
@@ -381,11 +386,12 @@ namespace Formidable.AspNetCore;
 /// <summary>
 /// Runs normalize + profile validation for one endpoint argument type, stashing the computed
 /// report on the request for <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>.
-/// Always fails closed: a declared parameter bound to null 400s, and an unresolvable
-/// <see cref="IModelValidator{TModel}"/> throws. An endpoint with no parameter of this type at
-/// all never reaches the filter — the endpoint filter factory in
+/// Fails closed on wiring and never on a declaration: an unresolvable
+/// <see cref="IModelValidator{TModel}"/> throws, and an endpoint with no parameter of this type
+/// at all never reaches the filter — the endpoint filter factory in
 /// <see cref="FormidableEndpointFilterExtensions"/> throws for it while the endpoint's request
-/// pipeline is being built.
+/// pipeline is being built. A parameter bound to <see langword="null"/> is the platform's
+/// decision, not this filter's: it is passed on, and only the refusal is enriched.
 /// </summary>
 internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
     where TModel : class
@@ -404,12 +410,32 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
         if (model is null)
         {
             // The filter factory refuses endpoints with no parameter of this type, so null here
-            // can only mean the declared parameter was bound to null — e.g. a nullable body
-            // parameter posted the JSON literal `null`. Any anonymous client can trigger this
-            // on every request, so it gets the standard 400 validation shape instead of an
-            // exception.
-            var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
-            return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
+            // means the declared parameter itself was bound to null. Whether that is acceptable
+            // is the PLATFORM's decision and is made from the DECLARATION — nullability, a
+            // default value, an EmptyBodyBehavior — none of which a filter can read from a null
+            // argument: the null branch is reached for a non-nullable parameter and a nullable
+            // one alike. So the decision is delegated by calling next, exactly as if this filter
+            // were not installed, and a consumer who declared the parameter optional is never
+            // second-guessed. Reproducing the rule instead would mean owning a replica of it
+            // that already differs between the two hosting models in one framework version.
+            var passed = await next(context);
+            var response = context.HttpContext.Response;
+
+            // Enriched only where the platform is SEEN to have refused: the handler was skipped
+            // (an empty result), a 400 stands on the response, and nothing has gone out yet. The
+            // platform's own refusal is a bare Content-Length: 0 — cause-blind even with
+            // ProblemDetails configured — so this restores the standard validation shape without
+            // deciding anything. Everything else falls through as whatever next produced, which
+            // is why the degrade path cannot be a wrong decision: it is pure delegation.
+            if (passed is EmptyHttpResult
+                && response.StatusCode == StatusCodes.Status400BadRequest
+                && !response.HasStarted)
+            {
+                var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
+                return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
+            }
+
+            return passed;
         }
 
         (model as INormalizableModel)?.Normalize();
@@ -443,11 +469,29 @@ request can influence, so the factory refuses it with an `InvalidOperationExcept
 endpoint's request pipeline is built. Routing materializes every mapped endpoint before it can
 match any request, which makes the refusal loud on purpose: one mis-wired endpoint fails every
 request to the application until it is fixed, rather than hiding as a 500 on the one broken
-route. A declared `TModel` argument bound to `null` (a nullable body parameter posted the JSON
-literal `null`) is something any anonymous client can trigger on every request, so it is
-answered at request time with the standard 400 validation shape: a model-level `"A request body
-is required."` error, using the same `ValidationReportProblemMapper.ToErrorDictionary` mapping
-every other rejection in this document uses, not a one-off shape. Neither filter has a discovery
+route. A declared `TModel` argument bound to `null` is a different thing entirely: whether a
+missing body is acceptable is something the endpoint's own signature already answers, and the
+platform reads that answer — nullability, a default value, an `[FromBody]` `EmptyBodyBehavior` —
+before the filter is reached. So the filter hands the decision back by calling `next`, exactly as
+if it were not installed. Declare the parameter nullable and the handler runs with `null`, as it
+would with no filter in front of it; declare it non-nullable and the platform refuses the request
+itself. What the filter does then is fill in the answer, not make it: the platform's own refusal
+is a bare 400 with `Content-Length: 0` — cause-blind even with `AddProblemDetails()` and
+`UseStatusCodePages()` configured — and the filter replaces that empty body with a model-level
+`"A request body is required."` error through the same
+`ValidationReportProblemMapper.ToErrorDictionary` mapping every other rejection in this document
+uses. It only does so where the platform is visibly the one refusing: an empty result came back,
+a 400 stands on the response, and nothing has been written yet. Anything else — a downstream
+filter's own 400, a response already on the wire — passes through untouched, so the failure mode
+of the check is plain delegation rather than a wrong answer.
+
+This is the one place the two adapters part company on more than presentation, and it parts the
+way the two halves of the framework do. MVC binds `null` and runs the action with
+`ModelState` still valid — for a nullable parameter under `[ApiController]` and for any body
+parameter on a plain `Controller` alike — so `[Validate]` has nothing to validate and says
+nothing. The endpoint filter reaches the same place from the other side: it declines to decide,
+and minimal APIs happen to decide more strictly than MVC for a non-nullable parameter. Neither
+adapter is imposing a rule of Formidable's own. Neither filter has a discovery
 mode to silently skip a resolvable-but-unregistered validator either:
 `GetRequiredService<IModelValidator<TModel>>()` throws on its own if `AddFormidable()` was never
 called, so there is no equivalent to `[Validate]`'s `RequireValidator` needed here (see below).
@@ -520,7 +564,6 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
         var services = context.HttpContext.RequestServices;
         var issues = new List<ValidationIssue>();
         var validatedAny = false;
-        var boundAnyArgument = false;
 
         foreach (var (name, argument) in context.ActionArguments)
         {
@@ -528,8 +571,6 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
             {
                 continue;
             }
-
-            boundAnyArgument = true;
 
             var argumentType = ResolveValidatedType(context.ActionDescriptor, name, argument, services);
             if (argumentType is null)
@@ -567,11 +608,6 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
             var report = await InvokeValidateAsync(validator, argumentType, argument, profile, context.HttpContext.RequestAborted);
             issues.AddRange(report.Issues);
-        }
-
-        if (RequireValidator && boundAnyArgument && !validatedAny)
-        {
-            throw new InvalidOperationException(BuildRequireValidatorMessage(context));
         }
 
         var aggregate = new ValidationReport(issues);
@@ -616,8 +652,9 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 *Source: `src/Formidable.AspNetCore/ValidateAttribute.cs`*
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
-`IsValid` gate runs once, after the loop; a `null` argument does not count toward
-`RequireValidator`'s "did this action bind anything at all" check below. `BuildProblem`, just out
+`IsValid` gate runs once, after the loop. Nothing in the loop can throw over what a request bound
+or failed to bind: strict mode is settled from the action's declared parameters long before, and
+is described below. `BuildProblem`, just out
 of view above, is where the errors become a response: it copies the mapper's dictionary into a
 `ModelStateDictionary` — lifting that dictionary's default error cap, since a validation report
 legitimately runs to one issue per collection row — and hands it to the app's own
@@ -662,29 +699,47 @@ runs; when the action descriptor carries no matching declared parameter at all (
 `ActionDescriptor` outside MVC's own pipeline), the runtime type is used directly, with no
 declared type to prefer. The one residual this order leaves: a derived-only validator
 registration, or an unregistered `$type`, combined with no validator for the declared type either,
-still skips the argument silently — see Strict validator resolution below for the way to turn that
-into a thrown misconfiguration instead. The minimal-API side gives derived instances the same
+still skips the argument silently — name the base type on the attribute
+(`[Validate(typeof(Order))]`) to close it, which is the recommended shape for any action that
+accepts polymorphic model binding: an explicit type is validated as the declared type whatever the
+runtime type turns out to be, and a missing `IValidator<Order>` for it throws rather than being
+skipped. The minimal-API side gives derived instances the same
 base-type guarantee for a different reason: `ValidationEndpointFilter<TModel>`'s `OfType<TModel>`
 above treats `TModel` as fixed at the call site rather than probed from the argument, so there's
 no runtime type to steer in the first place.
 
 ### Strict validator resolution
 
-`RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException`,
-naming the argument type(s) it considered and how to register a validator for them, when the
-action bound at least one non-null argument but validated none of them. Off by default: an action
-mixing validatable models with ordinary parameters (route values, query strings, injected
-services) legitimately validates nothing on a request with no model argument, and that is not a
-misconfiguration worth failing loudly over. A request that binds nothing at all — a null or empty
-body for a nullable parameter — is likewise not a misconfiguration, since any anonymous client can
-trigger it, so `RequireValidator` stays silent for that case too: it only fires when something was
-actually bound and none of it validated. Turn it on once every argument on an action *should*
-carry a validator, so a lost registration — a refactor that silently drops
-`AddValidatorsFromAssembly()`, or an explicit constructor type (`[Validate(typeof(Order))]`) that
-no longer matches any parameter — announces itself as a 500 instead of quietly validating
-nothing. It is also the recommended setting for any endpoint that accepts polymorphic model
-binding, turning the declared-type/runtime-type resolution's residual (above) into a thrown
-misconfiguration rather than a silent skip.
+`RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException` when
+the action could never hand the filter anything to validate — an explicit constructor type
+(`[Validate(typeof(Order), RequireValidator = true)]`) that matches no declared parameter is the
+case it catches. It is decided from the action's DECLARED parameters, and MVC applies it while it
+builds its application model, so the message names the model type the attribute asked for and the
+host stops before it serves anything. No request shape reaches it: an action's parameter list is
+fixed, where what a request happens to bind is not.
+
+That is the same design the minimal-API half already ships — `ThrowIfNoDeclaredParameter`
+[above](#minimal-apis) reads the handler's `MethodInfo` while the endpoint's pipeline is built —
+and it reports through the seam the framework gives any attribute for it. MVC applies
+`IActionModelConvention` for an attribute on a method and `IControllerModelConvention` for one on
+a class, both without an `AddControllers(options => …)` registration, so `[Validate]` needs no
+startup hook of its own. A class-level `[Validate(RequireValidator = true)]` is judged action by
+action, exactly as the group overload on the minimal-API side checks each endpoint's own
+signature.
+
+Off by default: an action mixing validatable models with ordinary parameters (route values, query
+strings, injected services) is free to declare no model at all, and that is not a
+misconfiguration. What it can decide also depends on whether you name the types. With explicit
+types it answers exactly: the parameter list either could carry one of them or could not. With no
+explicit types the attribute discovers what to validate from validator *registration*, which an
+application-model convention cannot read — there is no DI while the model is being built — so
+strict mode there can only insist that the action declares parameters at all.
+
+That is a deliberate line, not a gap the check fell short of: a lost registration is reported
+where a resolution actually fails, which is louder and more specific than strict mode ever was. A
+named type with no `IValidator<T>` throws pointing at `AddValidatorsFromAssembly`, and an unwired
+adapter throws pointing at `AddFormidable()`. **Naming the model types is what makes strict mode
+strict** — and it is the same move that closes the polymorphic residual above.
 
 ### Profile string mapping
 

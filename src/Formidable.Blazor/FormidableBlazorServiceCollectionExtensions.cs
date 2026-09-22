@@ -27,7 +27,10 @@ public static class FormidableBlazorServiceCollectionExtensions
     /// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
     /// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
     /// design system's class names or a team's debounce are stated once for the whole app instead
-    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed.
+    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed, and
+    /// wins whole: resolution has no merging step, so a form that differs in one setting copies
+    /// this instance rather than restating the rest — see
+    /// <see cref="FormidableOptions(FormidableOptions)"/>.
     /// Existing registrations are respected.
     /// </summary>
     /// <remarks>

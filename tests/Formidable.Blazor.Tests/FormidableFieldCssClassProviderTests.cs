@@ -132,7 +132,7 @@ public class FormidableFieldCssClassProviderTests
             HasErrors = false, HasWarnings = true, HasInfos = false
         };
         var engine = new FieldStateStubEngine(editContext, state);
-        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+        var provider = new FormidableFieldCssClassProvider(engine);
 
         Assert.Equal("formidable-warning", provider.GetFieldCssClass(editContext, field));
     }
@@ -205,7 +205,7 @@ public class FormidableFieldCssClassProviderTests
             HasErrors = false, HasWarnings = false, HasInfos = false
         };
         var engine = new FieldStateStubEngine(editContext, state);
-        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+        var provider = new FormidableFieldCssClassProvider(engine);
 
         Assert.False(editContext.IsModified(field));
 
@@ -227,7 +227,7 @@ public class FormidableFieldCssClassProviderTests
             HasErrors = false, HasWarnings = false, HasInfos = false, WouldPassSubmit = false
         };
         var engine = new FieldStateStubEngine(editContext, state);
-        var provider = new FormidableFieldCssClassProvider(new FormidableCssClasses(), engine);
+        var provider = new FormidableFieldCssClassProvider(engine);
 
         Assert.Equal("formidable-pending", provider.GetFieldCssClass(editContext, field));
     }

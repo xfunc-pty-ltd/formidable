@@ -383,7 +383,8 @@ exception only for those two kinds of pass, so a fault during submit propagates 
 instead of leaving a blocked verdict behind.
 An app that never registered `IFormidableFocusService` (only `AddFormidable()`, not
 `AddFormidableBlazor()`) gets silence rather than a resolution failure. A focus miss is different:
-when no element carries the field's id yet — a row scrolled out of a `Virtualize` window, say —
+when the field does not take focus — nothing carries its id yet, as for a row scrolled out of a
+`Virtualize` window, or something does carry it and will not accept it —
 the form retries it once through its own `FocusFallback` parameter, identical in name and delegate
 shape to [`FormidableSummary.FocusFallback`](#focusfallback) below, so a page wiring both typically
 passes the same callback to each. With no `FocusFallback` wired, the miss does not fall silent the
@@ -391,9 +392,13 @@ way the summary's click-to-focus does. A blocked submit has nowhere else for the
 so it reports a diagnostic instead: a `Trace`-output line, plus a `LogWarning` naming
 `FocusFallback` by parameter name when the host resolved an `ILoggerFactory` — the same dual
 channel [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) writes to.
-A field that is on the page and still out of reach — under a modal, inside a collapsed section —
-produces no miss at all to recover, so it is [`PrepareFocus`](#preparefocus) rather than the
-fallback that clears the way for it.
+Which of the two seams a page needs turns on one question: can the element take focus at the
+moment the move is made? A field under a CSS overlay can, so the move lands and reports success,
+and the caret ends up in a box the visitor cannot see. Only
+[`PrepareFocus`](#preparefocus) prevents that, because it runs before the attempt. A field inside a
+collapsed section cannot, so that move does miss and the fallback gets its one retry — but
+`PrepareFocus` is still the better seam for it, clearing the way before anything is tried rather
+than after something has already failed.
 Set `FocusFirstErrorOnInvalidSubmit="false"` to turn the automatic move off for every submit, and
 [ask for it yourself](#asking-for-the-first-error-move) when the page is ready.
 
@@ -1001,8 +1006,9 @@ Four rules apply to anything derived from the base:
   implements both interfaces — a control with a `DisposeAsync` has to call `Dispose()` from it.
 - **Leave the two shared-lifecycle hooks alone unless you mean it.** `ObservesEngineState` is why a
   control re-renders when a validation pass lands; overriding it to `false` on something that
-  renders a verdict freezes that verdict — the state class and the aria pair keep whatever values
-  the last render happened to give them. `OnEngineStateChanged` is the relay itself: override it to
+  renders a verdict freezes that verdict — the state class, `aria-invalid` and `aria-describedby`
+  keep whatever values the last render happened to give them, and `aria-required` stops following
+  the rules the same way. `OnEngineStateChanged` is the relay itself: override it to
   do something extra on every pass, and call `base` so the re-render still happens. Which field the
   control speaks for is not adjustable at all — `Register` is sealed on `FormidableInputBase`,
   because an input that resolved a different field, or none, would render no id, register nothing
@@ -1347,9 +1353,9 @@ Every field needs somewhere to show what's wrong with it. `FormidableFieldMessag
 field's current issues, any severity, as an accessible list. The list element itself renders
 always — empty when the field has none — so a consumer's CSS can transition it open and closed the
 way the sample transitions [`FormidableSummary`](#formidablesummary), whose wrapper and regions
-persist the same way while its bands come and go, and so a configured `InlineMessageRole` sits on
+persist the same way while its bands come and go, and so a configured `InlineMessageLive` sits on
 an element that persists across renders rather than one that enters alongside the text it
-announces (see [Options](options.md#inlinemessagerole)). It shares one base
+announces (see [Options](options.md#inlinemessagelive)). It shares one base
 (`FormidableMessageBase<TValue>`) with its collection-level sibling
 for resolving `For`, subscribing to the engine's `StateChanged`, and rendering that same list.
 That base is public only because a public component cannot inherit a less accessible base; its
@@ -1361,9 +1367,9 @@ consumer's attributes enter the render tree first and the computed ones after, s
 value wins the duplicate. A splatted `class` is merged rather than replaced, the splatted value
 first and `formidable-message-list` after. A splatted `id` is ignored, because the rendered id is
 the `aria-describedby` target every input describing itself by this list points at. And while
-[`InlineMessageRole`](options.md#inlinemessagerole) is set, the `role` it configures wins a
+[`InlineMessageLive`](options.md#inlinemessagelive) is set, the `aria-live` it configures wins a
 splatted one: the list's live-region behaviour is that option's to decide, form-wide. With the
-option unset the kit computes no `role`, so a splatted one stands.
+option unset the kit computes no `aria-live`, so a splatted one stands.
 
 One base method decides whether rendering a message list also registers the field it lists:
 
@@ -1440,11 +1446,11 @@ always-rendered `<ul class="formidable-message-list">`, empty while the form has
 items entering and leaving as `formidable-message formidable-message--{severity}`. Its id is the
 model-level message id — the form element's own id plus `-messages`, per
 `FormidableFieldId.MessagesFor` — and a configured
-[`InlineMessageRole`](options.md#inlinemessagerole) sits on the persistent element. That role is
-the point on a summary-less form: the gate's explanation arrives inside a live region assistive
-technology already knew about, rather than in an element inserted alongside the text it should
-announce. The splat and its policies are the message components' own (a splatted `class` merges,
-the computed `id` wins, a configured role wins a splatted one).
+[`InlineMessageLive`](options.md#inlinemessagelive) sits on the persistent element. That
+announcement is the point on a summary-less form: the gate's explanation arrives inside a live
+region assistive technology already knew about, rather than in an element inserted alongside the
+text it should announce. The splat and its policies are the message components' own (a splatted
+`class` merges, the computed `id` wins, a configured `aria-live` wins a splatted one).
 
 It registers nothing. Registration is how a *field's* submit errors earn disclosure; the
 model-level field is always disclosed, because its element is the form's own, on the page for as
@@ -1651,16 +1657,17 @@ Each item is a button, and a click on it runs the component's own `ActivateAsync
 focus to the offending field through `IFormidableFocusService`:
 
 ```csharp
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
+                builder.AddAttribute(entrySequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableSummary.cs`*
 
-Click-to-focus can only reach an element that's actually rendered — a row scrolled out of a
-virtualized container's window, for instance, has no DOM element yet to focus even though its
-summary entry is genuinely still there. `FocusFallback` is the escape hatch for that gap,
+Click-to-focus reaches a rendered element that will take focus. A row scrolled out of a
+virtualized container's window has no DOM element yet, and an element inside a collapsed section
+has one that refuses; either way the click lands nowhere and the entry is a miss.
+`FocusFallback` is the escape hatch for that gap,
 covered once the seams that need it are in view — see [FocusFallback](#focusfallback) below, and
-[PrepareFocus](#preparefocus) beside it for a field the click can reach but the visitor cannot.
+[PrepareFocus](#preparefocus) beside it for a field the caret can reach but the visitor cannot see.
 
 ### The order entries appear in
 
@@ -1927,7 +1934,7 @@ private async Task HandleSubmit()
 
 A blocked submit through it lands the visitor on the first error, under the same
 `FocusFirstErrorOnInvalidSubmit` switch, clears the way ahead of that move through the same
-[`PrepareFocus`](#preparefocus) seam, and reaches a first error with no rendered element to focus
+[`PrepareFocus`](#preparefocus) seam, and recovers a first error that does not take focus
 through the same `FocusFallback` seam. All three parameters carry the names, defaults and delegate
 shape they carry on `FormidableForm`, so a page that wants one callback recovering both its
 summary's clicks and its submit's auto-focus writes that callback once and hands it to each.
@@ -2182,9 +2189,10 @@ public sealed class FormidableFieldContext
 *Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
 
 Everything a hand-rolled control needs is on that context: `ElementId` for the id to render,
-`CssClass` for the same state class a Formidable input would compute, `AriaInvalid`/
-`AriaDescribedBy` for the same aria pair, `Requirement` for what the submit profile demands of
-the field, `InputAttributes` to splat every one of them in one go, and
+`CssClass` for the same state class a Formidable input would compute, `AriaInvalid` and
+`AriaDescribedBy` for the same `aria-invalid` and `aria-describedby` an input renders,
+`Requirement` for what the submit profile demands of the field — the answer `aria-required`
+follows — `InputAttributes` to splat every one of them in one go, and
 `NotifyChanged()`/`MarkTouched()` to drive the engine the way a Formidable input's own change
 handler does internally. The worked example — wrapping a plain `<select>`, including how to
 label it correctly — is one of the seams below, in
@@ -2338,18 +2346,21 @@ it into.
 
 `FormidableSummary`'s click-to-focus targets elements in the DOM. `FocusAsync` locates the target by
 DOM id (see [CSS and accessibility](css-and-accessibility.md) for the focus service's
-mechanism), so a click can only reach an element that is actually rendered right now. A field
+mechanism) and answers whether that element took focus, so a click reaches only an element that is
+rendered right now and willing to take it. A field
 whose row sits outside a `Virtualize` container's current render window keeps its summary entry
-(the issue is genuinely still there) but has no DOM element yet for the button to focus.
-`FocusFallback` is the escape hatch for exactly that gap:
+(the issue is genuinely still there) but has no DOM element yet for the button to focus; a field
+inside a closed `<details>` has one that refuses. `FocusFallback` is the escape hatch for both:
 
 ```csharp
     /// <summary>
-    /// Invoked when a clicked issue's element is not in the DOM (focus miss) — e.g. a virtualized
-    /// row outside the render window. Return <c>true</c> after making the element renderable
-    /// (scrolling its container, expanding a section) and the summary retries the focus exactly
-    /// once; return <c>false</c> to leave the miss as-is. When unset, a miss is silently ignored,
-    /// matching the component's pre-fallback behaviour.
+    /// Invoked when a clicked issue's element does not take focus (focus miss) — nothing on the
+    /// page carries the field's id, as for a virtualized row outside the render window, or the
+    /// element that carries it will not take focus, as one inside a collapsed section will not.
+    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+    /// that section) and the summary retries the focus exactly once; return <c>false</c> to leave
+    /// the miss as-is. When unset, a miss is silently ignored, matching the component's
+    /// pre-fallback behaviour.
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -2358,8 +2369,9 @@ whose row sits outside a `Virtualize` container's current render window keeps it
 *Source: `src/Formidable.Blazor/FormidableSummary.cs`*
 
 Give `FormidableSummary` a `FocusFallback` for controls it might miss. The callback receives the field
-identifier on a focus miss: make the element renderable (for example, scroll the virtualized
-container to the row's offset), return `true`, and the summary retries the focus once.
+identifier on a focus miss: make the element reachable (scroll the virtualized container to the
+row's offset, open the section around it, enable the control), return `true`, and the summary
+retries the focus once.
 [Virtualize and `KeepRegistered`](#virtualize-and-keepregistered) below walks the sample's own
 fallback end to end — its fallback scrolls by approximate row height and lets the retried focus
 centre the row exactly. A fixed post-scroll delay keeps the sample honest and simple; a
@@ -2371,10 +2383,11 @@ makes (see [above](#formidableformtmodel)) can miss the same way a summary click
 
 ```csharp
     /// <summary>
-    /// Invoked once when the first error one of this form's own focus moves aimed at has no
-    /// rendered element to focus (e.g. a virtualized row outside the render window). Return
-    /// <c>true</c> after making the element renderable (scrolling its container, expanding a
-    /// section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// Invoked once when the first error one of this form's own focus moves aimed at does not
+    /// take focus: no element renders its id, as for a virtualized row outside the render window,
+    /// or the element that does will not take focus, as one inside a collapsed section will not.
+    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+    /// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
     /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
     /// wiring both typically passes the same callback to each. When unset, a miss reports a
     /// diagnostic instead of the summary's silent default: those moves have nowhere else for the
@@ -2399,12 +2412,14 @@ overload makes for a rejected round trip, and the one a page asks for with `Focu
 
 ## `PrepareFocus`
 
-`FocusFallback` recovers a move that has already missed. Some fields are unreachable without ever
-producing a miss: a modal dialog announcing the blocked submit sits over the form, a collapsed
-section wraps the field, a tab panel other than the visible one holds it. The element is in the
-DOM the whole time, so `FocusAsync` finds it and moves focus to it behind the overlay, reports
-success, and no fallback fires. `PrepareFocus` is the seam that runs first, so the page can clear
-the way before a move is attempted at all.
+`FocusFallback` recovers a move that has already missed. A field can be unreachable without ever
+producing one: a modal dialog announcing the blocked submit sits over the form, its overlay
+covering the field while leaving it perfectly focusable, so `FocusAsync` moves focus to it behind
+the overlay, reports success, and no fallback fires. The caret is now in a box the visitor cannot
+see. `PrepareFocus` is the seam that runs first, so the page can clear the way before a move is
+attempted at all. It is the better seam even where a miss would be reported — a collapsed section
+around the field, a hidden tab panel holding it — since clearing the way before the attempt beats
+recovering after it.
 
 `FormidableForm`, `FormidableValidator` and `FormidableSummary` all take it, with the same
 delegate shape on each, so one page callback wires to all three exactly as one `FocusFallback`
@@ -2527,7 +2542,10 @@ app-wide default, which every form that omits its own `Options` parameter then u
     /// <see cref="FormidableOptions"/> singleton configured by <paramref name="configureDefaults"/>.
     /// Every Formidable form that omits its own <c>Options</c> parameter uses that instance, so a
     /// design system's class names or a team's debounce are stated once for the whole app instead
-    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed.
+    /// of on every form. A form's own <c>Options</c> parameter still wins where it is passed, and
+    /// wins whole: resolution has no merging step, so a form that differs in one setting copies
+    /// this instance rather than restating the rest — see
+    /// <see cref="FormidableOptions(FormidableOptions)"/>.
     /// Existing registrations are respected.
     /// </summary>
     /// <remarks>
@@ -2554,7 +2572,8 @@ app-wide default, which every form that omits its own `Options` parameter then u
 That is the second step of the three-step options order stated in [Need to
 know](#need-to-know): parameter, then this, then `new FormidableOptions()`. A design system's
 class names belong here rather than on every page — see [Engine
-options](options.md#app-wide-defaults).
+options](options.md#app-wide-defaults), which works through the copy a form builds when it wants
+those defaults and one setting of its own.
 
 ## `FormidableCultureBootstrap`
 
@@ -2716,7 +2735,7 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
 `InputBase` descendant in the form picks it up automatically, Formidable-aware or not:
 
 ```csharp
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses, this));
+        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
@@ -2738,9 +2757,10 @@ The three attributes on that same line finish the crossing. A Formidable input r
 `-messages` id, and emits `aria-invalid="true"` while the field has errors. A native input
 renders none of them, so the page derives them from the same sources the kit uses: a small
 `NicknameId` property in the code-behind, and the engine's `GetFieldState(field).HasErrors` for
-`aria-invalid` (a `null` value renders no attribute at all). The id is the entirety of what
-`FormidableSummary`'s click-to-focus looks up, so with it the native field takes the summary's
-click exactly like a wrapped one (see [CSS and accessibility](css-and-accessibility.md)). One
+`aria-invalid` (a `null` value renders no attribute at all). Looking the target up is the id's
+whole job, and an `<input>` takes focus without further help, so with the id the native field takes
+the summary's click exactly like a wrapped one (see
+[CSS and accessibility](css-and-accessibility.md)). One
 addition per concern: `FormidableFieldAnchor` for submit-time disclosure, the id for focus,
 `aria-describedby` and `aria-invalid` for the assistive-technology story. Attributes derived from
 engine state need

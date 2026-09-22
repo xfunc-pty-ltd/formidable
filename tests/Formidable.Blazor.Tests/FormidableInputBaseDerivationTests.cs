@@ -12,9 +12,10 @@ namespace Formidable.Blazor.Tests;
 /// Derives a control from <see cref="FormidableInputBase{TValue}"/> the way a consumer does —
 /// from outside the library's assembly, with nothing but the public and protected surface — and
 /// pins what the base hands it: field registration, the deterministic element id, the state class
-/// merged with a splatted one, the aria pair, and value commit. The derive-your-own recipe in
-/// docs/component-kit.md quotes <see cref="RatingInput"/> as its worked example, so these
-/// assertions are that recipe's proof.
+/// merged with a splatted one, <c>aria-invalid</c>, <c>aria-describedby</c> and
+/// <c>aria-required</c>, and value commit. The derive-your-own recipe in docs/component-kit.md
+/// quotes <see cref="RatingInput"/> as its worked example, so these assertions are that recipe's
+/// proof.
 /// </summary>
 public class FormidableInputBaseDerivationTests : BunitContext
 {
@@ -89,11 +90,25 @@ public class FormidableInputBaseDerivationTests : BunitContext
         });
     }
 
+    /// <summary>
+    /// All three aria attributes the base renders, and the fact that they do not answer the same
+    /// question: <c>aria-invalid</c> and <c>aria-describedby</c> follow the field's current
+    /// verdict, so they arrive with one and leave with it, while <c>aria-required</c> follows the
+    /// submit profile's declared rules and is therefore on the element before any pass has run
+    /// and unmoved by the one that lands. Mutations that must break it: stop rendering
+    /// <c>aria-required</c> and both of its assertions fail; gate it on <c>state.HasErrors</c>
+    /// like <c>aria-invalid</c> and the pre-pass assertion fails alone.
+    /// </summary>
     [Fact]
     public void Derived_control_gets_the_aria_wiring()
     {
         var feedback = new Feedback();
         var form = RenderRating(feedback);
+
+        var clean = form.Find("input");
+        Assert.Equal("true", clean.GetAttribute("aria-required"));
+        Assert.Null(clean.GetAttribute("aria-invalid"));
+        Assert.Null(clean.GetAttribute("aria-describedby"));
 
         form.Find("input").Change("9");
 
@@ -102,6 +117,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
             var input = form.Find("input");
             Assert.Equal("true", input.GetAttribute("aria-invalid"));
             Assert.Equal($"{input.GetAttribute("id")}-messages", input.GetAttribute("aria-describedby"));
+            Assert.Equal("true", input.GetAttribute("aria-required"));
         });
     }
 
@@ -325,7 +341,9 @@ public sealed class FeedbackValidator : DraftSubmitValidator<Feedback>
     protected override void ConfigureDraftRules() =>
         RuleFor(x => x.Rating).InclusiveBetween(1, 5).WithMessage("Rating must be between 1 and 5");
 
-    protected override void ConfigureSubmitRules()
-    {
-    }
+    // A presence demand in the submit bucket, so the field is Required under the submit profile
+    // and the base renders aria-required for it. Rating is an int, where NotEmpty() reads zero as
+    // no answer, which is what an unset rating is.
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(x => x.Rating).NotEmpty().WithMessage("Rating is required");
 }

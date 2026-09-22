@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
@@ -72,6 +75,20 @@ public sealed class OrdersController : ControllerBase
     [HttpPost("empty-message")]
     [Validate(typeof(EmptyMessageModel))]
     public IActionResult EmptyMessage([FromBody] EmptyMessageModel model) => Ok(model);
+}
+
+/// <summary>A plain <see cref="Controller"/> — no <c>[ApiController]</c>, so none of the
+/// framework's automatic 400s stand between a request and the action. Its strict action binds a
+/// route value beside its body, which is the shape that used to make a null body a 500: the route
+/// value counted as "the action bound something", the null body validated nothing, and strict mode
+/// read the pair as a misconfiguration.</summary>
+[Route("plain")]
+public sealed class PlainOrdersController : Controller
+{
+    [HttpPost("strict/{id:int}")]
+    [Validate(RequireValidator = true)]
+    public IActionResult StrictWithRouteValue(int id, [FromBody] SampleOrder order) =>
+        Ok(new { id, bodyWasNull = order is null });
 }
 
 /// <summary>Validated by a validator reporting an error with no message — the shape the wire
@@ -171,8 +188,10 @@ public class RushOnlyPolymorphicOrderValidator : DraftSubmitValidator<RushOnlyPo
         RuleFor(order => order.Description).NotEmpty().WithMessage("Required");
 }
 
-/// <summary>Never has a validator registered anywhere in this file's test apps — pins the
-/// <c>RequireValidator</c> strict-mode throw.</summary>
+/// <summary>Never has a validator registered anywhere in this file's test apps — pins where a
+/// missing registration is reported: naming the type on the attribute makes the resolution fail
+/// loudly, while discovery mode skips the argument and strict mode has nothing to say about
+/// it.</summary>
 public class UnregisteredModel
 {
     public string Name { get; set; } = string.Empty;
@@ -513,17 +532,102 @@ public class ValidateAttributeTests
     }
 
     [Fact]
-    public async Task RequireValidator_throws_when_the_action_validates_nothing()
+    public async Task RequireValidator_fails_the_host_when_no_parameter_could_carry_the_named_model()
+    {
+        // The misconfiguration strict mode exists to catch: a named type that matches no declared
+        // parameter. It is decided from the parameter list alone, so it is settled while MVC
+        // builds its application model -- the host never starts, and no request is ever made.
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartFixedControllerAppAsync(typeof(NamedTypeMatchesNothing)));
+
+        // Names the DECLARED model type. The old message listed the runtime types of whatever
+        // happened to bind, so an action taking a route value reported "Int32" and never the
+        // model whose validator was the point.
+        Assert.Contains(nameof(SampleOrder), exception.Message);
+        Assert.Contains(nameof(NamedTypeMatchesNothing.NoModel), exception.Message);
+        Assert.Contains("RequireValidator", exception.Message);
+    }
+
+    [Fact]
+    public async Task A_class_level_RequireValidator_is_checked_for_every_action_of_the_controller()
+    {
+        // A class-level attribute reaches MVC as a CONTROLLER convention and never as an action
+        // one, so covering only IActionModelConvention would leave this placement unchecked.
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartFixedControllerAppAsync(typeof(ClassLevelStrict)));
+
+        Assert.Contains(nameof(ClassLevelStrict.Ping), exception.Message);
+    }
+
+    [Fact]
+    public async Task RequireValidator_without_named_types_still_refuses_an_action_with_no_parameters()
+    {
+        // Discovery mode names no type, so what makes a parameter validatable is a registration a
+        // convention cannot read. An action with no parameters at all is decidable without it.
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartFixedControllerAppAsync(typeof(DiscoveryStrictNoParameters)));
+
+        Assert.Contains("no parameters at all", exception.Message);
+    }
+
+    [Fact]
+    public async Task A_base_typed_parameter_satisfies_RequireValidator_for_a_named_derived_model()
+    {
+        // The assignability direction is load-bearing and runs the opposite way from the
+        // minimal-API check. A [FromBody] base-typed parameter can bind a derived instance, and
+        // ResolveValidatedType validates that instance as its RUNTIME type, so the parameter can
+        // carry the named model even though the parameter's own type is not it.
+        await using var app = await StartFixedControllerAppAsync(typeof(BaseTypedParameter));
+
+        Assert.NotNull(app);
+    }
+
+    [Fact]
+    public async Task A_derived_typed_parameter_does_not_satisfy_RequireValidator_for_a_named_base_model()
+    {
+        // The other side of that direction, and why it cannot be assignability either way: a
+        // parameter declared as the DERIVED type never resolves the named base type at run time --
+        // ShouldValidate compares the explicit list by exact type, and the runtime type of
+        // anything bound to that parameter is the derived one too. Nothing would validate.
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartFixedControllerAppAsync(typeof(DerivedTypedParameter)));
+
+        Assert.Contains(nameof(PolymorphicSampleOrder), exception.Message);
+    }
+
+    [Fact]
+    public async Task A_null_body_beside_a_route_value_reaches_a_plain_controller_action()
     {
         await using var app = await StartMvcAppAsync();
         var client = app.GetTestClient();
 
+        // A plain Controller has none of [ApiController]'s automatic 400s, so a null body reaches
+        // the action with a null model beside a bound route value -- a request shape any anonymous
+        // client can send. Strict mode must not read that as a misconfiguration: it is decided
+        // from the action's declared parameters, which no request can influence.
+        var response = await client.PostAsync("plain/strict/42",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"bodyWasNull\":true", body);
+    }
+
+    [Fact]
+    public async Task Strict_discovery_mode_says_nothing_about_an_unregistered_model()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // The ruled boundary, pinned so it stays deliberate. Strict mode is decided from declared
+        // parameters, and what makes a parameter validatable in discovery mode is a REGISTRATION
+        // an application-model convention cannot read -- so a model with no validator is skipped
+        // here exactly as it is without strict mode. Naming the type is what reports it: the
+        // explicit-types sibling below 500s for this same model, pointing at
+        // AddValidatorsFromAssembly.
         var response = await client.PostAsJsonAsync("mvc/strict-unregistered", new UnregisteredModel { Name = "x" });
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains(nameof(UnregisteredModel), body);
-        Assert.Contains("RequireValidator", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -532,16 +636,67 @@ public class ValidateAttributeTests
         await using var app = await StartMvcAppAsync();
         var client = app.GetTestClient();
 
-        // A null [FromBody] argument means the action bound ZERO non-null arguments -- something
-        // any anonymous client can trigger by posting an empty/null body, not a misconfiguration
-        // -- so RequireValidator's strict throw must not fire even though nothing was validated.
-        // (The action's own Ok(null) becomes a 204 via ASP.NET Core's own null-body output
-        // formatting -- the assertion checks for "not the strict throw's 500", not one exact
-        // success code, so it stays true regardless of that unrelated framework behavior.)
+        // The [ApiController] sibling of the plain-controller case above: a nullable body posted
+        // the JSON literal `null` binds null and runs the action, so nothing is validated on a
+        // request any anonymous client can send. (The action's own Ok(null) becomes a 204 via
+        // ASP.NET Core's own null-body output formatting -- the assertion checks for "not a
+        // strict-mode 500", not one exact success code, so it stays true regardless of that
+        // unrelated framework behavior.)
         var response = await client.PostAsync("mvc/strict-optional",
             new StringContent("null", Encoding.UTF8, "application/json"));
 
         Assert.True(response.IsSuccessStatusCode, $"Expected a success status, got {response.StatusCode}");
+    }
+
+    // Controllers for the strict-mode checks live nested and are handed to MVC one at a time.
+    // Nested public types are invisible to MVC's own ControllerFeatureProvider (Type.IsPublic is
+    // false for them), so a controller written to fail the application-model build cannot leak
+    // into any other app in this file and take its tests down with it.
+    private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartFixedControllerAppAsync(Type controllerType) =>
+        TestApp.StartAsync(
+            app => app.MapControllers(),
+            services => services.AddControllers().ConfigureApplicationPartManager(
+                manager => manager.FeatureProviders.Add(new FixedControllerFeature(controllerType))));
+
+    private sealed class FixedControllerFeature(Type controllerType) : IApplicationFeatureProvider<ControllerFeature>
+    {
+        public void PopulateFeature(IEnumerable<ApplicationPart> parts, ControllerFeature feature) =>
+            feature.Controllers.Add(controllerType.GetTypeInfo());
+    }
+
+    public sealed class NamedTypeMatchesNothing : ControllerBase
+    {
+        [HttpPost("named-type-matches-nothing/{id:int}")]
+        [Validate(typeof(SampleOrder), RequireValidator = true)]
+        public IActionResult NoModel(int id) => Ok(id);
+    }
+
+    [Validate(typeof(SampleOrder), RequireValidator = true)]
+    public sealed class ClassLevelStrict : ControllerBase
+    {
+        [HttpGet("class-level-strict")]
+        public IActionResult Ping() => Ok();
+    }
+
+    public sealed class DiscoveryStrictNoParameters : ControllerBase
+    {
+        [HttpGet("discovery-strict-no-parameters")]
+        [Validate(RequireValidator = true)]
+        public IActionResult Ping() => Ok();
+    }
+
+    public sealed class BaseTypedParameter : ControllerBase
+    {
+        [HttpPost("base-typed-parameter")]
+        [Validate(typeof(RushPolymorphicSampleOrder), RequireValidator = true)]
+        public IActionResult Submit([FromBody] PolymorphicSampleOrder order) => Ok(order);
+    }
+
+    public sealed class DerivedTypedParameter : ControllerBase
+    {
+        [HttpPost("derived-typed-parameter")]
+        [Validate(typeof(PolymorphicSampleOrder), RequireValidator = true)]
+        public IActionResult Submit([FromBody] RushPolymorphicSampleOrder order) => Ok(order);
     }
 
     private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartReportAccessorAppAsync(ReportCapture capture) =>

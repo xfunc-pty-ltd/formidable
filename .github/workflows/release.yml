@@ -10,6 +10,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # A deployment environment, so a pushed tag is a request to publish rather than the act of
+    # publishing: the job waits for the reviewers configured on the environment, and takes its
+    # nuget.org key from that environment rather than from a repository-wide secret. Until the
+    # environment exists in the repository settings the job cannot start at all, which is the
+    # intended posture for a project that must stay incapable of publishing by accident.
+    environment: nuget-org
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

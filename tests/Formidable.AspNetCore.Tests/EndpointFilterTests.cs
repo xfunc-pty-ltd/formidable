@@ -158,20 +158,135 @@ public class EndpointFilterTests
     }
 
     [Fact]
-    public async Task Null_body_for_a_declared_nullable_parameter_returns_400_not_500()
+    public async Task A_nullable_parameter_the_platform_admits_still_reaches_the_handler()
     {
         await using var app = await TestApp.StartAsync(a =>
-            a.MapPost("/optional", (SampleOrder? order) => Results.Ok(order)).Validate<SampleOrder>());
+            a.MapPost("/optional", (SampleOrder? order) => Results.Ok(new { bodyWasNull = order is null }))
+                .Validate<SampleOrder>());
         var client = app.GetTestClient();
 
-        // A declared SampleOrder? parameter bound to the JSON literal `null` is something any
-        // anonymous client can trigger by posting exactly this body — it must not throw.
+        // Declaring the parameter nullable IS the consumer saying a missing body is acceptable,
+        // and the platform honours it by running the handler with null. The filter has nothing to
+        // validate and nothing to decide, so it passes the request on: second-guessing the
+        // declaration here would override the one lever minimal APIs leave a consumer, since they
+        // silently discard EmptyBodyBehavior.Disallow.
         var response = await client.PostAsync("/optional",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"bodyWasNull\":true", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_non_nullable_parameter_the_platform_refuses_gets_the_validation_shape()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/required", (SampleOrder order) => Results.Ok(order)).Validate<SampleOrder>());
+        var client = app.GetTestClient();
+
+        // The platform refuses a null body for a non-nullable parameter itself, before the
+        // handler, and writes a bare bodiless 400 for it — cause-blind even with ProblemDetails
+        // configured. The filter keeps that decision and replaces only the empty body, so a
+        // client gets the same errors dictionary every other rejection on this page uses.
+        var response = await client.PostAsync("/required",
             new StringContent("null", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
         Assert.Contains("A request body is required.", problem!.Errors[string.Empty]);
+    }
+
+    [Fact]
+    public async Task A_downstream_filters_own_400_is_passed_on_rather_than_enriched()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/downstream", (SampleOrder? order) => Results.Ok(order))
+                .Validate<SampleOrder>()
+                .AddEndpointFilter((invocation, next) =>
+                    ValueTask.FromResult<object?>(Results.BadRequest(new { mine = true }))));
+        var client = app.GetTestClient();
+
+        // The discriminator the enrichment gate owes. Validate<TModel>() is added first, so it is
+        // OUTERMOST and its next() reaches the filter below — which rejects the request itself,
+        // with the model bound null, which is every precondition but the one that matters. The
+        // gate must not claim that 400: it is not the platform refusing a declaration.
+        var response = await client.PostAsync("/downstream",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"mine\":true", body);
+        Assert.DoesNotContain("A request body is required.", body);
+    }
+
+    [Fact]
+    public async Task A_downstream_empty_result_that_is_not_a_400_is_passed_on_rather_than_enriched()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/downstream-empty-200", (SampleOrder? order) => Results.Ok(order))
+                .Validate<SampleOrder>()
+                .AddEndpointFilter((invocation, next) => ValueTask.FromResult<object?>(Results.Empty)));
+        var client = app.GetTestClient();
+
+        // Isolates the STATUS half of the gate. The result IS empty and nothing has been written,
+        // so every other condition is met — only "a 400 stands on the response" separates this
+        // from the platform refusing a declaration, and turning a downstream 200 into a 400 would
+        // be the filter inventing a rejection nobody made.
+        var response = await client.PostAsync("/downstream-empty-200",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("A request body is required.", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_downstream_400_written_straight_onto_the_response_is_passed_on_rather_than_enriched()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/downstream-direct-400", (SampleOrder? order) => Results.Ok(order))
+                .Validate<SampleOrder>()
+                .AddEndpointFilter((invocation, next) =>
+                {
+                    invocation.HttpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    return ValueTask.FromResult<object?>(Results.Text("mine"));
+                }));
+        var client = app.GetTestClient();
+
+        // Isolates the EMPTY-RESULT half of the gate. Here the 400 really is on the response
+        // before the check runs, so the status alone cannot tell this from the platform's own
+        // refusal — what does is that a result was produced to write, which is never true of a
+        // request the platform declined to bind.
+        var response = await client.PostAsync("/downstream-direct-400",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal("mine", body);
+    }
+
+    [Fact]
+    public async Task A_response_already_on_the_wire_is_left_alone()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/downstream-started", (SampleOrder? order) => Results.Ok(order))
+                .Validate<SampleOrder>()
+                .AddEndpointFilter(async (invocation, next) =>
+                {
+                    invocation.HttpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    await invocation.HttpContext.Response.WriteAsync("already sent");
+                    return Results.Empty;
+                }));
+        var client = app.GetTestClient();
+
+        // Isolates the HasStarted half. Empty result, 400 on the response: the two other
+        // conditions both hold, and the only thing left is that the bytes have gone. Replacing a
+        // response that is already on the wire cannot be done, so the check is what keeps this a
+        // pass-through instead of a throw on the way out.
+        var response = await client.PostAsync("/downstream-started",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("already sent", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -284,27 +399,46 @@ public class EndpointFilterTests
     }
 
     [Fact]
-    public async Task A_null_bound_model_400_stashes_no_report_because_no_validator_ran()
+    public async Task A_null_bound_model_stashes_no_report_because_no_validator_ran()
     {
-        ValidationReport? seenAfterPipeline = new ValidationReport([]); // sentinel — must be overwritten
-        await using var app = await TestApp.StartAsync(a =>
+        // A null-bound model means there was nothing to validate, so there is no computed report
+        // for the accessor to serve — null, not an empty report — and that holds on both of the
+        // outcomes the platform can choose. It is also the ONE case where a handler sitting
+        // behind Validate<TModel>() sees null from the accessor: its own parameter bound null and
+        // the platform let it through.
+        ValidationReport? seenAfterPassThrough = new ValidationReport([]); // sentinel — must be overwritten
+        await using var passThrough = await TestApp.StartAsync(a =>
         {
             a.Use(async (context, next) =>
             {
                 await next(context);
-                seenAfterPipeline = context.GetFormidableValidationReport();
+                seenAfterPassThrough = context.GetFormidableValidationReport();
             });
             a.MapPost("/optional", (SampleOrder? order) => Results.Ok(order)).Validate<SampleOrder>();
         });
-        var client = app.GetTestClient();
 
-        // The filter answers a null-bound model with its 400 before any validator can run, so
-        // there is no computed report for the accessor to serve — null, not an empty report.
-        var response = await client.PostAsync("/optional",
+        var passed = await passThrough.GetTestClient().PostAsync("/optional",
             new StringContent("null", Encoding.UTF8, "application/json"));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Null(seenAfterPipeline);
+        Assert.Equal(HttpStatusCode.OK, passed.StatusCode);
+        Assert.Null(seenAfterPassThrough);
+
+        ValidationReport? seenAfterRefusal = new ValidationReport([]); // sentinel — must be overwritten
+        await using var refused = await TestApp.StartAsync(a =>
+        {
+            a.Use(async (context, next) =>
+            {
+                await next(context);
+                seenAfterRefusal = context.GetFormidableValidationReport();
+            });
+            a.MapPost("/required", (SampleOrder order) => Results.Ok(order)).Validate<SampleOrder>();
+        });
+
+        var rejected = await refused.GetTestClient().PostAsync("/required",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Null(seenAfterRefusal);
     }
 
     [Fact]
@@ -321,13 +455,12 @@ public class EndpointFilterTests
         // the group's validated TModel (PolymorphicSampleOrder). ThrowIfNoDeclaredParameter must
         // recognize this as the same parameter InvokeAsync's own OfType<TModel> retrieval would
         // match -- an exact-type check would misreport it as "no parameter of this type" and
-        // fail endpoint building, taking every route in the app down with it, instead of leaving
-        // the endpoint serving the 400 a client can trigger by posting a null body.
+        // fail endpoint building, taking every route in the app down with it. The endpoint
+        // answering at all is what says the check accepted it; the parameter is declared
+        // nullable, so the platform runs the handler with null and the filter passes that on.
         var response = await client.PostAsync("/derived-group/orders",
             new StringContent("null", Encoding.UTF8, "application/json"));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
-        Assert.Contains("A request body is required.", problem!.Errors[string.Empty]);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }

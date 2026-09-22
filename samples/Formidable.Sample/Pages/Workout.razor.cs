@@ -161,8 +161,9 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    // FormidableSummary calls this when a clicked issue's element is not in the DOM (a session
-    // outside Virtualize's render window), and FormidableForm calls it the same way when its own
+    // FormidableSummary calls this when a clicked issue's element does not take focus — here
+    // because a session outside Virtualize's render window has no element at all — and
+    // FormidableForm calls it the same way when its own
     // blocked-submit auto-focus misses: scroll the panel to the row's approximate offset, give
     // Virtualize a moment to render it, then let the caller retry the focus. The retry's own
     // scrollIntoView centres the row exactly, so the row height only needs to be close.

@@ -85,6 +85,22 @@ body {
     line-height: 1.5;
 }
 
+/* How the page moves when something scrolls it into view - a summary click, a blocked submit's
+   focus move - is the consumer's to set, so the library asks for no behaviour of its own and
+   this is where the answer lives. It has to be on the root element: scroll-behavior propagates
+   to the viewport from html and, unlike overflow, not from body. Chromium does not read
+   prefers-reduced-motion for scrolling on its own, so the guard below is what makes the
+   preference reach it. */
+html {
+    scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}
+
 /* The Bootstrap fitting page loads Bootstrap's stylesheet after this one (via a HeadContent
    outlet), and Bootstrap 5.3 without data-bs-theme carries its own light-only `body` rule;
    being later, it wins the equal-specificity tie in dark mode and flips the whole shell light.
@@ -723,13 +739,24 @@ fieldset > label:has(> select) {
     margin: 0 0 1rem;
 }
 
+/* Its own scroller, so its own answer: a click on a summary entry for a row inside the panel
+   scrolls the panel as well as the page, and both should move the same way. The FocusFallback
+   beside it deliberately does not - it asks for an instant jump, because Virtualize has to have
+   rendered the row by the time the retried focus lands. */
 .scroll-panel {
     height: 20rem;
     overflow-y: auto;
+    scroll-behavior: smooth;
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     padding: .5rem .75rem;
     margin-bottom: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .scroll-panel {
+        scroll-behavior: auto;
+    }
 }
 
 /* Virtualize takes one ItemSize for the whole collection, so every row has to occupy exactly

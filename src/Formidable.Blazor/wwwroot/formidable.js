@@ -11,9 +11,18 @@ export function focusField(id, scrollId) {
     // an ordinary field wrapper and comfortably below a container spanning the viewport, so it
     // separates the two without being sensitive to small layout changes.
     const tall = scrollTarget.getBoundingClientRect().height > window.innerHeight * 0.6;
-    scrollTarget.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "center" });
+    // "auto" hands the motion to each scrolling box's own scroll-behavior, which is where a
+    // visitor's prefers-reduced-motion can reach it. Naming "smooth" here would animate the
+    // scroll whatever the page and the visitor asked for, and how a page moves is styling,
+    // which this library does not ship.
+    scrollTarget.scrollIntoView({ behavior: "auto", block: tall ? "start" : "center" });
     element.focus({ preventScroll: true });
-    return true;
+    // Whether the element took focus, not merely whether it was found. An element can be on the
+    // page and still refuse focus, and that field is the whole reason the caller has a recovery
+    // path: a fallback that makes the target reachable and retries, or a diagnostic when none is
+    // wired. Reporting "found" as "focused" is what leaves that path unreachable, so the answer is
+    // read back from the document rather than assumed from the call.
+    return document.activeElement === element;
 }
 
 export function syncValue(id, value) {

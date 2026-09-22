@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
@@ -23,8 +24,55 @@ public class FormidableFieldAnchorTests : BunitContext
 
         Assert.Equal(FormidableFieldId.For(new FieldIdentifier(a, "Sku")), FormidableFieldId.For(new FieldIdentifier(a, "Sku")));
         Assert.NotEqual(FormidableFieldId.For(new FieldIdentifier(a, "Sku")), FormidableFieldId.For(new FieldIdentifier(b, "Sku")));
+    }
+
+    // The sanitizer's two clauses — lowercase the letters and digits, replace everything else
+    // with `-` — are otherwise unexercised at unit level, because every other test uses an
+    // already-lowercase alphanumeric name. `Location.X` runs both at once. These are EndsWith
+    // rather than Equal on purpose: the sanitized name is the id's SUFFIX, which is the only
+    // part a consumer's CSS or a browser locator can address, and moving it off the end would
+    // break every `[id$='-...']` selector in the sample's own suite.
+    [Fact]
+    public void Field_id_sanitizes_the_name_into_its_suffix()
+    {
+        var a = new EngineItem();
+
+        Assert.EndsWith("-location-x", FormidableFieldId.For(new FieldIdentifier(a, "Location.X")));
         Assert.EndsWith("-form", FormidableFieldId.For(new FieldIdentifier(a, string.Empty)));
-        Assert.DoesNotContain(FormidableFieldId.For(new FieldIdentifier(a, "Location.X")), ".");
+    }
+
+    // Two names that sanitize to the same suffix are still two fields, and two elements sharing a
+    // DOM id is invalid HTML: both `aria-describedby` values point at one message list and a
+    // focus move by that id reaches whichever element came first. The hash of the ORIGINAL name,
+    // case and punctuation intact, is what separates them while the legible suffix stays shared.
+    [Fact]
+    public void Two_names_that_sanitize_alike_still_get_different_ids()
+    {
+        var a = new EngineItem();
+
+        Assert.NotEqual(
+            FormidableFieldId.For(new FieldIdentifier(a, "Url")),
+            FormidableFieldId.For(new FieldIdentifier(a, "URL")));
+        Assert.NotEqual(
+            FormidableFieldId.For(new FieldIdentifier(a, "Location.X")),
+            FormidableFieldId.For(new FieldIdentifier(a, "Location_X")));
+
+        Assert.EndsWith("-url", FormidableFieldId.For(new FieldIdentifier(a, "Url")));
+        Assert.EndsWith("-url", FormidableFieldId.For(new FieldIdentifier(a, "URL")));
+    }
+
+    // string.GetHashCode() is randomized per process, so an id built on it would differ between
+    // one run of the app and the next — a stylesheet, a hand-written locator or a test computing
+    // the expected id independently would all see a different answer. The library spells the hash
+    // out instead. A literal is the only assertion that can tell a deterministic hash from a
+    // per-process one from inside a single process.
+    [Fact]
+    public void The_name_hash_is_the_same_in_every_process()
+    {
+        var a = new EngineItem();
+
+        Assert.Contains("-4e5768cb-", FormidableFieldId.For(new FieldIdentifier(a, "Description")));
+        Assert.Contains("-811c9dc5-", FormidableFieldId.For(new FieldIdentifier(a, string.Empty)));
     }
 
     [Fact]
@@ -35,6 +83,66 @@ public class FormidableFieldAnchorTests : BunitContext
         Assert.Equal(
             FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Description))),
             FormidableFieldId.For(order, o => o.Description));
+    }
+
+    // The object part is evaluated, the way FieldIdentifier.Create evaluates its own: the field a
+    // component renders for `Nested.City` is owned by the Nested instance, so an id keyed on the
+    // ROOT model names a field nothing renders — no element carries it, no message list matches
+    // it, and a focus move by it finds nothing.
+    [Fact]
+    public void Expression_overload_names_the_field_the_nested_owner_owns()
+    {
+        var model = new IdShapes { Nested = new IdNested() };
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(model.Nested, nameof(IdNested.City))),
+            FormidableFieldId.For(model, o => o.Nested!.City));
+        Assert.NotEqual(
+            FormidableFieldId.For(new FieldIdentifier(model, nameof(IdNested.City))),
+            FormidableFieldId.For(model, o => o.Nested!.City));
+    }
+
+    // An object part that is not a member chain off the lambda's parameter — an indexer here — is
+    // compiled rather than walked by reflection, and lands on the same row instance the row's own
+    // components bind to.
+    [Fact]
+    public void Expression_overload_reaches_a_row_through_an_indexer()
+    {
+        var model = new IdShapes();
+        model.Rows.Add(new IdNested());
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(model.Rows[0], nameof(IdNested.City))),
+            FormidableFieldId.For(model, o => o.Rows[0].City));
+    }
+
+    // Only the boxing convert an Expression<Func<TModel, object>> puts over a VALUE-typed member
+    // is read past. `!o.Flag` and `-o.Count` are UnaryExpressions too, and an operand-shaped test
+    // accepts them and answers with the operand's name — an id for a field the caller never asked
+    // for.
+    [Fact]
+    public void Expression_overload_reads_past_a_boxing_convert_and_nothing_else()
+    {
+        var model = new IdShapes();
+        Expression<Func<IdShapes, object>> boxed = o => o.Count;
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(model, nameof(IdShapes.Count))),
+            FormidableFieldId.For(model, boxed));
+
+        Assert.Throws<ArgumentException>(() => FormidableFieldId.For(model, o => !o.Flag));
+        Assert.Throws<ArgumentException>(() => FormidableFieldId.For(model, o => -o.Count));
+    }
+
+    // Reading through a null names a field that has no owner yet, and an id keyed on nothing
+    // cannot be the one a component will render once the owner exists. FieldIdentifier.Create
+    // refuses the same expression for the same reason.
+    [Fact]
+    public void Expression_overload_refuses_to_read_through_a_null()
+    {
+        var model = new IdShapes { Nested = null };
+
+        Assert.Throws<ArgumentException>(() => FormidableFieldId.For(model, o => o.Nested!.City));
     }
 
     // The aria-describedby contract: the id an input points at and the id the message list renders
@@ -205,6 +313,24 @@ public class FormidableFieldAnchorTests : BunitContext
             }));
             builder.CloseComponent();
         }
+    }
+
+    /// <summary>Test-only model for the shapes the expression overload must tell apart: a nested owner, a row behind an indexer, a value-typed member, a bool.</summary>
+    private sealed class IdShapes
+    {
+        public IdNested? Nested { get; set; }
+
+        public List<IdNested> Rows { get; } = [];
+
+        public int Count { get; set; }
+
+        public bool Flag { get; set; }
+    }
+
+    /// <summary>The nested owner in <see cref="IdShapes"/>.</summary>
+    private sealed class IdNested
+    {
+        public string? City { get; set; }
     }
 
     /// <summary>Test-only host that cascades a FormidableFormContext directly, with no EditForm underneath (see the rebind test's remarks).</summary>

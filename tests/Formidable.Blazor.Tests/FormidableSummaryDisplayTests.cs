@@ -41,9 +41,12 @@ public class FormidableSummaryDisplayTests : BunitContext
 
     /// <summary>
     /// Two values in the rendered markup belong to the renderer rather than to this component: the
-    /// owner-instance hash inside a minted heading id (a runtime object hash, different every
-    /// process) and the integer the renderer assigns each event handler. Both are replaced with a
-    /// marker so the byte comparison below is about the markup the component authors. What the ids
+    /// owner-instance hash inside a minted heading id and the integer the renderer assigns each
+    /// event handler. Both are replaced with a marker so the byte comparison below is about the
+    /// markup the component authors. The owner hash is replaced because it belongs to the
+    /// summary INSTANCE and to how many identity hashes the runtime has handed out before it, not
+    /// because it varies between processes — it does not. The id's OTHER hash, of the name, is
+    /// deliberately left in place, so the golden carries it. What the ids
     /// MEAN is pinned elsewhere and stays pinned: that the heading id and the list's
     /// <c>aria-labelledby</c> are the same string is
     /// <see cref="FormidableSummaryTests.A_heading_is_associated_with_its_list"/>'s assertion.
@@ -107,10 +110,10 @@ public class FormidableSummaryDisplayTests : BunitContext
 
         const string expected =
             "<div class=\"formidable-summary\">" +
-                "<div class=\"formidable-summary__region formidable-summary__region--errors\" role=\"alert\">" +
+                "<div class=\"formidable-summary__region formidable-summary__region--errors\" role=\"alert\" aria-atomic=\"false\">" +
                     "<div class=\"formidable-summary__band formidable-summary__band--error\">" +
-                        "<h2 id=\"formidable-#-errors-heading\" class=\"formidable-summary__heading\">Fix these first</h2>" +
-                        "<ul class=\"formidable-summary__group formidable-summary__group--error\" aria-labelledby=\"formidable-#-errors-heading\">" +
+                        "<h2 id=\"formidable-#-94747713-errors-heading\" class=\"formidable-summary__heading\">Fix these first</h2>" +
+                        "<ul class=\"formidable-summary__group formidable-summary__group--error\" aria-labelledby=\"formidable-#-94747713-errors-heading\">" +
                             "<li class=\"formidable-summary__item\">" +
                                 "<button type=\"button\" class=\"formidable-summary__link\" blazor:onclick=\"#\">Description is required</button>" +
                             "</li>" +
@@ -123,7 +126,7 @@ public class FormidableSummaryDisplayTests : BunitContext
                         "</ul>" +
                     "</div>" +
                 "</div>" +
-                "<div class=\"formidable-summary__region formidable-summary__region--advisories\" role=\"status\">" +
+                "<div class=\"formidable-summary__region formidable-summary__region--advisories\" role=\"status\" aria-atomic=\"false\">" +
                     "<div class=\"formidable-summary__band formidable-summary__band--warning\">" +
                         "<ul class=\"formidable-summary__group formidable-summary__group--warning\">" +
                             "<li class=\"formidable-summary__item\">" +

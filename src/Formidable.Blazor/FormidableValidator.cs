@@ -98,8 +98,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// visible issue of any severity applies only when a blocked submit shows no error at all.
     /// Default <see langword="true"/>, matching <c>FormidableForm</c>'s parameter of the same name
     /// and shape. The service is resolved lazily and may be unregistered; a null service is
-    /// silent. A focus miss (e.g. no element carries the field's id yet) retries once through
-    /// <see cref="FocusFallback"/> when one is wired, and otherwise reports a diagnostic. Set
+    /// silent. A focus miss — nothing carries the field's id yet, or what does will not take
+    /// focus — retries once through <see cref="FocusFallback"/> when one is wired, and otherwise
+    /// reports a diagnostic. Set
     /// <see langword="false"/> to choose focus yourself from the returned
     /// <see cref="SubmitOutcome"/>, and call <see cref="FocusFirstErrorAsync"/> for the same move
     /// once the page is ready for it. This decides only what
@@ -120,12 +121,13 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
     /// <summary>
-    /// Invoked once when the first error one of this component's own focus moves aimed at has no
-    /// rendered element to focus (e.g. a virtualized row outside the render window, or a control
-    /// that renders none of the deterministic <see cref="FormidableFieldId"/> the focus service
-    /// addresses a field by).
-    /// Return <c>true</c> after making the element renderable (scrolling its container, expanding
-    /// a section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// Invoked once when the first error one of this component's own focus moves aimed at does
+    /// not take focus: no element renders its id (a virtualized row outside the render window, or
+    /// a control that renders none of the deterministic <see cref="FormidableFieldId"/> the focus
+    /// service addresses a field by), or the element that does will not take focus, as one inside
+    /// a collapsed section will not.
+    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+    /// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
     /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> and
     /// <c>FormidableForm</c>'s parameter of the same name — a page wiring more than one typically
     /// passes the same callback to each. When unset, a miss reports a diagnostic naming this

@@ -870,6 +870,53 @@ public sealed class SetCallCountingValidator<TModel>(FluentValidationModelValida
         ((IModelValidator<TModel>)inner).Validate(model, profile);
 }
 
+/// <summary>
+/// Declares one rule twice, verbatim, so a blocked submit produces two issues that are EQUAL
+/// records — same path, message, severity, code and state. Nothing in FluentValidation or in the
+/// engine collapses them, so the summary lists both, and anything keying an entry by its value
+/// alone would key two siblings the same. A third rule on another field can be switched off
+/// between submits, so the band the duplicates sit in can be made to change shape.
+/// </summary>
+public sealed class DuplicateIssueValidator : DraftSubmitValidator<EngineOrder>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    /// <summary>Whether the third, distinct rule still fails. Set between submits.</summary>
+    public bool ThirdFails { get; set; } = true;
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+        RuleFor(x => x.Customer).Must(_ => !ThirdFails).WithMessage("A customer is required");
+    }
+}
+
+/// <summary>
+/// Three distinct error messages across two fields, the first of which can be switched off
+/// between submits. That is the shape a summary's entry identity is answerable from: switch the
+/// first rule off, submit again, and the band goes from three entries to the last two — the
+/// removal a positional match would render as a text rewrite of everything below it.
+/// </summary>
+public sealed class ToggleableTripleValidator : DraftSubmitValidator<EngineOrder>
+{
+    /// <summary>Whether the first rule still fails. Set between submits.</summary>
+    public bool FirstFails { get; set; } = true;
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description).Must(_ => !FirstFails).WithMessage("First problem");
+        RuleFor(x => x.Description).Must(_ => false).WithMessage("Second problem");
+        RuleFor(x => x.Customer).Must(_ => false).WithMessage("Third problem");
+    }
+}
+
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>
 public static class EngineTestSync
 {

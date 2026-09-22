@@ -14,7 +14,7 @@ namespace Formidable.Blazor;
 /// <see cref="FieldIdentifier.FieldName"/>), which no accessor expression can name. The list
 /// element renders always — empty while the form has nothing to say — with the model-level
 /// message id (<see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/>) and any configured
-/// <see cref="FormidableOptions.InlineMessageRole"/> on it, so on a form that renders no
+/// <see cref="FormidableOptions.InlineMessageLive"/> on it, so on a form that renders no
 /// <see cref="FormidableSummary"/> the gate's explanation lands in a live region assistive
 /// technology already knows about instead of nowhere. It registers nothing: the model-level
 /// field's issues are always disclosed, because its element is the form's own, on the page for
@@ -31,7 +31,7 @@ public sealed class FormidableModelMessage : FormidableComponentBase
     /// because both render through one shared list implementation: a consumer-splatted
     /// <c>class</c> merges (splatted first, <c>formidable-message-list</c> after), a splatted
     /// <c>id</c> is ignored in favour of the model-level message id, and a configured
-    /// <see cref="FormidableOptions.InlineMessageRole"/> wins a splatted <c>role</c>.
+    /// <see cref="FormidableOptions.InlineMessageLive"/> wins a splatted <c>aria-live</c>.
     /// </remarks>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
@@ -63,7 +63,7 @@ public sealed class FormidableModelMessage : FormidableComponentBase
             builder,
             AdditionalAttributes,
             _messagesElementId,
-            (Context.Engine as IValidatingFieldReader)?.InlineMessageRole,
+            (Context.Engine as IValidatingFieldReader)?.InlineMessageLive,
             Context.Engine.GetIssues(_field));
     }
 }

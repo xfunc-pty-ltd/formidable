@@ -22,13 +22,14 @@ public static class FormidableHttpContextExtensions
     /// </summary>
     /// <remarks>
     /// <see langword="null"/> means the request holds no computed report: no adapter is wired
-    /// into the request's pipeline, the endpoint filter answered a null-bound model with its
-    /// 400 before any validator could run, <see cref="ValidateAttribute"/> found no argument to
-    /// validate, or the adapter threw before a report existed (a failing normalize, an
-    /// unresolvable validator, a rule's own exception) — the propagating exception, not the
-    /// accessor, is that request's outcome. A handler sitting behind
-    /// <c>Validate&lt;TModel&gt;()</c> never observes <see langword="null"/>: the filter
-    /// validated, and stashed, before the handler could run.
+    /// into the request's pipeline, the endpoint filter met a null-bound model and had nothing
+    /// to validate, <see cref="ValidateAttribute"/> found no argument to validate, or the
+    /// adapter threw before a report existed (a failing normalize, an unresolvable validator, a
+    /// rule's own exception) — the propagating exception, not the accessor, is that request's
+    /// outcome. A handler sitting behind <c>Validate&lt;TModel&gt;()</c> observes
+    /// <see langword="null"/> in exactly one case: its own declared parameter bound null and the
+    /// platform allowed it through, so no model existed to validate. Whenever a model reached
+    /// the handler, so did its report.
     /// </remarks>
     public static ValidationReport? GetFormidableValidationReport(this HttpContext context)
     {

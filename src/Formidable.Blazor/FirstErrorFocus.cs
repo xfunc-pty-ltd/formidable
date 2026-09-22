@@ -45,9 +45,11 @@ internal static class FirstErrorFocus
     /// incomplete-validation fault issue included. A page asking for the move itself reaches the
     /// same state by simpler routes, since it chooses the moment: the errors were fixed while its
     /// dialog was open, or the form carried nothing worse than advisories to begin with. A miss on
-    /// the element itself (no element on the page carries the field's id: a virtualized row
-    /// outside the render window, or a control that renders no such id at all) is handled the same
-    /// way <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once
+    /// the element itself is nothing having taken focus, which happens two ways: no element on the
+    /// page carries the field's id — a virtualized row outside the render window, a control that
+    /// renders no such id at all — or the element that carries it will not take focus, being
+    /// disabled, hidden, or sealed off by an ancestor. Either is handled the same way
+    /// <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once
     /// when a fallback is wired, retry once. With none wired, the miss reports a diagnostic
     /// instead — see <see cref="ReportFallbackMiss"/> — since the visitor otherwise gets no
     /// signal at all that the field they need is out of reach.
@@ -129,11 +131,13 @@ internal static class FirstErrorFocus
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
         System.Diagnostics.Trace.WriteLine(
-            $"Formidable: the field a focus move aimed at, '{issue.Path}', has no rendered " +
-            $"element to focus, and no {FallbackParameterName} is wired to make it renderable.");
+            $"Formidable: the field a focus move aimed at, '{issue.Path}', did not take focus: " +
+            "either nothing renders its id or the element that does will not accept focus, and no " +
+            $"{FallbackParameterName} is wired to make it reachable.");
         ((ILoggerFactory?)services.GetService(typeof(ILoggerFactory)))?.CreateLogger("Formidable").LogWarning(
-            "Formidable: the field a focus move aimed at, '{Path}', has no rendered element to " +
-            "focus, and no {Parameter} is wired to make it renderable.",
+            "Formidable: the field a focus move aimed at, '{Path}', did not take focus: either " +
+            "nothing renders its id or the element that does will not accept focus, and no " +
+            "{Parameter} is wired to make it reachable.",
             issue.Path, FallbackParameterName);
     }
 }

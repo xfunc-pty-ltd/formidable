@@ -177,8 +177,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// all. This also gates the focus move
     /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> makes when the payload it
     /// applies carries an error. Default <see langword="true"/>. The service is resolved lazily and
-    /// may be unregistered; a null service is silent. A focus miss (e.g. no element carries the
-    /// field's id yet) retries once through <see cref="FocusFallback"/> when one is wired, and
+    /// may be unregistered; a null service is silent. A focus miss — nothing carries the field's
+    /// id yet, or what does will not take focus — retries once through
+    /// <see cref="FocusFallback"/> when one is wired, and
     /// otherwise reports a diagnostic instead of the summary's silent default: a blocked submit's
     /// visitor has nowhere else to land, where <see cref="FormidableSummary"/>'s own click just
     /// leaves the click without effect. Set <see langword="false"/> to choose focus yourself, by
@@ -193,10 +194,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
     /// <summary>
-    /// Invoked once when the first error one of this form's own focus moves aimed at has no
-    /// rendered element to focus (e.g. a virtualized row outside the render window). Return
-    /// <c>true</c> after making the element renderable (scrolling its container, expanding a
-    /// section) and the focus is retried exactly once; return <c>false</c> to leave the miss
+    /// Invoked once when the first error one of this form's own focus moves aimed at does not
+    /// take focus: no element renders its id, as for a virtualized row outside the render window,
+    /// or the element that does will not take focus, as one inside a collapsed section will not.
+    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+    /// that section) and the focus is retried exactly once; return <c>false</c> to leave the miss
     /// as-is. Same delegate shape as <see cref="FormidableSummary.FocusFallback"/> — a page
     /// wiring both typically passes the same callback to each. When unset, a miss reports a
     /// diagnostic instead of the summary's silent default: those moves have nowhere else for the

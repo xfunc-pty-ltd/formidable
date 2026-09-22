@@ -26,12 +26,14 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="InvalidOperationException"/> when the endpoint's request pipeline is built (a
     /// wiring bug) — routing materializes every mapped endpoint before it can match any
     /// request, so the throw fails every request to the application, loudly, rather than hiding
-    /// as a 500 on the one broken route; a declared <typeparamref name="TModel"/> parameter
-    /// bound to <see langword="null"/> — e.g. a nullable body parameter posted the JSON literal
-    /// <c>null</c> — returns the standard 400 validation shape with a model-level "A request
-    /// body is required." error instead, since a client can trigger that on every request. When
-    /// the handler declares more than one parameter of type <typeparamref name="TModel"/>, only
-    /// the first one is validated.
+    /// as a 500 on the one broken route. Whether a declared <typeparamref name="TModel"/>
+    /// parameter bound to <see langword="null"/> is acceptable is left to the PLATFORM, which
+    /// decides it from the declaration: a parameter the handler declared optional — nullable, or
+    /// carrying a default — reaches the handler with <see langword="null"/> exactly as it would
+    /// without this filter, and one the platform refuses gets the standard 400 validation shape
+    /// with a model-level "A request body is required." error in place of the bare, bodiless 400
+    /// the platform writes for it. When the handler declares more than one parameter of type
+    /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -65,9 +67,9 @@ public static class FormidableEndpointFilterExtensions
     /// bug), which fails route materialization as a whole: a group carrying a mis-wired
     /// endpoint fails every request to the application, loudly, rather than leaving that one
     /// endpoint to 500 among working siblings. An endpoint that HAS the parameter but received
-    /// <see langword="null"/> for it gets the standard 400 validation shape instead, per the
-    /// single-handler overload above. When an endpoint declares more than one parameter of type
-    /// <typeparamref name="TModel"/>, only the first one is validated.
+    /// <see langword="null"/> for it leaves that to the platform and enriches only a refusal,
+    /// per the single-handler overload above. When an endpoint declares more than one parameter
+    /// of type <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
     public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
         where TModel : class
@@ -89,8 +91,9 @@ public static class FormidableEndpointFilterExtensions
     // cannot hide as a 500 on one rarely-hit route: routing materializes every mapped endpoint
     // before it can match any request, so the mis-wiring fails every request to the application
     // until it is fixed. It also leaves ValidationEndpointFilter<TModel> free to read a null
-    // argument as exactly one thing: "the declared argument was bound null" (400 — a client can
-    // trigger this on every request).
+    // argument as exactly one thing: "the declared argument was bound null" — which it hands
+    // straight back to the platform to judge, since the declaration that decides it is not
+    // readable from the argument.
     // Assignability, not exact-type equality: a handler may declare a MORE DERIVED parameter
     // type than TModel, and InvokeAsync's own retrieval (context.Arguments.OfType<TModel>())
     // already treats that as a match — an exact-type check here would disagree and misreport a

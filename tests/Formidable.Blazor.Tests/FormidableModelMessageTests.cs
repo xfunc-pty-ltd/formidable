@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Formidable.Blazor.Tests;
 
 // The component's contract, pinned surface by surface: the model-level list persists empty on a
-// clean form (id, class, no role), and carries a configured InlineMessageRole on that persistent
+// clean form (id, class, no aria-live), and carries a configured InlineMessageLive on that persistent
 // element; the all-suppressed defensive gate — the reason the component exists — reaches the
 // screen through it on a form that renders no summary; the incomplete-validation fault issue
 // renders after the gate, in the order GetIssues documents; the same list renders under
@@ -63,6 +63,10 @@ public class FormidableModelMessageTests : BunitContext
 
         var list = form.Find("ul.formidable-message-list");
         Assert.Empty(list.Children);
+        Assert.Null(list.GetAttribute("aria-live"));
+
+        // The kit computes no role on a message list at all, at any setting: a role on the ul
+        // would replace the list role and take every li out of the accessibility tree with it.
         Assert.Null(list.GetAttribute("role"));
         Assert.Equal(
             FormidableFieldId.MessagesFor(new FieldIdentifier(order, string.Empty)),
@@ -125,17 +129,17 @@ public class FormidableModelMessageTests : BunitContext
     }
 
     [Fact]
-    public void InlineMessageRole_lands_on_the_persistent_model_level_list()
+    public void InlineMessageLive_lands_on_the_persistent_model_level_list()
     {
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
-        var form = RenderWithModelMessage(order, new FormidableOptions { InlineMessageRole = "status" });
+        var form = RenderWithModelMessage(order, new FormidableOptions { InlineMessageLive = "polite" });
 
-        // The role sits on the persistent element while it is still empty — the live-region
+        // The attribute sits on the persistent element while it is still empty — the live-region
         // shape the component exists to give the gate on a summary-less form.
         var list = form.Find("ul.formidable-message-list");
         Assert.Empty(list.Children);
-        Assert.Equal("status", list.GetAttribute("role"));
+        Assert.Equal("polite", list.GetAttribute("aria-live"));
     }
 
     [Fact]

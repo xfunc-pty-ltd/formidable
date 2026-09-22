@@ -98,7 +98,7 @@ relying on the old one implicitly:
   on the first error exactly as it does under `<FormidableForm>`: the same
   `FocusFirstErrorOnInvalidSubmit` switch, the same
   [`PrepareFocus`](component-kit.md#preparefocus) hook awaited ahead of that move, and the same
-  `FocusFallback` seam for an error whose element is not currently rendered. "First" here means
+  `FocusFallback` seam for an error whose element does not take focus. "First" here means
   first in the reading order above, not first down the page. Focus parity is not order parity, and
   the two are separate boundaries with separate causes. `FocusFirstErrorAsync()` is on the
   validator too, for a page that would rather choose the moment than have the submit choose it.

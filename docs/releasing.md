@@ -10,14 +10,28 @@ anyone's memory of the steps.
 - The repository is pushed to `github.com/xfunc/formidable` (`RepositoryUrl` /
   `PackageProjectUrl` in `src/Directory.Build.props` already point there; the git remote itself
   is a separate, manual step this repo hasn't taken yet).
-- A `NUGET_API_KEY` repository secret is configured (GitHub repo → Settings → Secrets and
-  variables → Actions → New repository secret). Generate the key at
+- A deployment environment named `nuget-org` exists (GitHub repo → Settings → Environments →
+  New environment), with required reviewers on it. The `publish` job in
+  `.github/workflows/release.yml` declares `environment: nuget-org`, so this is what turns a
+  pushed tag into a request to publish rather than the act of publishing.
+- A `NUGET_API_KEY` secret is configured **on that environment** (Settings → Environments →
+  `nuget-org` → Environment secrets), not as a repository secret — a repository secret is
+  readable by any job in any workflow, which is exactly the reach the environment is here to
+  take away. If one of that name already exists at repository level, delete it, so there is no
+  question about which key the push step is holding. Generate the key at
   [nuget.org](https://www.nuget.org/) → your account → API Keys, scoped to push new packages
   and package versions for `Formidable`, `Formidable.Blazor`, and `Formidable.AspNetCore` (or a
   glob covering all three, e.g. `Formidable*`).
 
-Both are on you — the workflow can't do either one, and both need to be in place before the
-first tag is pushed.
+All three are on you — the workflow can't do any of them, and all three need to be in place
+before the first tag is pushed. Until the environment exists the `publish` job does not start
+at all, which is the failure direction to want: the workflow cannot publish by accident, only
+by arrangement.
+
+Worth one decision before you generate a long-lived key: check whether nuget.org offers Trusted
+Publishing for this account, and if it does, weigh it against the environment secret above.
+Adopting it would change both this prerequisite and the push step, so it belongs to publish day
+rather than to this runbook as written.
 
 ## Pre-release verification
 
@@ -98,8 +112,15 @@ derives the package version from the nearest git tag reachable from the commit b
    git push origin v0.1.0-preview.1
    ```
 
-4. **The `Release` workflow runs** (`.github/workflows/release.yml`), triggered by `push: tags:
-   ['v*']`. Step by step, it:
+4. **The `Release` workflow queues** (`.github/workflows/release.yml`), triggered by `push:
+   tags: ['v*']`. It queues rather than runs: the single `publish` job declares
+   `environment: nuget-org`, so it waits on that environment's reviewers before its first step
+   executes. Pushing the tag asks for a release; approving the run is what releases. Note the
+   ordering that follows from gating at the job — nothing in the job has run when the approval
+   is given, so the reviewer is approving on the strength of the local verification above and of
+   the commit being tagged, not on the workflow's own build and test results.
+
+   Once approved, step by step it:
    - Checks out the repository with `fetch-depth: 0` — MinVer needs the full tag history, not a
      shallow clone, to find the tag and compute the commit height from it.
    - Installs the .NET 10 SDK.
@@ -113,9 +134,10 @@ derives the package version from the nearest git tag reachable from the commit b
      - `dotnet pack src/Formidable.AspNetCore -c Release --no-build -o artifacts`
    - Pushes every `.nupkg` in `artifacts/` to nuget.org in one call:
      `dotnet nuget push "artifacts/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source
-     https://api.nuget.org/v3/index.json --skip-duplicates`. `--skip-duplicates` makes the push
-     step safe to re-run (e.g. after a transient failure) — it skips any package+version already
-     on nuget.org instead of failing the whole job.
+     https://api.nuget.org/v3/index.json --skip-duplicates`, holding the key the `nuget-org`
+     environment supplies. `--skip-duplicates` makes the push step safe to re-run (e.g. after a
+     transient failure) — it skips any package+version already on nuget.org instead of failing
+     the whole job.
 
    If any step fails — build, test, or a pack — the workflow stops before the push step runs, so
    a failing test suite can never publish a package.
@@ -129,7 +151,7 @@ derives the package version from the nearest git tag reachable from the commit b
 `.github/workflows/ci.yml` runs `dotnet build -c Release` + `dotnet test -c Release --no-build`
 on every push to `main` and on every pull request. It never packs and never pushes to NuGet.
 Publishing is tag-driven only, via the separate `Release` workflow above — merging to `main`
-never ships a package by itself.
+never ships a package by itself, and neither does a tag, which only asks.
 
 ## Local dry run
 
@@ -203,6 +225,10 @@ After the workflow's push step succeeds:
 
 ## If something goes wrong mid-release
 
+- **The run appears but the `publish` job never starts**: that is the environment gate, not a
+  stuck runner. Either it is waiting for a reviewer to approve, or the `nuget-org` environment
+  doesn't exist yet — see Prerequisites. Approving is the release; declining or leaving it
+  costs nothing, since no step has run.
 - **Build or test fails in the workflow**: nothing was pushed (the push step never ran). Fix the
   issue on `main`, then re-tag and re-push — either move the tag to the fixed commit (`git tag
   -f`, `git push --force origin <tag>`, generally discouraged once a tag might have been

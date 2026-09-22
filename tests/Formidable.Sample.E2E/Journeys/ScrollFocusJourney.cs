@@ -6,8 +6,9 @@ using static Microsoft.Playwright.Assertions;
 namespace Formidable.Sample.E2E;
 
 /// <summary>
-/// Everything on this page is already in the DOM, so click-to-focus needs no
-/// <c>FocusFallback</c> — the focus service's own scroll-into-view is the whole story. The roster
+/// Every target on this page is an ordinary input that is rendered and will take focus, so
+/// click-to-focus needs no <c>FocusFallback</c> — the focus service's own scroll-into-view is the
+/// whole story. The roster
 /// seeds its very last row empty, so the last summary entry is the form's last field: the longest
 /// ride the page can offer, pinned by both the resulting focus AND an actual page-scroll delta.
 /// </summary>

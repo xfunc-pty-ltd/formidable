@@ -131,8 +131,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
 
     /// <summary>
     /// The field's current state (touched, modified, validating, errors, warnings). Each read asks
-    /// the engine again; <see cref="AddCommonAttributes"/> reads it once and answers both the class
-    /// and the aria attributes from that one read.
+    /// the engine again; <see cref="AddCommonAttributes"/> reads it once and answers the class and
+    /// <c>aria-invalid</c> from that one read. The other two attributes it renders come from
+    /// elsewhere: <c>aria-describedby</c> from the field's issues, <c>aria-required</c> from what
+    /// the submit profile's rules demand.
     /// </summary>
     protected FieldState State => Context!.Engine.GetFieldState(Field);
 

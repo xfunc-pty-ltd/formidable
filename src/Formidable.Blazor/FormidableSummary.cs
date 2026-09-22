@@ -62,11 +62,13 @@ public sealed class FormidableSummary : FormidableComponentBase
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     /// <summary>
-    /// Invoked when a clicked issue's element is not in the DOM (focus miss) — e.g. a virtualized
-    /// row outside the render window. Return <c>true</c> after making the element renderable
-    /// (scrolling its container, expanding a section) and the summary retries the focus exactly
-    /// once; return <c>false</c> to leave the miss as-is. When unset, a miss is silently ignored,
-    /// matching the component's pre-fallback behaviour.
+    /// Invoked when a clicked issue's element does not take focus (focus miss) — nothing on the
+    /// page carries the field's id, as for a virtualized row outside the render window, or the
+    /// element that carries it will not take focus, as one inside a collapsed section will not.
+    /// Return <c>true</c> after making the element reachable (scrolling its container, expanding
+    /// that section) and the summary retries the focus exactly once; return <c>false</c> to leave
+    /// the miss as-is. When unset, a miss is silently ignored, matching the component's
+    /// pre-fallback behaviour.
     /// </summary>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -328,6 +330,14 @@ public sealed class FormidableSummary : FormidableComponentBase
     // The caller wraps each call in its own sequence-number region, so the local counter here
     // starts at zero and the region element keeps its frame numbers — and with them its DOM
     // identity — however much content the sibling region carries.
+    //
+    // aria-atomic is spelled out because the two roles used here are atomic by default: status
+    // and alert each carry an implicit aria-atomic of true, so without it every change inside a
+    // region re-announces the whole of it, and correcting one field reads the entire remaining
+    // error band back — assertively, in the alert region. False narrows each announcement to the
+    // entries that actually changed, which is what a visitor working through a blocked submit
+    // needs to hear. (A bare aria-live carries no such implication, which is why the message
+    // lists spell out nothing.)
     private void BuildRegion(
         RenderTreeBuilder builder,
         string regionClass,
@@ -339,6 +349,7 @@ public sealed class FormidableSummary : FormidableComponentBase
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", regionClass);
         builder.AddAttribute(sequence++, "role", role);
+        builder.AddAttribute(sequence++, "aria-atomic", "false");
 
         var groups = visibleIssues
             .Where(v => (v.Issue.Severity == ValidationSeverity.Error) == errorRegion && Matches(v.Issue.Severity))
@@ -382,30 +393,67 @@ public sealed class FormidableSummary : FormidableComponentBase
             var entries = EntriesFor(group);
             var shown = MaxItems is { } max && max < entries.Count ? max : entries.Count;
 
+            // Without a key, sibling entries match by position, so correcting the field the first
+            // entry names rewrites the text of every entry below it and drops the last one — a
+            // whole band's worth of churn where one node should have left. Two halves make the key
+            // work, and neither is sufficient alone.
+            //
+            // The first is what the key IS: the entry paired with its ordinal among the entries
+            // EQUAL to it, never its position. Two issues carrying the same field, message,
+            // severity, code and state are equal records — a shape a validator reaches by
+            // declaring one rule twice — and Blazor rejects duplicate sibling keys outright, at
+            // the first DIFF rather than the first render, so keying by value alone would paint a
+            // form correctly and then throw on the next pass. An entry with no equal in its band
+            // keeps ordinal 0 wherever it moves, so the pairing costs the duplicate case alone,
+            // and a band showing one entry cannot collide with itself at all.
+            //
+            // The second is the numbering: every entry emits the SAME sequence numbers, which is
+            // what a Razor @foreach compiles to and why the entries render inside their own
+            // sequence-number region. A key decides which old entry a new one matches, but the
+            // frames INSIDE it are still matched by sequence — so under a running counter the
+            // matched entry's button and content would carry numbers seven higher than the entry
+            // that replaced it, and the whole subtree would be destroyed and rebuilt under a li
+            // that survived. Identical numbering settles what follows a band as well: the region
+            // takes one sequence number however many entries it holds, so an entry arriving or
+            // leaving leaves the overflow line and the band after it on the numbers they had.
+            var occurrences = shown > 1 ? new Dictionary<VisibleIssue, int>(shown) : null;
+
+            builder.OpenRegion(sequence++);
+
             for (var index = 0; index < shown; index++)
             {
                 var entry = entries[index];
+                var occurrence = 0;
+                if (occurrences is not null)
+                {
+                    occurrences.TryGetValue(entry, out occurrence);
+                    occurrences[entry] = occurrence + 1;
+                }
 
-                builder.OpenElement(sequence++, "li");
-                builder.AddAttribute(sequence++, "class", "formidable-summary__item");
+                var entrySequence = 0;
+                builder.OpenElement(entrySequence++, "li");
+                builder.SetKey((entry, occurrence));
+                builder.AddAttribute(entrySequence++, "class", "formidable-summary__item");
 
-                builder.OpenElement(sequence++, "button");
-                builder.AddAttribute(sequence++, "type", "button");
-                builder.AddAttribute(sequence++, "class", "formidable-summary__link");
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
+                builder.OpenElement(entrySequence++, "button");
+                builder.AddAttribute(entrySequence++, "type", "button");
+                builder.AddAttribute(entrySequence++, "class", "formidable-summary__link");
+                builder.AddAttribute(entrySequence++, "onclick", EventCallback.Factory.Create(this, () => ActivateAsync(entry)));
                 if (ItemTemplate is null)
                 {
-                    builder.AddContent(sequence++, entry.Issue.Message);
+                    builder.AddContent(entrySequence++, entry.Issue.Message);
                 }
                 else
                 {
-                    builder.AddContent(sequence++, ItemTemplate, entry);
+                    builder.AddContent(entrySequence, ItemTemplate, entry);
                 }
 
                 builder.CloseElement();
 
                 builder.CloseElement();
             }
+
+            builder.CloseRegion();
 
             // Nothing at all when the band suppressed nothing, and nothing at all when it did but
             // no template says what that should read as: the alternative to a consumer's own

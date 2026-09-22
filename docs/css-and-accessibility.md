@@ -165,7 +165,8 @@ public sealed class FormidableCssClasses
 
 `FormidableInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for
 the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
-instance the form was built with, then merges the result with any consumer-splatted `class`. See
+instance the form's options currently hold, then merges the result with any consumer-splatted
+`class`. See
 [Component kit](component-kit.md) for the merge itself. The message components and
 `FormidableSummary` use a related, fixed convention of their
 own for the messages they render — see [Severity](severity.md) for the
@@ -187,10 +188,12 @@ or design system's naming convention, and assign it to `FormidableOptions.CssCla
 property lives on the
 options object every `FormidableForm<TModel>`/`FormidableValidator<TModel>` takes (see
 [Options](options.md)). Formidable doesn't care what the strings are, only when each one
-applies. The rule above is the entire contract. As with every other `FormidableOptions`
-property, `CssClasses` is read once, when the engine is built for a given `Model` instance;
-handing the form a different `FormidableOptions` instance on a later render throws rather than
-quietly changing nothing. See
+applies. The rule above is the entire contract. `CssClasses` is read at each class computation,
+by kit components and by the provider that classes native `InputBase` components alike, so
+renaming a class — by setting properties on the instance you already have, or by assigning a
+whole new `FormidableCssClasses` — reaches both surfaces from the next computation each makes.
+The `FormidableOptions` object around it is the thing that cannot be swapped: handing the form a
+different instance on a later render throws rather than quietly changing nothing. See
 [Options](options.md#formidableoptions-is-read-once) for that rule.
 
 ## The structural class inventory
@@ -247,9 +250,9 @@ namespace Formidable.Blazor;
 /// <see cref="WouldPassSubmit"/> to build the same
 /// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
-/// directly; any component that renders a message list reads <see cref="InlineMessageRole"/> and
-/// passes it to the shared list renderer, which adds the <c>role</c> attribute when the value is
-/// not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
+/// directly; any component that renders a message list reads <see cref="InlineMessageLive"/> and
+/// passes it to the shared list renderer, which adds the <c>aria-live</c> attribute when the value
+/// is not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
 /// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
 /// to its own default for whichever member it needs.
 /// </summary>
@@ -275,8 +278,8 @@ internal interface IValidatingFieldReader
     /// </summary>
     bool WouldPassSubmit(FieldIdentifier field);
 
-    /// <summary>The configured <see cref="FormidableOptions.InlineMessageRole"/>, or null.</summary>
-    string? InlineMessageRole { get; }
+    /// <summary>The configured <see cref="FormidableOptions.InlineMessageLive"/>, or null.</summary>
+    string? InlineMessageLive { get; }
 }
 
 /// <summary>
@@ -289,23 +292,26 @@ internal interface IValidatingFieldReader
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly FormidableCssClasses _classes;
     private readonly IFormValidationEngine _engine;
     private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
-    /// Creates a provider using the given class names, reading touched, pending, and advisory
-    /// state from <paramref name="engine"/>. Construction is a consumer's business only when their own
+    /// Creates a provider reading class names, touched, pending, and advisory state from
+    /// <paramref name="engine"/>. Construction is a consumer's business only when their own
     /// <c>EditContext.SetFieldCssClassProvider</c> call has replaced the installed one and they
     /// want Formidable's classes back, or when their own provider wants to delegate to this one:
-    /// pass the form's <c>FormidableOptions.CssClasses</c> and its engine, both reachable through
-    /// <see cref="FormidableFormContext.Engine"/>.
+    /// pass the engine, reachable through <see cref="FormidableFormContext.Engine"/>.
     /// </summary>
-    public FormidableFieldCssClassProvider(FormidableCssClasses classes, IFormValidationEngine engine)
+    /// <remarks>
+    /// The class names are the engine's, deliberately, and there is no overload taking a
+    /// different set: a form whose native inputs answered with names its kit inputs did not
+    /// would be reporting the same field state two ways. A consumer who genuinely wants a
+    /// different map has the whole rule in public API — <see cref="FormidableCss.Compute"/> over
+    /// <see cref="IFormValidationEngine.GetFieldState"/> — and writes their own provider.
+    /// </remarks>
+    public FormidableFieldCssClassProvider(IFormValidationEngine engine)
     {
-        ArgumentNullException.ThrowIfNull(classes);
         ArgumentNullException.ThrowIfNull(engine);
-        _classes = classes;
         _engine = engine;
         _reader = engine as IValidatingFieldReader;
     }
@@ -342,7 +348,11 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
             WouldPassSubmit = wouldPassSubmit
         };
 
-        return FormidableCss.Compute(state, _classes);
+        // Read at each computation, not held from construction: the options object is what a
+        // consumer reaches for to rename a class, and a provider holding the instance it was
+        // built with would leave native inputs answering with the old names while kit inputs,
+        // which read through the options at each render, answered with the new ones.
+        return FormidableCss.Compute(state, _engine.Options.CssClasses);
     }
 }
 ```
@@ -350,7 +360,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 *Source: `src/Formidable.Blazor/FormidableFieldCssClassProvider.cs`*
 
 ```csharp
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses, this));
+        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
@@ -379,9 +389,12 @@ Formidable one.
 Installation is the engine's job, so a form never constructs a provider to get these classes. The
 constructor is public for the case where an `EditContext` no longer has Formidable's provider on
 it: `SetFieldCssClassProvider` holds exactly one, so a consumer's own call replaces it, and the
-way back is `new FormidableFieldCssClassProvider(engine.Options.CssClasses, engine)` with the
-engine read from `FormidableFormContext.Engine`. The same construction lets a consumer's provider
-delegate to Formidable's and append classes of its own to what it returns. One lifetime note for
+way back is `new FormidableFieldCssClassProvider(engine)` with the engine read from
+`FormidableFormContext.Engine`. The same construction lets a consumer's provider delegate to
+Formidable's and append classes of its own to what it returns. It takes the engine and nothing
+else, so the names it applies are always the ones the form's own kit inputs apply; a provider
+that should answer with a different map is a provider of your own, built out of the same two
+public pieces this one uses — `FormidableCss.Compute` over `IFormValidationEngine.GetFieldState`. One lifetime note for
 `FormidableValidator`, which attaches to an `EditContext` it doesn't own: disposing the validator
 leaves Formidable's provider installed on that `EditContext`, still pointing at the disposed
 engine, so a page that keeps using the `EditContext` afterwards should install whichever provider
@@ -392,32 +405,59 @@ it wants for that next life.
 ### Deterministic ids
 
 Every id Formidable assigns — an input's `id`, a message list's `id`, and the target the focus
-service looks for — comes from one function, keyed by the owning object instance plus the field
-name:
+service looks for — comes from one function, keyed by the owning object instance and the field
+name together:
 
 ```csharp
-namespace Formidable.Blazor;
-
-/// <summary>
-/// Deterministic DOM element ids for fields, shared by inputs (element id), messages
-/// (aria-describedby target), and the focus service. Identity follows the owning object
-/// instance plus the field name.
-/// </summary>
-public static class FormidableFieldId
-{
-    private const string MessagesSuffix = "-messages";
-
-    /// <summary>The id for a field: <c>formidable-{owner-hash}-{sanitized-name}</c>; the model-level field uses <c>form</c> as its name.</summary>
     public static string For(FieldIdentifier field)
     {
         var name = field.FieldName.Length == 0
             ? "form"
             : string.Concat(field.FieldName.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-'));
-        return $"formidable-{RuntimeHelpers.GetHashCode(field.Model):x8}-{name}";
+        return $"formidable-{RuntimeHelpers.GetHashCode(field.Model):x8}-{NameHash(field.FieldName):x8}-{name}";
     }
+
+    /// <summary>
+    /// FNV-1a over the name's UTF-16 code units. Spelled out rather than delegated: see the
+    /// remarks on <see cref="For(FieldIdentifier)"/> for why a per-process hash cannot serve here.
+    /// </summary>
+    private static uint NameHash(string name)
+    {
+        const uint offsetBasis = 2166136261;
+        const uint prime = 16777619;
+
+        var hash = offsetBasis;
+        foreach (var c in name)
+        {
+            unchecked
+            {
+                hash = (hash ^ (byte)c) * prime;
+                hash = (hash ^ (byte)(c >> 8)) * prime;
+            }
 ```
 
 *Excerpt from `src/Formidable.Blazor/FormidableFieldId.cs`*
+
+The shape is `formidable-{owner-hash}-{name-hash}-{sanitized-name}`, and the name reaches it
+twice because each trip does a different job. Sanitizing lowercases letters and digits and turns
+everything else into `-`, which is what makes an id legible and selectable: `Url`, `URL` and
+`url` all end `-url`, so a stylesheet or a browser locator can say `[id$='-url']` and mean it.
+That legibility is also a collision, since those are three different fields, and two elements
+sharing a DOM id is invalid HTML: both `aria-describedby` values point at one message list, and a
+click-to-focus reaches whichever element came first. The hash of the original name, case and
+punctuation intact, is what separates them again.
+
+It sits in front of the sanitized name rather than after it. The owner segment is an
+object-identity hash, which is opaque rather than addressable: it names the instance, so a
+different model or a different collection row gives a different one, and its value is drawn from
+a sequence the runtime advances on each first identity-hash request, so anything the app asks
+about earlier moves it along. Nothing you write can name it. The suffix is what stays put, and
+putting the name anywhere but last would take that away. The name hash itself is spelled out in
+the library rather than taken from `string.GetHashCode()`, which — unlike the identity hash
+beside it — really is randomized per process, so an id computed in your test run would not match
+the one the app renders. Thirty-two bits over the names one object owns makes two ids
+overwhelmingly likely to differ rather than certain to; the sanitizer collision it replaces was
+certain.
 
 The model-level field — an empty `FieldIdentifier.FieldName`, the one the defensive
 all-suppressed gate in [Disclosure](disclosure.md) targets — gets `form` as its name
@@ -426,7 +466,9 @@ segment rather than an empty one. `FormidableForm` renders it on its own `<form>
 field that owns no input of its own — a collection container, or the `<form>` element in attach
 mode. An overload of `For` takes a member-access expression instead of a `FieldIdentifier` for
 that case — `FormidableFieldId.For(order, o => o.Description)` — so the id can be computed
-without a `nameof` step to keep in sync with the property it names. There is no expression shape
+without a `nameof` step to keep in sync with the property it names. It evaluates the object part,
+the way `FieldIdentifier.Create` evaluates its own, so `o => o.Address.City` names the field the
+`Address` instance owns, which is the one a component renders. There is no expression shape
 for the model-level field itself; construct `new FieldIdentifier(model, string.Empty)` and pass
 it to the `FieldIdentifier` overload, as `FormidableForm` does internally.
 
@@ -556,6 +598,7 @@ a live region whose role was already there:
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", regionClass);
         builder.AddAttribute(sequence++, "role", role);
+        builder.AddAttribute(sequence++, "aria-atomic", "false");
 ```
 
 *Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between are the rest of
@@ -563,6 +606,22 @@ that comment, `BuildRegion`'s signature, and its counter's initialisation; the c
 call hands it are fixed at the call site, and each call is wrapped in its own sequence-number
 region so the element the role sits on is the same DOM node across renders (see
 [Component kit](component-kit.md#formidablesummary) for that half of the wiring).
+
+`aria-atomic="false"` is the same argument one level down. `status` and `alert` are atomic by
+DEFAULT — each role carries an implicit `aria-atomic` of true — so a region left to itself
+announces the whole of itself again on every change: fix one field on a form blocked by five and
+the visitor is read the four that remain, assertively, before they reach the next box. (A bare
+`aria-live`, which is what [`InlineMessageLive`](options.md#inlinemessagelive) puts on a message
+list, carries no such implication and needs no such correction.) Spelling the attribute out
+narrows each announcement to the entries that actually changed. The persistent element is what
+makes that possible in the first place: the entries come and go inside a region that stays, so
+there is a difference between the region and its parts for `aria-atomic` to be about.
+
+Entries carry a key for the same reason, and it is a rendering decision with an accessibility
+consequence. Blazor matches unkeyed siblings by position, so correcting the field the first entry
+names would rewrite the text of every entry below it rather than removing that one — to a screen
+reader on a non-atomic region, a band that churns wholesale is a band that announces wholesale.
+Keying each entry by the issue it carries makes a removal read as a removal.
 
 The component subscribes to the engine's `StateChanged` event itself, so a region's content — and
 whatever it announces — stays current through every kind of update, not just the moment of
@@ -613,7 +672,7 @@ namespace Formidable.Blazor;
 /// Implementing this interface — a recording double in a bUnit test, a focus behaviour of
 /// your own — is supported surface, and it grows accordingly: a member added after v1
 /// carries a default implementation that does nothing and reports having done nothing, the
-/// answer <see cref="FocusAsync"/> already gives for an element the DOM does not hold.
+/// answer <see cref="FocusAsync"/> already gives whenever nothing took focus.
 /// Moving focus is a courtesy, so an implementation that does not override the addition
 /// declines it and leaves the page as it was.
 /// </remarks>
@@ -624,8 +683,14 @@ public interface IFormidableFocusService
     /// into view prefers the field's message list when one is rendered, so clicking a
     /// collection-level issue shows the message that was clicked rather than the middle of the
     /// group; it falls back to the focus target itself when no message list exists. Returns
-    /// <c>true</c> when the element was found and focused, <c>false</c> when no element with the
-    /// field's id exists in the DOM — e.g. a virtualized row outside the render window.
+    /// <c>true</c> when the element took focus and <c>false</c> when nothing did. There are two
+    /// routes to <c>false</c> and they reach the caller as one answer, because the visitor is in
+    /// the same place on either: no element carries the field's id — a virtualized row outside
+    /// the render window, a control that renders no such id at all — or the element that carries
+    /// it will not take focus, being disabled, hidden, not a focusable kind of element, or sealed
+    /// off by an ancestor such as a closed <c>&lt;details&gt;</c>, an <c>inert</c> subtree, or a
+    /// native <c>&lt;dialog&gt;</c> open elsewhere on the page. An element merely covered by an
+    /// overlay does take focus, so that shape answers <c>true</c>.
     /// </summary>
     /// <param name="field">The field whose rendered element should receive focus.</param>
     ValueTask<bool> FocusAsync(FieldIdentifier field);
@@ -662,9 +727,18 @@ export function focusField(id, scrollId) {
     // an ordinary field wrapper and comfortably below a container spanning the viewport, so it
     // separates the two without being sensitive to small layout changes.
     const tall = scrollTarget.getBoundingClientRect().height > window.innerHeight * 0.6;
-    scrollTarget.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "center" });
+    // "auto" hands the motion to each scrolling box's own scroll-behavior, which is where a
+    // visitor's prefers-reduced-motion can reach it. Naming "smooth" here would animate the
+    // scroll whatever the page and the visitor asked for, and how a page moves is styling,
+    // which this library does not ship.
+    scrollTarget.scrollIntoView({ behavior: "auto", block: tall ? "start" : "center" });
     element.focus({ preventScroll: true });
-    return true;
+    // Whether the element took focus, not merely whether it was found. An element can be on the
+    // page and still refuse focus, and that field is the whole reason the caller has a recovery
+    // path: a fallback that makes the target reachable and retries, or a diagnostic when none is
+    // wired. Reporting "found" as "focused" is what leaves that path unreachable, so the answer is
+    // read back from the document rather than assumed from the call.
+    return document.activeElement === element;
 }
 ```
 
@@ -679,9 +753,40 @@ than 60% of the viewport and it aligns to its top, smaller and it centres. Centr
 field wrapper and wrong for a container that fills the screen, whose centre is somewhere down
 among its rows.
 
+**How** it moves is yours. `behavior: "auto"` means each scrolling box the move touches uses its
+own `scroll-behavior`, so a page that says nothing gets an instant jump and a page that asks for
+`scroll-behavior: smooth` gets an animation — and a visitor who has asked their system for less
+motion is answered by the same stylesheet, through a media query the library is in no position to
+write:
+
+```css
+html {
+    scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+}
+```
+
+Put it on the root element: `scroll-behavior` propagates to the viewport from `html` and, unlike
+`overflow`, not from `body`. A scrollable container of your own — a panel holding a `Virtualize`,
+say — is a second scrolling box and needs its own declaration, since a focus move inside one
+scrolls the container as well as the page. Write the guard rather than assuming it: browsers
+differ on whether `scroll-behavior: smooth` reads the preference by itself, and Chromium does not,
+so without the media query a visitor who asked for less motion gets the animation anyway. Watch
+what else the declaration catches, too — assigning `scrollTop`, or `scrollTo` without an explicit
+`behavior`, animates once the box is smooth, which is rarely what a programmatic jump wants.
+
 `document.getElementById(id)` locates both targets, and a miss on the focus target is reported
-rather than swallowed: `focusField` returns `false` when no element carries the focus id, and
-`FocusAsync` propagates that bool straight back to its caller. A miss on the scroll id alone is
+rather than swallowed: `focusField` answers `document.activeElement === element`, so it returns
+`false` both when no element carries the focus id and when the element carrying it did not take
+focus, and `FocusAsync` propagates that bool straight back to its caller. Reading the answer back
+rather than assuming the call took is what makes the second case recoverable at all: an element
+that is present and refuses focus would otherwise be reported as a move that landed, and the
+seams below would never see it. A miss on the scroll id alone is
 not an error: it falls back to the focus element itself, which is always the size-aware scroll's
 minimum viable target. What happens next diverges by caller. `FormidableSummary`'s click-to-focus
 handler no-ops silently when `FocusAsync` reports a miss and no `FocusFallback` is set (or the
@@ -692,14 +797,18 @@ summary's silent no-op: a visitor sent to a field nobody clicked has nowhere els
 summary click simply has no effect, so the form reports a diagnostic instead (see
 [Component kit](component-kit.md#focusfallback)).
 
-The gap `FocusFallback` recovers, on either component, matters for two cases documented elsewhere.
+The gap `FocusFallback` recovers, on either component, matters for three cases documented
+elsewhere.
 The first is a field scrolled out of a `Virtualize` window with no current DOM element: the focus
 miss `FocusFallback` exists to recover from (see [Component kit](component-kit.md#focusfallback)).
 The second is a raw or foreign control whose markup never actually rendered `field.ElementId` as
 its `id` attribute, which is why `FormidableField`'s `ForeignControl.razor` sample splats
 `@attributes="field.InputAttributes"` onto its `<select>`: one splat carrying the id, the state
 class, and `aria-invalid`, `aria-describedby` and `aria-required` whenever each applies (see
-[Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
+[Component kit](component-kit.md)). The third is an element that carries the id and will not take
+focus: a disabled control, one inside a closed `<details>` or an `inert` subtree, or a container
+given the id without the `tabindex="-1"` that makes a `<div>` or a `<fieldset>` focusable at all.
+A `FormidableFieldAnchor`-only registration
 with no id on the control it anchors has nothing for the focus service to find. The samples now
 close that gap rather than illustrate it, giving their native `InputText`s the field's id
 alongside the anchor.

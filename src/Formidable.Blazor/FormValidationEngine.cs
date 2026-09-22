@@ -285,7 +285,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         _store = new ValidationMessageStore(editContext);
         _fieldChangedHandler = HandleFieldChanged;
         editContext.OnFieldChanged += _fieldChangedHandler;
-        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(options.CssClasses, this));
+        editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
 
         if (options.TrackFormValidity)
@@ -637,8 +637,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <inheritdoc cref="IValidatingFieldReader.WouldPassSubmit"/>
     bool IValidatingFieldReader.WouldPassSubmit(FieldIdentifier field) => WouldPassSubmit(field);
 
-    /// <inheritdoc cref="IValidatingFieldReader.InlineMessageRole"/>
-    string? IValidatingFieldReader.InlineMessageRole => _options.InlineMessageRole;
+    /// <inheritdoc cref="IValidatingFieldReader.InlineMessageLive"/>
+    string? IValidatingFieldReader.InlineMessageLive => _options.InlineMessageLive;
 
     /// <inheritdoc />
     /// <remarks>

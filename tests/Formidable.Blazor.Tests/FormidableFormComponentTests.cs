@@ -852,9 +852,14 @@ public class FormidableFormComponentTests : BunitContext
         host.Find("form").Submit();
 
         // Two disclosed errors, so what follows can tell a summary that dropped one entry from a
-        // summary that stopped rendering.
-        Assert.Contains(SkuRequired, host.Markup, StringComparison.Ordinal);
-        Assert.Contains(DescriptionRequired, host.Markup, StringComparison.Ordinal);
+        // summary that stopped rendering. Awaited rather than read straight off the markup: the
+        // submit's pass is asynchronous, so the disclosure this scenario is built on lands after
+        // Submit returns rather than within it.
+        host.WaitForAssertion(() =>
+        {
+            Assert.Contains(SkuRequired, host.Markup, StringComparison.Ordinal);
+            Assert.Contains(DescriptionRequired, host.Markup, StringComparison.Ordinal);
+        });
 
         // Exactly what a page's own Remove button does, and nothing more: the model is mutated and
         // the page re-renders. Nothing announces the change — no NotifyChanged anywhere — which is
@@ -924,7 +929,7 @@ public class FormidableFormComponentTests : BunitContext
         }
     }
 
-    /// <summary>Answers every focus request without moving anything, so the summary can render.</summary>
+    /// <summary>Vouches for every focus request, so the summary can render without a move.</summary>
     private sealed class SilentFocusService : IFormidableFocusService
     {
         public ValueTask<bool> FocusAsync(FieldIdentifier field) => ValueTask.FromResult(true);

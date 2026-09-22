@@ -464,8 +464,9 @@ only a field with neither an error nor a warning at submit waits for the next su
 
 ### I want every summary entry to land somewhere
 
-**Set:** make sure a rendered element carries the field's deterministic id. The kit's inputs
-render `FormidableFieldId.For(field)` themselves; anything the page renders needs it explicitly.
+**Set:** make sure a rendered element carries the field's deterministic id and can take focus.
+The kit's inputs render `FormidableFieldId.For(field)` themselves and are focusable already;
+anything the page renders needs both explicitly, which for a container means `tabindex="-1"`.
 
 ```csharp
 private string TeamsId => FormidableFieldId.For(Model, m => m.Teams);
@@ -482,9 +483,10 @@ any one input, so nothing renders its id automatically. The model-level field be
 all-suppressed gate is reachable the same way — an id and `tabindex="-1"` on the element that
 should take focus — but `FormidableForm` already does it, on the `<form>` element it renders;
 only attach mode's `FormidableValidator`, which renders no `<form>` of its own, still needs the
-page to render that one by hand (see [Component kit](component-kit.md)). For a field that is not
-currently in the DOM at all, give `FormidableSummary` a `FocusFallback`: make the element
-renderable, return `true`, and the summary retries the focus once. `FormidableForm` takes the
+page to render that one by hand (see [Component kit](component-kit.md)). For a field the move
+cannot reach — not currently in the DOM at all, or there and refusing focus — give
+`FormidableSummary` a `FocusFallback`: make the element reachable, return `true`, and the summary
+retries the focus once. `FormidableForm` takes the
 identical parameter for its own blocked-submit auto-focus, so a visitor who never opens the
 summary at all still lands on a field the same way — wire the same callback to both.
 
@@ -780,7 +782,8 @@ Five things the shipped component knows, which your own has to know too:
   entry you rendered is already holding what the click needs. Injecting it also gets you whatever
   the app registered ahead of `AddFormidableBlazor()`. What you do not get for free is
   `FormidableSummary`'s miss recovery: a field that is not currently in the DOM has nothing to
-  focus, and retrying after making it renderable is yours to write.
+  focus, and one that is there but will not take focus lands nothing either. Reading the `false`
+  and retrying after making the element reachable is yours to write.
 - **Subscribe to `StateChanged`, and keep the announcing element persistent.** The engine raises
   it on every pass, refresh and server apply; without the subscription the list is only as fresh
   as whatever else happened to re-render. And a live region announces reliably only when the
@@ -933,9 +936,10 @@ instance — which it accepts only alongside a new model
 about is `ValidationFaultMessage`: its issue is filed when the fault happens rather than rebuilt
 at each read, so a change reaches the next fault and leaves one already on screen as it was.
 
-Server-side, one string has no lever yet. Where a request binds its body to null, the endpoint
-filter answers with `"A request body is required."` in the 400 body. That is a response rather
-than something a form renders, so it takes a different kind of seam and does not have one today.
+Server-side, one string has no lever yet. Where the platform refuses a request whose body bound
+to null, the endpoint filter fills the otherwise-empty 400 with `"A request body is required."`
+That is a response rather than something a form renders, so it takes a different kind of seam and
+does not have one today.
 
 **Read:** [Profiles](profiles.md) (localization and display names),
 [Engine options](options.md#defensivegatemessage).
@@ -1107,7 +1111,7 @@ which render the kit exactly this way.
 | A page won't build: `RZ9999` — `The child content element 'ChildContent' of component 'FormidableField' uses the same parameter name ('context') as enclosing child content element 'ChildContent' of component 'FormidableForm'`, with the same wording for a `Virtualize` inside a form, or a `FormidableValidator` inside an `EditForm`. | Both components take a typed `ChildContent`, and an unnamed typed fragment claims the implicit `context`. Nesting one inside another puts two claims on that one name. What collides is the declaration, not any use of it, so the diagnostic arrives whether or not either body ever reads `context` — `EditForm` has always charged the same rename. | Name either fragment: `Context="field"` on a `FormidableField`, `Context="gadget"` on a `Virtualize`, `Context="formidable"` on a `FormidableValidator` inside a consumer's own `EditForm` — or on the `FormidableForm` itself, which names the outer body and leaves the inner one on `context`. Every shipped sample names the inner one. [Component kit](component-kit.md#formidableformtmodel). |
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
 | A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
-| Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
+| Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id and reports whether that element took focus. Either no rendered element carries the id — a control the page renders itself, or a field with no input of its own — or one does and will not take focus, which is what a container without `tabindex`, a disabled control, or a collapsed section around the field each produce. | Render the id and make the element focusable: `id="@field.ElementId"` on an input, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. Where the field cannot be made reachable up front, wire a `FocusFallback` to reach it on the retry. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
 | Required markers and `aria-required` vanished, and a loaded draft stopped confirming the values its rules pass, after the form was given its own `Validator`. | The validator passed in wins whole. Rule inspection and rule-level execution are optional interfaces beside `IModelValidator<TModel>`, so a wrapper implementing only that seam presents neither, and the capability test a form makes reads the same for it as for a validator whose rules cannot be read at all. | Derive the wrapper from `DelegatingModelValidator<TModel>`, which forwards all three interfaces and answers each tester with the wrapped validator's own answer. [Wrap the validator without losing what it can do](#i-want-to-wrap-the-validator-without-losing-what-it-can-do). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |

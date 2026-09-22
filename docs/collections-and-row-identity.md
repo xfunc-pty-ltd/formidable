@@ -151,9 +151,10 @@ idioms at both levels:
     <FormidableCollectionMessage For="() => _roster.Teams" />
 
     @* A collection rule fails against the list, not against any one input, so its summary entry
-       has nothing to focus unless some element carries the collection's id: the container
-       holding every team for the roster's own rule, and each team's box for that team's member
-       rule. Both ids come from the model via FormidableField's own ElementId, so no page-owned
+       has nothing to focus unless some element carries the collection's id AND can take focus:
+       the container holding every team for the roster's own rule, and each team's box for that
+       team's member rule, each with the tabindex a div and a fieldset need to be focusable at
+       all. Both ids come from the model via FormidableField's own ElementId, so no page-owned
        state is needed to keep them in step. *@
     <FormidableField For="() => _roster.Teams" Context="teamsField">
         <div class="team-list" id="@teamsField.ElementId" tabindex="-1">

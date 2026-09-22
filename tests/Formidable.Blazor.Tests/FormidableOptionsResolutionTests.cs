@@ -7,9 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
 
-// Covers both halves of the Options contract: where an omitted Options parameter comes from, and
-// what a host does when the parameter is handed a different instance after the engine that read
-// it already exists.
+// Covers how an Options parameter is resolved: where an omitted one comes from, and what a host
+// does when the parameter is handed a different instance after the engine that read it already
+// exists. Building one instance from another is FormidableOptionsCopyTests.
 public class FormidableOptionsResolutionTests : BunitContext
 {
     private static readonly TimeSpan ConfiguredDebounce = TimeSpan.FromMilliseconds(42);

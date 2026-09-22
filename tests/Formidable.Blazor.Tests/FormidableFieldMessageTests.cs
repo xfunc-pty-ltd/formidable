@@ -41,22 +41,22 @@ public class FormidableFieldMessageTests : BunitContext
 
         var list = form.Find("ul.formidable-message-list");
         Assert.Empty(list.Children);
-        Assert.Null(list.GetAttribute("role"));
+        Assert.Null(list.GetAttribute("aria-live"));
 
-        var roleOrder = new EngineOrder { Description = "a-b" };
-        var withRole = RenderWithMessage(
-            roleOrder,
+        var liveOrder = new EngineOrder { Description = "a-b" };
+        var withLive = RenderWithMessage(
+            liveOrder,
             inner =>
             {
                 inner.OpenComponent<FormidableFieldMessage<string>>(0);
-                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => roleOrder.Description));
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => liveOrder.Description));
                 inner.CloseComponent();
             },
-            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageLive = "polite" });
 
-        var roleList = withRole.Find("ul.formidable-message-list");
-        Assert.Empty(roleList.Children);
-        Assert.Equal("status", roleList.GetAttribute("role"));
+        var liveList = withLive.Find("ul.formidable-message-list");
+        Assert.Empty(liveList.Children);
+        Assert.Equal("polite", liveList.GetAttribute("aria-live"));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class FormidableFieldMessageTests : BunitContext
     }
 
     [Fact]
-    public void Default_options_render_no_role_attribute_on_the_list()
+    public void Default_options_render_no_aria_live_attribute_on_the_list()
     {
         var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
         var form = RenderWithMessage(order, inner =>
@@ -134,11 +134,11 @@ public class FormidableFieldMessageTests : BunitContext
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
-        form.WaitForAssertion(() => Assert.Null(form.Find("ul.formidable-message-list").GetAttribute("role")));
+        form.WaitForAssertion(() => Assert.Null(form.Find("ul.formidable-message-list").GetAttribute("aria-live")));
     }
 
     [Fact]
-    public void InlineMessageRole_option_adds_role_attribute_to_the_list()
+    public void InlineMessageLive_option_adds_aria_live_attribute_to_the_list()
     {
         var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
         var form = RenderWithMessage(
@@ -149,11 +149,11 @@ public class FormidableFieldMessageTests : BunitContext
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
                 inner.CloseComponent();
             },
-            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageLive = "polite" });
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 
-        form.WaitForAssertion(() => Assert.Equal("status", form.Find("ul.formidable-message-list").GetAttribute("role")));
+        form.WaitForAssertion(() => Assert.Equal("polite", form.Find("ul.formidable-message-list").GetAttribute("aria-live")));
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class FormidableFieldMessageTests : BunitContext
     }
 
     [Fact]
-    public void A_configured_InlineMessageRole_wins_a_splatted_role()
+    public void A_configured_InlineMessageLive_wins_a_splatted_aria_live()
     {
         var order = new EngineOrder { Description = "a-b" };
         var withOption = RenderWithMessage(
@@ -273,25 +273,25 @@ public class FormidableFieldMessageTests : BunitContext
             {
                 inner.OpenComponent<FormidableFieldMessage<string>>(0);
                 inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
-                inner.AddComponentParameter(2, "role", "alert");
+                inner.AddComponentParameter(2, "aria-live", "assertive");
                 inner.CloseComponent();
             },
-            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageLive = "polite" });
 
-        Assert.Equal("status", withOption.Find("ul.formidable-message-list").GetAttribute("role"));
+        Assert.Equal("polite", withOption.Find("ul.formidable-message-list").GetAttribute("aria-live"));
 
-        // With the option unset the kit computes no role, so the splatted one stands — the
+        // With the option unset the kit computes no aria-live, so the splatted one stands — the
         // documented boundary of the computed-wins policy, not an accident.
         var bare = new EngineOrder { Description = "a-b" };
         var withoutOption = RenderWithMessage(bare, inner =>
         {
             inner.OpenComponent<FormidableFieldMessage<string>>(0);
             inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => bare.Description));
-            inner.AddComponentParameter(2, "role", "alert");
+            inner.AddComponentParameter(2, "aria-live", "assertive");
             inner.CloseComponent();
         });
 
-        Assert.Equal("alert", withoutOption.Find("ul.formidable-message-list").GetAttribute("role"));
+        Assert.Equal("assertive", withoutOption.Find("ul.formidable-message-list").GetAttribute("aria-live"));
     }
 
     [Fact]
