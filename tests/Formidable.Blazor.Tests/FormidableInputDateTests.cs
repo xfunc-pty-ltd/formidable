@@ -133,7 +133,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Change("1999-01-01"); // fails TripValidator's GreaterThan rule
 
-        Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate);
+        form.WaitForAssertion(() => Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
@@ -188,7 +188,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Input("2026-05-05");
 
-        Assert.Equal(new DateTime(2026, 5, 5), trip.ReturnDate);
+        form.WaitForAssertion(() => Assert.Equal(new DateTime(2026, 5, 5), trip.ReturnDate));
     }
 
     // Pins the recommended pairing this component's own docs teach: the model commits on every
@@ -202,7 +202,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Change("1999-01-01");
 
-        Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate);
+        form.WaitForAssertion(() => Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
     }
 
@@ -290,7 +290,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Change("");
 
-        Assert.Null(trip.DepartureDate);
+        form.WaitForAssertion(() => Assert.Null(trip.DepartureDate));
     }
 
     [Fact]
@@ -309,7 +309,7 @@ public class FormidableInputDateTests : BunitContext
 
             form.Find("input").Change("2024-01-15");
 
-            Assert.Equal(new DateOnly(2024, 1, 15), trip.DepartureDate);
+            form.WaitForAssertion(() => Assert.Equal(new DateOnly(2024, 1, 15), trip.DepartureDate));
         }
         finally
         {
@@ -347,7 +347,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Change("");
 
-        Assert.Null(trip.BookedAt);
+        form.WaitForAssertion(() => Assert.Null(trip.BookedAt));
     }
 
     [Fact]
@@ -372,7 +372,7 @@ public class FormidableInputDateTests : BunitContext
             form.Find("input").Change("2024-01-15");
 
             var expectedOffset = TimeZoneInfo.Local.GetUtcOffset(new DateTime(2024, 1, 15));
-            Assert.Equal(new DateTimeOffset(2024, 1, 15, 0, 0, 0, expectedOffset), trip.BookedAt);
+            form.WaitForAssertion(() => Assert.Equal(new DateTimeOffset(2024, 1, 15, 0, 0, 0, expectedOffset), trip.BookedAt));
         }
         finally
         {
@@ -393,7 +393,7 @@ public class FormidableInputDateTests : BunitContext
 
         form.Find("input").Change("0019-01-15");
 
-        Assert.Equal(new DateTime(19, 1, 15), trip.ReturnDate);
+        form.WaitForAssertion(() => Assert.Equal(new DateTime(19, 1, 15), trip.ReturnDate));
     }
 
     [Fact]

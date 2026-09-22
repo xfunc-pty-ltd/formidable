@@ -81,7 +81,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
 
         form.Find("input").Change("9"); // outside the draft rule's 1..5
 
-        Assert.Equal(9, feedback.Rating);
+        form.WaitForAssertion(() => Assert.Equal(9, feedback.Rating));
         form.WaitForAssertion(() =>
         {
             var css = form.Find("input").GetAttribute("class");

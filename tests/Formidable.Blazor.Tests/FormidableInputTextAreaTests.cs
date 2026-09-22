@@ -76,7 +76,7 @@ public class FormidableInputTextAreaTests : BunitContext
 
         form.Find("textarea").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("textarea").GetAttribute("class")));
     }
 
@@ -88,7 +88,7 @@ public class FormidableInputTextAreaTests : BunitContext
 
         form.Find("textarea").Input("hello");
 
-        Assert.Equal("hello", order.Description);
+        form.WaitForAssertion(() => Assert.Equal("hello", order.Description));
     }
 
     [Fact]

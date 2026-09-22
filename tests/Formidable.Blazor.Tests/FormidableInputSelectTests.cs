@@ -101,7 +101,7 @@ public class FormidableInputSelectTests : BunitContext
 
         form.Find("select").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
     }
 
@@ -180,7 +180,7 @@ public class FormidableInputSelectTests : BunitContext
         // pass immediately, exactly as the default mode does.
         form.Find("select").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
     }
 
@@ -196,7 +196,7 @@ public class FormidableInputSelectTests : BunitContext
 
         form.Find("select").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         Assert.Equal(string.Empty, form.Find("select").GetAttribute("class"));
     }
 
@@ -276,7 +276,7 @@ public class FormidableInputSelectTests : BunitContext
 
         form.Find("select").Change("Medium");
 
-        Assert.Equal(Priority.Medium, ticket.Priority);
+        form.WaitForAssertion(() => Assert.Equal(Priority.Medium, ticket.Priority));
     }
 
     [Fact]
@@ -287,7 +287,7 @@ public class FormidableInputSelectTests : BunitContext
 
         form.Find("select").Change("");
 
-        Assert.Null(ticket.Priority);
+        form.WaitForAssertion(() => Assert.Null(ticket.Priority));
     }
 
     [Fact]

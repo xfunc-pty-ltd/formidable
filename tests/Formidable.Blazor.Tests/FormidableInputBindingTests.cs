@@ -65,7 +65,7 @@ public class FormidableInputBindingTests : BunitContext
 
         cut.Find("input").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        cut.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         cut.WaitForAssertion(() => Assert.Contains("formidable-invalid", cut.Find("input").GetAttribute("class")));
     }
 

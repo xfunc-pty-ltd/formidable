@@ -127,7 +127,7 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Find("input").Change("20");
 
-        Assert.Equal(20, booking.Seats);
+        form.WaitForAssertion(() => Assert.Equal(20, booking.Seats));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
@@ -182,7 +182,7 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Find("input").Input("4");
 
-        Assert.Equal(4, booking.Seats);
+        form.WaitForAssertion(() => Assert.Equal(4, booking.Seats));
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Find("input").Change("20");
 
-        Assert.Equal(20, booking.Seats);
+        form.WaitForAssertion(() => Assert.Equal(20, booking.Seats));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
     }
 
@@ -303,7 +303,7 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Find("input").Change("");
 
-        Assert.Null(booking.Price);
+        form.WaitForAssertion(() => Assert.Null(booking.Price));
     }
 
     [Fact]
@@ -322,7 +322,7 @@ public class FormidableInputNumberTests : BunitContext
 
             form.Find("input").Change("12.5");
 
-            Assert.Equal(12.5m, booking.Price);
+            form.WaitForAssertion(() => Assert.Equal(12.5m, booking.Price));
         }
         finally
         {

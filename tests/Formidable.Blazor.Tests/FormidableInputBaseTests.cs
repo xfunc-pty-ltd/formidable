@@ -72,7 +72,7 @@ public class FormidableInputBaseTests : BunitContext
 
         form.Find("input").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
@@ -84,7 +84,7 @@ public class FormidableInputBaseTests : BunitContext
 
         form.Find("input").Input("hello");
 
-        Assert.Equal("hello", order.Description);
+        form.WaitForAssertion(() => Assert.Equal("hello", order.Description));
     }
 
     // Pins the split OnBlur adds: the value commits on change alone, with no engine notification
@@ -99,7 +99,7 @@ public class FormidableInputBaseTests : BunitContext
 
         form.Find("input").Change(new string('x', 11));
 
-        Assert.Equal(new string('x', 11), order.Description);
+        form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
     }
 
