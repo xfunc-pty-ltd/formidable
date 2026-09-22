@@ -408,7 +408,7 @@ public class FormidableSummaryTests : BunitContext
 
         form.FindAll("button.formidable-summary__link")[0].Click();
 
-        JSInterop.VerifyInvoke("focusField");
+        form.WaitForAssertion(() => JSInterop.VerifyInvoke("focusField"));
 
         await Services.DisposeAsync();
     }
@@ -454,7 +454,11 @@ public class FormidableSummaryTests : BunitContext
         form.FindAll("button.formidable-summary__link")[0].Click();
 
         form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
-        JSInterop.VerifyInvoke("focusField", 2);
+
+        // A true fallback answer only ARMS the retry (TryFocusAsync awaits the fallback, then
+        // calls focusField again after it resolves), so fallbackCalls reaching 1 proves only the
+        // first focusField call happened, not the retry that follows it.
+        form.WaitForAssertion(() => JSInterop.VerifyInvoke("focusField", 2));
 
         await Services.DisposeAsync();
     }
@@ -480,7 +484,11 @@ public class FormidableSummaryTests : BunitContext
         form.FindAll("button.formidable-summary__link")[0].Click();
 
         form.WaitForAssertion(() => Assert.Equal(0, fallbackCalls));
-        JSInterop.VerifyInvoke("focusField", 1);
+
+        // fallbackCalls stays 0 for the whole test (a focus hit never calls the fallback at
+        // all), so the wait above is satisfied at once and proves nothing about the click; the
+        // focusField count still needs its own wait.
+        form.WaitForAssertion(() => JSInterop.VerifyInvoke("focusField", 1));
 
         await Services.DisposeAsync();
     }
@@ -506,6 +514,10 @@ public class FormidableSummaryTests : BunitContext
         form.FindAll("button.formidable-summary__link")[0].Click();
 
         form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
+
+        // A false fallback answer means TryFocusAsync returns without a second focusField call,
+        // so the wait above, having already observed the fallback that follows the one call,
+        // stands as proof the count is settled at 1 for good.
         JSInterop.VerifyInvoke("focusField", 1);
 
         await Services.DisposeAsync();
