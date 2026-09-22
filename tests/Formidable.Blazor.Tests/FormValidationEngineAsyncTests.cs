@@ -140,8 +140,9 @@ public class FormValidationEngineAsyncTests
         Assert.Empty(editContext.GetValidationMessages(new FieldIdentifier(order, string.Empty)));
     }
 
-    // The mirror of the live-fault test above, and the half that is easy to lose: a submit is the
-    // one pass someone is awaiting, so a validator that throws under it belongs to that caller.
+    // The mirror of the live-fault test above, and the half that is easy to lose: a submit is a
+    // pass someone is awaiting, so a validator that throws under it belongs to that caller. The
+    // pass DiscloseLoadedValuesAsync runs is awaited too and rethrows identically.
     // Live and refresh are fire-and-forget, which is why their faults become form state plus the
     // ValidationFaulted event instead - a submit must do neither, or a caller's try/catch silently
     // stops seeing failures it used to handle and gets a quietly-blocked outcome in their place.

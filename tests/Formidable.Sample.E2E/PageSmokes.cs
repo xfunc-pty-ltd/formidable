@@ -104,6 +104,13 @@ public sealed class PageSmokes(SampleAppFixture app)
     }
 
     [E2EFact]
+    public async Task Smoke_draft_load()
+    {
+        await using var session = await app.NewPageAsync("/draft-load");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Loading a saved draft");
+    }
+
+    [E2EFact]
     public async Task Smoke_normalize()
     {
         await using var session = await app.NewPageAsync("/normalize");

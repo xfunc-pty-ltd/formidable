@@ -130,9 +130,8 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
 
 Following the submit profile is what lets a live message say what a submit would actually
 complain about, presence rules included. What keeps that from nagging is not the rule selection
-but the engaged set: a live pass files a verdict only for the fields a committed change has
-notified the engine about, so a field nobody has touched stays silent however loudly its rule is
-failing underneath (see
+but the engaged set: a live pass files a verdict only for the fields something has engaged, so a
+field nobody has reached stays silent however loudly its rule is failing underneath (see
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule)). Narrowing `LiveProfile`
 is the second, blunter lever, and it is worth reaching for when a submit rule is genuinely too
 expensive to run on every change — a uniqueness check against a server, say. It cannot tell an

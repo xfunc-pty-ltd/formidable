@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using FluentValidation;
 using FluentValidation.Results;
 using Formidable.Sample.Shared;
@@ -9,8 +10,8 @@ namespace Formidable.Tests;
 /// answer is scoped by the profile's rule selection, a conditional presence rule is told apart
 /// from an unconditional one however the condition was written, inspection survives a
 /// class-level cascade stop that bars per-rule execution, a validator that cannot be read says
-/// so instead of throwing, and the per-field code map partitions presence from everything else
-/// using the codes FluentValidation actually puts on the failures.
+/// so instead of throwing, and the declared-path enumeration reports the validator's own shape
+/// — child validators and Include()d rules included, collection indexes left open.
 /// </summary>
 public class RuleInspectingValidatorTests
 {
@@ -104,6 +105,101 @@ public class RuleInspectingValidatorTests
         }
     }
 
+    /// <summary>A validator whose rules arrive through Include() rather than its own declarations.</summary>
+    private sealed class IncludedPartValidator : AbstractValidator<InspectModel>
+    {
+        public IncludedPartValidator() => RuleFor(m => m.Chained).NotEmpty();
+    }
+
+    /// <summary>One rule of its own and one merged in — the shape Include() produces.</summary>
+    private sealed class IncludingValidator : AbstractValidator<InspectModel>
+    {
+        public IncludingValidator()
+        {
+            RuleFor(m => m.Title).NotEmpty();
+            Include(new IncludedPartValidator());
+        }
+    }
+
+    /// <summary>A child validator reached only through a condition on the component holding it.</summary>
+    private sealed class ConditionalChildValidator : AbstractValidator<InspectModel>
+    {
+        public ConditionalChildValidator() =>
+            RuleFor(m => m.Child).SetValidator(new InspectChildValidator()).When(m => m.Gate);
+    }
+
+    /// <summary>
+    /// A child validator produced by a lambda that reads the parent model, beside an ordinary
+    /// rule — so an answer covering only the ordinary one shows the lambda went unread rather
+    /// than the walk having stopped.
+    /// </summary>
+    private sealed class LambdaChildValidator : AbstractValidator<InspectModel>
+    {
+        public LambdaChildValidator()
+        {
+            RuleFor(m => m.Title).NotEmpty();
+            RuleFor(m => m.Child).SetValidator((model, _) => model.Gate
+                ? new InspectChildValidator()
+                : new InspectChildValidator());
+        }
+    }
+
+    /// <summary>A model whose shape recurses through itself.</summary>
+    private sealed class InspectNode
+    {
+        public string Label { get; set; } = string.Empty;
+
+        public List<InspectNode> Children { get; set; } = [];
+    }
+
+    /// <summary>A validator that hands its own children to itself.</summary>
+    private sealed class InspectNodeValidator : AbstractValidator<InspectNode>
+    {
+        public InspectNodeValidator()
+        {
+            RuleFor(n => n.Label).NotEmpty();
+            RuleForEach(n => n.Children).SetValidator(this);
+        }
+    }
+
+    /// <summary>Rewrites every index in a failure path to the open form the templates use.</summary>
+    private static string Templated(string path) => Regex.Replace(path, @"\[[^\]]*\]", "[]");
+
+    /// <summary>A model-level rule carrying a child validator for the model's own type.</summary>
+    private sealed class ModelLevelChildValidator : AbstractValidator<InspectModel>
+    {
+        public ModelLevelChildValidator() => RuleFor(m => m).SetValidator(new IncludedPartValidator());
+    }
+
+    /// <summary>The same shape written as a <c>ChildRules</c> block.</summary>
+    private sealed class ModelLevelChildRulesValidator : AbstractValidator<InspectModel>
+    {
+        public ModelLevelChildRulesValidator() =>
+            RuleFor(m => m).ChildRules(model => model.RuleFor(x => x.Chained).NotEmpty());
+    }
+
+    /// <summary>
+    /// A child validator scoped by the <c>SetValidator</c> call rather than by its own rules —
+    /// the one shape the walk reads MORE of than the profile runs.
+    /// </summary>
+    private sealed class RuleSetScopedChildValidator : AbstractValidator<InspectModel>
+    {
+        public RuleSetScopedChildValidator() =>
+            RuleFor(m => m.Child).SetValidator(new InspectChildValidator(), "Admin");
+    }
+
+    /// <summary>The same demand scoped where the walk can see it: inside the child's own rules.</summary>
+    private sealed class TaggedChildValidator : AbstractValidator<InspectChild>
+    {
+        public TaggedChildValidator() => RuleSet("Admin", () => RuleFor(c => c.City).NotEmpty());
+    }
+
+    /// <summary>A root holding the self-scoping child above.</summary>
+    private sealed class SelfScopingChildRootValidator : AbstractValidator<InspectModel>
+    {
+        public SelfScopingChildRootValidator() => RuleFor(m => m.Child).SetValidator(new TaggedChildValidator());
+    }
+
     /// <summary>An IValidator implemented by hand — no rule enumeration surface at all.</summary>
     private sealed class HandRolledValidator : IValidator<InspectModel>
     {
@@ -126,7 +222,7 @@ public class RuleInspectingValidatorTests
     /// The profile's rule selection decides the answer. DraftedBrief puts Title's length rule in
     /// the draft bucket and its presence rule in the submit bucket, so the same field answers
     /// differently under the two profiles — and the draft answer is a real reading of a selected
-    /// rule, not silence, which the code map alongside it shows.
+    /// rule, not silence, which the declared paths alongside it show.
     /// </summary>
     [Fact]
     public void The_profile_decides_whether_a_field_is_required()
@@ -138,12 +234,12 @@ public class RuleInspectingValidatorTests
         Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
         Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Summary", ValidationProfile.Draft));
 
-        var draftCodes = adapter.GetFieldRuleCodes(ValidationProfile.Draft);
-        Assert.Empty(draftCodes["Title"].PresenceCodes);
-        Assert.Contains("MaximumLengthValidator", draftCodes["Title"].OtherCodes);
-        // Summary's only rule is the submit-bucket presence rule, so the draft profile reaches
-        // no component of it at all.
-        Assert.False(draftCodes.ContainsKey("Summary"));
+        // Title's length rule rides the draft bucket, so the field is declared under Draft and
+        // simply not required. Summary's only rule is the submit-bucket presence rule, so the
+        // draft profile reaches no component of it at all.
+        var draftPaths = adapter.GetDeclaredFieldPaths(ValidationProfile.Draft);
+        Assert.Contains("Title", draftPaths);
+        Assert.DoesNotContain("Summary", draftPaths);
     }
 
     /// <summary>
@@ -212,7 +308,7 @@ public class RuleInspectingValidatorTests
         var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
         Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Nothing", ValidationProfile.Draft));
-        Assert.False(adapter.GetFieldRuleCodes(ValidationProfile.Draft).ContainsKey("Nothing"));
+        Assert.DoesNotContain("Nothing", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -229,7 +325,7 @@ public class RuleInspectingValidatorTests
         Assert.False(adapter.CanValidateByRule);
         Assert.True(adapter.CanInspectRules);
         Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
-        Assert.Contains("NotEmptyValidator", adapter.GetFieldRuleCodes(ValidationProfile.Draft)["Title"].PresenceCodes);
+        Assert.Contains("Title", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
     /// <summary>
@@ -244,35 +340,206 @@ public class RuleInspectingValidatorTests
 
         Assert.False(adapter.CanInspectRules);
         Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", ValidationProfile.Draft));
-        Assert.Empty(adapter.GetFieldRuleCodes(ValidationProfile.Draft));
+        Assert.Empty(adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
     /// <summary>
-    /// The code map partitions one field's codes by what the component producing them checks,
-    /// and it keys on the configured code where there is one — so a presence rule wearing a
-    /// custom code is still recognised as presence. Matching the default code text instead would
-    /// misread that field's failure as "the value is wrong" on a field that is merely empty.
+    /// The declared paths are the validator's own shape with every index left open: a rule
+    /// declared per collection element is listed under the collection with <c>[]</c> where the
+    /// index goes, nesting chains, and a collection carrying no rule of its own is absent while
+    /// one carrying a rule is present. This is the whole enumeration, asserted as a set, because
+    /// what it must not do is quietly gain or lose a path.
     /// </summary>
     [Fact]
-    public void The_code_map_separates_presence_from_everything_else()
+    public void The_declared_paths_are_the_validators_own_shape_with_indexes_left_open()
     {
-        var adapter = new FluentValidationModelValidator<InspectModel>(new CodeMapValidator());
+        var adapter = new FluentValidationModelValidator<EventRegistration>(new EventRegistrationValidator());
 
-        var codes = adapter.GetFieldRuleCodes(ValidationProfile.Draft);
-
-        Assert.Equal(["TITLE_MISSING"], codes["Title"].PresenceCodes);
-        Assert.Equal(["TITLE_LONG"], codes["Title"].OtherCodes);
-        Assert.Empty(codes["Title"].AmbiguousCodes);
-
-        Assert.Equal(["NotEmptyValidator"], codes["Chained"].PresenceCodes);
-        Assert.Equal(["MaximumLengthValidator"], codes["Chained"].OtherCodes);
+        Assert.Equal(
+            [
+                "Attendees",
+                "Attendees[].Email",
+                "Attendees[].Name",
+                "CateringHeadcount",
+                "ContactEmail",
+                "DietaryNotes",
+                "EarlyBirdDeadline",
+                "EventDate",
+                "EventName",
+                "Sessions[].Seats",
+                "TicketTier",
+                "VenueRegion",
+            ],
+            adapter.GetDeclaredFieldPaths(ValidationProfile.Submit).OrderBy(p => p, StringComparer.Ordinal));
     }
 
     /// <summary>
-    /// A rule declared per element of a collection is read under the collection's own path: its
-    /// presence component makes that path required, while the failure it produces carries an
-    /// indexed path the map has no key for. A caller matching failures to codes finds nothing
-    /// for the indexed path and treats it as it treats any unmapped field.
+    /// Nesting chains, and the answer covers a path no failure-side reading could produce:
+    /// Members is a collection inside a collection, and its own presence rule is declared inside
+    /// the child validator that judges each team.
+    /// </summary>
+    [Fact]
+    public void Declared_paths_nest_through_a_collection_inside_a_collection()
+    {
+        var adapter = new FluentValidationModelValidator<Roster>(new RosterValidator());
+
+        Assert.Equal(
+            ["Teams", "Teams[].Members", "Teams[].Members[].Alias", "Teams[].Name"],
+            adapter.GetDeclaredFieldPaths(ValidationProfile.Submit).OrderBy(p => p, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// A child's paths are gone from the answer when the profile does not select the rule that
+    /// CARRIES the child: the attendee rules hang off a submit-bucket <c>RuleForEach</c>, so a
+    /// draft profile reaches neither them nor the top-level submit-bucket fields, while the
+    /// draft-bucket session rule stays. Selection applied at the child's own level as well is a
+    /// separate property, and the ruleset-scoped pin below is what discriminates it — lifting
+    /// the child-level check alone leaves this test passing, because the parent's own tag
+    /// already excludes these paths.
+    /// </summary>
+    [Fact]
+    public void A_child_is_unread_when_the_profile_skips_the_rule_carrying_it()
+    {
+        var adapter = new FluentValidationModelValidator<EventRegistration>(new EventRegistrationValidator());
+
+        var draft = adapter.GetDeclaredFieldPaths(ValidationProfile.Draft);
+
+        Assert.Contains("Sessions[].Seats", draft);
+        Assert.DoesNotContain("Attendees[].Name", draft);
+        Assert.DoesNotContain("EventName", draft);
+    }
+
+    /// <summary>
+    /// The requirement answer and the declared-path answer are one walk, so a templated path is
+    /// answerable too — the row's presence rule is real, and it is the indexed path a failure
+    /// carries that has no answer.
+    /// </summary>
+    [Fact]
+    public void A_rule_declared_per_row_is_required_under_its_templated_path()
+    {
+        var adapter = new FluentValidationModelValidator<EventRegistration>(new EventRegistrationValidator());
+
+        Assert.Equal(
+            RuleRequirement.Required,
+            adapter.GetFieldRequirement("Attendees[].Name", ValidationProfile.Submit));
+        Assert.Equal(
+            RuleRequirement.NotRequired,
+            adapter.GetFieldRequirement("Attendees[0].Name", ValidationProfile.Submit));
+    }
+
+    /// <summary>
+    /// A rule merged in with Include() lands at the including validator's own level, because
+    /// that is where its failures land. Reading only the rules the validator declares for itself
+    /// drops it — and the field then reports as not required however plainly it is.
+    /// </summary>
+    [Fact]
+    public void An_included_validators_rules_merge_at_the_including_level()
+    {
+        var adapter = new FluentValidationModelValidator<InspectModel>(new IncludingValidator());
+
+        Assert.Equal(
+            ["Chained", "Title"],
+            adapter.GetDeclaredFieldPaths(ValidationProfile.Draft).OrderBy(p => p, StringComparer.Ordinal));
+        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Chained", ValidationProfile.Draft));
+    }
+
+    /// <summary>
+    /// A model-level rule carrying a child validator merges that child at the ROOT's own level,
+    /// because that is where its failures land — the third route by which a rule the root does
+    /// not declare for itself is still read. Both spellings behave alike: a validator for the
+    /// model's own type, and the <c>ChildRules</c> block that wraps one.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(ModelLevelChildValidator))]
+    [InlineData(nameof(ModelLevelChildRulesValidator))]
+    public void A_child_validator_a_model_level_rule_carries_merges_at_the_root(string shape)
+    {
+        var validator = shape == nameof(ModelLevelChildValidator)
+            ? new FluentValidationModelValidator<InspectModel>(new ModelLevelChildValidator())
+            : new FluentValidationModelValidator<InspectModel>(new ModelLevelChildRulesValidator());
+
+        Assert.Equal(["Chained"], validator.GetDeclaredFieldPaths(ValidationProfile.Draft));
+        Assert.Equal(RuleRequirement.Required, validator.GetFieldRequirement("Chained", ValidationProfile.Draft));
+    }
+
+    /// <summary>
+    /// The one limit that OVER-reads, pinned so the frozen contract's wording stays honest about
+    /// its direction. A child scoped by the <c>SetValidator</c> call is read whole, so its rule
+    /// is reported as a demand under a profile FluentValidation does not run it under — the
+    /// second assert is that gap, measured rather than argued. Scoping the child by tagging its
+    /// OWN rules puts the selection where the walk can see it, and the two agree again under
+    /// both profiles.
+    /// </summary>
+    [Fact]
+    public async Task A_ruleset_scoped_child_is_read_whole_while_a_self_scoping_one_is_read_exactly()
+    {
+        var scoped = new FluentValidationModelValidator<InspectModel>(new RuleSetScopedChildValidator());
+        var admin = ValidationProfile.Named("Admin", includeDefaultRules: true, "Admin");
+
+        Assert.Equal(RuleRequirement.Required, scoped.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Empty((await scoped.ValidateAsync(new InspectModel(), ValidationProfile.Draft)).Issues);
+
+        var selfScoping = new FluentValidationModelValidator<InspectModel>(new SelfScopingChildRootValidator());
+
+        Assert.Equal(RuleRequirement.NotRequired, selfScoping.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+        Assert.Empty((await selfScoping.ValidateAsync(new InspectModel(), ValidationProfile.Draft)).Issues);
+
+        Assert.Equal(RuleRequirement.Required, selfScoping.GetFieldRequirement("Child.City", admin));
+        Assert.Equal(
+            ["Child.City"],
+            (await selfScoping.ValidateAsync(new InspectModel(), admin)).Issues.Select(i => i.Path));
+    }
+
+    /// <summary>
+    /// A condition travels down: a child validator reached only through a conditional rule
+    /// demands its own fields conditionally, however unconditionally the child declares them.
+    /// Reading the child's own flags alone reports it as unconditionally required.
+    /// </summary>
+    [Fact]
+    public void A_condition_on_the_parent_rule_reaches_the_child_validators_fields()
+    {
+        var adapter = new FluentValidationModelValidator<InspectModel>(new ConditionalChildValidator());
+
+        Assert.Equal(
+            RuleRequirement.ConditionallyRequired,
+            adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
+    }
+
+    /// <summary>
+    /// A child validator produced by a lambda needs a model to exist, and inspection has none —
+    /// so its paths are absent rather than guessed at. The sibling rule in the same validator is
+    /// still read, so this pins "that one child is unreadable" rather than "the walk gave up".
+    /// </summary>
+    [Fact]
+    public void A_child_validator_whose_lambda_needs_the_model_is_not_read()
+    {
+        var adapter = new FluentValidationModelValidator<InspectModel>(new LambdaChildValidator());
+
+        Assert.Equal(
+            ["Title"],
+            adapter.GetDeclaredFieldPaths(ValidationProfile.Draft).OrderBy(p => p, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// A validator that includes itself is walked once, so the answer is finite and carries no
+    /// path that describes a nesting depth nothing declared. The bound is the walk's own path,
+    /// not a depth cap: what stops it is meeting the same validator again.
+    /// </summary>
+    [Fact]
+    public void A_validator_that_includes_itself_is_walked_once()
+    {
+        var adapter = new FluentValidationModelValidator<InspectNode>(new InspectNodeValidator());
+
+        Assert.Equal(
+            ["Label"],
+            adapter.GetDeclaredFieldPaths(ValidationProfile.Draft).OrderBy(p => p, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// A rule declared per element of a collection whose components judge each element directly
+    /// is read under the collection's own path — there is no child validator to descend into, so
+    /// nothing about the element is declared separately. The indexed path a failure carries is
+    /// still no answer.
     /// </summary>
     [Fact]
     public void A_collection_rule_answers_under_the_collection_path_not_the_indexed_one()
@@ -282,62 +549,58 @@ public class RuleInspectingValidatorTests
         Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Tags", ValidationProfile.Draft));
         Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Tags[0]", ValidationProfile.Draft));
 
-        var codes = adapter.GetFieldRuleCodes(ValidationProfile.Draft);
-        Assert.Equal(["NotEmptyValidator"], codes["Tags"].PresenceCodes);
-        Assert.False(codes.ContainsKey("Tags[0]"));
+        Assert.Equal(["Tags"], adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
     /// <summary>
-    /// A child validator's component stays out of the map: its failures carry the child's own
-    /// paths, so filing its code under the field that holds the child would attribute the
-    /// child's complaint to its parent.
+    /// A child validator's rules are declared under the child's own path, and the field carrying
+    /// the child is not itself declared — its failures belong to the child's members, so filing
+    /// the parent field would attribute the child's complaint to it.
     /// </summary>
     [Fact]
-    public void A_child_validator_component_contributes_no_code_to_the_field_carrying_it()
+    public void A_child_validators_rules_land_under_the_childs_own_path()
     {
         var adapter = new FluentValidationModelValidator<InspectModel>(new CodeMapValidator());
 
-        Assert.False(adapter.GetFieldRuleCodes(ValidationProfile.Draft).ContainsKey("Child"));
+        var declared = adapter.GetDeclaredFieldPaths(ValidationProfile.Draft);
+
+        Assert.Contains("Child.City", declared);
+        Assert.DoesNotContain("Child", declared);
+        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Child.City", ValidationProfile.Draft));
     }
 
     /// <summary>
-    /// A code both kinds of component can produce identifies neither, so it is reported as
-    /// ambiguous and withheld from both sets — the caller sees the ambiguity instead of a guess,
-    /// and a caller testing the presence set alone reads the failure as a wrong value, which
-    /// shows it rather than hiding it.
+    /// A field with rules but no presence rule is still declared: "this form has something to
+    /// say about this field" and "this field must carry a value" are different questions, and a
+    /// caller enumerating the fields a form speaks about needs the first one answered for both.
     /// </summary>
     [Fact]
-    public void A_code_shared_by_both_kinds_of_component_is_reported_as_ambiguous()
+    public void A_field_with_rules_but_no_presence_rule_is_declared_and_not_required()
     {
-        var adapter = new FluentValidationModelValidator<InspectModel>(new CodeMapValidator());
+        var adapter = new FluentValidationModelValidator<InspectModel>(new ShapeValidator());
 
-        var both = adapter.GetFieldRuleCodes(ValidationProfile.Draft)["Both"];
-
-        Assert.Equal(["BOTH"], both.AmbiguousCodes);
-        Assert.Empty(both.PresenceCodes);
-        Assert.Empty(both.OtherCodes);
+        Assert.Contains("Predicate", adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
+        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Predicate", ValidationProfile.Draft));
     }
 
     /// <summary>
-    /// The map's codes are the ones that turn up on real failures: validating an empty model
-    /// under the profile the map was built for produces issues whose codes the map already
-    /// carries in the presence set for their own field. This is what lets a caller holding only
-    /// a report decide that a field is empty rather than wrong.
+    /// The declared paths are the paths real failures carry, once each index is replaced by the
+    /// open form the templates use. This is what lets a caller holding only a report decide that
+    /// a failing field is one the form declares rules for.
     /// </summary>
     [Fact]
-    public async Task The_mapped_codes_are_the_codes_the_failures_carry()
+    public async Task The_declared_paths_are_the_paths_the_failures_carry()
     {
-        var adapter = new FluentValidationModelValidator<DraftedBrief>(new DraftedBriefValidator());
-        var codes = adapter.GetFieldRuleCodes(ValidationProfile.Submit);
+        var adapter = new FluentValidationModelValidator<Roster>(new RosterValidator());
+        var declared = adapter.GetDeclaredFieldPaths(ValidationProfile.Submit);
 
-        var report = await adapter.ValidateAsync(new DraftedBrief(), ValidationProfile.Submit);
+        var roster = new Roster { Teams = { new Team { Members = { new Member() } } } };
+        var report = await adapter.ValidateAsync(roster, ValidationProfile.Submit);
 
-        Assert.Equal(2, report.Issues.Count);
+        Assert.NotEmpty(report.Issues);
         foreach (var issue in report.Issues)
         {
-            var code = issue.Code;
-            Assert.NotNull(code);
-            Assert.Contains(code, codes[issue.Path].PresenceCodes);
+            Assert.Contains(Templated(issue.Path), declared);
         }
     }
 
@@ -354,6 +617,31 @@ public class RuleInspectingValidatorTests
         var profile = ValidationProfile.Named("Typo", includeDefaultRules: true, "Sumbit");
 
         Assert.Throws<InvalidOperationException>(() => adapter.GetFieldRequirement("Title", profile));
-        Assert.Throws<InvalidOperationException>(() => adapter.GetFieldRuleCodes(profile));
+        Assert.Throws<InvalidOperationException>(() => adapter.GetDeclaredFieldPaths(profile));
+
+        // And it throws every time it is asked, not only the first: nothing that failed
+        // verification is ever remembered, so a repeat ask cannot be served an answer the
+        // ruleset check never let anyone compute.
+        Assert.Throws<InvalidOperationException>(() => adapter.GetFieldRequirement("Title", profile));
+        Assert.Throws<InvalidOperationException>(() => adapter.GetDeclaredFieldPaths(profile));
+    }
+
+    /// <summary>
+    /// Two profiles carrying the same NAME and different rulesets are different questions, and
+    /// each gets its own answer. Profiles compare by name, so anything holding an answer against
+    /// a profile has to hold it against the instance rather than against equality — otherwise
+    /// the second ask here is served the first one's answer.
+    /// </summary>
+    [Fact]
+    public void Two_profiles_sharing_a_name_do_not_share_an_answer()
+    {
+        var adapter = new FluentValidationModelValidator<DraftedBrief>(new DraftedBriefValidator());
+        var draftOnly = ValidationProfile.Named("Same", includeDefaultRules: true);
+        var withSubmit = ValidationProfile.Named("Same", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName);
+
+        Assert.Equal(draftOnly, withSubmit); // equality is by name: the trap this guards
+        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
+        Assert.Equal(RuleRequirement.Required, adapter.GetFieldRequirement("Title", withSubmit));
+        Assert.Equal(RuleRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
     }
 }

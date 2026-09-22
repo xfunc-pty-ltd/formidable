@@ -42,8 +42,12 @@
             <FormidableSummary />
         </div>
 
-        @* OnInput commits each keystroke, so a message can never appear at blur — where it
-           would push the Submit button out from under a pointer already on its way down. *@
+        @* OnInput commits each keystroke, so a message lands as it is typed rather than at
+           blur, where inserting it would push the Submit button out from under a pointer
+           already on its way down. FormidableOptions.ClickRecovery guards a click displaced
+           that way by default, and this page's own root renders the element it scopes to;
+           committing per keystroke is the other answer, removing the shift rather than
+           recovering from it. *@
         <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Title" /></div>
         <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" UpdateOn="InputUpdateMode.OnInput" /></label>

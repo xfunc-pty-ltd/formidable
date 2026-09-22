@@ -9,9 +9,9 @@ namespace Formidable.Blazor.Tests;
 /// Pins the disclosure channels as views over source state: the defensive gate is a predicate no
 /// refresh can delete and no error on screen leaves standing, the reveal ledgers merge by union
 /// so a once-revealed field stays watched until reset or a successful submit, the server verdict
-/// is its own source replaced wholesale per apply and cleared by every submit and refresh, and
-/// the live channel discloses an engaged field's verdict on every surface with no registration
-/// filtering — the bridge default, stated as contract.
+/// is its own source replaced wholesale per apply and cleared by every submit, refresh and load,
+/// and the live channel discloses an engaged field's verdict on every surface with no
+/// registration filtering — the bridge default, stated as contract.
 /// </summary>
 public class FormValidationEngineViewTests
 {

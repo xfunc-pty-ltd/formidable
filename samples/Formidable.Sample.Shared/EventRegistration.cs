@@ -43,6 +43,11 @@ public sealed class EventRegistration : INormalizableModel
 
 public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration>
 {
+    // Held as a field so it outlives a pass: the engine keeps one validator instance for as long
+    // as it is registered, while a memo built inside a rule's own lambda is rebuilt on every call
+    // and never once hits. AsyncRuleMemo's own remarks say so.
+    private readonly AsyncRuleMemo<string, bool> _availabilityMemo = new(TimeSpan.FromMinutes(5));
+
     // Chromium fires change on every segment keystroke of a native date input and reports a
     // half-typed year as valid zero-padded ISO (e.g. "0019-01-01"), so a plausible-year bound
     // is part of "is this a real date" for this form, not a separate rule.
@@ -60,11 +65,20 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
 
         // Fixed short delay keeps the composite deterministic for E2E; the /async page owns
         // the adjustable-delay lesson.
+        //
+        // Memoized because this is the one slow rule on a form full of fast ones, and it sits in
+        // the always-on bucket: every committed change anywhere on the page starts a pass that
+        // selects it, so without a memo a message about the ticket tier or a session row waits
+        // behind a check of an address nobody touched. The window is sized to the pause it has to
+        // survive, which here is the gap between one committed edit and the next while the address
+        // stays put — paced by a person reading and typing their way down the form, so minutes
+        // rather than seconds. Nothing pulls it shorter: this check reads a fixed list, so an
+        // answer for an address cannot go stale the way a real directory's could.
         RuleFor(r => r.ContactEmail)
-            .MustAsync(async (email, cancellationToken) =>
+            .MustAsyncMemoized(_availabilityMemo, async (email, cancellationToken) =>
             {
                 await Task.Delay(300, cancellationToken);
-                return !string.Equals(email.Trim(), "taken@example.com", StringComparison.OrdinalIgnoreCase);
+                return !string.Equals(email!.Trim(), "taken@example.com", StringComparison.OrdinalIgnoreCase);
             })
             .WithMessage("That email is already registered")
             .When(r => !string.IsNullOrEmpty(r.ContactEmail));

@@ -307,19 +307,22 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // the only error there is to take the visitor to.
         await Expect(Field(page, "form")).ToBeFocusedAsync();
 
-        // An edit that puts no message on screen cannot retire the explanation, and Description
-        // carries no rule of its own to put one there. The commit runs a live pass and arms the
-        // background refresh; the pending marker on the edited field spans both, so its draining
-        // is the sign the passes have run — and the gate entry must stand on the far side, because
-        // the gate is a predicate over the submit's own answer, not a stored entry a refresh
-        // rebuild can drop. Same property
+        // An edit that puts no message on screen cannot retire the explanation. Contact email is
+        // the one edit that leaves passes long enough to ride: the availability check is the only
+        // rule on this form that takes any time, and it is memoized, so an address it has already
+        // answered costs a lookup while an unseen one costs the full 300 ms. A well-formed
+        // address nobody has registered fails none of that field's rules, so the edit puts
+        // nothing on screen. The commit runs a live pass and arms the background refresh; the
+        // pending marker on the edited field spans both, so its draining is the sign the passes
+        // have run — and the gate entry must stand on the far side, because the gate is a
+        // predicate over the submit's own answer, not a stored entry a refresh rebuild can drop.
+        // Same property
         // FormValidationEngineViewTests.The_gate_survives_a_post_submit_refresh_while_the_form_stays_blocked
         // pins at the engine level.
-        await Field(page, "description").FillAsync("Regional developer summit");
-        await Field(page, "description").PressAsync("Tab");
-        await Expect(Field(page, "description")).ToHaveClassAsync(
+        await Field(page, "contactemail").FillAsync("workout-e2e-gate-edit@example.com");
+        await Expect(Field(page, "contactemail")).ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
-        await Expect(Field(page, "description")).Not.ToHaveClassAsync(
+        await Expect(Field(page, "contactemail")).Not.ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, HiddenIssueGate)).ToBeVisibleAsync();
 
@@ -357,10 +360,13 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
 
         // A fresh committed edit right before the submit (a changed value, or the commit is
-        // elided) strands every stored verdict at an older stamp, so the submit must run the
-        // 300 ms availability check itself and the pending window below is structurally wide.
-        await Field(page, "description").FillAsync("Regional developer summit, day two");
-        await Field(page, "description").PressAsync("Tab");
+        // elided) strands every stored verdict at an older stamp, so the submit re-runs the whole
+        // selection rather than assembling it from the store. A second address the check has not
+        // seen is what makes that cost visible: a repeated one is answered from the memo, and
+        // only an unseen one pays the 300 ms the window below rides. That check outlasts the
+        // click by an order of magnitude, so the marker this edit lights is still up when the
+        // submit's own pass joins it.
+        await Field(page, "contactemail").FillAsync("workout-e2e-gate-resubmit@example.com");
         await SubmitAsync(page);
 
         // Both closing asserts describe a summary the submit leaves unchanged, so on their own
@@ -368,9 +374,9 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // the submit decided. Pending on the edited field cannot drain before every in-flight
         // pass over it has landed — the form-wide submit included — so riding it through
         // appear and drain first means the asserts read the pass's own answer.
-        await Expect(Field(page, "description")).ToHaveClassAsync(
+        await Expect(Field(page, "contactemail")).ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
-        await Expect(Field(page, "description")).Not.ToHaveClassAsync(
+        await Expect(Field(page, "contactemail")).Not.ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
         await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
@@ -429,15 +435,13 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Field(row, "seats").PressAsync("Tab");
 
         // That single edit starts a live pass and arms the post-submit refresh at the same instant.
-        // The live pass runs the whole model, so the contact email's 300 ms availability check
-        // makes it outlast the 300 ms debounce — the refresh comes due while it is still in
-        // flight. The refresh defers to it rather than racing or cancelling it; the live pass
-        // keeps running and its verdict answers the engaged fields — the committed edit engaged
-        // this seats field, so its message arrives with no second submit to ask for it. The
-        // deferred refresh, when it does run, executes only the rules still owed an answer at
-        // this edit, serving the availability check the live pass answered from the per-rule
-        // verdict store rather than paying for it a second time. The assertion is deliberately
-        // the auto-waiting one, with no submit and no sleep behind it.
+        // The live pass runs the whole model, and the contact email's availability check answers
+        // from its memo — the address has not moved since the submit — so the pass lands well
+        // inside the refresh debounce. Its verdict answers the engaged fields: the committed edit
+        // engaged this seats field, so its message arrives with no second submit to ask for it.
+        // The refresh, when it comes due, executes only the rules still owed an answer at this
+        // edit and finds none, assembling its report from the per-rule verdict store instead. The
+        // assertion is deliberately the auto-waiting one, with no submit and no sleep behind it.
         await Expect(MessagesFor(row, "seats"))
             .ToHaveTextAsync([SeatsOutOfRange], new() { Timeout = AsyncTimeoutMs });
     }

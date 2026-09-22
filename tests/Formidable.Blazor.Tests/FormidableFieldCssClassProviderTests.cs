@@ -279,6 +279,9 @@ public class FormidableFieldCssClassProviderTests
         public Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by this stub's test.");
 
+        public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("Not exercised by this stub's test.");
+
         public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
         {
         }

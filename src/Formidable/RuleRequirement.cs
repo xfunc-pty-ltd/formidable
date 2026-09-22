@@ -8,6 +8,14 @@ namespace Formidable;
 /// Three-valued rather than a <see langword="bool"/> because a presence rule may carry a
 /// condition, and a condition cannot be evaluated without a model instance: inspection can see
 /// that the demand exists without being able to say whether it applies to the model in hand.
+/// <para>
+/// The members are declared weakest first, and that numeric order is load-bearing: where the
+/// declared rules make two presence demands of one field, the greater value wins, which is what
+/// puts an unconditional demand ahead of a conditional one. Position therefore has to match
+/// strength: a member placed BELOW one that demands more wins over it silently, because the
+/// comparison keeps the later member and knows nothing of what either one means. A member added
+/// here is placed by how firmly it demands a value, not by where it reads best.
+/// </para>
 /// </remarks>
 public enum RuleRequirement
 {

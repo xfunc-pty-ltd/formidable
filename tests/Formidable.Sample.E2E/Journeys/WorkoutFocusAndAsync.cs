@@ -14,8 +14,9 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
 {
-    // The availability check runs for a fixed 300 ms and the whole scoping claim holds only while
-    // it is in flight, so the two surfaces that carry it are read together, in the browser, at one
+    // The availability check runs for a fixed 300 ms for an address it has not already answered,
+    // and for a memoized one it costs a lookup. The whole scoping claim holds only while a check
+    // is in flight, so the two surfaces that carry it are read together, in the browser, at one
     // instant: the page's own "checking…" indicator must sit in the contact email field's wrapper
     // and nowhere else, and the kit's pending class must be on that field's input alone.
     private const string PendingScopedToContactEmail = """
@@ -125,6 +126,8 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
 
         // Armed before the keystroke that starts the check: the predicate above polls inside the
         // browser, so the window it has to catch is never shortened by a round trip from here.
+        // The page is freshly loaded, so this address is one the check has never been asked
+        // about and the window is the full one.
         var pendingScoped = page.WaitForFunctionAsync(
             PendingScopedToContactEmail,
             options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });

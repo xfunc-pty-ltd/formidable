@@ -7,9 +7,9 @@
 <TeachingPanel CodeFiles="@(new[] { "Handle.cs", "FieldStateVisualizer.razor", "FieldStateVisualizer.razor.cs" })">
     <Rules>
         <ul>
-            <li><strong>Touched</strong>: the user has interacted with the field.</li>
+            <li><strong>Touched</strong>: the user has interacted with the field, or a draft load decided for it.</li>
             <li><strong>Modified</strong>: the EditContext says the value changed.</li>
-            <li><strong>Validating</strong>: a validation pass involving this field is in flight; scoped to the field for live/refresh passes, form-wide for submit.</li>
+            <li><strong>Validating</strong>: a validation pass involving this field is in flight; scoped to the field for live/refresh passes and form-wide for a submit, the pass you asked for. A draft load stays false for every field: it answers for the whole model, so the engine's own flag is true for a page-level spinner, but no field is waiting on it.</li>
             <li><strong>Errors</strong>: the field currently carries error-severity messages.</li>
             <li><strong>Warnings</strong>: the field currently carries warning-severity messages.</li>
             <li><strong>Blur</strong> has no column of its own, and no flag either: it is what marks touched on this page, wiring <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. A built-in input marks touched only when a committed value change notifies the engine, in every <code>UpdateOn</code> mode, so without this wiring, tabbing through never touches.</li>

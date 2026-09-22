@@ -532,4 +532,48 @@ public class FormValidationEngineValidatingScopeTests
 
         Assert.Contains(engine.GetIssues(customerName), i => i.Message == "Customer name is too long");
     }
+
+    // A load nobody asked for lights no pending indicator. The pass is form-wide - it answers
+    // for the whole model, and IsValidating says so, which is what a page-level spinner reads -
+    // but no field is waiting on it, so the field-scoped flag stays down everywhere, including
+    // on a field no rule mentions at all. The submit at the end is the positive control: the
+    // same field, the same gated validator, form-wide because the visitor asked. Mutation this
+    // breaks: hand the load pass a null scope, which IsFieldValidating reads as "every field".
+    [Fact]
+    public async Task A_load_pass_marks_no_field_validating_while_a_submit_marks_them_all()
+    {
+        var order = new EngineOrder();
+        var validator = new GatedValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        var described = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var unruled = new FieldIdentifier(order, nameof(EngineOrder.Location));
+
+        var load = engine.DiscloseLoadedValuesAsync();
+
+        Assert.True(engine.IsValidating);
+        Assert.False(engine.GetFieldState(described).IsValidating);
+        Assert.False(engine.GetFieldState(unruled).IsValidating);
+
+        validator.Gate.SetResult();
+        await load;
+
+        Assert.False(engine.IsValidating);
+
+        validator.Reset();
+        var submit = engine.ValidateForSubmitAsync();
+
+        Assert.True(engine.IsValidating);
+        Assert.True(engine.GetFieldState(described).IsValidating);
+        Assert.True(engine.GetFieldState(unruled).IsValidating);
+
+        validator.Gate.SetResult();
+        await submit;
+    }
 }

@@ -261,7 +261,7 @@ public class FormValidationEngineSubmitCoverageTests
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
         var options = new FormidableOptions { TrackFormValidity = true };
-        var counting = new CountingValidator(
+        var counting = new CountingValidator<EngineOrder>(
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
         using var engine = new FormValidationEngine<EngineOrder>(
             order,
@@ -605,13 +605,13 @@ public class FormValidationEngineSubmitCoverageTests
     // ---------------------------------------------------------------------------------------
 
     // The fallback rule, walked end to end: with no rule verdicts to read, coverage is the last
-    // COMPLETED submit-profile evaluation — submit, refresh, or probe — and it counts exactly
-    // while it is current at the edit stamp. Stale: no green, however clean the field looks.
-    // Current but carrying an error for the field: no green — the answer says submit would
+    // COMPLETED submit-profile evaluation — any pass but a live one, or the probe — and it counts
+    // exactly while it is current at the edit stamp. Stale: no green, however clean the field
+    // looks. Current but carrying an error for the field: no green — the answer says submit would
     // reject it. Current and clean: green, on both seams. The live channel is narrowed to the
     // draft bucket throughout, so what the field discloses stays separate from what vouches for
-    // it: the middle phase turns on the field being unvouched while nothing about the error is
-    // on screen, and an unnarrowed live channel would put it there.
+    // it: the middle phase turns on the field being unvouched while nothing about the error is on
+    // screen, and an unnarrowed live channel would put it there.
     [Fact]
     public void A_capability_less_validators_green_follows_the_last_whole_profile_answer()
     {

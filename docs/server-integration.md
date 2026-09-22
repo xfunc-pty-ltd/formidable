@@ -670,13 +670,15 @@ wire-deserialized one.
     /// client's copy. Applying is itself a disclosure event for the fields it names: a client
     /// error the last submit computed but had nowhere to show surfaces alongside the server's.
     /// The server's verdict stands until a newer whole-model answer supersedes it — the next
-    /// debounced refresh, or the next submit — at which point a server-only issue with no matching
-    /// client rule goes, while one a client rule agrees with keeps showing through the client's own
-    /// answer. Because the payload is treated as a submit result, applying one also sets
-    /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
-    /// submitted state through this call alone. Call from the renderer's synchronization context (a
-    /// Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and triggers
-    /// renders. <paramref name="issues"/> is enumerated exactly once.
+    /// debounced refresh, the next submit, or a page saying what its freshly loaded values have
+    /// earned through <see cref="DiscloseLoadedValuesAsync"/> — at which point a server-only
+    /// issue with no matching client rule goes, while one a client rule agrees with keeps showing
+    /// through the client's own answer. Because the payload is treated as a submit result,
+    /// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
+    /// server-side reaches the submitted state through this call alone. Call from the renderer's
+    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
+    /// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
+    /// once.
     /// </summary>
     /// <remarks>
     /// Errors bypass the field registry: the server judged what was actually submitted, so an error
@@ -699,9 +701,9 @@ stale duplicate is left behind, and a client rule failing on the same field keep
 throughout. An apply is also a disclosure event for the fields it names, so a client error the
 last submit computed but had nowhere to show surfaces alongside the server's (see
 [Disclosure](disclosure.md)). The server's verdict then stands until a newer whole-model answer
-supersedes it — the debounced refresh behind the next edit, or the next submit — at which point a
-server-only issue with no matching client rule goes, and one the client agrees with carries on
-through the client's own answer.
+supersedes it — the debounced refresh behind the next edit, the next submit, or a page saying what
+its freshly loaded values have earned — at which point a server-only issue with no matching client
+rule goes, and one the client agrees with carries on through the client's own answer.
 
 **The severity is the server's to set.** An error lands on its field, blocks the submit and reaches
 the EditContext's message store. A warning or an info lands on the same field as an advisory:

@@ -195,6 +195,9 @@ public class FormidableInputRenderTests : BunitContext
         public Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default) =>
             inner.ValidateForSubmitAsync(cancellationToken);
 
+        public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
+            inner.DiscloseLoadedValuesAsync(cancellationToken);
+
         public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) => inner.ApplyServerIssues(issues);
     }
 }

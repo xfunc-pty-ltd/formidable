@@ -305,4 +305,48 @@ public class ReflectionModelIntrospectorTests
         Assert.Equal($"{overCapProperty}.Leaf", result.PropertyName);
         Assert.False(TryGetCachedProperty(introspector, typeof(TestOrder), overCapProperty, out _));
     }
+
+    /// <summary>
+    /// The value read comes back with the type the member DECLARES, not the type the value
+    /// happens to have — the whole point of the pairing, since a boxed int cannot say whether it
+    /// came from an int or an int?.
+    /// </summary>
+    [Fact]
+    public void TryReadValue_reports_the_declared_type_beside_the_value()
+    {
+        var item = new TestLineItem { Sku = "ABC", Quantity = 0 };
+
+        Assert.True(_introspector.TryReadValue(item, nameof(TestLineItem.Sku), out var sku, out var skuType));
+        Assert.Equal("ABC", sku);
+        Assert.Equal(typeof(string), skuType);
+
+        Assert.True(_introspector.TryReadValue(item, nameof(TestLineItem.Quantity), out var quantity, out var quantityType));
+        Assert.Equal(0, quantity);
+        Assert.Equal(typeof(int), quantityType);
+    }
+
+    /// <summary>
+    /// A null reference member reads successfully — null is a value the caller has to be able to
+    /// see — while the shapes that cannot be read report false, so a caller can tell "this holds
+    /// nothing" from "this could not be asked". The unresolved-remainder case is the one that
+    /// matters most: Resolve hands back exactly that shape when an intermediate is null.
+    /// </summary>
+    [Fact]
+    public void TryReadValue_separates_a_null_value_from_a_member_it_cannot_read()
+    {
+        var order = new TestOrder();
+
+        Assert.True(_introspector.TryReadValue(order, nameof(TestOrder.Customer), out var customer, out var customerType));
+        Assert.Null(customer);
+        Assert.Equal(typeof(TestCustomer), customerType);
+
+        var stranded = _introspector.Resolve(order, "Customer.Name");
+        Assert.Equal("Customer.Name", stranded.PropertyName);
+        Assert.False(_introspector.TryReadValue(stranded.Owner, stranded.PropertyName, out _, out var strandedType));
+        Assert.Null(strandedType);
+
+        Assert.False(_introspector.TryReadValue(order, string.Empty, out _, out _));
+        Assert.False(_introspector.TryReadValue(order, "Missing", out _, out _));
+        Assert.False(_introspector.TryReadValue(order, "[0]", out _, out _));
+    }
 }

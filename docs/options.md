@@ -69,8 +69,9 @@ validates `ValidationProfile.Draft` at the save call, whatever the live channel 
 
 `ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile the submit pipeline
 validates against, the profile the debounced refresh re-validates against, the profile
-`TrackFormValidity`'s probe answers for — and, unless `LiveProfile` narrows it, the profile every
-live pass validates against too. See [Profiles](profiles.md).
+`IFormValidationEngine.DiscloseLoadedValuesAsync` runs, the profile `TrackFormValidity`'s probe
+answers for — and, unless `LiveProfile` narrows it, the profile every live pass validates
+against too. See [Profiles](profiles.md).
 
 ### `RefreshDebounce`
 
@@ -210,6 +211,56 @@ visibly updates on screen with no extra wiring.
 plain Submit button that never calls `Normalize()` itself, so the option is the only thing that can
 clean the model.
 
+### `ClickRecovery`
+
+`DisplacedClickRecovery`, defaults to `DisplacedClickRecovery.Buttons`. Whether the root
+re-delivers a click the page moved out from under a still pointer between the press and the
+release.
+
+A click is a press and a release, and the browser fires one only when both landed on the same
+element. Otherwise it dispatches on their nearest common ancestor, where nothing is listening.
+That rule is what makes dragging off a button cancel it, and it is written in terms of targets
+while the visitor's intent lives in movement — so a button that moves out from under a still
+pointer produces exactly the target mismatch a pointer dragged off a still button does. A form
+moves things: pressing Submit blurs the field the visitor was in, that blur commits the value,
+the commit discloses whatever the value now fails, and the message lands above the button.
+Keyboard activation is untouched, because focus follows the element rather than a coordinate;
+pointer and touch are the whole of it.
+
+Under the default the root recovers clicks on buttons inside it (`<button>`,
+`<input type="submit">`, `<input type="image">`), and only where all three of these hold: the
+press began on such a button, the browser retargeted the click to an ancestor of it rather than
+delivering it, and the pointer stayed where it was pressed while the button's border box moved.
+The last two are what keep recovery from becoming a second, cruder way to activate something. A
+press dragged off its button still cancels, and a button something merely opened over is left
+alone, since intercepting a click is what an overlay is for.
+
+What the button then receives is a script-dispatched click, so `isTrusted` reads `false`, which
+matters only to code that reads that flag. Transient user activation survives, because the
+delivery happens inside the browser's own handling of the displaced click: an activation-gated
+API (a clipboard write, a popup, full-screen) still works from the recovered click.
+
+A guard has to be scoped to an element, and the two roots find one differently.
+`FormidableForm` renders the `<form>` itself and puts the model-level field id on it, so there is
+always something to scope to. `FormidableValidator` renders no element of its own and looks in two
+places: the element carrying the model-level field id, taken when it is a `<form>` or when a
+recoverable button is actually inside it, and otherwise the `<form>` that a field this component
+registered sits in. A page offering neither gets no guard — and is told so rather than left to
+find out, through the same `Trace` line plus `ILoggerFactory` warning an unwired `FocusFallback`
+miss uses. The message names both one-line fixes: put the model-level `FormidableFieldId` on the
+`EditForm` this attaches to, or make sure a field it registers renders inside that form. Setting
+this option to `None` is the third answer, and silences the report with it.
+
+`DisplacedClickRecovery.None` installs no guard at all, for a page that moves its own controls
+during a press on purpose and wants the platform's rule to stand unqualified.
+
+Read once per root, on its first interactive render, so this is not a switch to flip mid-life:
+swap it alongside the model, the way every other option here is changed. It needs the library's
+own script, so a host that cannot load that recovers nothing. Prerendering is unaffected — a
+form that cannot submit yet cannot lose a click. See [Component
+kit](component-kit.md#the-click-a-disclosure-displaces) for the mechanism in full and for the
+two ways a page removes the shift itself instead.
+
 ### `DisclosureOverride`
 
 `Func<ValidationIssue, bool?>?`, defaults to `null`. A tri-state override consulted per issue:
@@ -222,15 +273,57 @@ field: an issue forced suppressed still shows once another issue on the same fie
 See [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for that boundary and for what
 the override does to a server-applied issue.
 
+### `RequiredOverride`
+
+`Func<FieldIdentifier, RuleRequirement?>?`, defaults to `null`. Consulted before the validator's
+own rules are read: return a `RuleRequirement` to declare a field's requiredness outright, or
+`null` to defer to what the rules say.
+
+It is not a nicety. Reading rules sees presence written as FluentValidation's own `NotEmpty()`
+or `NotNull()` and nothing else, so presence written as a predicate —
+`Must(s => !string.IsNullOrWhiteSpace(s))` — is indistinguishable from any other predicate and
+answers `RuleRequirement.NotRequired`. So does every field of a validator that cannot be
+inspected, and every field of a collection row, whose rules are declared against a shape
+(`Attendees[].Name`) rather than against one field. `NotRequired` means "not known to be
+required", never "proven optional", and this delegate is what a form says instead.
+
+It declares in both directions. `RuleRequirement.Required` marks a field the rules cannot be read
+to demand; `RuleRequirement.NotRequired` unmarks one they can, a `NotNull()` on a value the page
+fills in itself being the usual case. And it decides both surfaces at once, so the marker
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders and
+the `aria-required` the kit's inputs carry cannot disagree.
+
+Invoked on every ask — once per bound component per render — rather than cached with the rest
+of the answer, so a delegate reading state that changes is answered as it changes. Keep it cheap
+and keep it a pure read: it runs inside a render.
+
+**Recipe:** [I want to mark fields required when the rules cannot say
+so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
+
+### `RequiredIndicator`
+
+`string?`, defaults to `"*"`. The content
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders for a
+required field. Set it to `null` to render no marker anywhere on the form: the form-wide off
+switch for a design that marks the optional fields instead, or one that draws its marker entirely
+in CSS.
+
+The library ships no styling, so this is the text inside the marker's `formidable-required`
+element and nothing else. Colour, spacing and any glyph drawn with `::before`/`::after` belong to
+your stylesheet. Suppressing the marker does not suppress `aria-required`: whether a value is
+demanded is a fact about the input rather than a decoration, so assistive technology goes on
+being told even where nothing is drawn.
+
 ### `LiveDisclosure`
 
 `LiveIssueDisclosure`, defaults to `LiveIssueDisclosure.Engaged`. Which of an engaged field's
 live issues the live channel discloses — the one lever over a channel registration otherwise
 never touches.
 
-Under the default, engagement alone discloses. A field the user has committed a change to shows
-its live verdict on every surface — the engine's issue reads, `FormidableFieldMessage`,
-`FormidableSummary`, and the `EditContext`'s message store — whether or not anything currently
+Under the default, engagement alone discloses. A field a committed change has named — or one a
+draft load adopted — shows its live verdict on every surface: the engine's issue reads,
+`FormidableFieldMessage`, `FormidableSummary`, and the `EditContext`'s message store, whether or
+not anything currently
 renders that field. That is the contract native components depend on: a page of plain `InputBase`
 inputs with no Formidable wrappers or anchors registers nothing at all, so a live error that
 deferred to registration would have nowhere to go (see [Server
@@ -529,8 +622,19 @@ that resolved it, not the one on screen.
 - `VerifyRowKeys` — [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor), on
   unconditionally rather than gated to Development, since the page's whole point is the row-key
   discipline the guard enforces.
+- `RequiredIndicator` (and the marker it feeds) —
+  [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
+  carries its mark and stays silent at the same time.
 
-Three have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`
+`ClickRecovery` has no sample page either, for a better reason: it is on by default on every
+page here, and what it prevents is a click going missing. The gated browser suite is where it is
+pinned, on the [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor) quickstart form, since
+that is the smallest page that reproduces the shift.
+
+`RequiredOverride` has none because every validator the sample ships can be inspected; the recipe
+linked from its entry is its worked example.
+
+Three more have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`
 reports into your telemetry rather than onto the screen; `InlineMessageRole` changes only what a
 screen reader announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a
 reading order every sample page is already content with, since each lays its fields out top to

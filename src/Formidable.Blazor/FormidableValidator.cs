@@ -407,6 +407,20 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// Says what the values already in the model have earned, forwarding
+    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> and its contract whole: a
+    /// whole-model <see cref="FormidableOptions.SubmitProfile"/> pass, after which each field
+    /// the rules pass is confirmed, each field failing something other than a presence rule
+    /// discloses that failure, and each field that is merely unfilled stays silent. Call it once
+    /// after filling the model from a saved draft or a loaded record, so the form opens saying
+    /// what it already knows instead of looking pristine. A form that never calls it is
+    /// unaffected in every respect. Unlike a blocked submit this moves no focus. Call from the
+    /// renderer's synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it
+    /// mutates validation state and triggers renders.
+    /// </summary>
+    public Task DiscloseLoadedValuesAsync() => RequireEngine().DiscloseLoadedValuesAsync();
+
+    /// <summary>
     /// Reconciles the engine's view of which fields are still on the page against the registry,
     /// pruning verdicts for fields that have since unregistered — the attach-mode counterpart of
     /// what <c>FormidableForm</c> does for itself every render by polling

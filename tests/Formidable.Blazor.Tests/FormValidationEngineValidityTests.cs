@@ -155,7 +155,7 @@ public class FormValidationEngineValidityTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var options = new FormidableOptions(); // TrackFormValidity defaults to false
-        var counting = new CountingValidator(
+        var counting = new CountingValidator<EngineOrder>(
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
         using var engine = new FormValidationEngine<EngineOrder>(
             order,

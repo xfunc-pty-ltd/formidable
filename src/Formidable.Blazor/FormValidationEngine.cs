@@ -33,7 +33,9 @@ namespace Formidable.Blazor;
 /// when a refresh pass snapshots and clears it as it begins; _engagedFields, when a
 /// rendered-field-set change drops the fields that have left the page from it — a live pass
 /// snapshots the set as it begins and intersects that snapshot with the set again as its
-/// verdict lands, but no pass ever removes an entry, and submit leaves the set standing;
+/// verdict lands, but no pass ever removes an entry, and submit leaves the set standing; both
+/// _touched and _engagedFields, when the load pass's apply adopts the fields a page's freshly
+/// loaded values have earned;
 /// _pendingDebouncedLiveFields, when the live
 /// debounce timer fires and snapshots and clears it before starting the live pass those fields
 /// triggered, and when a rendered-field-set change drops the fields that have left the page
@@ -44,11 +46,12 @@ namespace Formidable.Blazor;
 /// _version gates the channel sources with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
 /// A fourth mechanism covers the per-rule verdict store: _editStamp mutates synchronously on the
-/// caller's context as each field change arrives, while the store itself is read on the
-/// dispatcher as a pass or a validity probe decides what is left to execute and written only in
-/// a verdict landing — a pass's apply, version- and generation-gated, in the same dispatch as
-/// the channel sources beside it, or the probe's own dispatch, generation-gated and skipped
-/// when an edit has arrived since the probe began — and its generation mutates with the
+/// caller's context as each field change arrives — and as DiscloseLoadedValuesAsync begins,
+/// which is a page stating that the model moved without one — while the store itself is read
+/// on the dispatcher as a pass or a validity probe decides what is left to execute and written
+/// only in a verdict landing — a pass's apply, version- and generation-gated, in the same
+/// dispatch as the channel sources beside it, or the probe's own dispatch, generation-gated and
+/// skipped when an edit has arrived since the probe began — and its generation mutates with the
 /// rendered-field-set change, also on the
 /// dispatcher. A pass in flight across such a change can therefore neither read a store that is
 /// mutating under it nor write verdicts computed against a page that has since moved.
@@ -74,8 +77,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private readonly HashSet<FieldIdentifier> _touched = [];
 
-    // The fields the user has committed a change to and that are still on the page — fed by
-    // HandleFieldChanged, pruned by OnRenderedFieldsChanged, never cleared by any pass. A live
+    // The fields the live channel answers for, and that are still on the page — fed by
+    // HandleFieldChanged for a committed change and by AdoptLoadedValues for a value a load
+    // decided for, pruned by OnRenderedFieldsChanged, never cleared by any pass. A live
     // pass's verdict answers exactly this set (snapshotted as the pass begins), which is what
     // lets a cross-field verdict clear, or appear, on a field the triggering edit never named.
     // Distinct from _touched: touched gates CSS state classes, engagement gates the live
@@ -86,8 +90,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
 
-    // The submit channel's client verdict source: the last submit or refresh pass's whole-model
-    // answer, resolved to fields — every error and every advisory, undisclosed ones included.
+    // The submit channel's client verdict source: the last whole-model answer a submit, a refresh
+    // or a load produced, resolved to fields — every error and every advisory, undisclosed ones
+    // included.
     // What the channel SHOWS is this source read through the reveal ledgers below; keeping the
     // full answer is what lets a ledger that grows mid-standing (a server apply reveals fields)
     // disclose an already-computed error without another pass. On a rule-capable validator the
@@ -110,7 +115,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     // The server verdict source: what the most recent ApplyServerIssues call put on screen, per
     // field, per severity channel. An apply replaces it wholesale — the payload is the server's
-    // CURRENT verdict, not an addition to its last one — and every submit and refresh clears it:
+    // CURRENT verdict, not an addition to its last one — and every submit, refresh and load
+    // clears it:
     // the server's answer is a snapshot of one round trip, and a newer whole-model answer
     // supersedes it (a matching client issue continues through the client view by construction).
     // Never mixed into the client sources above; the views merge the two at read time, client
@@ -152,7 +158,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     // not a mutation: a model changed without one moves the counter no more than an untouched
     // model does, so the agreement it reports is only ever as good as the notifications it is
     // given. The store clear in OnRenderedFieldsChanged covers the one silent change the engine
-    // can see unaided — the rendered field set moving — and nothing covers the rest.
+    // can see unaided — the rendered field set moving — and DiscloseLoadedValuesAsync moves
+    // this counter itself, because a page calling it is saying outright that the model now
+    // holds values nothing notified for. Nothing covers the rest.
     private int _editStamp;
 
     // Every rule's most recent verdict, keyed by the rule's own identity — which is what makes
@@ -210,7 +218,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private HashSet<FieldIdentifier>? _heldCoverageErrorFields;
 
     // The capability-less coverage source: the edit stamp at which the last COMPLETED
-    // whole-model SubmitProfile evaluation — a submit, a refresh, or a fallback probe — began,
+    // whole-model SubmitProfile evaluation — any pass but a live one, or a fallback probe — began,
     // and the fields its report failed. A validator with no rule-level seam has no verdicts to
     // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is
     // the current stamp"; -1 until one completes, which is what keeps a never-evaluated form
@@ -365,12 +373,21 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         {
             try
             {
-                foreach (var path in inspector.GetFieldRuleCodes(profile).Keys)
+                foreach (var path in inspector.GetDeclaredFieldPaths(profile))
                 {
+                    if (path.Contains("[]", StringComparison.Ordinal))
+                    {
+                        // A templated path names a shape, not a field: one entry here would have
+                        // to become one per row, and the rows move under it. An indicator inside
+                        // a collection row is a separate decision, and this is where it would be
+                        // taken.
+                        continue;
+                    }
+
                     var requirement = inspector.GetFieldRequirement(path, profile);
                     if (requirement != RuleRequirement.NotRequired)
                     {
-                        map[_introspector.Resolve(_model, path).ToFieldIdentifier(_model, path)] = requirement;
+                        map[ResolvePath(path)] = requirement;
                     }
                 }
             }
@@ -395,8 +412,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// the capability split: a rule-capable validator's coverage is the verdict store (every
     /// submit-selected rule fresh at the stamp, whichever pass or probe answered it); any other
     /// validator's coverage is the last completed whole-model SubmitProfile evaluation —
-    /// submit, refresh, or probe — current exactly while its begin stamp is still the current
-    /// edit stamp. The rule-capable coverage can also be a HELD answer: a rendered-field-set
+    /// submit, refresh, load, or probe — current exactly while its begin stamp is still the
+    /// current edit stamp. The rule-capable coverage can also be a HELD answer: a rendered-field-set
     /// change empties the store while the edit stamp says the model those verdicts described has
     /// not moved, and <see cref="ServeHeldCoverage"/> covers that gap, so green describes the
     /// model rather than the page's registration churn. The fallback needs no cover of its own —
@@ -554,10 +571,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>
     /// Whether a validation pass in flight currently covers <paramref name="field"/> — form-wide
-    /// for a submit pass, scoped to the field(s) that triggered a live pass (one for an immediate
+    /// for a submit, the one pass the visitor asked for; scoped to the field(s) that triggered a
+    /// live pass (one for an immediate
     /// edit, every field an open <see cref="FormidableOptions.LiveDebounce"/> window accumulated
     /// for a debounced one), scoped to the fields edited within the debounce window for a refresh
-    /// pass. <see cref="GetFieldState"/> folds this into
+    /// pass, and scoped to nothing at all for the pass
+    /// <see cref="DiscloseLoadedValuesAsync"/> runs, which no field is waiting on.
+    /// <see cref="GetFieldState"/> folds this into
     /// its own read; <see cref="IValidatingFieldReader"/> exposes it standalone for a caller (the
     /// css class provider) that wants only this, without the rest of what building a full
     /// <see cref="FieldState"/> costs.
@@ -1147,9 +1167,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// checked against counts edits, a rendered-field-set move is not one, so a verdict taken
     /// before the move would read as fresh while answering for a page — and, when a collection
     /// row was what left, a model — that no longer exists. Then a refresh is scheduled, whatever
-    /// the form's history: it is the one pass that recomputes the submit channel's answer
-    /// against the model as it stands, and it is owed twice over — once for that channel, and
-    /// once because the emptied store leaves the Valid class's vouch nothing of its own to read.
+    /// the form's history: it recomputes the submit channel's answer against the model as it
+    /// stands, and is the only pass a field-set change can start for itself, and it is owed twice
+    /// over — once for that channel, and once because the emptied store leaves the Valid class's
+    /// vouch nothing of its own to read.
     /// That channel still speaks only for the revealed-field ledgers, never for what is
     /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
     /// entry goes because its rule no longer fires, not because the row left the page — and an
@@ -1280,7 +1301,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // here on every live pass answers it — its issue can clear, or appear, because of an
         // edit elsewhere — until it leaves the rendered page. Deliberately not folded into
         // MarkTouched: touched is CSS disclosure a component may grant on a bare blur, while
-        // engagement is the engine's record of what the user has actually changed.
+        // engagement is the engine's record of the fields the live channel answers for. A
+        // committed change is one way in — including one that empties the field, which is the
+        // whole of how a cleared box starts speaking; DiscloseLoadedValuesAsync is the other,
+        // for values a page loaded rather than the visitor typed.
         _engagedFields.Add(e.FieldIdentifier);
 
         if (_options.LiveDebounce is { } debounce)
@@ -1318,7 +1342,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>
     /// Whether the pass currently in flight is a submit. Live and refresh passes both read this and
-    /// stand down — submit is the higher-intent operation, and neither ever supersedes it.
+    /// stand down — submit is the higher-intent operation, and neither ever supersedes it. The
+    /// load pass is the one kind that does not read it: like a submit it is started by a caller and
+    /// awaited, so two of them overlapping resolve the way two submits do, with the later one
+    /// taking the descriptor.
     /// </summary>
     private bool SubmitInFlight => _currentPass?.Kind == PassKind.Submit;
 
@@ -1342,9 +1369,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
 
     /// <summary>
+    /// Whether the pass currently in flight is the one
+    /// <see cref="DiscloseLoadedValuesAsync"/> runs. Live and refresh passes stand down for it
+    /// on the same grounds they stand down for a submit: it is awaited by the caller, and its
+    /// verdict decides disclosure rather than merely refreshing it, so a pass that superseded it
+    /// would leave the values a page just loaded neither vouched for nor spoken about.
+    /// </summary>
+    private bool LoadInFlight => _currentPass?.Kind == PassKind.Load;
+
+    /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
     /// new one linked to <paramref name="external"/> and records the new pass as the current one.
-    /// Only one pass (live, submit, or refresh) is ever in flight at a time — starting a new one
+    /// Only one pass, whatever its kind, is ever in flight at a time — starting a new one
     /// supersedes whatever came before, which is exactly what taking over the descriptor means.
     /// </summary>
     private PassScope BeginPass(PassKind kind, CancellationToken external)
@@ -1380,7 +1416,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// fields <see cref="GetFieldState"/> reports as validating: a live pass passes the field(s)
     /// that triggered it — one field for an immediate edit, every field an open live-debounce
     /// window accumulated for a debounced one; a refresh pass passes the fields edited within its
-    /// debounce window; a submit pass passes <see langword="null"/> (form-wide, every field). Only
+    /// debounce window; the pass <see cref="DiscloseLoadedValuesAsync"/> runs passes an EMPTY
+    /// set, since no field is waiting on it; and a submit passes <see langword="null"/>
+    /// (form-wide, every field), being the pass the visitor asked for. Only
     /// meaningful when <paramref name="value"/> is <see langword="true"/> — clearing ends the pass outright (see
     /// <see cref="EndPass"/>), scope and descriptor with it.
     /// Also raises the EditContext's own validation-state notification, not just the engine's: a
@@ -1414,9 +1452,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// The one lifecycle every pass runs: begin (taking the version and the linked token that make
     /// the pass superseded-able), validate under <paramref name="profile"/>, dispatch the verdict
     /// only if this pass is still the current one, and end the pass exactly once however it left.
-    /// Live, submit and refresh differ in what they hand in, not in how they run — a skeleton
+    /// The kinds differ in what they hand in, not in how they run — a skeleton
     /// hand-rolled per kind is one where a single copy can quietly stop raising a notification, or
-    /// stop clearing a flag, that the other two still do. How the validation step itself runs is
+    /// stop clearing a flag, that the others still do. How the validation step itself runs is
     /// a capability split: a validator that can validate rule by rule gets the verdict store —
     /// only the rules with no fresh verdict at this pass's stamp execute, and the report handed
     /// downstream is ASSEMBLED, every selected rule's issues in declaration order whether served
@@ -1432,10 +1470,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </param>
     /// <param name="profile">The profile the model is validated under.</param>
     /// <param name="external">
-    /// The caller's own cancellation token, linked into the pass. Only a submit has one; live and
-    /// refresh pass <see cref="CancellationToken.None"/>, which is what lets one cancellation filter
-    /// serve all three — with no external token there is nothing a cancellation can mean except
-    /// supersession by a newer pass.
+    /// The caller's own cancellation token, linked into the pass. Only the kinds a caller starts
+    /// and awaits have one — a submit and a load; live and refresh pass
+    /// <see cref="CancellationToken.None"/>, which is what lets one cancellation filter serve every
+    /// kind: with no external token there is nothing a cancellation can mean except supersession by
+    /// a newer pass.
     /// </param>
     /// <param name="beginScope">
     /// The fields the pending indicator covers, evaluated once the pass has begun: a refresh's scope
@@ -1501,11 +1540,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             {
                 return null; // superseded by a newer pass, rather than cancelled by the caller
             }
-            catch (Exception exception) when (kind != PassKind.Submit)
+            catch (Exception exception) when (kind is not (PassKind.Submit or PassKind.Load))
             {
-                // A submit is the one pass someone is awaiting, so a validator that throws under
-                // it has somewhere to surface: the caller's own try/catch. A live or refresh pass
-                // is fire-and-forget, so its fault has to become form state and an event instead.
+                // A submit and a load are the passes someone is awaiting, so a validator that
+                // throws under either has somewhere to surface: the caller's own try/catch. A
+                // live or refresh pass is fire-and-forget, so its fault has to become form state
+                // and an event instead.
                 await ReportFaultAsync(pass, exception).ConfigureAwait(false);
                 return null;
             }
@@ -1538,7 +1578,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 applyVerdict(report);
 
                 // Coverage bookkeeping, after the apply so the submit channel's source is the
-                // one this pass just rebuilt. A submit or refresh IS a completed whole-model
+                // one this pass just rebuilt. Every kind but a live pass IS a completed whole-model
                 // SubmitProfile evaluation, so its begin stamp and its resolved error fields
                 // become the capability-less coverage source — the apply resolved every error,
                 // undisclosed ones included, which is exactly what "would fail submit" needs.
@@ -1585,8 +1625,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// where one exists — or with nothing, meaning the caller must run it. A submit sets
     /// <paramref name="executeAll"/> and pairs every rule with nothing by fiat: it is the
     /// disclosure event, and its full run is also what repopulates the store so everything
-    /// behind it starts from answered rules; the live and refresh passes, and the validity
-    /// probe, all consult freshness. Runs on the dispatcher (the caller marshals), because the
+    /// behind it starts from answered rules; every other kind, and the validity
+    /// probe, consults freshness. Runs on the dispatcher (the caller marshals), because the
     /// store is read here and mutates only there.
     /// </summary>
     private List<(RuleIdentity Rule, RuleVerdict? Fresh)> BuildRulePlan(
@@ -1687,9 +1727,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </summary>
     private async Task RunLivePassAsync(IReadOnlyCollection<FieldIdentifier> triggeringFields)
     {
-        if (SubmitInFlight)
+        if (SubmitInFlight || LoadInFlight)
         {
-            return; // submit is the higher-intent operation; live/refresh passes never supersede it
+            // Submit is the higher-intent operation; live/refresh passes never supersede it. A
+            // load pass is stood down for on the same terms — see LoadInFlight.
+            return;
         }
 
         // Snapshotted as the pass begins rather than when its verdict lands: the report answers
@@ -1761,11 +1803,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// verdict already follows via <c>_version</c>. A submit orders itself ahead of every probe
     /// the same way: its own verdict apply calls <see cref="AdoptFormValidity"/>, which bumps
     /// this same stamp, so a probe that started before the submit began cannot land after it and
-    /// overwrite its answer — see <see cref="AdoptFormValidity"/> for why submit (and refresh)
-    /// can adopt directly instead of merely invalidating. A probe never starts while a submit is
-    /// already in flight, for the same reason a live pass never does (see
-    /// <see cref="RunLivePassAsync"/>): submit is about to compute this exact quantity itself
-    /// moments from now, so racing it buys nothing.
+    /// overwrite its answer — see <see cref="AdoptFormValidity"/> for why a submit, and every
+    /// other whole-model kind, can adopt directly instead of merely invalidating. A probe never
+    /// starts while a submit —
+    /// or the pass <see cref="DiscloseLoadedValuesAsync"/> runs — is already in flight, for the
+    /// same reason a live pass never does (see <see cref="RunLivePassAsync"/>): either one is
+    /// about to compute this exact quantity itself moments from now, so racing it buys nothing.
     /// A probe that faults reports the only way a fire-and-forget evaluation can: through
     /// <see cref="ValidationFaulted"/>, exactly as a live or refresh pass's own fault does — never
     /// a form-level fault issue, which would disclose something an invisible probe promises never
@@ -1777,7 +1820,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// </summary>
     private async Task ProbeFormValidityAsync()
     {
-        if (SubmitInFlight)
+        if (SubmitInFlight || LoadInFlight)
         {
             return;
         }
@@ -1892,8 +1935,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>
     /// Adopts a whole-model <see cref="FormidableOptions.SubmitProfile"/> report's validity
-    /// directly into <see cref="IsFormValid"/> — called from the submit and refresh verdict
-    /// applies, both of which already compute exactly this quantity as part of their own pass, so
+    /// directly into <see cref="IsFormValid"/> — called from the verdict applies of every pass
+    /// that answers the whole model under that profile (submit, refresh, load), each of which
+    /// already computes exactly this quantity as part of its own pass, so
     /// there is nothing left for a separate probe to add. On a rule-capable validator the
     /// adopted report is assembled from the verdict store the pass just repopulated, so this IS
     /// the store read landing: every submit-selected rule is fresh at the pass's stamp the
@@ -1922,8 +1966,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         }
     }
 
-    private FieldIdentifier Resolve(ValidationIssue issue) =>
-        _introspector.Resolve(_model, issue.Path).ToFieldIdentifier(_model, issue.Path);
+    private FieldIdentifier Resolve(ValidationIssue issue) => ResolvePath(issue.Path);
+
+    /// <summary>
+    /// Resolves a validator-declared path against the live model graph — the one place an issue's
+    /// path and a rule's declared path become the same kind of answer, so a demand and the failure
+    /// it describes can never land on different fields.
+    /// </summary>
+    private FieldIdentifier ResolvePath(string path) =>
+        _introspector.Resolve(_model, path).ToFieldIdentifier(_model, path);
 
     /// <summary>
     /// The one report an issue with nowhere to render gets: a Trace line for a debugger, a logged
@@ -2093,9 +2144,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 HasSubmitted = true;
 
                 // Submit takes the live channel over wholesale: every engaged field's verdict is
-                // this report's. The engaged set itself stands — engagement records which fields
-                // the user has committed changes to, and submitting does not un-commit them — so
-                // the first post-submit live pass re-answers every engaged field.
+                // this report's. The engaged set itself stands: a submit neither engages a field
+                // nor disengages one, whichever route put it there — so the first post-submit
+                // live pass re-answers every engaged field.
                 _liveVerdicts.Clear();
 
                 // The server verdict is a snapshot of one round trip, and this pass is a newer
@@ -2264,6 +2315,338 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         RebuildStore();
     }
 
+    /// <inheritdoc />
+    public async Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default)
+    {
+        // The model has moved and nothing told the engine so, which is this call's whole
+        // premise: values written straight onto the model raise no field-changed
+        // notification, so every verdict the store holds describes a model that is no longer
+        // there. Moving the edit stamp before the pass reads it is what strands those
+        // verdicts and leaves the pass owing an answer for every rule it selects. Without it a
+        // form something has already answered for — the reconciling refresh a first render
+        // arms, say — assembles its whole report from the store and reports on values the
+        // visitor never had.
+        _editStamp++;
+
+        var profile = _options.SubmitProfile;
+        HashSet<FieldIdentifier>? adopted = null;
+
+        await RunPassAsync(
+            PassKind.Load,
+            profile,
+            cancellationToken,
+            // Empty, not form-wide. The pass answers for the whole model, so IsValidating says
+            // so and a page-level spinner works; but no field is waiting on it in the sense the
+            // pending indicator means — nobody asked, and the visitor has done nothing. A
+            // form-wide scope lights every input on the page, a field carrying no rules at all
+            // included, before the form has said anything about what it loaded.
+            () => [],
+            report =>
+            {
+                // The refresh apply, for the reason a refresh makes it: this IS a completed
+                // whole-model submit-profile answer, so it becomes the submit channel's client
+                // source and supersedes whatever a server round trip left behind. Nothing is
+                // revealed by it — a load is not a submit — so on a form that has never
+                // submitted the ledgers stay empty and that channel shows nothing at all.
+                AdoptFormValidity(report);
+                _serverErrors.Clear();
+                _serverAdvisories.Clear();
+                _submitVerdictErrors = GroupByResolvedField(report.Errors);
+                _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
+
+                adopted = AdoptLoadedValues(_submitVerdictErrors, profile);
+            }).ConfigureAwait(false);
+
+        // Back onto the renderer's dispatcher before engine state is touched again. The pass
+        // above resumes on whatever thread its last rule completed on, and what follows reads
+        // _engagedFields and then, through the live pass it starts, takes the pass bookkeeping
+        // that every pass start holds on the dispatcher alone. The two debounce timers marshal
+        // here for the same reason. The await above does not hold the caller's context, so where
+        // the dispatcher queues this is a real hop rather than a free one; it costs the delegate
+        // alone wherever the dispatcher runs inline, which a single-threaded WASM host, an
+        // unsupplied one, and a pass that completed without leaving the dispatcher all do.
+        await _renderDispatch(async () =>
+        {
+            if (adopted is not null && _engagedFields.Count > 0)
+            {
+                // The disclosure itself. Engagement alone shows nothing — the live view is the
+                // filed verdicts read THROUGH the engaged set — so the fields just engaged need
+                // a live pass to file one, and an ordinary live pass is what files it: under the
+                // live channel's own profile, so what a load discloses is exactly what that
+                // channel goes on disclosing rather than something the next edit would quietly
+                // replace. Its cost is the pass skeleton and nothing else wherever the two
+                // profiles resolve to the same instance, which is the default: the rules were
+                // answered a moment ago at this same edit stamp, so the plan finds every one of
+                // them fresh and executes none.
+                //
+                // The condition is the whole engaged set rather than the fields just adopted,
+                // because that is what the pass answers for. A load can replace a value the
+                // visitor had already engaged — and can adopt nothing at all while doing it, if
+                // what it loaded leaves every readable field merely unfilled — and skipping the
+                // pass there would leave that field's filed verdict describing the values the
+                // load overwrote. A null adopted set is the other case: the pass was superseded,
+                // so the pass that took it over owns what happens next.
+                await RunLivePassAsync(adopted);
+            }
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Decides what the values already in the model have earned, and marks the fields it decides
+    /// for as touched and engaged. Three outcomes per field, and the middle one is the point: a
+    /// field holding a value the profile's rules do not fail is vouched for, a field holding a
+    /// value they DO fail is engaged so the failure discloses, and a field holding no value is
+    /// left entirely alone — nobody has reached it yet, and nagging about every unfilled required
+    /// field the moment a form loads is what engagement-gating exists to prevent.
+    /// </summary>
+    /// <remarks>
+    /// The split between "wrong" and "not reached yet" is the VALUE, never which kind of rule
+    /// failed. A rule's kind cannot carry it: presence written as
+    /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> is indistinguishable from a range check,
+    /// and reading it as one paints an untouched field red the moment a form loads. The value
+    /// answers directly, and it answers for a collection row as readily as for a top-level
+    /// member, because a row's own value is as readable as any other.
+    /// <para>
+    /// Empty means what <c>NotEmpty()</c> means, read against the type the member DECLARES — see
+    /// <see cref="IsEmptyValue"/>. That reading is what keeps a saved <c>false</c> in a
+    /// <c>bool?</c> a real answer while a never-assigned <c>bool</c> is not. Where the rules are
+    /// FluentValidation's own it is also THEIR reading, so a field this leaves alone is one a
+    /// <c>NotEmpty()</c> on it would have failed; a validator written some other way is judged
+    /// by the same definition without being asked to agree with it.
+    /// </para>
+    /// <para>
+    /// The universe is every field with an error-severity failure, plus every field the
+    /// validator declares a rule for
+    /// (<see cref="IRuleInspectingValidator{TModel}.GetDeclaredFieldPaths"/>, expanded against
+    /// the rows the model actually holds). The two halves need different things: disclosing a
+    /// wrong value needs only the model, so a validator with no inspection capability still
+    /// discloses one, while vouching for a good value needs the validator's own list of the
+    /// fields it speaks about — nothing else can tell a field whose rules all passed from a
+    /// field no rule mentions.
+    /// </para>
+    /// <para>
+    /// Only error severity makes a value wrong. A warning or an info is a remark about a value
+    /// that is otherwise acceptable, and a field carrying one is vouched for like any other —
+    /// the advisory then shows through the live channel and paints its own state class, which is
+    /// what the same value typed by hand would do.
+    /// </para>
+    /// <para>
+    /// Where the value cannot be read, nothing is claimed: an unresolvable intermediate
+    /// (<c>Address.City</c> where <c>Address</c> is null), a model-level failure, which carries
+    /// no member name at all, and a path naming no member — a server-sent path, say — leave the
+    /// field untouched and unengaged. That direction is chosen deliberately, and it is the same
+    /// direction an empty value takes: silence for those fields is what the form does anyway
+    /// until this is called.
+    /// </para>
+    /// </remarks>
+    /// <param name="errors">
+    /// The pass's error-severity issues, already grouped onto their fields — the same grouping
+    /// the submit channel's client source is built from, so the two cannot describe different
+    /// fields.
+    /// </param>
+    /// <param name="profile">The profile whose declared fields are the vouching half's universe.</param>
+    /// <returns>The fields this adopted, for the live pass that discloses them to answer.</returns>
+    private HashSet<FieldIdentifier> AdoptLoadedValues(
+        Dictionary<FieldIdentifier, List<ValidationIssue>> errors, ValidationProfile profile)
+    {
+        var adopted = new HashSet<FieldIdentifier>();
+        var considered = new HashSet<FieldIdentifier>();
+
+        foreach (var field in errors.Keys)
+        {
+            Consider(field);
+        }
+
+        foreach (var path in DeclaredFieldPaths(profile))
+        {
+            Consider(ResolvePath(path));
+        }
+
+        foreach (var field in adopted)
+        {
+            // Both, and for the reason a committed change does both: touched is what lets a state
+            // class paint at all, engagement is what makes the live channel speak. Touching alone
+            // would put green on the good fields and leave the bad one silent among them, which
+            // reads as "not filled in yet" rather than "this is wrong".
+            _touched.Add(field);
+            _engagedFields.Add(field);
+        }
+
+        return adopted;
+
+        void Consider(FieldIdentifier field)
+        {
+            if (!considered.Add(field))
+            {
+                return;
+            }
+
+            if (_introspector.TryReadValue(field.Model, field.FieldName, out var value, out var declaredType)
+                && !IsEmptyValue(value, declaredType))
+            {
+                adopted.Add(field);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The paths the validator declares for the profile, with every collection template expanded
+    /// against the rows the model actually holds — <c>Attendees[].Name</c> becomes one path per
+    /// attendee, and none at all for an empty list.
+    /// </summary>
+    /// <remarks>
+    /// A validator that cannot be inspected, and a selection that throws (a typo'd ruleset name),
+    /// both answer with nothing rather than taking the load down: the pass beside this one
+    /// surfaces that exception through its own fault policy, which is where a configuration error
+    /// belongs.
+    /// </remarks>
+    private List<string> DeclaredFieldPaths(ValidationProfile profile)
+    {
+        var expanded = new List<string>();
+        if (_validator is not IRuleInspectingValidator<TModel> inspector || !inspector.CanInspectRules)
+        {
+            return expanded;
+        }
+
+        IReadOnlySet<string> declared;
+        try
+        {
+            declared = inspector.GetDeclaredFieldPaths(profile);
+        }
+        catch (Exception)
+        {
+            return expanded;
+        }
+
+        foreach (var template in declared)
+        {
+            ExpandTemplate(template, expanded);
+        }
+
+        return expanded;
+    }
+
+    /// <summary>
+    /// Replaces the first open index in <paramref name="template"/> with each index the model's
+    /// own collection carries, and recurses — so a template with two of them
+    /// (<c>Teams[].Members[].Alias</c>) yields one path per member of every team.
+    /// </summary>
+    private void ExpandTemplate(string template, List<string> into)
+    {
+        var open = template.IndexOf("[]", StringComparison.Ordinal);
+        if (open < 0)
+        {
+            into.Add(template);
+            return;
+        }
+
+        var head = template[..open];
+        var tail = template[(open + 2)..];
+        var rows = CollectionCount(head);
+
+        for (var index = 0; index < rows; index++)
+        {
+            ExpandTemplate($"{head}[{index}]{tail}", into);
+        }
+    }
+
+    /// <summary>
+    /// How many elements the collection at <paramref name="path"/> holds — zero where the path
+    /// resolves to nothing, to a non-collection, or to a collection with no elements, all of
+    /// which mean the same thing here: there are no rows to expand a template into.
+    /// </summary>
+    private int CollectionCount(string path)
+    {
+        var resolved = _introspector.Resolve(_model, path);
+        if (!_introspector.TryReadValue(resolved.Owner, resolved.PropertyName, out var value, out _))
+        {
+            return 0;
+        }
+
+        switch (value)
+        {
+            case System.Collections.ICollection collection:
+                return collection.Count;
+            case System.Collections.IEnumerable sequence:
+                var count = 0;
+                foreach (var _ in sequence)
+                {
+                    count++;
+                }
+
+                return count;
+            default:
+                return 0;
+        }
+    }
+
+    /// <summary>
+    /// Whether the value is an absence rather than an answer, read exactly as FluentValidation's
+    /// own <c>NotEmpty()</c> reads it: null, a blank or whitespace-only string, a sequence with
+    /// no elements, or the default of the type the member is DECLARED as.
+    /// </summary>
+    /// <remarks>
+    /// The declared type is what makes the reading faithful, and it is the whole reason the value
+    /// is read through <see cref="IModelIntrospector.TryReadValue"/> rather than boxed and
+    /// inspected. A <c>bool</c> holding <see langword="false"/> is its own default and reads as
+    /// an absence; a <c>bool?</c> holding <see langword="false"/> is not, and reads as the
+    /// answer it is. The same split separates <c>int</c> from <c>int?</c>, an enum from a
+    /// nullable enum, and <c>Guid</c>/<c>DateTime</c>/<c>decimal</c> from their nullable forms.
+    /// <para>
+    /// What is left ambiguous is exactly the set of non-nullable value types, and every one of
+    /// them errs towards absence — the direction that stays silent rather than claiming
+    /// something. The library's own statement follows from that: model an optional value as
+    /// <c>T?</c> and a load reads it exactly; model it as <c>T</c> and its default reads as "not
+    /// filled in".
+    /// </para>
+    /// </remarks>
+    private static bool IsEmptyValue(object? value, Type? declaredType)
+    {
+        if (value is null || declaredType is null)
+        {
+            return true;
+        }
+
+        if (value is string text)
+        {
+            return string.IsNullOrWhiteSpace(text);
+        }
+
+        if (value is System.Collections.IEnumerable sequence)
+        {
+            System.Collections.IEnumerator? enumerator = null;
+            try
+            {
+                enumerator = sequence.GetEnumerator();
+                return !enumerator.MoveNext();
+            }
+            catch
+            {
+                // A sequence that cannot even be asked whether it is empty — an uninitialised
+                // ImmutableArray is the reachable one — is a value that cannot be read, and an
+                // unreadable value claims nothing rather than being claimed either way.
+                return true;
+            }
+            finally
+            {
+                (enumerator as IDisposable)?.Dispose();
+            }
+        }
+
+        if (!declaredType.IsValueType || Nullable.GetUnderlyingType(declaredType) is not null)
+        {
+            // A reference type holding anything, and a Nullable<T> holding anything at all, are
+            // both answers: the only absence either can express is null, and that is gone.
+            return false;
+        }
+
+        // The default of the declared type, obtained without asking for a constructor: a
+        // one-element array of it is zero-initialised, and its single element is that default
+        // boxed. Building it from the declared type keeps the comparison the one NotEmpty()
+        // makes, for a struct nobody here has to know about.
+        return value.Equals(Array.CreateInstance(declaredType, 1).GetValue(0));
+    }
+
     /// <summary>
     /// Arms (or re-arms) the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>,
     /// from every arm site alike — an edit, a field-set change, an in-flight deferral's re-arm.
@@ -2314,8 +2697,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     /// <summary>
     /// The live debounce timer's fire handler: defers first — mirroring
-    /// <see cref="RunRefreshPassAsync"/>'s own defer-then-snapshot shape — and only once neither a
-    /// submit nor a refresh is in flight does it snapshot and clear the fields accumulated since
+    /// <see cref="RunRefreshPassAsync"/>'s own defer-then-snapshot shape — and only once no pass it
+    /// stands down for is in flight does it snapshot and clear the fields accumulated since
     /// the window opened and run one live pass scoped to all of them. A snapshot left empty —
     /// every accumulated field pruned by <see cref="OnRenderedFieldsChanged"/> before the window
     /// closed — starts no live pass; the <see cref="FormidableOptions.TrackFormValidity"/> probe
@@ -2330,21 +2713,22 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return Task.CompletedTask;
         }
 
-        if (SubmitInFlight || RefreshInFlight)
+        if (SubmitInFlight || RefreshInFlight || LoadInFlight)
         {
             if (_options.LiveDebounce is { } liveDebounce)
             {
                 // Re-arm and try again once the pass in flight finishes, touching neither the
                 // accumulator nor a pass. Snapshotting here regardless (the shape every other fire
                 // handler in this file uses) would still lose the fields: RunLivePassAsync's own
-                // SubmitInFlight guard bails without writing them anywhere, and starting a live pass
+                // stand-down guard bails without writing them anywhere, and starting a live pass
                 // against an in-flight refresh would cancel it via BeginPass without anything left to
                 // re-arm it — the edit that would normally do that (see RefreshInFlight's remarks)
                 // already happened when this window opened, so the refresh's own verdict would go
-                // stale with no edit left to fix it. LiveInFlight is deliberately not checked: one
-                // live pass superseding another is the existing, correct contract, and the
-                // winner's verdict answers every engaged field — the superseded pass's fields
-                // among them.
+                // stale with no edit left to fix it. A load pass is deferred to on the grounds
+                // LoadInFlight gives, which are the submit case's. LiveInFlight is deliberately
+                // not checked: one live pass superseding another is the existing, correct
+                // contract, and the winner's verdict answers every engaged field — the
+                // superseded pass's fields among them.
                 ScheduleLiveDebounce(liveDebounce);
                 return Task.CompletedTask;
             }
@@ -2398,10 +2782,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
-        if (SubmitInFlight || LiveInFlight)
+        if (SubmitInFlight || LiveInFlight || LoadInFlight)
         {
             // Defer and re-arm — the edit must still be revalidated once the pass in flight
-            // finishes. Submit is the higher-intent operation and is never superseded; a live
+            // finishes. Submit is the higher-intent operation and no refresh ever supersedes it,
+            // and a load pass is stood down for on the same grounds (see LoadInFlight); a live
             // pass is waited out for a different reason: starting here would cancel it (see
             // BeginPass) and this pass would then discard its own verdict for any field that was
             // not an error site at the last submit, so a single edit's answer would be lost on
@@ -2487,10 +2872,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 }
 
 /// <summary>
-/// Which of the engine's three lifecycles a pass is running. The kind is what the engine's own
-/// deference rules are written in — a refresh stands down for a live pass and for a submit, a live
-/// pass stands down for a submit — and it is also what decides whether a validator's exception is
-/// reported as form state or left to the caller awaiting the pass.
+/// Which of the engine's lifecycles a pass is running. The kind is what the engine's own
+/// deference rules are written in — a refresh stands down for a live pass, and both stand down
+/// for the two kinds a caller starts and awaits, a submit and a load — and it is also what
+/// decides whether a validator's exception is reported as form state or left to the caller
+/// awaiting the pass.
 /// </summary>
 internal enum PassKind
 {
@@ -2502,6 +2888,16 @@ internal enum PassKind
 
     /// <summary>The debounced post-submit revalidation, also under the submit profile.</summary>
     Refresh,
+
+    /// <summary>
+    /// The whole-model submit-profile answer <see cref="FormValidationEngine{TModel}.DiscloseLoadedValuesAsync"/>
+    /// runs to decide what a page's freshly loaded values have earned. Its own kind rather than a
+    /// refresh, because the deference rules are written in kinds: nothing an EDIT starts may
+    /// supersede it, since its verdict is the only thing that engages the fields it speaks for.
+    /// Another pass a caller starts and awaits still can — a submit, or a second load — the way
+    /// two submits resolve (see <see cref="FormValidationEngine{TModel}.SubmitInFlight"/>).
+    /// </summary>
+    Load,
 }
 
 /// <summary>
@@ -2542,9 +2938,12 @@ internal readonly record struct RuleVerdict(
     /// profile-scoped verdict additionally answers only for the very profile it ran under.
     /// </summary>
     /// <remarks>
-    /// The stamp comparison says only that no field change has been notified since — which is
-    /// what "the model is unchanged" means to an engine that is told about changes. A mutation
-    /// made without one is invisible to it.
+    /// The stamp comparison says only that nothing has told the engine the model moved since —
+    /// which is what "the model is unchanged" means to an engine that is told about changes. Two
+    /// things tell it: a field-changed notification, and
+    /// <see cref="FormValidationEngine{TModel}.DiscloseLoadedValuesAsync"/>, which moves the stamp
+    /// itself precisely because the values it is about arrived without one. A mutation made
+    /// without either is invisible to it.
     /// </remarks>
     internal bool IsFreshFor(int editStamp, ValidationProfile profile) =>
         EditStamp == editStamp && (!IsProfileScoped || ReferenceEquals(Profile, profile));

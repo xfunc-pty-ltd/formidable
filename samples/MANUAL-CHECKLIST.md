@@ -37,7 +37,7 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 - [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields &
       collections, Async & server, Presentation, Model & data, Workout
-- [ ] All nineteen links route to a live page; the active link is highlighted
+- [ ] All twenty links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
 - [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
       carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
@@ -250,6 +250,12 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       mid-keystroke — the indicator lights only once, after you pause typing
 - [ ] Untick it again and type the same word quickly: the indicator flashes on the very first
       keystroke, back to the default (immediate, no batching)
+- [ ] **A confirmed border rides out a slow pass.** Type a free username (`tim`) and let it turn
+      green, then click into Display name and type a letter: while that field's 600 ms check
+      runs, Username's confirmation border stays green rather than blinking to neutral and back.
+      The state class itself does come off for that window — the stylesheet's `--confirm-hold`
+      is what keeps the colour across it, and a field that genuinely stops being confirmed
+      settles to neutral once the hold runs out
 - [ ] **Message spacing:** type `admin` into Username and let the verdict land — its message
       sits tight under the Username box and leaves a full field-gap before the *Display name*
       label. It must never sit flush against that label, and the "checking…" line while a pass
@@ -364,6 +370,26 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Clear Username and type `ada` instead: once the check clears, the readout flips to
       "Form valid: Yes" and Submit enables itself with no click needed
 
+### Loading a saved draft
+
+- [ ] Fresh page: three empty boxes, three asterisks, and no borders or messages anywhere
+- [ ] *Load saved draft*: all three values arrive at once and three different answers arrive
+      with them — Title takes the green confirmed border, Contact email takes the red one and
+      says "That is not a valid email address", and Summary looks exactly as it did
+- [ ] Summary is still marked required AND still silent: the mark is what the rules demand, the
+      silence is what disclosure has earned — a required field nobody has reached says nothing
+- [ ] The email message is the FORMAT rule's, not the required rule's: the box is not empty, so
+      what is wrong with it is the address
+- [ ] Select all in Contact email, type `ada@example.com`, Tab: the message goes and the border
+      confirms, with no submit anywhere
+- [ ] Type anything into Summary and Tab: it confirms too, the ordinary way
+- [ ] Submit: the status line confirms it
+- [ ] *Start blank*: the boxes empty at once and all three confirmed borders follow a beat behind
+      them — the stylesheet holds any state colour for `--confirm-hold` on its way to neutral.
+      *Load saved draft* then replays the whole thing
+- [ ] **Colour check, both schemes:** the confirmed border on Title and the error border on
+      Contact email are legible side by side in light AND dark mode
+
 ### Normalize
 
 - [ ] `  spaced   out  title  ` + *Normalize now*: the raw value line below snaps clean AND
@@ -426,8 +452,11 @@ steps build on each other.
       takes the focus (Attendees fieldset, the form) shows an accent outline. Click the SAME
       entry with the mouse: it scrolls and takes focus with NO outline — the cue is the scroll.
       Then click stray page background or a fieldset's padding: nothing paints an outline
-- [ ] `taken@example.com` in Contact email: "checking…" sits on that field for ~300 ms, then
-      "That email is already registered" lands
+- [ ] `taken@example.com` in Contact email: every keystroke commits, so each one hands the
+      check an address it has never seen — "checking…" sits on that field for ~300 ms, then
+      "That email is already registered" lands. Clear the box and type the same address again:
+      the other messages come and go as before, but NO "checking…" appears, since the memo
+      already holds an answer for every address you typed through
 - [ ] **Dates commit on blur, not per keystroke.** In **Event date**, type the year segment
       SLOWLY (`2`, `0`, `2`, `6`): no message appears while you are mid-year. Tab out: only
       then does the field get a verdict, and a complete date passes cleanly
@@ -446,8 +475,7 @@ steps build on each other.
       rest of the form already clean. Change to `WELCOME10` and resubmit: the new verdict
       REPLACES the old one (no stale coupon error) and the registration is accepted
 - [ ] Step 5: with everything else valid, clear Dietary notes and tab out — "Dietary notes are
-      required for catering" answers your edit as soon as that edit's live pass does, a beat,
-      since the pass waits on the 300 ms availability check
+      required for catering" answers your edit as soon as that edit's live pass does
 - [ ] Step 6: untick *Include catering* — the field leaves and takes the message with it,
       inline and summary alike
 - [ ] Step 7: submit — the form blocks with "information that is not currently displayed is
@@ -455,11 +483,10 @@ steps build on each other.
       through at step 4 cleared what earlier submits had revealed, so nothing on screen
       explains it
 - [ ] **The gate survives editing (step 8).** While the form stays blocked, type into
-      Description and pause: the edited field's pending marker comes and goes as the live pass
-      and the background refresh run — and the form-level entry still stands on the far side. No
-      refresh can retire the gate; an error reaching the screen does, and Description has no
-      rule of its own to put one there. A submit that can show the error, or one that passes,
-      re-decides it
+      Description and Tab: the box takes the confirmed border, which is the sign a pass has
+      answered for it — and the form-level entry is still in the summary above. No refresh can retire
+      the gate; an error reaching the screen does, and Description has no rule of its own to put
+      one there. A submit that can show the error, or one that passes, re-decides it
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
       takes focus. From the KEYBOARD it shows the accent outline; by MOUSE, the scroll alone
 - [ ] **Disclosure (steps 9-10).** Re-tick *Include catering* — the note renders empty and stays
@@ -471,17 +498,15 @@ steps build on each other.
       field stays watched until the form passes or resets. Re-tick and fill in a note before
       moving on
 - [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
-      only, and the malformed address is what it names — the note is back in. Now clear
-      **Event name** and Tab: "Event name is required" lands as soon as that edit's live pass
-      does — a beat, since the pass waits on the 300 ms availability check — because you
-      engaged that field. Save the draft again and the status line still never mentions it, since a
-      draft save runs the Draft profile and that presence rule is not in it. Type Event name
-      back in
+      only, and the malformed address is what it names — the note is back in. Now clear **Event
+      name** and Tab: "Event name is required" lands as soon as that edit's live pass does,
+      because you engaged that field. Save the draft again and the status line still never
+      mentions it, since a draft save runs the Draft profile and that presence rule is not in
+      it. Type Event name back in
 - [ ] *Add attendee*: the row stays silent even though Name's rule is already failing — nothing
       has engaged it yet. Type a name and Tab, then come back, clear it and Tab again:
-      "Attendee name is required" appears as soon as that edit's live pass does — a beat, since
-      the pass waits on the 300 ms availability check — inline and in the summary, with NO
-      submit; clicking that entry focuses that row's Name
+      "Attendee name is required" appears as soon as that edit's live pass does, inline and in
+      the summary, with NO submit; clicking that entry focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
       attendees needs approval — submission is not blocked" appears below the list
 - [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
@@ -493,12 +518,12 @@ steps build on each other.
       accepted
 - [ ] *Remove* every row: the warning gives way to the info "You can add attendees now or
       after registering"
-- [ ] Scroll the session panel to the bottom, set the last session's Seats to `900` and Tab:
-      the row objects on the **FIRST tab-out** — "Seats must be a whole number between 0 and
-      500" appears as soon as that edit's live pass does — a beat, since the pass waits on the
-      300 ms availability check — with no second edit needed to shake it loose. Repeat on another
-      row to be sure it is not a one-off, then set THAT row back to `0` too — leaving it dirty
-      would let its error outrank Ticket tier's in document order and steal the focus at step 21
+- [ ] Scroll the session panel to the bottom, set the last session's Seats to `900` and Tab: the
+      row objects on the **FIRST tab-out** — "Seats must be a whole number between 0 and 500"
+      appears as soon as that edit's live pass does, with no second edit needed to shake it
+      loose. Repeat on another row to be sure it is not a one-off, then set THAT row back to `0`
+      too — leaving it dirty would let its error outrank Ticket tier's in document order and
+      steal the focus at step 21
 - [ ] Scroll back to the top and submit: blocked, the summary carries the same seats message
       for a row nowhere on screen — **and the submit's own focus reaches it too**: with no click
       at all, the panel scrolls itself, Virtualize renders the row, and focus lands in its Seats
@@ -506,16 +531,15 @@ steps build on each other.
 - [ ] Scroll the panel back to the top, then click that summary entry: the panel scrolls
       itself, Virtualize renders the row, focus lands in its Seats box. Set it back to `0` —
       the post-submit refresh takes both the inline message and the summary entry away
-- [ ] Set **Ticket tier** to the blank *Choose…*: choosing is a committed change, so after the
-      usual availability-check beat the foreign select takes the same inline message and summary
-      entry as any wrapped input, with NO submit. Tab out and the red border joins them — a
-      focused box wears the accent border whatever its verdict, so the severity one waits for
-      the blur. Clicking that summary entry moves focus INTO the select
+- [ ] Set **Ticket tier** to the blank *Choose…*: choosing is a committed change, so the foreign
+      select takes the same inline message and summary entry as any wrapped input, with NO
+      submit. Tab out and the red border joins them — a focused box wears the accent border
+      whatever its verdict, so the severity one waits for the blur. Clicking that summary entry
+      moves focus INTO the select
 - [ ] Add a word to **Venue region**, which still holds what you typed earlier, and tab out: the
-      blur's own live pass is what confirms
-      it — no submit needed first — so the native input wears the same "confirmed" border a
-      Formidable input shows, a beat later, once that pass's 300 ms availability check lands.
-      The css class provider serves both kinds of input
+      blur's own live pass is what confirms it — no submit needed first — so the native input
+      wears the same "confirmed" border a Formidable input shows. The css class provider serves
+      both kinds of input
 - [ ] Clear **Venue region** and Tab (step 23): the native `ValidationMessage` shows "Venue
       region is required" with NO submit — the live channel's verdict reaches the EditContext's
       own message store — the summary lists it on the same terms, and clicking THAT entry

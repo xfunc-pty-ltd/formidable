@@ -138,14 +138,14 @@ That is the whole authoring surface. The rest of this page is what the engine do
 
 ## The ordering, end to end
 
-Only one validation pass — live, submit, or the debounced refresh — is ever in flight on the
-engine at a time, and starting a new one cancels whatever pass came before it. Everything below
-follows from that one constraint. The flowchart traces it end to end: what an edit starts, how
-the refresh defers to whatever is already running, and how a submit sits above all of it.
+Only one validation pass — whatever its kind — is ever in flight on the engine at a time, and
+starting a new one cancels whatever pass came before it. Everything below follows from that one
+constraint. The flowchart traces it end to end: what an edit starts, how the refresh defers to
+whatever is already running, and how a submit sits above all of it.
 
 ```mermaid
 flowchart TD
-    A["Field edit commits"] --> B{"Is a submit in flight?"}
+    A["Field edit commits"] --> B{"A submit or a draft load in flight?"}
     B -- "yes" --> C["Live pass does not start for this edit"]
     B -- "no" --> D["Live pass starts for the changed field"]
     D --> E{"A newer live pass starts before this one finishes?"}
@@ -157,7 +157,7 @@ flowchart TD
     H -- "yes" --> J["Field added to the pending-refresh set; debounced refresh timer (re)armed"]
 
     J --> K["Debounce quiets, 300 ms by default"]
-    K --> L{"Submit or a live pass in flight?"}
+    K --> L{"A submit, a live pass or a draft load in flight?"}
     L -- "yes" --> M["Refresh defers: re-arms its timer instead of running"]
     M --> K
     L -- "no" --> N["Refresh pass answers the whole submit profile, executing only the rules nothing has answered for this edit; the pending indicator is scoped to the pending-refresh snapshot"]
@@ -182,25 +182,27 @@ Before any submit, an edit starts one thing: a live pass. Once the form has been
 same edit also arms a debounced refresh. Whether that live pass actually starts is the first
 branch below; the refresh arming is the second.
 
-### Is a submit in flight?
+### Is a submit or a draft load in flight?
 
 People keep typing while a spinner turns. If the keystroke landing mid-submit started its own
 live pass, that pass would cancel the submit the user actually asked for, and the one operation
 they explicitly requested would lose to one they didn't.
 
 So it never starts. The live pass for an edit made while a submit is in flight does not begin:
-submit is the higher-intent operation, and a live or refresh pass never supersedes it. The edit
-is not dropped, though. It still lands in the pending-refresh set and arms the debounced
-refresh, which defers to the submit for as long as it stays in flight and runs once the submit
-lands.
+submit is the higher-intent operation, and a live or refresh pass never supersedes it. The same
+goes for the pass a page runs to say what its freshly loaded values have earned, on the same
+grounds: a caller asked for it and is waiting on it. The edit is not dropped, though. It still
+lands in the pending-refresh set and arms the debounced refresh, which defers to whichever of them
+is running for as long as it stays in flight, and runs once that pass lands.
 
 ### The live pass starts
 
 Feedback that waits for blur is feedback the user has already outrun: they have typed six more
 characters and moved on before anything told them the first three were a problem.
 
-With no submit in flight, the edit starts its own pass immediately, triggered by the field that
-changed. There is no timer sitting in front of a live pass — it begins on the keystroke itself.
+With nothing it stands down for in flight, the edit starts its own pass immediately, triggered by
+the field that changed. There is no timer sitting in front of a live pass — it begins on the
+keystroke itself.
 
 Unless you ask for one. `FormidableOptions.LiveDebounce` is `null` by default, which is the cadence
 just described; set it and a field change arms a single shared timer instead of starting a pass.
@@ -210,8 +212,8 @@ reaching for when the live rules are expensive enough that one pass per keystrok
 trade — an async availability check being the obvious case, since supersession still costs a
 started-and-cancelled request per keystroke.
 
-A debounced live pass is a little more deferential than an immediate one: with a submit *or* a
-refresh already running, it re-arms its timer instead of starting, because the edit that would
+A debounced live pass is a little more deferential than an immediate one: with any pass it stands
+down for already running, it re-arms its timer instead of starting, because the edit that would
 normally re-arm the refresh has already happened, and cancelling the refresh outright would leave
 its verdict stale with nothing left to fix it. The refresh's own timer is unmoved by any of
 this. After a submit it arms at plain `RefreshDebounce`, whatever this window's width, so a
@@ -260,20 +262,23 @@ on the keystroke and resolves a burst by supersession instead of by waiting.
 
 The timer firing means the user stopped typing. It does not mean the engine is free. A submit
 may be in flight. A live pass may be mid-rule, holding the answer the user is actually waiting
-for. Since starting a pass cancels the one before it, a refresh that ran regardless would throw
+for. A page may be running the pass that says what its freshly loaded values have earned. Since
+starting a pass cancels the one before it, a refresh that ran regardless would throw
 away work someone asked for. The async rule that was 500 ms into a 600 ms check would have
 nothing to show for it.
 
-So it defers, to exactly two things. If a submit or a live pass is in flight, the refresh
-re-arms its own timer rather than running, and comes back when the timer next quiets — as many
-times as it takes. Deferring to a submit is the higher-intent rule again. Deferring to a live
-pass earns its keep somewhere else: an edit whose async rule outlasts the debounce still gets
-the answer its own live pass was computing. An open debounce window is neither of those — it
-holds no pass, only fields waiting for one — so the refresh runs right past it, and the window's
-own pass then finds the rules the refresh ran already answered (see
+So it defers, and only to a pass. Three are what it defers to: a submit, a live pass, or the pass
+a page runs to say what its freshly loaded values have earned. While one of those is in flight,
+the refresh re-arms its own timer rather than running, and comes back when the timer next quiets,
+as many times as it takes. Deferring to a submit is the higher-intent rule again, and the
+load pass is deferred to on the same grounds. Deferring to a live pass earns its keep
+somewhere else: an edit whose async rule outlasts the debounce still gets the answer its
+own live pass was computing. An open debounce window is none of those — it holds no pass,
+only fields waiting for one — so the refresh runs right past it, and the window's own pass
+then finds the rules the refresh ran already answered (see
 [The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
-below). The refresh's own path differs from a live pass's in one more way: it cancels neither
-the submit nor the live pass, it waits for them.
+below). The refresh's own path differs from a live pass's in one more way: it cancels none of
+the passes it stands down for, it waits.
 
 With nothing in flight, the refresh pass answers for the whole model under `SubmitProfile`,
 executing only the rules nothing has answered for the current edit and assembling the rest from
@@ -287,9 +292,10 @@ half-typed field is beside the point now, and the answer they are owed is the on
 whole model.
 
 Submit enters the flowchart on its own edge, because nothing an edit does starts it. The submit
-pass runs `SubmitProfile` form-wide, cancelling whatever pass was in flight, and it is never
-superseded in turn. It sets `HasSubmitted` true, which is what arms the refresh for every edit
-that follows.
+pass runs `SubmitProfile` form-wide, cancelling whatever pass was in flight. Nothing an edit
+starts supersedes it in turn; only another pass a caller starts and awaits does, which is a
+second submit or a draft load. It sets `HasSubmitted` true, which is what arms the refresh for
+every edit that follows.
 
 ### The refresh runs only what the live pass did not
 
@@ -580,8 +586,14 @@ concerns:
   whole model in one pass.
 - **When a live pass supersedes an in-flight refresh**, the live pass takes the indicator scope
   with it, the same way one live pass already displaces another's before submit.
-- **During a submit**, it goes form-wide too: true for every field, because a submit really does
-  (re-)check every field at once.
+- **During a submit**, it goes form-wide: true for every field, because a submit really does
+  (re-)check every field at once, and because the visitor asked for it.
+- **During the pass a page runs to say what its freshly loaded values have earned**
+  (`DiscloseLoadedValuesAsync`), it is false for every field. That pass answers for the whole
+  model, so the engine-level flag above is true and a page-level spinner works — but nobody
+  asked for it and no field is waiting on it, so lighting every input (including ones no rule
+  mentions) before the form has said anything about what it loaded would be a spinner about
+  nothing.
 
 The same per-field flag drives the `Pending` CSS class (see [Options](options.md))
 that ordinary `Validated*` inputs apply automatically.

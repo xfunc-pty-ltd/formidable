@@ -115,8 +115,9 @@ markup without saying so, once the refresh lands and says which fields it fails.
 
 [`TrackFormValidity`](options.md#trackformvalidity)'s probe covers what is left: a form on which
 nothing has happened at all, one that narrows `LiveProfile` past those rules, and a validator with
-no rule-level seam, where a live pass is never taken as a coverage source. Until one of them has
-answered, a clean-looking field wears no tier class rather than a green one.
+no rule-level seam, where a live pass is never taken as a coverage source. A page that calls
+`DiscloseLoadedValuesAsync` answers the first of those itself, with no probe. Until one of them
+has answered, a clean-looking field wears no tier class rather than a green one.
 
 The five class names themselves are configurable, each with a default:
 
@@ -441,6 +442,34 @@ by `FormidableField` gets the same wiring a `FormidableInputBase` descendant doe
 
 *Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
 
+`aria-required="true"` follows a different question from the other two. `aria-invalid` and
+`aria-describedby` describe what the field's values are currently doing; `aria-required` describes
+what the submit profile's rules demand of it, so it appears while
+`IFormValidationEngine.GetFieldRequirement` reports `RuleRequirement.Required` and is not touched
+by any validation pass. That is why it is asked separately from the single state-and-issues read
+the rest of `AddCommonAttributes` works from: the derived answer is reused, so asking per field per
+render is a lookup. [`RequiredOverride`](options.md#requiredoverride) is the part that can change
+on its own, so it alone is invoked on every ask rather than cached with the rest.
+
+It is `aria-required` rather than the native `required` attribute, and that is a deliberate
+choice rather than an oversight. `required` turns on the browser's own constraint validation: the
+browser refuses the submit before Formidable's pass ever runs and puts its own bubble in front of
+the message the form was going to show, in the browser's wording and the browser's placement.
+`aria-required` states the same fact to assistive technology and leaves the verdict where the rest
+of the form's verdicts live.
+
+The visible mark and the announced fact are deliberately separate elements.
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) draws the mark
+as `<span class="formidable-required" aria-hidden="true">`, and the input beside it carries
+`aria-required="true"`. Splitting them is what stops a screen reader announcing the field as
+"Title star": an `aria-hidden` subtree is excluded from the accessible name computed from the
+label around it, so the mark can sit inside the `<label>` — where sighted readers expect it —
+without changing the input's name by a character. Style the mark through
+`formidable-required`; the library ships no styling, and
+[`RequiredIndicator`](options.md#requiredindicator) supplies the text inside it. Turning that
+option off removes the mark and leaves `aria-required` in place, because whether a value is
+demanded is a fact about the input rather than a decoration.
+
 ### `FormidableSummary` as a live region
 
 `FormidableSummary` renders a `role="alert"` region when any visible issue is error-severity, or
@@ -597,6 +626,24 @@ because `tabindex="-1"` leaves an element focusable by mouse, and a plain `:focu
 whole container whenever a click landed on its padding. Activating a summary entry from the
 keyboard carries focus-visible through to the programmatic focus, so the keyboard path keeps the
 mark while a mouse click gets `scrollIntoView` alone.
+
+### Pointer activation and a button that moves
+
+Focus is not the only thing a form has to keep steady under an input device. A click is a press
+and a release, and the browser fires one only when both landed on the same element — so a
+button that moves out from under a still pointer between the two produces no click at all, and
+the visitor's submit is silently discarded. Disclosing a message above the button is exactly what
+moves it, which makes this the ordinary case on a form rather than an exotic one.
+
+Keyboard activation is immune, because focus follows the element rather than a coordinate: Tab to
+the button and press Enter or Space and the button is still the button whatever the layout does.
+Pointer and touch are the whole of the gap, and Formidable closes it by default: a root installs a
+guard that re-delivers the displaced click to the button it began on. `FormidableForm` renders the
+element that guard scopes to, so it always has one; attach mode looks for one and reports it when
+there is nothing to find. See [Component
+kit](component-kit.md#the-click-a-disclosure-displaces) for the mechanism and
+[`ClickRecovery`](options.md#clickrecovery) for the conditions, the attach-mode diagnostic and the
+opt-out.
 
 ## Where this is demonstrated
 

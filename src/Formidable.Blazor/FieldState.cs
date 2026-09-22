@@ -1,12 +1,19 @@
 namespace Formidable.Blazor;
 
 /// <summary>Per-field state exposed to field components for CSS and pending-UI decisions.</summary>
-/// <param name="IsTouched">The user has interacted with the field (marked by field components).</param>
+/// <param name="IsTouched">
+/// The field has been interacted with: marked by a field component on a blur or a commit, or by
+/// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> for a field whose loaded value it
+/// decided for.
+/// </param>
 /// <param name="IsModified">The EditContext reports the field as modified.</param>
 /// <param name="IsValidating">
 /// A validation pass involving this field is in flight — scoped to the changed field for live
 /// passes, scoped to whichever fields were edited within its debounce window for refresh
-/// passes, form-wide for submit passes.
+/// passes, and form-wide for a submit, the pass the visitor asked for. The pass
+/// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> runs covers no field at all: it
+/// answers for the whole model, so <see cref="IFormValidationEngine.IsValidating"/> reports it for
+/// a page-level spinner, but nobody asked for it and no field is waiting on it.
 /// </param>
 /// <param name="HasErrors">The field currently has error-severity messages.</param>
 /// <param name="HasWarnings">The field currently has warning-severity issues.</param>

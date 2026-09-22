@@ -307,11 +307,12 @@ focus wherever the submit button was. The first error, not simply the first entr
 carry nothing worse than a warning, and landing there would bury the reason the submit blocked —
 and disagree with `FormidableSummary`, which groups by severity and leads with the error
 regardless. It falls back to the first visible
-issue when there is no error to find at all. A blocked submit reaches that state exactly one way:
-superseded by a second submit before its own verdict landed, it reports blocked without writing a
-verdict, leaving whatever preceded it on screen. Every other way a submit blocks writes an
-error-severity issue (the all-suppressed gate's explanation among them), so the fallback has
-nothing else to catch. A validator fault is error-severity too, when a live or refresh pass is
+issue when there is no error to find at all. A blocked submit reaches that state by being
+superseded before its own verdict landed — by a second submit, or by the pass
+`DiscloseLoadedValuesAsync` runs, the two things a caller starts and awaits: it reports blocked
+without writing a verdict, leaving whatever preceded it on screen. Every other way a submit blocks
+writes an error-severity issue (the all-suppressed gate's explanation among them), so the fallback
+has nothing else to catch. A validator fault is error-severity too, when a live or refresh pass is
 the one reporting it: it never shows up from a submit itself, since `RunPassAsync` catches the
 exception only for those two kinds of pass, so a fault during submit propagates to the caller
 instead of leaving a blocked verdict behind.
@@ -375,6 +376,78 @@ handler, or `InvokeAsync`.
 
 **Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — a Reset button
 calling the no-argument shape, beside the draft and submit buttons whose state it clears.
+
+### Saying what loaded values have earned
+
+A form filled from somewhere other than this visitor's typing — a saved draft, a prefilled
+application, a record opened for editing — looks pristine however good or bad its contents are,
+because every state class and every live message waits on a committed change. Writing model
+properties notifies nothing, so the values appear in the boxes and the form goes on saying nothing
+about them. `DiscloseLoadedValuesAsync` is the one call that answers for what is already there:
+
+```csharp
+        _proposal.Title = "Progressive disclosure in practice";
+        _proposal.ContactEmail = "ada.lovelace";
+        _proposal.Summary = string.Empty;
+
+        await _form!.DiscloseLoadedValuesAsync();
+```
+
+*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs`*
+
+It validates the whole model under `SubmitProfile` and then decides field by field, on whether the
+field **holds a value**. Three outcomes, because a good value, a wrong value and a field nobody
+has reached are three different situations:
+
+| The field | What it is marked | What you see |
+|---|---|---|
+| Holds a value no rule fails with an error | Touched and engaged | The valid class, or whichever advisory tier its warnings and infos earn |
+| Holds a value the rules do fail | Touched and engaged | Its message, inline and in the summary |
+| Holds nothing | Neither | Nothing: unstyled and silent, with any required mark it carries still standing |
+
+It engages rather than merely marking touched, and that is the whole of why the middle row works.
+Touched alone paints the good fields green and leaves a bad saved value silent among them, and
+silence in a row of green reads as "not filled in yet" rather than "this one is wrong".
+Engagement then behaves in the ordinary way: the fields it names go on being answered by every
+later live pass, exactly as a field the visitor had typed into would be, until they leave the page.
+
+"Holds a value" is the negation of what FluentValidation's own `NotEmpty()` rejects, read against
+the type the member is **declared** as. Holding nothing is null, a blank or whitespace-only
+string, a collection with no elements, or the default of a non-nullable value type. A saved
+`false` in a `bool?` is an answer and earns its class; an untouched `bool` is not, and the same
+separates `int` from `int?` and `DateTime` from `DateTime?`. The ambiguity that leaves is exactly
+the non-nullable value types, and it errs towards silence. Model an optional value as `T?` and a
+load reads it exactly; model it as `T` and its default reads as "not filled in".
+
+The two outcomes need different things, which decides what a validator that cannot be inspected
+can still do. Disclosing a wrong value needs only the model, so it happens whatever the validator
+is, a hand-rolled `IModelValidator<TModel>` included. Vouching for a good one needs the validator's
+own list of the fields it has rules for, because nothing else separates a field whose rules all
+passed from a field no rule mentions — so a validator with no inspection capability turns a
+wrong value red and confirms nothing. That list is the validator's declared shape, child
+validators and `Include`d rules with it, so a field inside a collection row is confirmed and
+disclosed exactly as a top-level field is.
+
+Where a value cannot be read at all, nothing is claimed: a nested path whose owner is null, a
+model-level failure, which names no member. Those fail in the safe direction, leaving the field
+unstyled rather than painting it red. One residual is worth knowing before wiring this to a model
+whose constructor seeds placeholders: a seeded value is a value. Seed one your own rules reject and
+the form rejects it the moment the values load. Seeding the default instead leaves the field silent
+until someone reaches it.
+
+The cost is that pass — one whole-model validation, async rules included — plus the live
+pass that discloses what it found. No option has to be turned on for the valid class to appear:
+green is a promise about submit, and this is a submit-profile answer for the whole model, so the
+coverage that promise rests on is earned by the call rather than borrowed from
+[`TrackFormValidity`](options.md#trackformvalidity). No field reports `IsValidating` while that
+whole-model pass runs and none wears the pending class, since nobody asked for it; the
+engine-level flag is true throughout, for a page-level spinner to read. Unlike a blocked submit
+it moves no focus: nothing was refused, and a page that has just loaded is not one to take the
+visitor somewhere in. Call it from the renderer's synchronization context. A form that never
+calls it is unaffected in every respect.
+
+**Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor) — three saved
+values and three different answers, side by side.
 
 ## `FormidableInputText` and `FormidableInputBase<TValue>`
 
@@ -660,6 +733,42 @@ explicit `for` when it wraps the control. `FormidableField`'s renderless templat
 option, for markup that isn't wrapping — [the foreign-control pattern](#the-foreign-control-pattern)
 below uses `<label for="@field.ElementId">` because the control it labels isn't a Formidable
 component at all.
+
+### The click a disclosure displaces
+
+The three update modes decide when a value commits, and a commit is what discloses. On a form,
+that has a consequence with nothing to do with typing: pressing the submit button blurs the field
+the visitor was in, and under `OnChange` — the default — that blur is the commit. The commit
+discloses whatever the value now fails, the message is inserted above the button, and the button
+leaves the pointer between the press and the release.
+
+The browser then does the right thing for the wrong situation. A click fires only when the press
+and the release share a target; otherwise it dispatches on their nearest common ancestor, which
+for a submit button is usually the `<form>`, where nothing is listening. That rule is what makes
+dragging off a button cancel it, and it cannot tell a pointer that moved off a still button from a
+button that moved out from under a still pointer. The result is a submit the visitor asked for and
+nothing received. Keyboard activation is immune, since focus follows the element rather than a
+coordinate; touch is affected exactly as the mouse is.
+
+Formidable recovers it. A root installs a guard by default and re-delivers the click to the
+button it began on — see [`ClickRecovery`](options.md#clickrecovery) for the three conditions
+that have to hold, what the recovered click is, how a root that cannot scope a guard says so, and
+how to turn it off. Nothing in a page's markup asks for it under `FormidableForm`, which renders
+the `<form>` the guard scopes to.
+
+Two things a page can do instead, both of which remove the shift rather than recovering from it:
+
+- **`UpdateOn="InputUpdateMode.OnInput"`** on the fields above the button. Disclosure then happens
+  as the visitor types, so by the time the button is pressed the message is already on screen and
+  nothing moves. It costs a validation pass per keystroke, which is the trade
+  [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) and
+  [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor) make.
+- **Reserve the space the messages will take**, so inserting one moves nothing. This is the
+  layout-side answer, and it takes real height: a persistent wrapper is not enough on its own,
+  because an empty element is zero-height. `FormidableFieldMessage` renders its list element
+  always, which is what gives a stylesheet something stable to give a `min-height` to. The
+  sample's own `.summary-slot` shows the limit of the weaker version: it wraps the summary
+  persistently, and the button below it still moves when the summary appears.
 
 ### Deriving your own input
 
@@ -1109,6 +1218,94 @@ unpaired list can carry live messages while staying silent about everything subm
 collection-level sibling, `FormidableCollectionMessage`, overrides that same hook to skip the
 pairing requirement entirely; it's introduced below, once collections are in scope.
 
+## `FormidableRequiredIndicator<TValue>`
+
+Marks a field the submit profile demands a value for. It renders
+`<span class="formidable-required" aria-hidden="true">` around
+[`FormidableOptions.RequiredIndicator`](options.md#requiredindicator) — `"*"` unless you say
+otherwise — and nothing at all for a field the rules do not demand:
+
+```razor
+    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
+        <FormidableFieldMessage For="() => _proposal.Title" /></div>
+```
+
+*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor`*
+
+Inside the `<label>`, after the label text, is where the samples put it. The mark is derived from
+the validator's rules rather than declared on the markup, so a presence rule moving between
+profiles moves the mark with it and a form cannot drift out of step with what it enforces. The
+submit profile is the one that decides, because "required" on a form means "required before this
+can be submitted": a narrowed `LiveProfile` changes when a message appears, never whether the
+value is demanded.
+
+It registers nothing, since a marker is not an input, so what keeps the field revealed for
+disclosure is the validated input beside it or a `FormidableFieldAnchor`, exactly as it is for
+`FormidableFieldMessage`. It observes no engine state either. Requiredness is a property of the
+rules rather than of what the values are doing, so no validation pass changes what it draws; a
+change to `RequiredOverride` or `SubmitProfile` is picked up on the page's next render.
+
+**It is `aria-hidden`, deliberately, and it is not the accessible half of this feature.** A glyph
+read aloud inside a label announces the field as "Title star". The fact belongs on the input,
+where the kit's inputs and `FormidableFieldContext.InputAttributes` put it as
+`aria-required="true"`. That is also what lets the mark sit inside a `<label>` without disturbing
+the accessible name computed from it. See [CSS and
+accessibility](css-and-accessibility.md#aria-invalid-and-aria-describedby).
+
+Requiredness is a three-valued answer, `RuleRequirement`, and the component draws for one of them:
+
+| `RuleRequirement` | What it means | What the component draws |
+|---|---|---|
+| `Required` | The submit profile selects a presence rule for the field, and it carries no condition | The marker |
+| `ConditionallyRequired` | Every presence rule the profile selects for the field is conditional | Nothing |
+| `NotRequired` | No presence rule was found for the field | Nothing |
+
+`ConditionallyRequired` draws nothing because a condition cannot be evaluated without a model
+instance: inspection can see that the demand exists without being able to say whether it applies
+to the model in hand. Drawing the same mark would assert a demand the library cannot verify, and a
+validator whose presence rules are all conditional would mark every field on the form. A page that
+wants to say something there reads `FormidableFieldContext.Requirement` from a `FormidableField`
+and renders its own markup, or declares the field outright with
+[`RequiredOverride`](options.md#requiredoverride).
+
+Detection has limits. These three cost a mark rather than producing a wrong one:
+
+- Presence has to be written as FluentValidation's own `NotEmpty()` or `NotNull()`. Written as a
+  predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`, it is indistinguishable from any other
+  predicate.
+- A validator that cannot be inspected reports nothing for any of its fields.
+- A field of a collection row reports nothing. The rules declare it with the index left open
+  (`Attendees[].Name`), which names a shape rather than a field, and one shape is as many fields
+  as the model has rows.
+
+One limit runs the other way. A child validator scoped by the `SetValidator` call itself
+(`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) is read whole, because
+that scoping is not applied: an untagged `NotEmpty()` inside `AddressValidator` is read under
+whatever profile reaches the rule carrying it, so `Address.City` is reported as a demand, marked,
+and given `aria-required` under a profile that never runs it. Scoping the child by tagging its own
+rules instead, with a `RuleSet` block inside `AddressValidator`, is read exactly.
+
+A rule the root does not declare for itself **is** read, by whichever of three routes carries it:
+one inside a child validator answers under the child's own path (`Address.City`), one merged in
+with `Include` at the including validator's level, and one inside a child a model-level rule
+carries at the root's own level.
+
+`NotRequired` therefore means "not known to be required", never "proven optional". Where the rules
+cannot be read, [`RequiredOverride`](options.md#requiredoverride) is what a form says instead, and
+it decides the marker and `aria-required` together so the two cannot disagree.
+
+The library ships no styling, so `formidable-required` is a hook for your stylesheet and the option
+supplies the text inside it. Setting `RequiredIndicator` to `null` turns every marker on the form
+off at once and leaves `aria-required` exactly where it was.
+
+One practical note for tests: the marker's text sits inside the `<label>`, so a query matching raw
+label text sees it and a role-and-name query, which runs the accessible-name algorithm, does not.
+`aria-hidden` is what separates the two, and it is the second kind of query that reflects what a
+visitor using assistive technology hears.
+
+**Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor) — three marked
+fields, one of which is marked and silent at the same time.
+
 ## `FormidableSummary`
 
 Renders a live, severity-grouped list of every currently-visible issue across the form — nothing
@@ -1368,10 +1565,13 @@ So the server round trip is the same one line here as under `FormidableForm`, wi
 through `Engine` to reach it, and the same contract applies either way: each apply replaces the
 previous server verdict, every issue lands at the severity it carries, and applying any of them
 sets `HasSubmitted`, since a server response is treated as a submit result (see
-[Server integration](server-integration.md)). Capture the component with `@ref`, and call from the
-renderer's synchronization context. The engine exists from the moment the component binds to its
-cascaded `EditContext`, so a call that beats the first render throws a message saying exactly that
-rather than surfacing as a null reference from inside the component.
+[Server integration](server-integration.md)). `DiscloseLoadedValuesAsync` is forwarded on the same
+terms, with the contract [above](#saying-what-loaded-values-have-earned) whole, so a form attached
+to someone else's `EditForm` can open on a saved draft saying what it already knows. Capture the
+component with `@ref`, and call from the renderer's synchronization context. The engine exists
+from the moment the component binds to its cascaded `EditContext`, so a call that beats the first
+render throws a message saying exactly that rather than surfacing as a null reference from inside
+the component.
 
 ## `FormidableCollectionMessage<TValue>`
 

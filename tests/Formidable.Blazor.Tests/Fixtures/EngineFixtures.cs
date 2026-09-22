@@ -295,18 +295,18 @@ public sealed class AdvisoryAboveErrorValidator : DraftSubmitValidator<EngineOrd
 /// site — a pristine engine and one field change cost one validation with tracking off and three
 /// with it on.
 /// </summary>
-public sealed class CountingValidator(IModelValidator<EngineOrder> inner) : IModelValidator<EngineOrder>
+public sealed class CountingValidator<TModel>(IModelValidator<TModel> inner) : IModelValidator<TModel>
 {
     public int CallCount { get; private set; }
 
     public Task<ValidationReport> ValidateAsync(
-        EngineOrder model, ValidationProfile profile, CancellationToken cancellationToken = default)
+        TModel model, ValidationProfile profile, CancellationToken cancellationToken = default)
     {
         CallCount++;
         return inner.ValidateAsync(model, profile, cancellationToken);
     }
 
-    public ValidationReport Validate(EngineOrder model, ValidationProfile profile)
+    public ValidationReport Validate(TModel model, ValidationProfile profile)
     {
         CallCount++;
         return inner.Validate(model, profile);
@@ -481,6 +481,214 @@ public sealed class CapabilityHidingModelValidator<TModel>(IModelValidator<TMode
 
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         inner.Validate(model, profile);
+}
+
+/// <summary>
+/// A form whose values arrive from somewhere other than the visitor's typing, shaped so one
+/// saved state produces all three draft-load outcomes at once: <see cref="Title"/> holds a good
+/// saved value, <see cref="Summary"/> was never filled in, and <see cref="ContactEmail"/> holds
+/// a value that is present but wrong.
+/// </summary>
+public sealed class LoadedDraft
+{
+    public string Title { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public string ContactEmail { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Rules chosen so that each of <see cref="LoadedDraft"/>'s fields fails in a different way.
+/// <see cref="LoadedDraft.ContactEmail"/> carries a presence rule AND a format rule, so a
+/// non-empty malformed address is a field that holds a value and still fails — the case that
+/// separates "you have not got to this yet" from "this one is wrong".
+/// <see cref="LoadedDraft.Summary"/> carries a presence rule AND an unconditional INFO advisory,
+/// so an unfilled summary has something to say and nobody to say it about — the shape that
+/// tells a classification reading the VALUE from one reading the issues.
+/// </summary>
+public sealed class LoadedDraftValidator : DraftSubmitValidator<LoadedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+        RuleFor(d => d.ContactEmail)
+            .Must(email => email.Contains('@', StringComparison.Ordinal))
+            .WithMessage("That is not a valid email address")
+            .When(d => d.ContactEmail.Length > 0);
+
+        RuleFor(d => d.Summary)
+            .Must(_ => false)
+            .WithSeverity(Severity.Info)
+            .WithMessage("A summary helps reviewers find this later");
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(d => d.Title).NotEmpty().WithMessage("Title is required");
+        RuleFor(d => d.Summary).NotEmpty().WithMessage("Summary is required");
+        RuleFor(d => d.ContactEmail).NotEmpty().WithMessage("A contact email is required");
+    }
+}
+
+/// <summary>
+/// <see cref="LoadedDraft.Title"/>'s presence rule and its length rule are given the SAME
+/// <c>WithErrorCode</c>, so the code a failure carries identifies neither of them — the shape
+/// that shows a draft load deciding on the value rather than on what the failure names.
+/// </summary>
+public sealed class AmbiguousCodeDraftValidator : DraftSubmitValidator<LoadedDraft>
+{
+    public const string SharedCode = "TITLE";
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        // Declared first, and failing on the same value, so it is the failure a short-circuiting
+        // ask would stop at - which is what makes the ambiguity below reportable-or-not rather
+        // than reported by construction. Its own code identifies one kind of rule, so it is
+        // ordinary in every other respect.
+        RuleFor(d => d.Title).MaximumLength(3).WithMessage("Title is over three characters");
+
+        RuleFor(d => d.Title).NotEmpty().WithErrorCode(SharedCode).WithMessage("Title is required");
+        RuleFor(d => d.Title)
+            .Must(title => title.Length <= 3)
+            .WithErrorCode(SharedCode)
+            .WithMessage("Title is too long");
+    }
+}
+
+/// <summary>
+/// Presence written the one way inspection cannot see: a predicate. FluentValidation's presence
+/// marker interfaces are what requirement detection reads, so a
+/// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> is indistinguishable from a range check
+/// however plainly it reads as a presence check, and
+/// <see cref="FormidableOptions.RequiredOverride"/> is what a form marking such a field uses.
+/// A draft load never has to tell the two apart: it reads the value, which an empty box answers
+/// the same way whichever rule is objecting to it.
+/// </summary>
+public sealed class PredicatePresenceDraftValidator : DraftSubmitValidator<LoadedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(d => d.Title)
+            .Must(title => !string.IsNullOrWhiteSpace(title))
+            .WithMessage("Title is required");
+}
+
+/// <summary>
+/// A field carrying a presence component AND a predicate. Under the default Continue cascade an
+/// empty value fails BOTH, so the field's failures carry a presence code and a non-presence code
+/// at once - the shape that shows what a per-failure classification does when a field's failures
+/// disagree about what is wrong with it.
+/// </summary>
+public sealed class PresenceAlongsidePredicateValidator : DraftSubmitValidator<LoadedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(d => d.Title)
+            .NotEmpty()
+            .Must(title => !string.IsNullOrWhiteSpace(title))
+            .WithMessage("Title is required");
+}
+
+/// <summary>
+/// The same chain under rule-level <see cref="CascadeMode.Stop"/>, where the presence
+/// component's failure is the only one an empty value produces - the same two components, one
+/// failure. Rule-level cascade is deliberately not class-level: inspection reads the descriptor
+/// either way, and per-rule EXECUTION is only refused for a class-level Stop.
+/// </summary>
+public sealed class StoppingPresenceValidator : DraftSubmitValidator<LoadedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules() =>
+        RuleFor(d => d.Title)
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty()
+            .Must(title => !string.IsNullOrWhiteSpace(title))
+            .WithMessage("Title is required");
+}
+
+/// <summary>
+/// A saved draft whose interesting fields live inside a collection. One row was filled in
+/// correctly, one holds a value that is present and wrong, and one was never filled in — the
+/// three draft-load outcomes, all of them on paths a failure carries an index for.
+/// </summary>
+public sealed class LoadedRoster
+{
+    public string Owner { get; set; } = string.Empty;
+
+    public List<LoadedRow> Rows { get; set; } = [];
+}
+
+/// <summary>One row of <see cref="LoadedRoster"/>.</summary>
+public sealed class LoadedRow
+{
+    public string Code { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Rules declared where only a walk through the child validator can see them: a presence rule
+/// and a format rule on the same row field, so a blank row and a wrongly-filled row fail
+/// different rules.
+/// </summary>
+public sealed class LoadedRosterValidator : DraftSubmitValidator<LoadedRoster>
+{
+    protected override void ConfigureDraftRules() =>
+        RuleForEach(r => r.Rows).ChildRules(row =>
+            row.RuleFor(x => x.Code)
+                .Must(code => code.StartsWith("R-", StringComparison.Ordinal))
+                .WithMessage("Row codes start with R-")
+                .When(x => x.Code.Length > 0));
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(r => r.Owner).NotEmpty().WithMessage("Owner is required");
+        RuleForEach(r => r.Rows).ChildRules(row =>
+            row.RuleFor(x => x.Code).NotEmpty().WithMessage("Row code is required"));
+    }
+}
+
+/// <summary>
+/// A saved draft whose fields are typed rather than stringly: two non-nullable value types
+/// holding their own defaults, and two nullable ones holding the underlying type's default.
+/// FluentValidation's NotEmpty() reads the DECLARED type, so it fails the first pair and passes
+/// the second - the discrimination a draft load has to reproduce to tell a saved answer from a
+/// never-filled box.
+/// </summary>
+public sealed class TypedDraft
+{
+    public int Quantity { get; set; }
+
+    public int? Adjustment { get; set; }
+
+    public bool Accepted { get; set; }
+
+    public bool? Subscribed { get; set; }
+}
+
+/// <summary>One presence rule per field of <see cref="TypedDraft"/>, and nothing else.</summary>
+public sealed class TypedDraftValidator : DraftSubmitValidator<TypedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(d => d.Quantity).NotEmpty().WithMessage("Quantity is required");
+        RuleFor(d => d.Adjustment).NotEmpty().WithMessage("Adjustment is required");
+        RuleFor(d => d.Accepted).NotEmpty().WithMessage("Acceptance is required");
+        RuleFor(d => d.Subscribed).NotEmpty().WithMessage("A subscription answer is required");
+    }
 }
 
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>

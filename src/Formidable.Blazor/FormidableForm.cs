@@ -470,7 +470,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // to walk up from to a <form>. This root writes its own id onto the <form> element it
             // renders, and the script takes a form as a root whatever that form currently holds,
             // so the first route answers here every time the element can be found at all. These
-            // are what is left if it cannot be, and they resolve to that same <form>.
+            // are what is left when it cannot: an id something else on the page claims first
+            // shadows the lookup while this form is still rendered, and a registered field walks
+            // up to it. A form that is not rendered has no registered fields either, so there is
+            // nothing to walk up from and no guard to install.
             var fieldIds = _engine.Registry.RevealedFields.Select(FormidableFieldId.For).ToArray();
             await _jsModule.InvokeVoidAsync("registerClickRecovery", _modelLevelFieldId, fieldIds);
         }
@@ -849,6 +852,22 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         RequireEngine().ApplyServerIssues(issues);
         FocusAfterServerIssues(issues);
     }
+
+    /// <summary>
+    /// Says what the values already in the model have earned, forwarding
+    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> and its contract whole: a
+    /// whole-model <see cref="FormidableOptions.SubmitProfile"/> pass, after which each field
+    /// the rules pass is confirmed, each field failing something other than a presence rule
+    /// discloses that failure, and each field that is merely unfilled stays silent. Call it once
+    /// after filling <see cref="Model"/> from a saved draft or a loaded record — from
+    /// <c>OnAfterRenderAsync(firstRender: true)</c>, or from the handler that loaded the values —
+    /// so the form opens saying what it already knows instead of looking pristine. A form that
+    /// never calls it is unaffected in every respect. Unlike a blocked submit this moves no
+    /// focus: nothing was refused, and a page that has just loaded is not one to take the
+    /// visitor somewhere in. Call from the renderer's synchronization context (a Blazor event
+    /// handler or <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
+    /// </summary>
+    public Task DiscloseLoadedValuesAsync() => RequireEngine().DiscloseLoadedValuesAsync();
 
     /// <summary>
     /// The engine, or the reason there is not one yet. It is built on the form's first parameter

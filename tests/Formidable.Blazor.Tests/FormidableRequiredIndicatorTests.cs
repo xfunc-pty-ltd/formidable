@@ -20,14 +20,11 @@ namespace Formidable.Blazor.Tests;
 /// read — never from a double written to agree with the code under test.
 /// </para>
 /// <para>
-/// Most tests render a real form over <see cref="MarkerValidator"/>.
-/// <c>A_validator_that_cannot_be_inspected_marks_nothing</c> renders over
-/// <see cref="OpaqueValidator"/> instead, because what it pins is what the ABSENCE of the
-/// inspection capability produces.
-/// <c>A_nested_owner_swap_strands_the_asker_at_the_next_rebuild_rather_than_at_the_swap</c>
-/// renders nothing at all and drives an engine built directly over
-/// <see cref="NestedRootValidator"/>, because its four-step sequence has to be ordered by the
-/// test rather than by a render loop.
+/// Most tests render a real form over <see cref="MarkerValidator"/>. Several depart from it: a
+/// different validator, a different model, or no render at all. Each departure is chosen for the
+/// property that test pins, and that property is stated on the test itself. A test added here
+/// that needs its own departure states it the same way, which is why this paragraph describes
+/// the convention rather than listing who currently breaks it.
 /// </para>
 /// </summary>
 public class FormidableRequiredIndicatorTests : BunitContext
@@ -172,6 +169,56 @@ public class FormidableRequiredIndicatorTests : BunitContext
         // Name's NotEmpty() is in the draft bucket, so narrowing does not silence it — which is
         // what makes the two asserts above a profile filter rather than detection switched off.
         Assert.Equal("*", MarkerFor(narrowed, nameof(MarkerModel.Name))!.TextContent);
+    }
+
+    // A presence rule merged in with Include() is one the form really enforces, so the field it
+    // demands is marked. Include()d rules carry no property name of their own at the including
+    // validator's level, so a reading that only enumerates what a validator declares for itself
+    // drops them - and the field then goes unmarked and unannounced while a submit blocks on it.
+    // Nickname is the control field the rest of this file relies on being unruled, so the mark
+    // here can only have come from the included part. Mutation this breaks: stop descending into
+    // an Include()d validator.
+    [Fact]
+    public void A_presence_rule_reached_through_include_is_marked()
+    {
+        var cut = RenderForm(
+            new MarkerModel(),
+            validator: new FluentValidationModelValidator<MarkerModel>(new IncludingMarkerValidator()));
+
+        Assert.Equal("*", MarkerFor(cut, nameof(MarkerModel.Nickname))!.TextContent);
+        Assert.Equal("true", InputFor(cut, nameof(MarkerModel.Nickname)).GetAttribute("aria-required"));
+    }
+
+    // A presence rule declared inside a CHILD validator demands its field just as plainly as one
+    // declared on the root, and it is answered under the child's own path. The two roots
+    // compared here declare the same demand two ways - one reaching through the property path,
+    // one delegating to a validator for the child type - and asserting them equal is what says
+    // the answer is about the rule rather than about how it was written. Mutation this breaks:
+    // stop descending into child validators, and the delegated form alone goes back to
+    // reporting NotRequired, which is what makes the equality discriminate.
+    [Fact]
+    public void A_presence_rule_inside_a_child_validator_is_answered_under_the_childs_path()
+    {
+        var throughThePath = RequirementOf(new NestedRootValidator());
+        var throughAChildValidator = RequirementOf(new DelegatingNestedRootValidator());
+
+        Assert.Equal(RuleRequirement.Required, throughThePath);
+        Assert.Equal(throughThePath, throughAChildValidator);
+    }
+
+    // The same demand at the surface it actually changes: what the reader sees is a marker and
+    // what a screen reader is told is aria-required, and a requirement nothing draws is not the
+    // behaviour that moved. The two assertions are the pair the Include sibling above makes, for
+    // the same reason - a mark nobody is told about, or an announcement with no mark, would be
+    // one field described two ways.
+    [Fact]
+    public void A_presence_rule_inside_a_child_validator_marks_the_rendered_field()
+    {
+        var model = new NestedRoot();
+        var cut = RenderNestedForm(model, new FluentValidationModelValidator<NestedRoot>(new DelegatingNestedRootValidator()));
+
+        Assert.Equal("*", cut.FindAll("label[data-field='City'] span.formidable-required").Single().TextContent);
+        Assert.Equal("true", cut.FindAll("label[data-field='City'] input").Single().GetAttribute("aria-required"));
     }
 
     // A validator with no inspection capability answers "not known to be required" for every
@@ -319,6 +366,53 @@ public class FormidableRequiredIndicatorTests : BunitContext
     private static IElement InputFor(IRenderedComponent<FormidableForm<MarkerModel>> cut, string field) =>
         cut.FindAll($"[data-field='{field}'] input").Single();
 
+    /// <summary>
+    /// The submit-profile requirement an engine over <paramref name="validator"/> reports for
+    /// <c>Child.City</c> — the one field both nested-root validators demand, reached the same
+    /// way from each, so the two answers are comparable.
+    /// </summary>
+    private static RuleRequirement RequirementOf(IValidator<NestedRoot> validator)
+    {
+        var model = new NestedRoot();
+        using var engine = new FormValidationEngine<NestedRoot>(
+            model,
+            new EditContext(model),
+            new FluentValidationModelValidator<NestedRoot>(validator),
+            new Formidable.Introspection.ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+
+        return engine.GetFieldRequirement(FieldIdentifier.Create(() => model.Child.City));
+    }
+
+    /// <summary>
+    /// One labelled field bound to a nested member, in the shape a page writes — the surface a
+    /// requirement answered under a child's own path has to reach.
+    /// </summary>
+    private IRenderedComponent<FormidableForm<NestedRoot>> RenderNestedForm(
+        NestedRoot model, IModelValidator<NestedRoot> validator)
+    {
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<NestedRoot>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", validator);
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            {
+                var sequence = 0;
+                Field(
+                    inner,
+                    ref sequence,
+                    nameof(NestedChild.City),
+                    () => model.Child.City,
+                    () => model.Child.City);
+            }));
+            builder.CloseComponent();
+        });
+
+        return cut.FindComponent<FormidableForm<NestedRoot>>();
+    }
+
     private IRenderedComponent<FormidableForm<MarkerModel>> RenderForm(
         MarkerModel model,
         FormidableOptions? options = null,
@@ -414,6 +508,19 @@ public sealed class NestedRootValidator : AbstractValidator<NestedRoot>
     }
 }
 
+/// <summary>The same demand as <see cref="NestedRootValidator"/>, delegated to a child validator
+/// for the child type rather than reached through the property path.</summary>
+public sealed class NestedChildValidator : AbstractValidator<NestedChild>
+{
+    public NestedChildValidator() => RuleFor(c => c.City).NotEmpty();
+}
+
+/// <summary>A root that hands its child to <see cref="NestedChildValidator"/>.</summary>
+public sealed class DelegatingNestedRootValidator : AbstractValidator<NestedRoot>
+{
+    public DelegatingNestedRootValidator() => RuleFor(m => m.Child).SetValidator(new NestedChildValidator());
+}
+
 public sealed class MarkerValidator : DraftSubmitValidator<MarkerModel>
 {
     protected override void ConfigureDraftRules()
@@ -427,6 +534,22 @@ public sealed class MarkerValidator : DraftSubmitValidator<MarkerModel>
         RuleFor(m => m.Reference).NotEmpty();
         RuleFor(m => m.Handle).Must(h => !string.IsNullOrWhiteSpace(h));
         RuleFor(m => m.Nominee).NotEmpty().When(m => m.Name.Length > 0);
+    }
+}
+
+/// <summary>A part validator whose presence rule reaches a form only through Include().</summary>
+public sealed class IncludedMarkerPartValidator : AbstractValidator<MarkerModel>
+{
+    public IncludedMarkerPartValidator() => RuleFor(m => m.Nickname).NotEmpty();
+}
+
+/// <summary>One rule of its own and one merged in — the shape Include() produces.</summary>
+public sealed class IncludingMarkerValidator : AbstractValidator<MarkerModel>
+{
+    public IncludingMarkerValidator()
+    {
+        RuleFor(m => m.Name).NotEmpty();
+        Include(new IncludedMarkerPartValidator());
     }
 }
 
@@ -447,9 +570,9 @@ public sealed class OpaqueValidator : IModelValidator<MarkerModel>
 }
 
 /// <summary>
-/// Forwards to a real adapter and counts how often the rule map is asked for — the read that
-/// walks the validator's declared rules, and the one a per-field-per-render implementation would
-/// make once per bound component per render.
+/// Forwards to a real adapter and counts how often the declared-path enumeration is asked for —
+/// the read that walks the validator's declared rules, and the one a per-field-per-render
+/// implementation would make once per bound component per render.
 /// </summary>
 public sealed class CountingInspector(FluentValidationModelValidator<MarkerModel> inner)
     : IModelValidator<MarkerModel>, IRuleInspectingValidator<MarkerModel>
@@ -470,9 +593,9 @@ public sealed class CountingInspector(FluentValidationModelValidator<MarkerModel
     public RuleRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile) =>
         inner.GetFieldRequirement(fieldPath, profile);
 
-    public IReadOnlyDictionary<string, FieldRuleCodes> GetFieldRuleCodes(ValidationProfile profile)
+    public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
     {
         RuleMapReads++;
-        return inner.GetFieldRuleCodes(profile);
+        return inner.GetDeclaredFieldPaths(profile);
     }
 }

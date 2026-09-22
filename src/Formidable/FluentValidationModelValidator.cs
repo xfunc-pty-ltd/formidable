@@ -1,4 +1,5 @@
-using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
+using System.Reflection;
 using FluentValidation;
 using FluentValidation.Internal;
 using FluentValidation.Results;
@@ -16,6 +17,14 @@ public sealed class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
     private readonly IValidator<TModel> _validator;
+
+    // Keyed by component reference, since a component is one declaration on one rule and
+    // this validator's rules are fixed once it is constructed. Bounded by the number of
+    // child-validator components the wrapped validator declares, which is a property of the
+    // code rather than of anything a request carries.
+    private readonly ConcurrentDictionary<IRuleComponent, IValidator?> _childValidators = new();
+
+    private DeclaredSnapshot? _declared;
 
     /// <summary>Wraps the given FluentValidation validator.</summary>
     public FluentValidationModelValidator(IValidator<TModel> validator)
@@ -96,102 +105,236 @@ public sealed class FluentValidationModelValidator<TModel>
     {
         ArgumentNullException.ThrowIfNull(fieldPath);
         ArgumentNullException.ThrowIfNull(profile);
-        if (_validator is not AbstractValidator<TModel> abstractValidator)
-        {
-            return RuleRequirement.NotRequired;
-        }
 
-        VerifyRuleSets(profile);
-
-        var conditional = false;
-        foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
-        {
-            if (!string.Equals(rule.PropertyName, fieldPath, StringComparison.Ordinal) || !IsSelected(rule, profile))
-            {
-                continue;
-            }
-
-            foreach (var component in rule.Components)
-            {
-                if (!IsPresenceComponent(component))
-                {
-                    continue;
-                }
-
-                if (!IsConditional(rule, component))
-                {
-                    return RuleRequirement.Required;
-                }
-
-                conditional = true;
-            }
-        }
-
-        return conditional ? RuleRequirement.ConditionallyRequired : RuleRequirement.NotRequired;
+        return DeclaredFields(profile).TryGetValue(fieldPath, out var requirement)
+            ? requirement
+            : RuleRequirement.NotRequired;
     }
 
     /// <inheritdoc />
-    public IReadOnlyDictionary<string, FieldRuleCodes> GetFieldRuleCodes(ValidationProfile profile)
+    public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        if (_validator is not AbstractValidator<TModel> abstractValidator)
+
+        return new HashSet<string>(DeclaredFields(profile).Keys, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The one walk both inspection readers answer from: every field path the profile's rules
+    /// declare, mapped to the presence demand those rules make of it. A path with rules but no
+    /// presence component is present with <see cref="RuleRequirement.NotRequired"/> — the two
+    /// questions the readers ask are "is this field spoken about" and "is it demanded", and
+    /// only a map that keeps both can answer them consistently.
+    /// </summary>
+    private Dictionary<string, RuleRequirement> DeclaredFields(ValidationProfile profile)
+    {
+        // One profile deep, and keyed by REFERENCE. Both readers are asked repeatedly for the
+        // same profile - a form builds its whole requirement map by asking once per declared
+        // path - and a walk allocates a dictionary and resolves every child validator it meets.
+        // One entry covers that pattern exactly and cannot grow, which a per-profile map could
+        // if a caller built a fresh profile per ask. Reference rather than equality because
+        // profiles compare by NAME: two carrying the same name and different rulesets are one
+        // key, and would serve each other's answer.
+        if (_declared is { } snapshot && ReferenceEquals(snapshot.Profile, profile))
         {
-            return ReadOnlyDictionary<string, FieldRuleCodes>.Empty;
+            return snapshot.Fields;
         }
 
-        VerifyRuleSets(profile);
-
-        var presence = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        var other = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-
-        foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
+        var declared = new Dictionary<string, RuleRequirement>(StringComparer.Ordinal);
+        if (_validator is not AbstractValidator<TModel> abstractValidator)
         {
-            var field = rule.PropertyName;
-            if (string.IsNullOrEmpty(field) || !IsSelected(rule, profile))
+            return declared;
+        }
+
+        // Ahead of the store, so a profile naming a ruleset that was never registered throws on
+        // every ask rather than only on the first - nothing unverified is ever remembered.
+        VerifyRuleSets(profile);
+        WalkDeclaredRules(
+            abstractValidator,
+            typeof(TModel),
+            string.Empty,
+            conditional: false,
+            profile,
+            declared,
+            new HashSet<object>(ReferenceEqualityComparer.Instance));
+
+        // A reference assignment, so a reader sees one snapshot or the other and never a mix.
+        // Two callers racing both walk and one wins: wasteful once, never wrong.
+        _declared = new DeclaredSnapshot(profile, declared);
+        return declared;
+    }
+
+    /// <summary>One profile's declared fields, held together so the pair cannot be read torn.</summary>
+    private sealed record DeclaredSnapshot(ValidationProfile Profile, Dictionary<string, RuleRequirement> Fields);
+
+    /// <summary>
+    /// Walks one validator's selected rules, filing each leaf component under the path its
+    /// failures will carry and descending through every child validator it can resolve.
+    /// <paramref name="prefix"/> is what the walk has travelled so far — a collection rule
+    /// contributes <c>Name[]</c> because its child judges elements, and a rule with no property
+    /// name (an <c>Include</c>, or <c>RuleFor(x =&gt; x)</c>) contributes nothing, since its
+    /// child's failures land at this level.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="walking"/> holds the validators on the current path, not every validator
+    /// seen: a validator reached twice down two different branches is read twice (the paths
+    /// differ), while one that reaches itself is read once, which is what bounds a recursive
+    /// validator without a depth cap. Conditionality travels down — a child reached only
+    /// through a conditional rule is conditionally demanded, however unconditionally the child
+    /// declares it.
+    /// </remarks>
+    private void WalkDeclaredRules(
+        object validator,
+        Type modelType,
+        string prefix,
+        bool conditional,
+        ValidationProfile profile,
+        Dictionary<string, RuleRequirement> declared,
+        HashSet<object> walking)
+    {
+        if (validator is not IEnumerable<IValidationRule> rules || !walking.Add(validator))
+        {
+            return;
+        }
+
+        foreach (var rule in rules)
+        {
+            if (!IsSelected(rule, profile))
             {
                 continue;
             }
 
+            var name = rule.PropertyName;
+
+            // FluentValidation records a condition in one of two places depending on how it was
+            // written: a When block wrapping the rule declaration marks the RULE, while a When
+            // chained after a component marks the COMPONENT — including the
+            // ApplyConditionTo.CurrentValidator form, which marks that one component alone and
+            // leaves its siblings unconditional. Both places carry a synchronous and an
+            // asynchronous flag, so all four are consulted.
+            var ruleConditional = conditional || rule.HasCondition || rule.HasAsyncCondition;
+
             foreach (var component in rule.Components)
             {
-                // A child or collection validator's failures carry the child's own path, so its
-                // codes belong to those fields rather than to the field carrying the rule.
+                var componentConditional =
+                    ruleConditional || component.HasCondition || component.HasAsyncCondition;
+
                 if (component.Validator is IChildValidatorAdaptor)
                 {
+                    var child = ResolveChildValidator(component, modelType, rule.TypeToValidate);
+                    if (child is null)
+                    {
+                        continue;
+                    }
+
+                    var childPrefix = string.IsNullOrEmpty(name)
+                        ? prefix
+                        : $"{prefix}{name}{(IsCollectionRule(rule, modelType) ? "[]" : string.Empty)}.";
+
+                    WalkDeclaredRules(
+                        child, rule.TypeToValidate, childPrefix, componentConditional, profile, declared, walking);
                     continue;
                 }
 
-                var bucket = IsPresenceComponent(component) ? presence : other;
-                if (!bucket.TryGetValue(field, out var codes))
+                if (string.IsNullOrEmpty(name))
                 {
-                    codes = new HashSet<string>(StringComparer.Ordinal);
-                    bucket[field] = codes;
+                    continue; // a model-level component names no field
                 }
 
-                codes.Add(ErrorCodeOf(component));
+                var demand = !IsPresenceComponent(component)
+                    ? RuleRequirement.NotRequired
+                    : componentConditional
+                        ? RuleRequirement.ConditionallyRequired
+                        : RuleRequirement.Required;
+
+                var path = prefix + name;
+
+                // The strongest demand any component makes wins, which is what puts an
+                // unconditional presence rule ahead of a conditional one on the same field and
+                // keeps a field with rules but no presence component in the map at all.
+                declared[path] = declared.TryGetValue(path, out var existing) && existing > demand
+                    ? existing
+                    : demand;
             }
         }
 
-        var map = new Dictionary<string, FieldRuleCodes>(StringComparer.Ordinal);
-        foreach (var field in presence.Keys.Concat(other.Keys).Distinct(StringComparer.Ordinal))
+        walking.Remove(validator);
+    }
+
+    /// <summary>
+    /// Whether the rule judges each element of a collection rather than the member itself —
+    /// what decides whether the walk descends under <c>Name[]</c> or under <c>Name</c>. The
+    /// closed interface is built from a literal <c>typeof</c> so the trimmer keeps what this
+    /// tests for.
+    /// </summary>
+    private static bool IsCollectionRule(IValidationRule rule, Type modelType)
+    {
+        try
         {
-            var presenceCodes = presence.TryGetValue(field, out var found) ? found : [];
-            var otherCodes = other.TryGetValue(field, out var rest) ? rest : [];
+            return typeof(ICollectionRule<,>)
+                .MakeGenericType(modelType, rule.TypeToValidate)
+                .IsInstanceOfType(rule);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
-            // A code both kinds of component can produce identifies neither, so it is reported
-            // as ambiguous and withheld from both sets rather than silently attributed to one.
-            var ambiguous = new HashSet<string>(presenceCodes, StringComparer.Ordinal);
-            ambiguous.IntersectWith(otherCodes);
-            if (ambiguous.Count > 0)
-            {
-                presenceCodes = new HashSet<string>(presenceCodes.Except(ambiguous, StringComparer.Ordinal), StringComparer.Ordinal);
-                otherCodes = new HashSet<string>(otherCodes.Except(ambiguous, StringComparer.Ordinal), StringComparer.Ordinal);
-            }
-
-            map[field] = new FieldRuleCodes(presenceCodes, otherCodes, ambiguous);
+    /// <summary>
+    /// The validator a child component wraps, or <see langword="null"/> where it cannot be had
+    /// without a model. FluentValidation exposes the child through
+    /// <c>ChildValidatorAdaptor&lt;T, TProperty&gt;.GetValidator</c>, whose signature is closed
+    /// over the container type and the member type; the closed type is built from a literal
+    /// <c>typeof</c>, which is what keeps the trimmer from removing the method this calls.
+    /// </summary>
+    /// <remarks>
+    /// The call needs a context, and inspection has no model, so it passes one carrying none.
+    /// An adaptor holding a validator INSTANCE ignores it and hands the validator back; one
+    /// holding a factory runs that factory against a model that is not there, which is why a
+    /// lambda-supplied child validator reports as unreadable rather than as having no rules.
+    /// Every failure lands in the same place — no child, so no paths from it — because an
+    /// inspection answer decorates a form and a missing decoration beats a thrown render.
+    /// <para>
+    /// Answers are remembered per component, including the answer "cannot be had": a component
+    /// is one declaration on one rule of one validator, and this validator's rules are fixed
+    /// once it is constructed, so the child behind a component cannot change. That is what
+    /// keeps a caller asking per field — the required indicator does — from paying for a
+    /// reflective resolve of every child in the form on every ask.
+    /// </para>
+    /// </remarks>
+    private IValidator? ResolveChildValidator(IRuleComponent component, Type modelType, Type propertyType)
+    {
+        if (_childValidators.TryGetValue(component, out var cached))
+        {
+            return cached;
         }
 
-        return map;
+        var resolved = ReadChildValidator(component, modelType, propertyType);
+        _childValidators[component] = resolved;
+        return resolved;
+    }
+
+    private static IValidator? ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
+    {
+        try
+        {
+            var adaptor = typeof(ChildValidatorAdaptor<,>).MakeGenericType(modelType, propertyType);
+            var getValidator = adaptor.GetMethod("GetValidator", BindingFlags.Public | BindingFlags.Instance);
+            if (getValidator is null)
+            {
+                return null;
+            }
+
+            var context = Activator.CreateInstance(
+                typeof(ValidationContext<>).MakeGenericType(modelType), [null]);
+
+            return getValidator.Invoke(component.Validator, [context, null]) as IValidator;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -202,28 +345,6 @@ public sealed class FluentValidationModelValidator<TModel>
     /// </summary>
     private static bool IsPresenceComponent(IRuleComponent component) =>
         component.Validator is INotEmptyValidator or INotNullValidator;
-
-    /// <summary>
-    /// Whether the component is reached only through a condition. FluentValidation records a
-    /// condition in one of two places depending on how it was written: a <c>When</c> block
-    /// wrapping the rule declaration marks the rule, while a <c>When</c> chained after a
-    /// component marks the component — including the <c>ApplyConditionTo.CurrentValidator</c>
-    /// form, which marks that one component alone and leaves its siblings unconditional. Both
-    /// places carry a synchronous and an asynchronous flag, so all four are consulted.
-    /// </summary>
-    private static bool IsConditional(IValidationRule rule, IRuleComponent component) =>
-        rule.HasCondition || rule.HasAsyncCondition || component.HasCondition || component.HasAsyncCondition;
-
-    /// <summary>
-    /// The code FluentValidation puts on a failure this component produces: the configured
-    /// <c>WithErrorCode</c> where there is one, otherwise the global resolver's default for the
-    /// component's validator. Deriving it the way the failure does is what lets a caller match
-    /// a reported issue back to the component that reported it.
-    /// </summary>
-    private static string ErrorCodeOf(IRuleComponent component) =>
-        string.IsNullOrEmpty(component.ErrorCode)
-            ? ValidatorOptions.Global.ErrorCodeResolver(component.Validator)
-            : component.ErrorCode;
 
     /// <summary>
     /// Runs the wrapped validator's own ruleset-name verification where it has one, so a

@@ -59,10 +59,11 @@ asks for it (see
 [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates)).
 
 What keeps the left column from nagging is the engaged set, not the rule selection. A live pass
-validates the whole model, and its verdict answers every *engaged* field — every field a
-committed change has ever notified the engine about — so an engaged field's message clears, or
-appears, the moment an edit anywhere on the form settles the question, while a field nobody has
-engaged stays silent however loudly its rule fails. See
+validates the whole model, and its verdict answers every *engaged* field — a field is engaged
+once a committed change has notified the engine about it, and a page can engage the values it
+loads itself — so an engaged field's message clears, or appears, the moment an edit anywhere on
+the form settles the question, while a field nobody has engaged stays silent however loudly its
+rule fails. See
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule) for how that differs from the
 submit channel's own registration-gated rule.
 
@@ -230,8 +231,9 @@ pass. `FormidableOptions.TrackFormValidity`'s probe evaluates `SubmitProfile` wh
 async and server-shaped rules among the difference ([Options](options.md#trackformvalidity)). And
 the `Valid` state class asks whether a submit would pass, which is a form-wide answer that goes
 current only once every submit-selected rule has one. A narrowed live pass never supplies that, so
-no field wears a confirmation border on the strength of one: a submit, a refresh, or that probe is
-what puts green on the form ([CSS and accessibility](css-and-accessibility.md#need-to-know)).
+no field wears a confirmation border on the strength of one. What puts green on the form is a
+submit, a refresh, that probe, or a page saying what its freshly loaded values have earned
+([CSS and accessibility](css-and-accessibility.md#need-to-know)).
 
 **Read:** [Profiles](profiles.md) (custom profiles), [Options](options.md#liveprofile),
 [Disclosure](disclosure.md#the-live-channel-plays-by-its-own-rule),
@@ -266,10 +268,12 @@ protected override void ConfigureDraftRules() =>
 Add `UpdateOn="InputUpdateMode.OnInput"` for a check that answers as the user types.
 `IFormValidationEngine.IsValidating` is the form-wide flag; the per-field one is scoped — to the
 field that changed during a live pass, to the fields edited in the debounce window during a
-refresh, and form-wide during submit. One pass runs at a time: a newer live pass supersedes an
-older one, and the winner's verdict answers every engaged field — the superseded pass's fields
-included, since they were engaged before the winner began — while the debounced refresh defers
-to a live pass still in flight and re-arms rather than cancelling it.
+refresh, and form-wide during a submit. A draft load is the one pass it reports for no field at
+all: that pass answers for the whole model, so the form-wide flag is true and a page-level spinner
+works, but nobody asked for it and no field is waiting on it. One pass runs at a time: a newer live
+pass supersedes an older one, and the winner's verdict answers every engaged field — the
+superseded pass's fields included, since they were engaged before the winner began — while the
+debounced refresh defers to a live pass still in flight and re-arms rather than cancelling it.
 
 **Read:** [Async validation](async-validation.md), [Options](options.md)
 (`RefreshDebounce`), [CSS and accessibility](css-and-accessibility.md) (`Pending`).
@@ -310,6 +314,94 @@ advisories defer to it like the client's own, since a hidden advisory blocks not
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor),
 [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor),
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).
+
+### I want to open a form on values the visitor did not type
+
+**Set:** nothing. Fill the model the form is already bound to, then call
+`DiscloseLoadedValuesAsync()` on the component you captured with `@ref`.
+
+```csharp
+        _proposal.Title = "Progressive disclosure in practice";
+        _proposal.ContactEmail = "ada.lovelace";
+        _proposal.Summary = string.Empty;
+
+        await _form!.DiscloseLoadedValuesAsync();
+```
+
+*Excerpt from `samples/Formidable.Sample/Pages/DraftLoad.razor.cs`*
+
+Fill the instance, rather than replacing it. A new instance reaches the form as a `Model`
+parameter, and a parameter arrives on the form's next render — which cannot happen between
+the fill and the call, so the call would run against the engine still bound to the old object, find
+every field of it empty, and do nothing at all. If the values genuinely arrive as a new instance,
+bind it with `@bind-Model` and make the call from the render that follows the swap, once the form
+has rebuilt its engine around it.
+
+Writing model properties notifies nothing, so without that last line a form loaded from a saved
+draft looks pristine however good or bad its contents are: every state class and every live message
+waits on a committed change. The call validates the whole model under `SubmitProfile` and then
+decides field by field, on whether the field holds a value — a good value is confirmed, a wrong
+one discloses its message, and a field nobody has reached stays silent and unstyled. That third
+outcome is the point of doing it this way rather than marking everything touched: a bad saved value
+sitting silent in a row of green reads as "not filled in yet" rather than "this one is wrong".
+
+`FormidableValidator` carries the same method on the same terms, so an attached form gets this
+without a `FormidableForm` in sight. Call it once, after the values land — from the handler that
+loaded them, or from `OnAfterRenderAsync(firstRender: true)` — and from the renderer's
+synchronization context. A form that never calls it behaves exactly as it always has.
+
+Model an optional value as `T?` rather than `T` if a load has to read it exactly: "holds a value"
+means what `NotEmpty()` means against the declared type, so a saved `false` in a `bool?` is an
+answer while a `bool` sitting at its default reads as "not filled in". And seed the default rather
+than a placeholder your own rules reject — a seeded value is a value, and the form will say so
+the moment the draft loads.
+
+**Read:** [Component kit](component-kit.md#saying-what-loaded-values-have-earned).
+**Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor).
+
+### I want to mark fields required when the rules cannot say so
+
+**Set:** `FormidableOptions.RequiredOverride`, returning a `RuleRequirement` for the fields you
+are declaring and `null` for everything else.
+
+```csharp
+    _options = new FormidableOptions
+    {
+        RequiredOverride = field => field.FieldName switch
+        {
+            nameof(Booking.GuestName) => RuleRequirement.Required,
+            nameof(Booking.Reference) => RuleRequirement.NotRequired,
+            _ => null,
+        },
+    };
+```
+
+[`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) reads the
+validator's own rules, and what it can read is presence written as FluentValidation's `NotEmpty()`
+or `NotNull()`. The shapes below draw no mark, and `RuleRequirement.NotRequired` means "not known
+to be required" rather than "proven optional":
+
+- presence written as a predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`;
+- any field of a validator that cannot be inspected at all;
+- a field of a collection row, whose rules are declared against a shape (`Attendees[].Name`)
+  rather than against one field;
+- a presence rule that carries a condition, which answers `ConditionallyRequired` and draws
+  nothing, because whether the demand applies cannot be decided without evaluating the condition
+  against the model.
+
+One shape runs the other way and draws a mark nothing enforces. A child validator scoped by the
+`SetValidator` call itself (`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`)
+is read whole, because that scoping is not applied, so an untagged `NotEmpty()` inside
+`AddressValidator` demands `Address.City` under a profile that never runs it. Tagging the child's
+own rules instead, with a `RuleSet` block inside `AddressValidator`, is read exactly.
+
+The override answers before any of that, and it declares in both directions: `Required` marks a
+field the rules cannot be read to demand, `NotRequired` unmarks one they can. It decides the
+marker and the input's `aria-required` together, so the two cannot disagree. It is invoked on
+every ask, once per bound component per render, so keep it a cheap pure read.
+
+**Read:** [Options](options.md#requiredoverride), [Component
+kit](component-kit.md#formidablerequiredindicatortvalue).
 
 ### I want to reveal fields conditionally without losing their rules
 
@@ -685,7 +777,7 @@ which render the kit exactly this way.
 |---|---|---|
 | A new project won't build: `RZ9991` on every `@bind-Value` — `The attribute names could not be inferred from bind attribute 'bind-Value'` — plus a run of `RZ10012` warnings about unresolved component names. | The kit isn't in scope, so the Razor compiler reads `<FormidableInputText>` as plain markup and the `@bind-Value` on it as an attribute nothing can bind. Both diagnostics describe binding syntax; neither mentions the namespace that is actually missing. | Add `@using Formidable.Blazor` to `_Imports.razor`, and `using FluentValidation;` plus `using Formidable.Blazor;` to `Program.cs`. [Quickstart](quickstart.md). |
 | Submit answers with an HTTP 400: `The POST request does not specify which form is being submitted. To fix this, ensure <form> elements have a @formname attribute with any unique value, or pass a FormName parameter if using <EditForm>.` | The page is statically server-rendered, so the browser posts the form and no Blazor component ever sees the submit. The advice can't be followed either — `FormidableForm` has no `FormName` parameter to pass. | Add `@rendermode InteractiveServer` (or `@rendermode InteractiveWebAssembly`) to the page. `FormidableForm` refuses to render where the renderer reports itself static, naming that same fix in its own words; this 400 is what a host whose renderer says nothing answers instead. [Quickstart](quickstart.md). |
-| A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field a committed change has notified the engine about, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
+| A field says nothing until Submit is pressed. | Either nothing has engaged that field — a live verdict is filed only for a field something has engaged, so tabbing through one is not enough — or the form narrows `LiveProfile` past the rule, which is what holds a submit-ruleset rule back from the live channel. | Type into the field and commit the change (blur, under the default `UpdateOn`) and the message answers from there on, until the field leaves the rendered page. If the form sets `LiveProfile`, the narrowing is the cause: unset it to have the live channel follow the submit profile, or give the one rule membership in the narrow profile as well. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit), [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live), [narrow what the live channel validates](#i-want-to-narrow-what-the-live-channel-validates). |
 | Clicking a summary entry does nothing. | Click-to-focus looks the field up by its deterministic id, and no rendered element carries it — a control the page renders itself, or a field with no input of its own. | Render the id: `id="@field.ElementId"`, or `FormidableFieldId.For(field)` plus `tabindex="-1"` on a container. [Every summary entry lands somewhere](#i-want-every-summary-entry-to-land-somewhere). |
 | A hand-wired control never validates live, even though it picks up the state classes. | Its handler calls `MarkTouched()`, which marks the field touched without telling the `EditContext` a value changed — the field never engages, so no live pass ever answers for it, and a touched field with no errors is styled valid as soon as the engine can vouch that a submit would not fail it. | Call `field.NotifyChanged()` from the change handler. `MarkTouched()` belongs on blur, where there is no new value to judge. [Use a native or third-party control](#i-want-to-use-a-native-or-third-party-control). |
 | A date input reports impossible years while it is being typed. | A native date input fires `change` once per segment, so validating on every change judges half-typed values. | Set `UpdateOn="InputUpdateMode.OnBlur"` so the pass waits for the value to settle. [Validate while typing, on blur, or only at submit](#i-want-to-validate-while-typing-on-blur-or-only-at-submit). |

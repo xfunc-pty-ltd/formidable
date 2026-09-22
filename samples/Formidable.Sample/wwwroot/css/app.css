@@ -33,6 +33,14 @@
     --radius-input: 12px;
     --radius-button: 10px;
     --radius-card: 10px;
+
+    /* How long a field keeps the border its last verdict earned once no verdict applies any
+       more. It covers every state colour on its way to neutral, not the confirmation border
+       alone: a reset clears an error class too, and that border also takes this long to go.
+       Size it to the slowest rule whose gap it has to cover, which here is the simulated
+       600 ms directory call /async makes plus the pass around it. Set it to 0s to have the
+       border follow the class exactly. */
+    --confirm-hold: .8s;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -310,6 +318,17 @@ main {
     margin: .3rem 0 0;
 }
 
+/* The state border is routed through a registered custom property so that it can be
+   transitioned on its own, without dragging the focus border into the same transition: the
+   :focus rule below writes border-color directly, so focusing and blurring stay instant while
+   the state colour underneath is the only thing the hold applies to. A browser that does not
+   register the property still resolves the value; it just applies it at once. */
+@property --formidable-state-border {
+    syntax: "<color>";
+    inherits: false;
+    initial-value: transparent;
+}
+
 /* .culture is the localization page's language picker: it sits outside the form, so it has to
    ask for the field chrome the form selectors give every other select. */
 form input:where(:not([type=radio]):not([type=checkbox])),
@@ -323,9 +342,17 @@ form textarea,
     font-size: .95rem;
     color: var(--text);
     background: var(--field-bg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--formidable-state-border);
     border-radius: var(--radius-input);
     padding: .6rem .85rem;
+
+    /* The neutral border, and the one place the hold below is spent: a field arrives here when
+       the engine can no longer vouch for it, which on a form with a slow rule includes the gap
+       between an edit and the pass that re-answers it. Delaying only this arrival keeps the
+       confirmation border across that gap. Every verdict cancels the delay for itself (see the
+       state rules below), so red still paints on the frame it is decided. */
+    --formidable-state-border: var(--border);
+    transition: --formidable-state-border 0s linear var(--confirm-hold);
 }
 
 form input:where(:not([type=radio]):not([type=checkbox])):focus,
@@ -360,23 +387,34 @@ form select.formidable-pending {
 
 /* ---------- validation states (FormidableCssClasses defaults) ---------- */
 
+/* Each verdict cancels the hold for its own arrival, so a field that starts failing paints red
+   on the frame it is decided while a field that stops being vouched for keeps its confirmation
+   border for --confirm-hold first. */
 form .formidable-invalid {
-    border-color: var(--error);
+    --formidable-state-border: var(--error);
+    border-color: var(--formidable-state-border);
+    transition-delay: 0s;
 }
 
 /* The confirmation border is a verdict like the three around it, so it carries a colour of its
    own: a field has to read as confirmed on its own, with no neutral neighbour to compare it
    against. */
 form .formidable-valid {
-    border-color: var(--valid);
+    --formidable-state-border: var(--valid);
+    border-color: var(--formidable-state-border);
+    transition-delay: 0s;
 }
 
 form .formidable-warning {
-    border-color: var(--warn);
+    --formidable-state-border: var(--warn);
+    border-color: var(--formidable-state-border);
+    transition-delay: 0s;
 }
 
 form .formidable-info {
-    border-color: var(--info);
+    --formidable-state-border: var(--info);
+    border-color: var(--formidable-state-border);
+    transition-delay: 0s;
 }
 
 /* The generic :focus rule above always draws the accent ring, so a field carrying any of the

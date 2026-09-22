@@ -32,11 +32,13 @@ internal static class FirstErrorFocus
     /// <see cref="FormidableSummary"/>, which regroups by severity and so leads with the error
     /// regardless. "First" is whatever order the engine reports its visible issues in, which is
     /// the page's own reading order under a root that resolves one and the engine's channel order
-    /// under a root that does not. The fallback to the first visible issue covers the one way a
-    /// blocked submit reaches this call with no error to find: superseded by a second submit
-    /// before its own verdict landed, it reports blocked without writing one, leaving whatever
-    /// preceded it on screen. Everything else that blocks is error-severity — the all-suppressed
-    /// gate's form-level issue and the incomplete-validation fault issue included. A miss on the
+    /// under a root that does not. The fallback to the first visible issue covers a blocked submit
+    /// that reaches this call with no error to find, which happens when the submit was superseded
+    /// before its own verdict landed: it reports blocked without writing one, leaving whatever
+    /// preceded it on screen. Anything a caller starts and awaits can be what supersedes it — a
+    /// second submit, or the pass <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/>
+    /// runs. Everything else that blocks is error-severity — the all-suppressed gate's
+    /// form-level issue and the incomplete-validation fault issue included. A miss on the
     /// element itself (no element on the page carries the field's id: a virtualized row outside
     /// the render window, or a control that renders no such id at all) is handled the same way
     /// <see cref="FormidableSummary.FocusFallback"/> handles a click miss: try, fall back once

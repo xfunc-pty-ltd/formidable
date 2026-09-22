@@ -125,9 +125,9 @@ public sealed class FormidableOptions
     /// Not a nicety: reading rules can only see presence expressed as FluentValidation's own
     /// <c>NotEmpty()</c>/<c>NotNull()</c>, so presence written as a predicate —
     /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> — is indistinguishable from any other
-    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>, as does a rule inside a
-    /// child validator, a field of a collection row, and every field of a validator that cannot
-    /// be inspected at all. This is what a form says instead, and it declares in both
+    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>, as does every field of a
+    /// validator that cannot be inspected at all, and every field of a collection row, whose
+    /// rules are declared against a shape rather than against one field. This is what a form says instead, and it declares in both
     /// directions: <see cref="RuleRequirement.Required"/> marks a field the rules cannot be read
     /// to demand, and <see cref="RuleRequirement.NotRequired"/> unmarks one they can — a
     /// <c>NotNull()</c> on a value the page fills in itself, say.

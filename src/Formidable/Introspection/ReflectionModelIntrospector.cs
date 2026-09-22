@@ -103,6 +103,56 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
         return new ResolvedField(rootModel, propertyPath); // unreachable for non-empty parses
     }
 
+    /// <inheritdoc />
+    public bool TryReadValue(
+        object owner,
+        string propertyName,
+        out object? value,
+        out Type? declaredType)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(propertyName);
+
+        value = null;
+        declaredType = null;
+
+        if (propertyName.Length == 0)
+        {
+            return false;
+        }
+
+        PropertyInfo? property;
+        try
+        {
+            property = GetOrCacheProperty(owner.GetType(), propertyName);
+        }
+        catch
+        {
+            // Ambiguous member (a property hidden via 'new') - unreadable, rather than a guess
+            // between two declarations.
+            return false;
+        }
+
+        if (property is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            value = property.GetValue(owner);
+        }
+        catch
+        {
+            // A throwing getter, or a member whose value cannot be boxed: there is no value to
+            // hand back, so the read failed.
+            return false;
+        }
+
+        declaredType = property.PropertyType;
+        return true;
+    }
+
     /// <summary>
     /// Parses <paramref name="propertyPath"/> via the path cache. A cache hit (success or
     /// previously-cached failure) short-circuits <see cref="PropertyPath.TryParse"/> entirely.

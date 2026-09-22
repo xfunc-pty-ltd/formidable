@@ -18,8 +18,10 @@ public interface IFormValidationEngine
     /// True while a validation pass is in flight — form-wide: true for any pass regardless of
     /// which field triggered it. Field-scoped consumers (per-field "checking..." indicators)
     /// should read <see cref="FieldState.IsValidating"/> via <see cref="GetFieldState"/> instead,
-    /// which narrows to the triggering field during a live pass, or to the fields edited within
-    /// its debounce window during a refresh pass.
+    /// which narrows to the triggering field during a live pass, to the fields edited within its
+    /// debounce window during a refresh pass, and to no field at all during the pass
+    /// <see cref="DiscloseLoadedValuesAsync"/> runs, which nobody asked for. A submit is the one
+    /// pass where the two flags agree: it is form-wide on both.
     /// </summary>
     bool IsValidating { get; }
 
@@ -80,11 +82,24 @@ public interface IFormValidationEngine
     /// <see cref="FormidableOptions.RequiredOverride"/> answers first where it is set and
     /// returns non-null. Otherwise the answer is read from the validator's declared rules
     /// through <see cref="IRuleInspectingValidator{TModel}"/>, which sees presence written as
-    /// <c>NotEmpty()</c>/<c>NotNull()</c> and nothing else: presence written as a predicate, a
-    /// validator that cannot be inspected, a rule inside a child validator, and a field of a
-    /// collection row all report <see cref="RuleRequirement.NotRequired"/>, which means "not
-    /// known to be required" rather than "proven optional" — the override is how a form says
-    /// otherwise.
+    /// <c>NotEmpty()</c>/<c>NotNull()</c> and nothing else: presence written as a predicate and
+    /// a validator that cannot be inspected both report
+    /// <see cref="RuleRequirement.NotRequired"/>, which means "not known to be required" rather
+    /// than "proven optional" — the override is how a form says otherwise. A rule the root does
+    /// not declare for itself IS read, by whichever of three routes carries it: one inside a
+    /// child validator is answered under the child's own path (<c>Address.City</c>), one merged
+    /// in with <c>Include</c> at the including validator's level, and one inside a child a
+    /// MODEL-level rule carries (<c>RuleFor(x =&gt; x).SetValidator(v)</c>, or the
+    /// <c>ChildRules</c> form) at the root's own level, since that is where each one's failures
+    /// land.
+    /// <para>
+    /// A field of a collection row is the one shape the rules describe and this does not answer
+    /// for. The rules declare it with the index left open — <c>Attendees[].Name</c> — which
+    /// names a shape rather than a field, and one shape is as many fields as the model has rows,
+    /// each of which comes and goes as the collection does. So a row reports
+    /// <see cref="RuleRequirement.NotRequired"/> however plainly its rule demands a value, and
+    /// the override is what a form marking its rows uses.
+    /// </para>
     /// <para>
     /// One further limit is about which field an answer is filed under rather than about what
     /// the rules say, and it reaches only nested members. An answer is keyed exactly the way an
@@ -98,9 +113,21 @@ public interface IFormValidationEngine
     /// while a component that has not rebound still asks under the old one. From there the
     /// field reports <see cref="RuleRequirement.NotRequired"/> — no marker and no
     /// <c>aria-required</c> — and a further move does not repair it: only that component
-    /// rebinding does, which is its host rebuilding the engine and registry. It fails the way
-    /// every limit above fails, towards claiming nothing, and
+    /// rebinding does, which is its host rebuilding the engine and registry. It fails towards
+    /// claiming nothing, as every limit above it does, and
     /// <see cref="FormidableOptions.RequiredOverride"/> answers over it.
+    /// </para>
+    /// <para>
+    /// One shape runs the OTHER way, and the direction the limits above share does not reach it.
+    /// <c>SetValidator(validator, ruleSets)</c> scopes a child validator's rules to those
+    /// rulesets, and the read behind this answer does not apply that scoping: the child is read
+    /// whole, under whatever profile reaches the rule holding it. A presence rule inside such a
+    /// child is therefore reported as a demand under a profile that never runs it, and where
+    /// that demand is unconditional the field takes a marker and <c>aria-required</c> for a
+    /// value the submit profile does not require. Scoping the child by tagging its own rules
+    /// instead (a <c>RuleSet</c> block inside the child validator) is read exactly, because the
+    /// selection is then applied where the walk can see it — and
+    /// <see cref="FormidableOptions.RequiredOverride"/> answers over either shape.
     /// </para>
     /// <para>
     /// Because the derived answer is reused, asking per field per render is a dictionary lookup;
@@ -140,6 +167,122 @@ public interface IFormValidationEngine
     Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Says what the values already in the model have earned — for a form whose fields were
+    /// filled from somewhere other than this visitor's typing: a saved draft, a prefilled
+    /// application, a record opened for editing. Without it such a form looks pristine however
+    /// good or bad its contents are, because every state class and every live message waits on
+    /// the visitor having committed a change. Calling it validates the whole model under
+    /// <see cref="FormidableOptions.SubmitProfile"/> and then, field by field, does what that
+    /// answer earns: a field HOLDING a value no rule fails with an error is marked touched and
+    /// engaged, so it wears the valid class — or whichever advisory tier its warnings and infos
+    /// earn; a field holding a value the rules DO fail is marked the same way, so its message
+    /// appears; and a field holding no value is neither touched nor engaged, so it stays silent
+    /// and unstyled, because nobody has reached it yet. A form nothing calls this on behaves as
+    /// it always has.
+    /// </summary>
+    /// <remarks>
+    /// It engages, and engagement is what carries the middle outcome. Merely marking the fields
+    /// touched would paint the good ones green and leave a bad saved value SILENT among them,
+    /// and silence in a row of green reads as "not filled in yet" rather than "this one is
+    /// wrong". Engagement is permanent in the ordinary way — the fields it names go on being
+    /// answered by every later live pass, exactly as a field the visitor had typed into would
+    /// be, until they leave the page. The pass this ends with answers the whole engaged set,
+    /// not only the fields it just adopted, so a field the visitor had already engaged is
+    /// re-answered for the values as they now stand rather than left describing the ones the
+    /// load replaced.
+    /// <para>
+    /// No option has to be turned on for the valid class to appear: green is a promise about
+    /// submit, and the pass this runs is a submit-profile answer for the whole model, so the
+    /// coverage that promise rests on is earned by the call itself rather than borrowed from
+    /// <see cref="FormidableOptions.TrackFormValidity"/>. What it costs is that pass — one
+    /// whole-model validation, async rules included, at the moment the values are loaded —
+    /// plus the live pass that discloses what it found, which on a validator that can
+    /// execute rule by rule executes nothing at all, every rule having just been answered
+    /// at this same edit stamp, and on one that cannot is a second whole-model validation. It
+    /// scales with the model as well as with the rules: a rule declared per collection element
+    /// is answered once per element, and every element it speaks for that holds a value joins
+    /// the engaged set, answered by every later live pass until that field DEPARTS — the same
+    /// terminator any engagement has, and a predicate rather than an event: something registered
+    /// the field once, and nothing holds a registration for it now. A field nothing has ever
+    /// registered has not departed, and neither has one whose registration is held open by
+    /// <c>KeepRegistered</c> — which is what a virtualized panel is told to set, so on the very
+    /// shape that carries thousands of rows, scrolling drains nothing. Size the cost as
+    /// thousands of answers and an engaged set that keeps them.
+    /// One thing is visible while it runs, and one deliberately is not. Nothing here was
+    /// triggered by one field and nobody asked for it, so no field reports
+    /// <see cref="FieldState.IsValidating"/> and none wears the pending class — the engine-level
+    /// flag is true throughout, for a page-level spinner to read. What IS visible is that on a
+    /// form which had already answered for itself, the values it loaded are ones nothing
+    /// notified for, so every stored answer is stranded as the call begins and any field
+    /// already wearing the valid class loses it until this pass lands. That is invisible on a
+    /// synchronous validator and lasts as long as the slowest rule on one that is not.
+    /// </para>
+    /// <para>
+    /// The split between the second outcome and the third is the VALUE, never which kind of rule
+    /// failed. "Holds no value" means what FluentValidation's own <c>NotEmpty()</c> means, read
+    /// against the type the member is DECLARED as: null, a blank or whitespace-only string, a
+    /// collection with no elements, or the default of a non-nullable value type. So a saved
+    /// <see langword="false"/> in a <c>bool?</c> is an answer and earns its class, while an
+    /// untouched <c>bool</c> is not; the same separates <c>int</c> from <c>int?</c>, an enum from
+    /// a nullable enum, and <c>Guid</c>/<c>DateTime</c>/<c>decimal</c> from their nullable forms.
+    /// The ambiguity that leaves is exactly the non-nullable value types, and it errs towards
+    /// silence: model an optional value as <c>T?</c> and a load reads it exactly; model it as
+    /// <c>T</c> and its default reads as "not filled in".
+    /// </para>
+    /// <para>
+    /// The two outcomes need different things, which decides what a validator that cannot be
+    /// read can still do. Disclosing a wrong value needs only the model, so it happens whatever
+    /// the validator is — a hand-rolled <see cref="IModelValidator{TModel}"/> included. Vouching
+    /// for a good one needs the validator's own list of the fields it has rules for
+    /// (<see cref="IRuleInspectingValidator{TModel}.GetDeclaredFieldPaths"/>), because nothing
+    /// else can tell a field whose rules all passed from a field no rule mentions — so a
+    /// validator with no inspection capability vouches for nothing. That list is the validator's
+    /// declared shape, child validators and <c>Include</c>d rules included, so a row inside a
+    /// collection is confirmed and disclosed exactly as a top-level field is. Its own limits are
+    /// documented on it, and all but one of them cost a green rather than producing a wrong one:
+    /// a child validator scoped with <c>SetValidator(validator, ruleSets)</c> is read whole, so
+    /// a load can vouch for a field under rules that profile never runs.
+    /// </para>
+    /// <para>
+    /// Where the value cannot be read at all, nothing is claimed: a path whose intermediate is
+    /// null (<c>Address.City</c> where <c>Address</c> is), a model-level failure, which names no
+    /// member, and a path naming no member. Those fail in the safe direction — the field stays
+    /// unstyled rather than being painted red.
+    /// <see cref="GetFieldRequirement"/> errs the same way at all but one of its own limits (the
+    /// ruleset-scoped child above over-claims for it exactly as it does here), but what
+    /// claiming nothing LOOKS like differs: it reports
+    /// <see cref="RuleRequirement.NotRequired"/> and drops a marker, where this stays silent
+    /// and paints no class.
+    /// </para>
+    /// <para>
+    /// One residual is worth knowing before wiring this to a model whose constructor seeds
+    /// placeholder values. A seeded value is a value: it is on the model when the call runs, and
+    /// nothing distinguishes it from one the draft saved. So a form that seeds a placeholder its
+    /// own rules reject shows that rejection the moment the values load. Seeding the default
+    /// instead — an empty string, a null — leaves the field silent until someone reaches it.
+    /// </para>
+    /// <para>
+    /// Severity is read too: only an error says a value is wrong, so a field carrying nothing
+    /// worse than a warning or an info is vouched for and shows that advisory, as it would had
+    /// the visitor typed it.
+    /// </para>
+    /// <para>
+    /// What the engaged fields then SHOW is the live channel's business, so a form that has
+    /// narrowed <see cref="FormidableOptions.LiveProfile"/> discloses only what that profile
+    /// selects: a loaded value failing a submit-only rule is engaged and counted against the
+    /// form's validity, but stays quiet until a submit, exactly as it would after being typed.
+    /// Call from the renderer's synchronization context (a Blazor event handler or
+    /// <c>InvokeAsync</c>) — it mutates validation state and triggers renders.
+    /// </para>
+    /// </remarks>
+    /// <param name="cancellationToken">
+    /// Cancels the whole-model pass. A cancelled call throws and adopts nothing, so the form
+    /// says no more than it did before — though the model is still one this engine has been
+    /// told has moved, so whatever it could vouch for beforehand it no longer can.
+    /// </param>
+    Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Applies server-declared issues (e.g. from a 400 ValidationProblemDetails) as if they were
     /// submit results: the server's verdict applies at the severity it carries. Errors land on
     /// their fields and reach the EditContext's message store; warnings and infos land as
@@ -152,13 +295,15 @@ public interface IFormValidationEngine
     /// client's copy. Applying is itself a disclosure event for the fields it names: a client
     /// error the last submit computed but had nowhere to show surfaces alongside the server's.
     /// The server's verdict stands until a newer whole-model answer supersedes it — the next
-    /// debounced refresh, or the next submit — at which point a server-only issue with no matching
-    /// client rule goes, while one a client rule agrees with keeps showing through the client's own
-    /// answer. Because the payload is treated as a submit result, applying one also sets
-    /// <see cref="HasSubmitted"/> — a page whose only validation is server-side reaches the
-    /// submitted state through this call alone. Call from the renderer's synchronization context (a
-    /// Blazor event handler or <c>InvokeAsync</c>) — it mutates validation state and triggers
-    /// renders. <paramref name="issues"/> is enumerated exactly once.
+    /// debounced refresh, the next submit, or a page saying what its freshly loaded values have
+    /// earned through <see cref="DiscloseLoadedValuesAsync"/> — at which point a server-only
+    /// issue with no matching client rule goes, while one a client rule agrees with keeps showing
+    /// through the client's own answer. Because the payload is treated as a submit result,
+    /// applying one also sets <see cref="HasSubmitted"/> — a page whose only validation is
+    /// server-side reaches the submitted state through this call alone. Call from the renderer's
+    /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
+    /// validation state and triggers renders. <paramref name="issues"/> is enumerated exactly
+    /// once.
     /// </summary>
     /// <remarks>
     /// Errors bypass the field registry: the server judged what was actually submitted, so an error
