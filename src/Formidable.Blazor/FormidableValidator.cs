@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
 
@@ -31,6 +34,19 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     // that coalesced into one reconcile apart from one that ran the reconcile N times and merely
     // produced the same final state either way.
     internal int ReconcileCount { get; private set; }
+
+    // The displaced-click guard's half. The module is this component's own, on the same terms
+    // FormidableForm holds one: whoever holds a FormidableJsModule disposes it, and this is the
+    // only thing that knows when the root it registered stops being the current one. The context
+    // is what an EditContext swap replaces, and the id is the key the guard was registered under.
+    private FormidableJsModule? _jsModule;
+    private FormidableFormContext? _clickRecoveryContext;
+    private string _clickRecoveryRootId = string.Empty;
+
+    // Set the moment Dispose begins, so the guard's own establish can tell a component on its way
+    // out from one merely between renders. Nothing else here needs it: every other path already
+    // reads _engine, which Dispose nulls for exactly that purpose.
+    private bool _disposed;
 
     [CascadingParameter]
     private EditContext? CascadedEditContext { get; set; }
@@ -141,6 +157,172 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 _boundOptions,
                 Options,
                 "swap the EditForm's model alongside Options, so a new EditContext rebuilds the engine");
+        }
+    }
+
+    /// <summary>
+    /// Asks the library's own script to guard this form's buttons against a click the page
+    /// displaces out from under the pointer — see <see cref="DisplacedClickRecovery"/> for what is
+    /// recovered and <see cref="FormidableOptions.ClickRecovery"/> for turning it off. Attempted
+    /// once per context, on the first render after the engine binds; the same bargain
+    /// <c>FormidableForm</c> strikes, and for the same reason.
+    /// </summary>
+    /// <remarks>
+    /// This is the one place the guard has to hunt for a root. A component that renders no element
+    /// of its own has none to register, so two candidates are offered in order: the element
+    /// carrying the model-level gate id, which a page rendering the all-suppressed gate's landing
+    /// spot already has (see <see cref="FormidableFieldId"/>), and failing that the nearest
+    /// <c>&lt;form&gt;</c> ancestor of a registered field — the same boundary
+    /// <c>FormidableForm</c> would have rendered. A page offering neither gets no guard and a
+    /// diagnostic saying so, rather than silence: attach mode is the migration path, and a
+    /// consumer who has to name a root by hand to keep a working submit would simply keep the
+    /// defect instead.
+    /// </remarks>
+    /// <param name="firstRender">Not consulted. The context's own identity is the gate instead, so
+    /// a cascaded <see cref="EditContext"/> swap re-registers the guard on the render that follows
+    /// it rather than the guard belonging to the component's very first render alone.</param>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_engine is null || ReferenceEquals(_clickRecoveryContext, _context))
+        {
+            return;
+        }
+
+        _clickRecoveryContext = _context;
+
+        // Read before anything is awaited: the gate id is derived from the model, and a cascaded
+        // EditContext swap rebuilds the engine over a different one, so the guard the previous
+        // context installed has to be released by the key it was registered under rather than by
+        // the one about to replace it.
+        var releasing = _clickRecoveryRootId;
+        _clickRecoveryRootId = string.Empty;
+
+        var jsRuntime = Services.GetService<IJSRuntime>();
+        if (jsRuntime is null)
+        {
+            return;
+        }
+
+        _jsModule ??= new FormidableJsModule(jsRuntime);
+
+        var gateId = FormidableFieldId.For(_engine.ModelLevelField);
+
+        bool registered;
+        try
+        {
+            if (releasing.Length > 0)
+            {
+                await _jsModule.InvokeVoidAsync("releaseClickRecovery", releasing);
+            }
+
+            if (_engine.Options.ClickRecovery != DisplacedClickRecovery.Buttons)
+            {
+                return;
+            }
+
+            // Mirrors FormidableForm's own guard, for the same reason: this component's release
+            // has already run and found the key below still empty, so anything registered after
+            // it is an entry nothing will ever take back.
+            if (_disposed)
+            {
+                return;
+            }
+
+            // The fallback candidates, built only once the option has asked for a guard: every
+            // field something has registered, for the script to walk up from to a <form>.
+            var fieldIds = _engine.Registry.RevealedFields.Select(FormidableFieldId.For).ToArray();
+            registered = await _jsModule.InvokeAsync<bool>("registerClickRecovery", gateId, fieldIds);
+        }
+        catch
+        {
+            // No script, no guard — the same wide-open catch FormidableForm's own establish uses,
+            // and for the same reason: behind this call is the library's own script reached
+            // through the library's own module, with no consumer code in it to preserve a bug for.
+            return;
+        }
+
+        if (_disposed)
+        {
+            // Torn down while the round trip above was in flight. Neither half of what follows is
+            // worth doing: there is nothing left to undo the registration with, and a diagnostic
+            // about a component already off the page names a problem nobody can act on.
+            return;
+        }
+
+        if (!registered)
+        {
+            ReportNoClickRecoveryRoot();
+            return;
+        }
+
+        _clickRecoveryRootId = gateId;
+    }
+
+    /// <summary>
+    /// The one report a page offering the guard nothing to scope itself to gets: a Trace line for
+    /// a debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
+    /// the same dual channel <c>FormidableForm</c>'s unwired-<c>FocusFallback</c> miss already
+    /// uses. It names both routes, because either one closes the gap in a line.
+    /// </summary>
+    private void ReportNoClickRecoveryRoot()
+    {
+        const string message =
+            "Formidable: no element could be found to scope the displaced-click guard to, so a click the " +
+            "page moves out from under the pointer is lost. Put the model-level FormidableFieldId on the " +
+            "EditForm this attaches to, or place it around a field this component registers, or set " +
+            "FormidableOptions.ClickRecovery to None to ask for no guard at all.";
+
+        System.Diagnostics.Trace.WriteLine(message);
+        ((ILoggerFactory?)Services.GetService(typeof(ILoggerFactory)))?
+            .CreateLogger("Formidable").LogWarning(message);
+    }
+
+    /// <summary>
+    /// Tears down the guard this component registered, and the module it was registered through.
+    /// </summary>
+    /// <remarks>
+    /// Worth doing on its own account, exactly as disconnecting the layout observer is under
+    /// <c>FormidableForm</c>: the script module outlives this component — a module is loaded once
+    /// per document and stays — so an entry left behind would scope the guard to an element that
+    /// is no longer in the document, and the document-level listeners it refcounts would stay
+    /// installed over a page with nothing left to guard. Disposal here is synchronous and the
+    /// release is not, so it rides a discarded task; an interop boundary that is already gone has
+    /// taken the guard with it anyway.
+    /// </remarks>
+    private void ReleaseClickRecovery()
+    {
+        var module = _jsModule;
+        var releasing = _clickRecoveryRootId;
+
+        _jsModule = null;
+        _clickRecoveryRootId = string.Empty;
+        _clickRecoveryContext = null;
+
+        if (module is null)
+        {
+            return;
+        }
+
+        _ = ReleaseClickRecoveryAsync(module, releasing);
+    }
+
+    private static async Task ReleaseClickRecoveryAsync(FormidableJsModule module, string releasing)
+    {
+        try
+        {
+            if (releasing.Length > 0)
+            {
+                await module.InvokeVoidAsync("releaseClickRecovery", releasing);
+            }
+
+            await module.DisposeAsync();
+        }
+        catch (Exception exception) when (
+            exception is JSException or JSDisconnectedException or ObjectDisposedException
+                or OperationCanceledException)
+        {
+            // A boundary that is gone, disconnected or never loaded has nothing left holding the
+            // guard, and a component being torn down is no place to raise that as a failure.
         }
     }
 
@@ -358,11 +540,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        // Recorded first, so an establish still awaiting its round trip finds this set rather
+        // than registering a guard the release below has already gone past.
+        _disposed = true;
+
         if (_engine is not null)
         {
             _engine.Registry.Changed -= OnFieldRegistryChanged;
             _engine.Dispose();
             _engine = null;
         }
+
+        ReleaseClickRecovery();
     }
 }

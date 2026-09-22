@@ -53,4 +53,36 @@ internal static class SamplePage
 
     /// <summary>A real blur: Tab moves focus the way a visitor leaves a field.</summary>
     public static Task TabAsync(IPage page) => page.Keyboard.PressAsync("Tab");
+
+    /// <summary>
+    /// A real press-hold-release on <paramref name="target"/>: the pointer moves to the element's
+    /// centre, presses, holds, and releases where it pressed. <c>ClickAsync</c> cannot stand in
+    /// for it — a Playwright click moves, presses and releases as one command over a target it
+    /// resolves once, so a page that moves the element out from under the pointer between down
+    /// and up is a shape that command cannot express, and the browser's own
+    /// cancel-on-different-target rule is invisible to it.
+    /// </summary>
+    public static async Task PressHoldReleaseAsync(IPage page, ILocator target, int holdMilliseconds)
+    {
+        var (x, y) = await CentreOfAsync(target);
+        await page.Mouse.MoveAsync(x, y);
+        await page.Mouse.DownAsync();
+        await page.WaitForTimeoutAsync(holdMilliseconds);
+        await page.Mouse.UpAsync();
+    }
+
+    /// <summary>
+    /// The viewport coordinates of an element's centre. The element is scrolled to the middle of
+    /// the viewport first, so a gesture built on these has room on every side of it — a pointer
+    /// move measured from an element sitting against the bottom edge would be clamped instead of
+    /// landing where the test asked for.
+    /// </summary>
+    public static async Task<(float X, float Y)> CentreOfAsync(ILocator target)
+    {
+        await target.EvaluateAsync("element => element.scrollIntoView({ block: 'center' })");
+        var box = await target.BoundingBoxAsync()
+            ?? throw new InvalidOperationException(
+                "The element has no layout box, so there is nowhere to aim a pointer gesture at it.");
+        return (box.X + (box.Width / 2), box.Y + (box.Height / 2));
+    }
 }

@@ -93,6 +93,22 @@ public sealed class FormidableOptions
     public bool NormalizeOnSubmit { get; set; }
 
     /// <summary>
+    /// Whether the root recovers a click the page displaced out from under the pointer between the
+    /// press and its release. Defaults to <see cref="DisplacedClickRecovery.Buttons"/>, which
+    /// recovers clicks on buttons inside the root; see that type for the three conditions that
+    /// have to hold and for what the recovered click is. Set
+    /// <see cref="DisplacedClickRecovery.None"/> to install no guard at all.
+    /// </summary>
+    /// <remarks>
+    /// Read once per root, on its first interactive render, so this is not something a page turns
+    /// on and off mid-life — swap it alongside the model, the same way every other option here is
+    /// changed. It needs the library's own script: a host that cannot load it recovers nothing,
+    /// which is the same bargain the reading-order resolve already strikes. Prerendering is
+    /// unaffected — a form that cannot submit yet cannot lose a click.
+    /// </remarks>
+    public DisplacedClickRecovery ClickRecovery { get; set; } = DisplacedClickRecovery.Buttons;
+
+    /// <summary>
     /// Optional disclosure override. Return true to force an issue visible, false to force it
     /// suppressed, or null to defer to the field registry. Model-level issues (empty path) are
     /// always visible unless this returns false.

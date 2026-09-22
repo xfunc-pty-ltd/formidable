@@ -61,6 +61,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private FormidableFormContext? _observedContext;
     private string _observedFormId = string.Empty;
 
+    // The displaced-click guard's own half, tracked apart from the observer's because the two are
+    // established on different terms: the observer is reached only from the ordering path, so a
+    // form with no IFormidableFieldOrderService registered never establishes one at all, while
+    // the guard is asked for once per context and needs nothing but the script. The context is
+    // what a rebuild replaces, and the id is the key the guard was registered under — which moves
+    // with the model, so the old one has to be released by the value it was registered with
+    // rather than by the one replacing it.
+    private FormidableFormContext? _clickRecoveryContext;
+    private string _clickRecoveryRootId = string.Empty;
+
     private bool _disposed;
 
     /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
@@ -248,6 +258,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             _renderedFieldSetVersion = version;
         }
 
+        // After the reconcile above and before the ordering gate below, which is the only place
+        // it can sit. It cannot go first: the reconcile is the engine's own truth and reaches it
+        // synchronously on purpose (see the remark above), and putting an interop round trip in
+        // front of it would let a pass started in that window file verdicts the deferred
+        // reconcile then throws away, and would push the refresh it arms out by however long the
+        // browser takes to answer — on the first render, when a page is at its busiest. It cannot
+        // go after the gate either: the guard is no part of resolving a reading order, and a form
+        // with no IFormidableFieldOrderService registered still has clicks to lose. Once
+        // established it does nothing at all, so what every later render pays for it is one
+        // reference comparison.
+        await EstablishClickRecoveryAsync();
+
         if (version == _fieldOrderVersion && !_layoutMoved)
         {
             return;
@@ -380,6 +402,99 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // there is nothing to answer it with: a form on its way out has no reading order left
             // to re-resolve.
         }
+    }
+
+    /// <summary>
+    /// Asks the library's own script to guard this form's buttons against a click the page
+    /// displaces out from under the pointer — see <see cref="DisplacedClickRecovery"/> for what is
+    /// recovered and <see cref="FormidableOptions.ClickRecovery"/> for turning it off. The
+    /// registered root is the form's own element, which already carries the deterministic
+    /// model-level field id; the guard scopes itself by asking whether a pressed button sits
+    /// inside it.
+    /// </summary>
+    /// <remarks>
+    /// Attempted once per context rather than retried. A script that cannot be imported on the
+    /// first interactive render describes a host that has no script rather than a transient
+    /// failure, and retrying every render afterwards would buy an interop round trip per render
+    /// for a module that is never going to arrive. That is the opposite bargain to the layout
+    /// observer's below, and deliberately so: the observer's own gate reopens only when a
+    /// registration changes, so retrying costs it nothing. A form left without the guard loses a
+    /// displaced click exactly as it did before there was one, and nothing else about it changes.
+    /// </remarks>
+    private async Task EstablishClickRecoveryAsync()
+    {
+        if (ReferenceEquals(_clickRecoveryContext, _context))
+        {
+            return;
+        }
+
+        _clickRecoveryContext = _context;
+
+        // Read before anything is awaited: a rebuilt form renders a fresh element under a fresh
+        // id, so the guard the previous context installed has to be released by the key it was
+        // registered under rather than by the one about to replace it.
+        var releasing = _clickRecoveryRootId;
+        _clickRecoveryRootId = string.Empty;
+
+        var jsRuntime = Services.GetService<IJSRuntime>();
+        if (jsRuntime is null)
+        {
+            return;
+        }
+
+        _jsModule ??= new FormidableJsModule(jsRuntime);
+
+        try
+        {
+            if (releasing.Length > 0)
+            {
+                await _jsModule.InvokeVoidAsync("releaseClickRecovery", releasing);
+            }
+
+            if (_engine!.Options.ClickRecovery != DisplacedClickRecovery.Buttons)
+            {
+                return;
+            }
+
+            // Checked immediately before the call, not only after it. A form torn down while this
+            // was still awaiting has already run its release, and that release found the key
+            // below still empty — so an entry registered now is one nothing will ever take back,
+            // leaving the script holding this form's detached element, and the document listeners
+            // it refcounts, for the life of the document.
+            if (_disposed)
+            {
+                return;
+            }
+
+            // The script's fallback candidates: every field something has registered, for it
+            // to walk up from to a <form>. This root writes its own id onto the <form> element it
+            // renders, and the script takes a form as a root whatever that form currently holds,
+            // so the first route answers here every time the element can be found at all. These
+            // are what is left if it cannot be, and they resolve to that same <form>.
+            var fieldIds = _engine.Registry.RevealedFields.Select(FormidableFieldId.For).ToArray();
+            await _jsModule.InvokeVoidAsync("registerClickRecovery", _modelLevelFieldId, fieldIds);
+        }
+        catch
+        {
+            // Prerender, a host carrying no script at all, a test double standing in for the
+            // module: with no script there is no guard, and a displaced click is lost the way the
+            // browser left it. Written wide open for the same reason the observer's catch below
+            // is — behind this call is the library's own script, reached through the library's own
+            // module, with no consumer code anywhere in it, so there is no implementation bug to
+            // preserve for someone to see and every reason not to take a working form down over a
+            // feature it can do without.
+            return;
+        }
+
+        if (_disposed)
+        {
+            // Torn down while the round trip above was in flight. There is nothing left here to
+            // undo the registration with — Dispose has already let the module go — and recording
+            // the key would only leave it on a component nothing reads again.
+            return;
+        }
+
+        _clickRecoveryRootId = _modelLevelFieldId;
     }
 
     /// <summary>
@@ -847,31 +962,37 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // otherwise ask a component that no longer exists to render.
         _disposed = true;
         _engine?.Dispose();
-        ReleaseLayoutObserver();
+        ReleaseScriptResources();
     }
 
     /// <summary>
-    /// Tears down the browser-side observer and the reference it reports through.
+    /// Tears down everything this form put in the browser: the layout observer and the reference
+    /// it reports through, and the displaced-click guard's registered root.
     /// </summary>
     /// <remarks>
-    /// Disconnecting is worth doing on its own account: the script module the observer lives in
-    /// outlives this component — a module is loaded once per document and stays — so an observer
-    /// left connected goes on watching a detached form and goes on holding the reference that
-    /// reaches back into a component nobody else can see. Disposal here is synchronous and the
-    /// disconnect is not, so the reference is released once the round trip still naming it has
-    /// returned rather than while it is in flight; an interop boundary that is already gone
-    /// releases it just the same, and has taken the observer with it anyway.
+    /// Worth doing on its own account, whichever of the two is in play, because the script module
+    /// they live in outlives this component: a module is loaded once per document and stays. An
+    /// observer left connected goes on watching a detached form and goes on holding the reference
+    /// that reaches back into a component nobody else can see; a guard left registered scopes
+    /// itself to an element no longer in the document, and the document-level listeners it
+    /// refcounts stay installed over a page with nothing left to guard. Disposal here is
+    /// synchronous and neither release is, so the reference is let go once the round trip still
+    /// naming it has returned rather than while it is in flight. An interop boundary that is
+    /// already gone releases it just the same, and has taken both with it anyway.
     /// </remarks>
-    private void ReleaseLayoutObserver()
+    private void ReleaseScriptResources()
     {
         var module = _jsModule;
         var reference = _layoutObserverReference;
         var observing = _observedFormId;
+        var releasing = _clickRecoveryRootId;
 
         _jsModule = null;
         _layoutObserverReference = null;
         _observedFormId = string.Empty;
         _observedContext = null;
+        _clickRecoveryRootId = string.Empty;
+        _clickRecoveryContext = null;
 
         if (module is null)
         {
@@ -879,19 +1000,25 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
-        _ = DisconnectLayoutObserverAsync(module, reference, observing);
+        _ = ReleaseScriptResourcesAsync(module, reference, observing, releasing);
     }
 
-    private static async Task DisconnectLayoutObserverAsync(
+    private static async Task ReleaseScriptResourcesAsync(
         FormidableJsModule module,
         DotNetObjectReference<FormidableForm<TModel>>? reference,
-        string observing)
+        string observing,
+        string releasing)
     {
         try
         {
             if (observing.Length > 0)
             {
                 await module.InvokeVoidAsync("disconnectLayoutObserver", observing);
+            }
+
+            if (releasing.Length > 0)
+            {
+                await module.InvokeVoidAsync("releaseClickRecovery", releasing);
             }
 
             await module.DisposeAsync();

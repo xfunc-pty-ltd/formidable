@@ -23,7 +23,8 @@ public class FormidableFormComponentTests : BunitContext
         Action? onValid = null,
         bool? focusFirstErrorOnInvalidSubmit = null,
         Action<EngineOrder>? onModelChanged = null,
-        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null)
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null,
+        FormidableOptions? options = null)
     {
         var container = Render(builder =>
         {
@@ -32,7 +33,7 @@ public class FormidableFormComponentTests : BunitContext
             builder.AddComponentParameter(
                 2,
                 nameof(FormidableForm<EngineOrder>.Options),
-                new FormidableOptions { DisclosureOverride = _ => true });
+                options ?? new FormidableOptions { DisclosureOverride = _ => true });
             builder.AddComponentParameter(
                 3,
                 nameof(FormidableForm<EngineOrder>.OnInvalidSubmit),
@@ -788,6 +789,69 @@ public class FormidableFormComponentTests : BunitContext
     private sealed class SilentFocusService : IFormidableFocusService
     {
         public ValueTask<bool> FocusAsync(FieldIdentifier field) => ValueTask.FromResult(true);
+    }
+
+    // The displaced-click guard's wiring, which is all a component test can reach: bUnit renders
+    // no layout and dispatches no pointer events, so a press and a release landing on different
+    // targets — the whole shape the guard exists for — cannot be produced here at all. What these
+    // pin is that the root asks for the guard, releases it, and honours the opt-out; the behaviour
+    // itself is pinned in the browser, in QuickstartJourney.
+    [Fact]
+    public async Task The_root_asks_the_script_to_guard_its_buttons()
+    {
+        var module = SetUpClickRecoveryModule();
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+
+        cut.WaitForAssertion(() => Assert.Single(module.Invocations["registerClickRecovery"]));
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, string.Empty)),
+            module.Invocations["registerClickRecovery"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Disposing_the_root_releases_the_guard()
+    {
+        var module = SetUpClickRecoveryModule();
+        var order = new EngineOrder();
+        var cut = RenderForm(order);
+        cut.WaitForAssertion(() => Assert.Single(module.Invocations["registerClickRecovery"]));
+
+        await DisposeComponentsAsync();
+
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, string.Empty)),
+            module.Invocations["releaseClickRecovery"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ClickRecovery_None_asks_the_script_for_no_guard_at_all()
+    {
+        var module = SetUpClickRecoveryModule();
+
+        RenderForm(
+            new EngineOrder(),
+            options: new FormidableOptions
+            {
+                DisclosureOverride = _ => true,
+                ClickRecovery = DisplacedClickRecovery.None,
+            });
+
+        Assert.DoesNotContain("registerClickRecovery", module.Invocations.Identifiers);
+
+        await Services.DisposeAsync();
+    }
+
+    private BunitJSModuleInterop SetUpClickRecoveryModule()
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.SetupVoid("registerClickRecovery", _ => true).SetVoidResult();
+        module.SetupVoid("releaseClickRecovery", _ => true).SetVoidResult();
+        return module;
     }
 
     /// <summary>Mirrors SuppressedIssueLoggingTests' own capturing provider for this file's diagnostic test.</summary>

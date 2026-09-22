@@ -149,8 +149,9 @@ There is an alternative to doubling the interfaces: let the real services run an
 JavaScript instead, with bUnit's
 `JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan every call the form
 makes: `orderFields` for the resolve itself, `observeLayout` and `disconnectLayoutObserver` for
-the browser-side layout observer the form establishes beside it, and `focusField` once a blocked
-submit is going to move focus. Strict mode is bUnit's default, and an unplanned call throws
+the browser-side layout observer the form establishes beside it, `registerClickRecovery` and
+`releaseClickRecovery` for the displaced-click guard, and `focusField` once a blocked submit is
+going to move focus. Strict mode is bUnit's default, and an unplanned call throws
 `JSRuntimeUnhandledInvocationException`, which derives from `Exception` rather than `JSException`,
 so the form's own tolerance for a failed interop call never catches it. Render a `FormidableForm`
 at all with no plan for `orderFields`, fields or no fields, and the render itself throws. That is
@@ -158,14 +159,18 @@ what Formidable's own `FocusServiceTests` do, because there the service *is* the
 test.
 For a form test, the interface doubles are less machinery.
 
-One call reaches the module whichever route you take. The layout observer belongs to the form
-rather than to the order service, so registering an `IFormidableFieldOrderService` at all (the
-interface double included) has the form import `formidable.js` and call `observeLayout` on it.
-Establishing it is best-effort, which is the difference that matters here: a strict-mode refusal
-is absorbed exactly as a JavaScript-less host is, where an unplanned `orderFields` throws. A test
-built on the doubles therefore needs no module plan, and a test that does plan the module gets a
-form that genuinely observes. All an absorbed refusal costs is the re-resolve a page would
-otherwise get when it moves its fields around without registering or unregistering any.
+Some of the module is reached whichever route you take. The displaced-click guard belongs to the
+form outright, so a `FormidableForm` imports `formidable.js` on its first render and asks for
+`registerClickRecovery`, order service or not; only `ClickRecovery = None` leaves that call
+unmade. The layout observer belongs to the form rather than to the order service, so registering
+an `IFormidableFieldOrderService` at all (the interface double included) adds `observeLayout` to
+that. Both are best-effort, which is the difference that
+matters here: a strict-mode refusal is absorbed exactly as a JavaScript-less host is, where an
+unplanned `orderFields` throws. A test built on the doubles therefore needs no module plan, and a
+test that does plan the module gets a form that genuinely observes and genuinely guards. What an
+absorbed refusal costs is the re-resolve a page would otherwise get when it moves its fields
+around without registering or unregistering any, and the recovery of a click the page moved out
+from under the pointer.
 
 ### Waiting for the answer
 

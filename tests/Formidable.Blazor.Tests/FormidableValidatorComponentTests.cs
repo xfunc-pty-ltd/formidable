@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Formidable.Blazor.Tests;
 
@@ -67,6 +68,61 @@ public class FormidableValidatorComponentTests : BunitContext
         module.SetupVoid("observeLayout", _ => true).SetVoidResult();
         module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         return module;
+    }
+
+    /// <summary>
+    /// The displaced-click guard's own module plan. <paramref name="rootFound"/> is what the
+    /// script answers: attach mode renders no element of its own, so a page carrying neither the
+    /// model-level gate id nor a <c>&lt;form&gt;</c> around a registered field leaves the guard
+    /// nothing to scope itself to, and false is that answer.
+    /// </summary>
+    private BunitJSModuleInterop SetUpClickRecoveryModule(bool rootFound)
+    {
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("registerClickRecovery", _ => true).SetResult(rootFound);
+        module.SetupVoid("releaseClickRecovery", _ => true).SetVoidResult();
+        return module;
+    }
+
+    // Degrade loudly, never silently. A root the guard cannot be scoped to is a page that keeps
+    // the defect, and the one thing worse than keeping it is keeping it invisibly — so the miss
+    // reports on the same dual channel an unwired FocusFallback's own miss already uses, naming
+    // both routes that would close it.
+    [Fact]
+    public async Task An_attached_root_with_nothing_to_scope_the_guard_to_reports_a_diagnostic()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        SetUpClickRecoveryModule(rootFound: false);
+
+        var cut = RenderForm(new EngineOrder());
+
+        cut.WaitForAssertion(() => Assert.Contains(
+            loggerProvider.Entries,
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("displaced-click guard")));
+
+        await Services.DisposeAsync();
+    }
+
+    // The control the pin above needs to mean anything: a root the script did find reports
+    // nothing, so a regression that simply always warned would not read as a pass.
+    [Fact]
+    public async Task An_attached_root_the_guard_was_scoped_to_reports_nothing()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        var module = SetUpClickRecoveryModule(rootFound: true);
+        var order = new EngineOrder();
+
+        var cut = RenderForm(order);
+
+        cut.WaitForAssertion(() => Assert.Single(module.Invocations["registerClickRecovery"]));
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, string.Empty)),
+            module.Invocations["registerClickRecovery"].Single().Arguments[0]);
+        Assert.DoesNotContain(loggerProvider.Entries, entry => entry.Message.Contains("displaced-click guard"));
+
+        await Services.DisposeAsync();
     }
 
     /// <summary>
@@ -754,5 +810,31 @@ public class FormidableValidatorComponentTests : BunitContext
 
         protected override void ConfigureSubmitRules() =>
             RuleFor(x => x.Customer).NotNull();
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(CapturingLoggerProvider owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                owner.Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 }

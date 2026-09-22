@@ -49,9 +49,13 @@ public sealed class SampleAppFixture : IAsyncLifetime
     /// for the app's nav, which is the first chrome a booted WASM app renders. The returned
     /// session owns the context: dispose it (await using) so each test's storage, cookies and
     /// pages end with the test instead of accumulating until fixture teardown.</summary>
-    public async Task<SampleSession> NewPageAsync(string path)
+    public Task<SampleSession> NewPageAsync(string path) => NewPageAsync(path, options: null);
+
+    /// <summary>The same, over a context built to order — a touch-capable one, say, for a gesture
+    /// a mouse cannot produce. Everything else about the session is identical.</summary>
+    public async Task<SampleSession> NewPageAsync(string path, BrowserNewContextOptions? options)
     {
-        var context = await Browser.NewContextAsync();
+        var context = await Browser.NewContextAsync(options);
         var page = await context.NewPageAsync();
         await page.GotoAsync(SampleOrigin + path);
 
