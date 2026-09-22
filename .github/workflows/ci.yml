@@ -40,12 +40,16 @@ jobs:
         with:
           fetch-depth: 0
       - name: Conventional commit subjects
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch origin "${{ github.base_ref }}"
+          git fetch origin "$BASE_REF"
+          git log --no-merges --format=%s "origin/$BASE_REF..HEAD" > /tmp/subjects.txt
+          test -s /tmp/subjects.txt || { echo "no commits read for origin/$BASE_REF..HEAD"; exit 1; }
           bad=0
           while IFS= read -r s; do
             if ! printf '%s' "$s" | grep -qE '^(feat|fix|docs|test|refactor|perf|style|build|chore|ci)(\((core|blazor|aspnetcore|sample|e2e|docs|build)\))?!?: .{1,72}$'; then
               echo "not conventional: $s"; bad=1
             fi
-          done < <(git log --no-merges --format=%s "origin/${{ github.base_ref }}..HEAD")
+          done < /tmp/subjects.txt
           exit $bad
