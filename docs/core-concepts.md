@@ -51,8 +51,10 @@ public class ProfileFormValidator : DraftSubmitValidator<ProfileForm>
 
 `FormidableForm`'s engine reads two profiles off `FormidableOptions`. `LiveProfile` runs on
 every field change and defaults to `ValidationProfile.Draft`. `SubmitProfile` runs when the
-form submits, and again on the debounced refresh that follows, defaulting to
-`ValidationProfile.Submit`:
+form submits, and answers for the debounced refresh that follows too — reusing what a live
+pass already found rather than re-running it where it can (see
+[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)) —
+defaulting to `ValidationProfile.Submit`:
 
 ```csharp
 var options = new FormidableOptions

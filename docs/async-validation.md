@@ -52,13 +52,30 @@ public class HandleValidator : DraftSubmitValidator<Handle>
     // visible; a real validator would inject a clock/service rather than hold mutable state.
     public static int SimulatedDelayMs { get; set; } = 600;
 
+    // Held as fields so they outlive a single pass — the engine keeps one validator instance for
+    // as long as it is registered, but a memo built inside a rule's own lambda is rebuilt on
+    // every call and never once hits (AsyncRuleMemo's own remarks say so). What reuses an answer
+    // here is a submit that follows a live pass: submit always runs the whole submit profile, so
+    // it re-checks a value the live pass already answered, and this is the second call that gets
+    // to skip the round trip. That gap is however long the person takes between finishing typing
+    // and pressing Submit, so the window is sized to that, not to any of the engine's own
+    // scheduling windows. Ten seconds is a judgement call rather than a derived value —
+    // AsyncRuleMemo's own docs say the same thing: size a window to the pause it has to survive,
+    // paced by the person at the keyboard, not by a timer. This is a plausible upper bound on the
+    // pause between finishing typing and pressing Submit without pretending to know exactly how
+    // long that pause is.
+    private readonly AsyncRuleMemo<string, bool> _usernameMemo = new(TimeSpan.FromSeconds(10));
+    private readonly AsyncRuleMemo<string, bool> _displayNameMemo = new(TimeSpan.FromSeconds(10));
+
     protected override void ConfigureDraftRules()
     {
         // Async uniqueness runs in the live (Draft) profile so it fires as the user types;
         // the delay stands in for a server call and honours cancellation, so a superseded
-        // keystroke's check is abandoned.
+        // keystroke's check is abandoned. MustAsyncMemoized also lets a repeated value — typing
+        // "admin", clearing it, then typing "admin" again — answer from the memo instead of
+        // paying for the call twice.
         RuleFor(h => h.Username)
-            .MustAsync(async (username, cancellationToken) =>
+            .MustAsyncMemoized(_usernameMemo, async (username, cancellationToken) =>
             {
                 await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !Taken.Contains(username, StringComparer.OrdinalIgnoreCase);
@@ -69,7 +86,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
         // A second, independent async field — demonstrates that the pending indicator during a
         // live pass is scoped to the field being edited, not the whole form.
         RuleFor(h => h.DisplayName)
-            .MustAsync(async (displayName, cancellationToken) =>
+            .MustAsyncMemoized(_displayNameMemo, async (displayName, cancellationToken) =>
             {
                 await Task.Delay(SimulatedDelayMs, cancellationToken);
                 return !TakenDisplayNames.Contains(displayName, StringComparer.OrdinalIgnoreCase);
@@ -154,7 +171,7 @@ flowchart TD
     K --> L{"Submit or a live pass in flight?"}
     L -- "yes" --> M["Refresh defers: re-arms its timer instead of running"]
     M --> K
-    L -- "no" --> N["Refresh pass runs SubmitProfile over the whole model; the pending indicator is scoped to the pending-refresh snapshot"]
+    L -- "no" --> N["Refresh pass validates the model, reusing the live pass's report where the subtraction below applies; the pending indicator is scoped to the pending-refresh snapshot"]
 
     O["Submit invoked"] --> P["Submit pass runs SubmitProfile form-wide, cancelling whatever pass was in flight"]
     P --> Q["HasSubmitted set true"]
@@ -260,8 +277,11 @@ own live pass was computing. Between live passes there is nothing to defer to, s
 live pass supersedes the older one outright. The refresh's own path is different: it cancels
 neither the submit nor the live pass, it waits for them.
 
-With nothing in flight, the refresh pass runs `SubmitProfile`. It re-validates the whole model
-in one pass; what the pending-refresh snapshot scopes is the pending indicator, covered in
+With nothing in flight, the refresh pass validates the model — the whole `SubmitProfile`, or only
+the part of it the live pass has not already answered (see
+[The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
+below). Either way it answers for the whole model in one pass; what the pending-refresh snapshot
+scopes is the pending indicator, covered in
 [Which fields show "checking…"](#which-fields-show-checking) below.
 
 ### Submit sits above all of it
@@ -275,50 +295,121 @@ pass runs `SubmitProfile` form-wide, cancelling whatever pass was in flight, and
 superseded in turn. It sets `HasSubmitted` true, which is what arms the refresh for every edit
 that follows.
 
-### One edit after a submit runs the draft rules twice
+### The refresh runs only what the live pass did not
 
-Once a form has been submitted, an edit takes both branches of the flowchart at once: it starts
-a live pass and it arms the refresh. `ValidationProfile.Submit` is the default rules *plus* the
-`Submit` ruleset, so an async rule written in `ConfigureDraftRules()` — the uniqueness check at
-the top of this page — runs in both. The sample's
-[`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes it visible. Set the
-delay slider to 2000 ms, submit, then type: the check resolves, and a second one starts.
+Once a form has been submitted, an edit still takes both branches of the flowchart: it starts a
+live pass and it arms the refresh. `ValidationProfile.Submit` is the default rules plus the
+`Submit` ruleset; `ValidationProfile.Draft`, the default `LiveProfile`, is the default rules
+alone — so on the default pair, everything the live pass just ran is also part of what the
+refresh is about to run. The refresh subtracts it: it validates only the rules the submit
+profile adds beyond the live profile, and combines that report with the live pass's own report
+for the rest. An async rule written in `ConfigureDraftRules()` — the uniqueness check at the top
+of this page — sits entirely inside that subset, so it answers once per post-submit edit rather
+than twice: the live pass runs it, and the refresh's own pass skips past it.
 
-The engine does not collapse that into one run, because the two passes answer different
-questions and own different channels. The live pass answers "is the value on screen acceptable
-right now?", and its verdict is what surfaces a problem on a field that was clean at submit
-time. The refresh answers "are the messages the submit put on screen still true?", and its
-verdict reaches only the fields already disclosed at submit time. Neither report can be
-rewritten into the other. The live report is missing every `Submit`-ruleset rule; the refresh's
-report has both halves mixed together and no record of which ruleset produced which issue, so
-it cannot be split back apart. Substituting one for the other is how a submit-time message goes
-stale: it stays on screen after the value it accuses has been fixed.
+The sample's [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes the
+saving visible. Submit, then type: one "checking…" cycle runs, not two.
 
-Two things reduce the cost, and both of them are yours rather than the engine's:
+Three things have to hold for the subtraction to apply, all about the same edit. The live
+profile's rules have to be a genuine subset of the submit profile's — every ruleset the live
+profile names has to also appear in the submit profile, and the live profile can't include
+default rules unless the submit profile does — since subtracting a profile that reaches
+somewhere the submit profile doesn't would drop rules from the verdict rather than avoid
+re-running them. The live pass's report has to still answer for the model as it stands, which the
+engine reads as "no field change has been notified since that pass began", plus one thing it can
+see for itself: a rendered field set that moves — a collection row leaving the page, a section
+collapsing — drops the retained report outright, and the refresh that follows runs the whole
+`SubmitProfile` rather than trust a report describing a page, and a model, already gone. And the
+retained report has to have been produced under the live profile currently in force:
+`FormidableOptions.LiveProfile` is a mutable instance a consumer may swap
+between the live pass and the refresh that follows it (the documented way to change a setting at
+runtime, see [Engine options](options.md#formidableoptions-is-read-once)), so a swapped profile
+falls back the same way a stale report does, rather than subtract against a profile the retained
+answer never ran under.
 
-- [`LiveDebounce`](options.md#livedebounce) collapses a burst of keystrokes into a single live
-  pass. It leaves the refresh's own cadence alone, as described under
-  [The live pass starts](#the-live-pass-starts): it reduces live passes, not refresh passes, so
-  it never takes a post-submit edit below the two runs described here.
-- Memoize the check when it is genuinely expensive, keyed on the value the rule is checking. The
-  rule has that value in scope and the engine deliberately does not: it hands the validator a
-  profile and takes back a report, with no rule-level seam to cache at. That makes the remedy the
-  validator's, and the core package ships the piece it needs.
+Report currency is checked against notifications rather than against the model itself, and that
+distinction has teeth. Change a bound model's contents without telling the form — a handler
+patching a computed property, a late server response writing into the model while a refresh window
+is open — and nothing the engine reads moves. The retained report goes on looking current, and the
+verdict the refresh publishes combines live-profile rules answered against the model as it was
+with delta rules answered against the model as it is. Mutating a bound model without notifying is
+outside the contract everywhere in Formidable, and covered under
+[Fields and collections](fields-and-collections.md); this is the place where the price is a wrong
+verdict rather than a stale message. `field.NotifyChanged()` (or `EditContext.NotifyFieldChanged`)
+is what keeps it right.
 
-The key is the value itself: a second pass over an unchanged value reuses the first pass's answer
-instead of making the call again. The two runs are about one `RefreshDebounce` apart — 300 ms by
-default — so the window only has to be long enough to catch a duplicate that is milliseconds
-old.
+The subset condition holds by construction for the default pair (`ValidationProfile.Submit`
+selects default rules plus the `Submit` ruleset, `ValidationProfile.Draft` selects default rules
+alone, so `Draft` is always a subset of `Submit`), which leaves the other two (report currency and
+profile identity) as the only ways the default pair ever falls back to the full profile. A custom
+`LiveProfile`/`SubmitProfile` pair that only partially overlaps adds a third way: every rule the
+two share keeps running twice per post-submit edit regardless. Behaviour that varies with the
+shape of the two profiles is worth knowing before it's the thing a slow rule's second run
+surprises someone with. Where the two are disjoint there's nothing to subtract in the first
+place, so the refresh runs its own profile in full — the same fallback a broken precondition
+reaches everywhere else on this page.
 
-One more run is opt-in. `FormidableOptions.TrackFormValidity` probes the whole model under
-`SubmitProfile` on every field change — or once per window when `LiveDebounce` is set, at the
-same cadence as the live pass it rides alongside — so a form with it switched on runs that same
-draft rule three times per post-submit edit rather than twice.
+`FormidableOptions.LiveDebounce` reaches that same fallback from a different angle. Set it, and a
+keystroke starts no live pass at all — it only accumulates the field and arms the debounce timer,
+described under [The live pass starts](#the-live-pass-starts) — while the refresh's own timer, on
+`RefreshDebounce`'s independent schedule, keeps arming on every keystroke regardless. Set
+`LiveDebounce` above `RefreshDebounce`, as `/async` does, and the refresh's timer is the one that
+comes due first, before the live pass it would otherwise reuse has even started: it finds no
+report to subtract against and runs the whole `SubmitProfile` on its own, async draft rule
+included, and the debounced live pass that follows runs the whole `LiveProfile` after it,
+answering that same rule again. An async draft rule genuinely answers twice in this shape, not
+once: the cost the subtraction elsewhere on this page exists to avoid, present here because the
+live pass has not started by the time the refresh needs an answer to reuse.
+[Options](options.md#livedebounce) covers this same race from the verdict side — all three
+`LiveDebounce`/`RefreshDebounce` orderings agree on what ends up on screen; this is its cost side.
+
+One validator-wide setting breaks the subtraction's safety net rather than its availability:
+`ClassLevelCascadeMode.Stop` makes a validator give up after its first failing rule, and the
+subtraction runs the live and delta profiles as two separate validator calls, each free to stop
+at its own first failure without seeing the other's. A validator that would have stopped after
+one failure under a single unsplit `Submit` run can report a second issue here that run never
+would have reached. Nothing in this library sets `ClassLevelCascadeMode.Stop`, and
+FluentValidation's own default is `Continue`, so the gap is dormant unless a validator opts in —
+and since the setting isn't visible through the `IModelValidator<TModel>` seam, the engine has no
+way to detect it and warn. Rule-level `.Cascade(CascadeMode.Stop)`, scoped to one rule's own
+chain inside a single ruleset, is unaffected.
+
+One rule shape breaks it the same way. Subtraction works on ruleset names, so a rule declared in
+two rulesets at once — `RuleSet("Submit, Approve", ...)`, with `Approve` on the live profile and
+both on the submit profile — sits in each half of the subtraction and runs in each, where a single
+unsplit `Submit` run would have run it once (FluentValidation's selector runs a rule once however
+many of the selected rulesets it belongs to). The combined verdict then carries its issue twice.
+Nothing can detect that either: ruleset membership isn't visible through the
+`IModelValidator<TModel>` seam, and a `ValidationIssue` doesn't record which ruleset produced it,
+so a rule that can't be subtracted exactly is a shape to know about rather than one the engine
+guards against. Keeping a rule in one ruleset avoids it entirely.
+
+Submit itself never reaches for any of this. `SubmitAsync` always validates the whole
+`SubmitProfile` from scratch, whatever a live pass answered a moment before — the retained-report
+reuse belongs to the refresh that follows a landed submit, not to the submit itself. A submit
+fired shortly after a live pass therefore re-asks a question the live pass just answered, which
+is exactly the gap [memoizing the rule](#memoizing-an-async-rule) below closes.
+
+One more run is opt-in and independent of all of this. `FormidableOptions.TrackFormValidity`
+probes the whole model under `SubmitProfile` on every field change — or once per window when
+`LiveDebounce` is set, at the same cadence as the live pass it rides alongside — and the probe
+shares nothing with the refresh's subtraction, so a form with it switched on runs that same draft
+rule twice per post-submit edit rather than once: the live pass answers it, and the probe answers
+it again on its own terms.
 
 ### Memoizing an async rule
 
-`AsyncRuleMemo<TKey, TResult>` holds the answers and `MustAsyncMemoized` puts one on a rule. Here is
-this page's uniqueness check as a validator that calls a real directory service
+`AsyncRuleMemo<TKey, TResult>` holds answers and `MustAsyncMemoized` puts one on a rule, for two
+gaps the engine's own reuse doesn't reach. A repeated value — typing `admin`, clearing it, typing
+`admin` again — asks the same question twice with nothing in between to catch it: each keystroke
+starts a fresh pass, and no pass remembers what an earlier, unrelated one already answered. And a
+submit fired shortly after a live pass re-asks whatever that live pass just answered, in full,
+every time, since [`SubmitAsync` never reuses a retained
+report](#the-refresh-runs-only-what-the-live-pass-did-not) the way the post-submit refresh does.
+A memo closes both gaps by answering from what it already knows instead of paying for the call
+again.
+
+Here is this page's uniqueness check as a validator that calls a real directory service
 (`IUsernameDirectory` is the consumer's own lookup, whatever it is). It is a second validator over
 the same `Handle` model, not the sample's own `HandleValidator` quoted above:
 
@@ -328,7 +419,7 @@ using Formidable;
 
 public class UniqueHandleValidator : DraftSubmitValidator<Handle>
 {
-    private readonly AsyncRuleMemo<string, bool> _free = new(TimeSpan.FromSeconds(1));
+    private readonly AsyncRuleMemo<string, bool> _free = new(TimeSpan.FromSeconds(10));
     private readonly IUsernameDirectory _directory;
 
     public UniqueHandleValidator(IUsernameDirectory directory) => _directory = directory;
@@ -377,8 +468,21 @@ silently.
   constructor's `IEqualityComparer<TKey>` is no way out of this one: it decides what counts as the
   same key, so it can coarsen a key that already carries the customer and never introduce one the
   key never had.
-- **Keep the window short.** It exists to swallow a duplicate seconds old at most, not to stand
-  in for a data cache with its own invalidation story.
+- **Size the window to the pause it has to survive, not to a system clock.** The two cases the
+  memo exists for — a repeated value, a submit shortly after a live pass — are both about a
+  person's own pace: the gap between retyping a value, or between answering a field and pressing
+  Submit. That's seconds, not milliseconds, and genuinely variable, so err generous. The sample's
+  own `HandleValidator` above sizes its memo to ten seconds for exactly that pause. It still isn't
+  a data cache with its own invalidation story: long enough to outlast the pause, not so long that
+  a value's answer goes stale while the memo keeps serving it.
+
+`Invalidate(key)` and `Clear()` are the escape hatch for the rare case the window alone isn't
+enough: `Invalidate` drops one key's held answer, `Clear` drops all of them, and either way the
+next `GetAsync`/`MustAsyncMemoized` call for an affected key runs the check again regardless of
+how much of the window remains. A server pushing word that a value this memo still holds as
+available has just been taken is exactly the shape of news either one answers to. Both govern
+future lookups only: a call already sharing an in-flight task for that key is not cancelled by
+either method, and still receives the answer that call was already computing.
 
 `MustAsyncMemoized` reaches a property of any non-nullable type — `string` and `int`, but equally
 `Guid`, `decimal`, `DateOnly` — and any nullable reference type, `string?` among them. The one
@@ -406,7 +510,7 @@ the same validator with the memo swapped for a slot, and `using System.Diagnosti
 clock:
 
 ```csharp
-    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(10);
     private (string Username, bool Free, long Timestamp)? _last;
 
     protected override void ConfigureDraftRules() =>
@@ -432,11 +536,11 @@ clock:
 
 The three rules above apply to that just as they do to the memo, and two differences decide
 whether it is enough. `AsyncRuleMemo` holds the in-flight `Task` rather than the finished value, so
-the two passes overlapping one edit join a single call instead of making two whenever the check
-outlasts the gap between them — a slot holding only finished answers cannot. And it keeps a
-bounded set of entries rather than one, so a `RuleForEach` visiting every item with the same
-validator instance hits on all of them, where a single slot is overwritten once per item and hits
-on none.
+two passes that happen to validate around the same time join a single call instead of each making
+its own whenever the check outlasts the gap between them — a slot holding only finished answers
+cannot. And it keeps a bounded set of entries rather than one, so a `RuleForEach` visiting every
+item with the same validator instance hits on all of them, where a single slot is overwritten once
+per item and hits on none.
 
 ## Which fields show "checking…"
 

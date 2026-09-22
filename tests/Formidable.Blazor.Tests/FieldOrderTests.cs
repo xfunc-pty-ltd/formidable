@@ -124,7 +124,7 @@ public class FieldOrderTests : BunitContext
             Result = [CustomerNameField(order), DescriptionField(order)],
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
@@ -147,6 +147,7 @@ public class FieldOrderTests : BunitContext
         var order = NewOrder();
         var fieldOrder = new RecordingFieldOrderService();
         WireHost(fieldOrder);
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.WaitForAssertion(() => Assert.NotEmpty(fieldOrder.Requests));
@@ -171,6 +172,7 @@ public class FieldOrderTests : BunitContext
         var order = NewOrder();
         var fieldOrder = new RecordingFieldOrderService();
         WireHost(fieldOrder);
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.WaitForAssertion(() => Assert.NotEmpty(fieldOrder.Requests));
@@ -242,7 +244,7 @@ public class FieldOrderTests : BunitContext
         var order = NewOrder();
         var fieldOrder = new RecordingFieldOrderService();
         WireHost(fieldOrder);
-        var module = SetUpFocusModule();
+        var module = SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
@@ -279,7 +281,7 @@ public class FieldOrderTests : BunitContext
             Result = [DescriptionField(order), CustomerNameField(order)],
         };
         WireHost(fieldOrder);
-        var module = SetUpFocusModule();
+        var module = SetUpJsModule();
 
         var cut = RenderHostForm(order, new AdvisoryAboveErrorValidator());
         await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
@@ -308,7 +310,7 @@ public class FieldOrderTests : BunitContext
             FaultOnce = true,
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
@@ -335,7 +337,7 @@ public class FieldOrderTests : BunitContext
             Fault = new JSDisconnectedException("the circuit is gone"),
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
@@ -371,7 +373,7 @@ public class FieldOrderTests : BunitContext
             AnswerWithNothingOnce = true,
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
@@ -395,7 +397,7 @@ public class FieldOrderTests : BunitContext
             Result = [CustomerNameField(order), DescriptionField(order)],
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator(), new FormidableOptions());
         cut.Find("form").Submit();
@@ -426,7 +428,7 @@ public class FieldOrderTests : BunitContext
             Result = [CustomerNameField(order), DescriptionField(order)],
         };
         WireHost(fieldOrder);
-        SetUpFocusModule();
+        SetUpJsModule();
 
         IReadOnlyList<FieldIdentifier>? delegateInput = null;
         var options = new FormidableOptions
@@ -477,6 +479,189 @@ public class FieldOrderTests : BunitContext
         Assert.Equal(new List<FieldIdentifier> { customerName, description, location }, result);
     }
 
+    // The version guard latches BEFORE the await starts, which is exactly what makes an in-flight
+    // resolve outlived by a newer one dangerous: on its own return it has no way to know a second
+    // resolve was ever asked for, let alone that the second one already answered. Two overlapping
+    // resolves are driven by hand through a service whose OrderAsync hands back a task the test
+    // completes itself, so which one finishes last is chosen rather than raced — B (the later
+    // resolve) is completed first, then A (the earlier one) last, and the map left in force must
+    // still be B's.
+    [Fact]
+    public async Task An_order_resolve_that_completes_out_of_order_is_discarded()
+    {
+        var order = NewOrder();
+        var fieldOrder = new StepFieldOrderService();
+        Services.AddSingleton<IFormidableFieldOrderService>(fieldOrder);
+        Services.AddFormidableBlazor();
+        SetUpJsModule();
+
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<OverlapHost>(0);
+            builder.AddComponentParameter(1, nameof(OverlapHost.Order), order);
+            builder.AddComponentParameter(2, nameof(OverlapHost.ShowThird), false);
+            builder.CloseComponent();
+        });
+
+        var host = cut.FindComponent<OverlapHost>();
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+
+        cut.WaitForAssertion(() => Assert.Single(fieldOrder.Calls)); // resolve A, from the initial render
+
+        // Issues to reorder, staged while A is still unanswered.
+        await cut.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        // Registering a second field bumps the registry version, which is what makes the form ask
+        // the order service again rather than treating the render as one it has already resolved.
+        host.Render(parameters => parameters.Add(p => p.ShowThird, true));
+        cut.WaitForAssertion(() => Assert.Equal(2, fieldOrder.Calls.Count)); // resolve B
+
+        var description = DescriptionField(order);
+        var customerName = CustomerNameField(order);
+
+        // B, the later resolve, completes first; A, the earlier one, completes last — the ordering
+        // the property under test depends on.
+        await cut.InvokeAsync(() => fieldOrder.Calls[1].SetResult([customerName, description]));
+        await cut.InvokeAsync(() => fieldOrder.Calls[0].SetResult([description, customerName]));
+
+        // A submit rather than a bare wait, so the assertion below reads a summary that has been
+        // rebuilt since the last of the two answers landed, whichever of them won.
+        await cut.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        cut.WaitForAssertion(() => Assert.Equal(DocumentOrderMessages, SummaryEntries(form)));
+    }
+
+    // The registry's version answers which fields exist, not where they sit. A keyed reorder moves
+    // rendered elements without registering or unregistering anything, so a resolve gated on that
+    // version alone never runs again and the summary keeps listing the page the way it used to be.
+    [Fact]
+    public async Task A_layout_move_re_resolves_the_order()
+    {
+        var order = NewOrder();
+        var description = DescriptionField(order);
+        var customerName = CustomerNameField(order);
+        var fieldOrder = new RecordingFieldOrderService { Result = [customerName, description] };
+        WireHost(fieldOrder);
+        SetUpJsModule();
+
+        var cut = RenderHostForm(order, new DeclarationOrderValidator());
+        cut.Find("form").Submit();
+        cut.WaitForAssertion(() => Assert.Equal(DocumentOrderMessages, SummaryEntries(cut)));
+
+        var resolvesBeforeTheMove = fieldOrder.Requests.Count;
+
+        // The page moves its fields. Nothing registers or unregisters, so the registry's version is
+        // exactly the one the order above was resolved against.
+        fieldOrder.Result = [description, customerName];
+        await cut.InvokeAsync(() => cut.Instance.NotifyLayoutMoved());
+
+        cut.WaitForAssertion(() => Assert.True(
+            fieldOrder.Requests.Count > resolvesBeforeTheMove,
+            "the layout move provoked no fresh order resolve"));
+
+        // The same fields, asked about again: the second request is a question about where they
+        // are, not about which of them exist.
+        Assert.Equal(fieldOrder.Requests[resolvesBeforeTheMove - 1], fieldOrder.Requests[^1]);
+
+        // Nothing further is driven from here on purpose. A move that registers nothing raises no
+        // pass, no edit and no server apply, so if the resolved order did not put itself on screen
+        // the summary would keep listing the page as it used to be — the reported bug exactly.
+        cut.WaitForAssertion(() => Assert.Equal(
+            [
+                "Description is required",
+                "Description is too short",
+                "Customer name is required",
+                "The order is incomplete",
+            ],
+            SummaryEntries(cut)));
+
+        await Services.DisposeAsync();
+    }
+
+    // The observer lives in the browser and holds a reference back into the component, so a form
+    // that goes away without disconnecting leaves the page reporting moves to something that is no
+    // longer there.
+    [Fact]
+    public async Task Disposing_the_form_disconnects_the_layout_observer()
+    {
+        var order = NewOrder();
+        var fieldOrder = new RecordingFieldOrderService
+        {
+            Result = [CustomerNameField(order), DescriptionField(order)],
+        };
+        WireHost(fieldOrder);
+        var module = SetUpJsModule();
+
+        var cut = RenderHostForm(order, new DeclarationOrderValidator());
+        cut.WaitForAssertion(() => Assert.Contains("observeLayout", module.Invocations.Identifiers));
+
+        await DisposeComponentsAsync();
+
+        // Addressed by the form element's own id, the one the observer was established on.
+        Assert.Equal(
+            FormidableFieldId.For(new FieldIdentifier(order, string.Empty)),
+            module.Invocations["disconnectLayoutObserver"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    // A resolve lands after the render that produced the elements it measured, so a changed order
+    // has nothing else to arrive on: whatever reads issues has already rendered by then.
+    [Fact]
+    public void A_resolved_order_that_differs_notifies()
+    {
+        var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(_order.Customer!, nameof(EngineCustomer.Name));
+        var notifications = 0;
+        _engine.StateChanged += () => notifications++;
+
+        _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
+        {
+            [description] = 0,
+            [customerName] = 1,
+        });
+        Assert.Equal(1, notifications); // validator order to a resolved one is a difference
+
+        _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
+        {
+            [customerName] = 0,
+            [description] = 1,
+        });
+        Assert.Equal(2, notifications);
+
+        _engine.SetFieldOrder(null);
+        Assert.Equal(3, notifications); // and back to validator order is one too
+    }
+
+    // The half that pins the gate. Most resolves answer with the order already in force — a
+    // registration change usually leaves the reading order where it was, and a host watching the
+    // page for moves resolves again on the very re-render a changed order provokes. Notifying on
+    // those would put a render round behind every registration change, and would leave the second
+    // of that pair provoking a third.
+    [Fact]
+    public void A_resolved_order_matching_the_one_in_force_notifies_nothing()
+    {
+        var description = new FieldIdentifier(_order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(_order.Customer!, nameof(EngineCustomer.Name));
+        _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
+        {
+            [description] = 0,
+            [customerName] = 1,
+        });
+
+        var notifications = 0;
+        _engine.StateChanged += () => notifications++;
+
+        // A different instance carrying the same answer, which is what a fresh resolve hands over.
+        _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
+        {
+            [description] = 0,
+            [customerName] = 1,
+        });
+
+        Assert.Equal(0, notifications);
+    }
+
     /// <summary>The four messages DeclarationOrderValidator produces, in the page's order.</summary>
     private static string[] DocumentOrderMessages =>
     [
@@ -507,10 +692,16 @@ public class FieldOrderTests : BunitContext
         Services.AddFormidableBlazor();
     }
 
-    private BunitJSModuleInterop SetUpFocusModule()
+    private BunitJSModuleInterop SetUpJsModule()
     {
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
+
+        // The form establishes its layout observer through the same module. Strict mode is what
+        // makes planning it necessary at all: an unplanned invocation is a test-harness failure,
+        // not the interop failure the form is written to tolerate.
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         return module;
     }
 
@@ -559,5 +750,76 @@ public class FieldOrderTests : BunitContext
         builder.AddComponentParameter(
             sequence + 3, "ValueChanged", EventCallback.Factory.Create(this, setter));
         builder.CloseComponent();
+    }
+
+    /// <summary>
+    /// Answers <see cref="IFormidableFieldOrderService.OrderAsync"/> with a task the test completes
+    /// by hand, one per call — so a test can choose which of two overlapping resolves finishes
+    /// last instead of racing real ones.
+    /// </summary>
+    private sealed class StepFieldOrderService : IFormidableFieldOrderService
+    {
+        /// <summary>One entry per call, in call order, each still pending until the test completes it.</summary>
+        public List<TaskCompletionSource<IReadOnlyList<FieldIdentifier>?>> Calls { get; } = [];
+
+        public ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields)
+        {
+            var call = new TaskCompletionSource<IReadOnlyList<FieldIdentifier>?>();
+            Calls.Add(call);
+            return new ValueTask<IReadOnlyList<FieldIdentifier>?>(call.Task);
+        }
+    }
+
+    /// <summary>
+    /// Test-only host whose <see cref="ShowThird"/> toggles a second registration of the
+    /// description field on and off, purely to bump the registry's version and provoke a second
+    /// order resolve on the form beneath it — see
+    /// <see cref="An_order_resolve_that_completes_out_of_order_is_discarded"/>.
+    /// </summary>
+    private sealed class OverlapHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool ShowThird { get; set; }
+
+        protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(
+                2,
+                nameof(FormidableForm<EngineOrder>.Validator),
+                new FluentValidationModelValidator<EngineOrder>(new DeclarationOrderValidator()));
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.CloseComponent();
+
+                inner.OpenComponent<FormidableInputText>(1);
+                inner.AddComponentParameter(2, "For", (Expression<Func<string?>>)(() => Order.Description));
+                inner.AddComponentParameter(3, "Value", Order.Description);
+                inner.AddComponentParameter(
+                    4, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => Order.Description = v ?? string.Empty));
+                inner.CloseComponent();
+
+                inner.OpenComponent<FormidableInputText>(5);
+                inner.AddComponentParameter(6, "For", (Expression<Func<string?>>)(() => Order.Customer!.Name));
+                inner.AddComponentParameter(7, "Value", Order.Customer!.Name);
+                inner.AddComponentParameter(
+                    8, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => Order.Customer!.Name = v ?? string.Empty));
+                inner.CloseComponent();
+
+                if (ShowThird)
+                {
+                    inner.OpenComponent<FormidableFieldAnchor<string>>(9);
+                    inner.AddComponentParameter(
+                        10, nameof(FormidableFieldAnchor<string>.For), (Expression<Func<string>>)(() => Order.Description));
+                    inner.CloseComponent();
+                }
+            }));
+            builder.CloseComponent();
+        }
     }
 }

@@ -24,47 +24,60 @@
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_roster" OnValidSubmit="HandleValid">
+<FormidableForm Model="_roster" OnValidSubmit="HandleValid" Options="_options">
     <FormidableSummary />
     <FormidableCollectionMessage For="() => _roster.Teams" />
 
-    <div class="team-list" id="@TeamsId" tabindex="-1">
-        @foreach (var team in _roster.Teams)
-        {
-            <fieldset @key="team" id="@MembersId(team)" tabindex="-1">
-                <legend>Team</legend>
-                <div class="field">
-                    <label>Name <FormidableInputText @bind-Value="team.Name" /></label>
-                    <FormidableFieldMessage For="() => team.Name" />
-                </div>
+    @* A collection rule fails against the list, not against any one input, so its summary entry
+       has nothing to focus unless some element carries the collection's id: the container
+       holding every team for the roster's own rule, and each team's box for that team's member
+       rule. Both ids come from the model via FormidableField's own ElementId, so no page-owned
+       state is needed to keep them in step. *@
+    <FormidableField For="() => _roster.Teams" Context="teamsField">
+        <div class="team-list" id="@teamsField.ElementId" tabindex="-1">
+            @foreach (var team in _roster.Teams)
+            {
+                @* @key="team" is what keeps THIS component bound to this team as the list
+                   reorders — without it, Blazor would reuse the component positionally, and a
+                   moved row's member actions and message list would stay pointed at whichever
+                   team originally rendered in that screen slot. *@
+                <FormidableField For="() => team.Members" Context="membersField" @key="team">
+                    <fieldset id="@membersField.ElementId" tabindex="-1">
+                        <legend>Team</legend>
+                        <div class="field">
+                            <label>Name <FormidableInputText @bind-Value="team.Name" /></label>
+                            <FormidableFieldMessage For="() => team.Name" />
+                        </div>
 
-                <FormidableCollectionMessage For="() => team.Members" />
-                <ul class="member-list">
-                    @foreach (var member in team.Members)
-                    {
-                        <li class="field" @key="member">
-                            <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
-                            <FormidableFieldMessage For="() => member.Alias" />
-                            <div class="actions">
-                                <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
-                                <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
-                            </div>
-                        </li>
-                    }
-                </ul>
-                <div class="actions">
-                    <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
-                    <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
-                    <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
-                </div>
-            </fieldset>
-        }
-    </div>
+                        <FormidableCollectionMessage For="() => team.Members" />
+                        <ul class="member-list">
+                            @foreach (var member in team.Members)
+                            {
+                                <li class="field" @key="member">
+                                    <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+                                    <FormidableFieldMessage For="() => member.Alias" />
+                                    <div class="actions">
+                                        <button type="button" @onclick="() => RemoveItem(team.Members, member, membersField)">Remove</button>
+                                        <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                        <div class="actions">
+                            <button type="button" @onclick="() => AddItem(team.Members, new Member(), membersField)">Add member</button>
+                            <button type="button" @onclick="() => RemoveItem(_roster.Teams, team, teamsField)">Remove team</button>
+                            <button type="button" @onclick="() => MoveUp(_roster.Teams, team, teamsField)">Move team up</button>
+                        </div>
+                    </fieldset>
+                </FormidableField>
+            }
+        </div>
 
-    <div class="actions">
-        <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
-        <button type="submit">Submit</button>
-    </div>
+        <div class="actions">
+            <button type="button" @onclick="() => AddItem(_roster.Teams, new Team(), teamsField)">Add team</button>
+            <button type="submit">Submit</button>
+        </div>
+    </FormidableField>
 </FormidableForm>
 
 <p role="status">@_status</p>

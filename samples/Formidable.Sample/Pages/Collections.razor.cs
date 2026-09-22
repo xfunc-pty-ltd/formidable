@@ -16,23 +16,44 @@ public partial class Collections
 
     private string _status = string.Empty;
 
-    // A collection rule fails against the list, not against any one input, so its summary entry
-    // has nothing to focus unless some element carries the collection's id: the container holding
-    // every team for the roster's own rule, and each team's box for that team's member rule. Both
-    // ids are derived from the model, so no state is added to keep them in step.
-    private string TeamsId => FormidableFieldId.For(_roster, r => r.Teams);
-
-    private static string MembersId(Team team) => FormidableFieldId.For(team, t => t.Members);
+    // A row list that loses its @key can misfile a message onto the wrong row without a single
+    // symptom on screen - the exact mistake this page exists to teach against. VerifyRowKeys
+    // catches it at the source: turned on, a field-bound component throws the moment its
+    // accessor no longer names the row it registered, rather than silently rendering someone
+    // else's row. A real app would typically gate this to Development builds only; it stays on
+    // unconditionally here since the page's whole point is demonstrating the guard it protects.
+    private readonly FormidableOptions _options = new() { VerifyRowKeys = true };
 
     private void HandleValid() => _status = "Submitted — every row passed.";
 
-    private static void MoveUp<T>(List<T> list, T item)
+    // Add, Remove and MoveUp all mutate a list directly, and the engine only revalidates a field
+    // it's told changed - so each handler notifies the field context afterward. A rule that
+    // starts or stops failing because of the edit, "every team needs at least one member" going
+    // red the moment the last one leaves, needs a fresh pass to say so; no prune can invent an
+    // issue no pass produced. MoveUp notifies too, for the same contract, even though reordering
+    // doesn't change what any rule here has to say.
+    private static void AddItem<T>(List<T> list, T item, FormidableFieldContext field)
+    {
+        list.Add(item);
+        field.NotifyChanged();
+    }
+
+    private static void RemoveItem<T>(List<T> list, T item, FormidableFieldContext field)
+    {
+        list.Remove(item);
+        field.NotifyChanged();
+    }
+
+    private static void MoveUp<T>(List<T> list, T item, FormidableFieldContext field)
     {
         var index = list.IndexOf(item);
-        if (index > 0)
+        if (index <= 0)
         {
-            list.RemoveAt(index);
-            list.Insert(index - 1, item);
+            return;
         }
+
+        list.RemoveAt(index);
+        list.Insert(index - 1, item);
+        field.NotifyChanged();
     }
 }

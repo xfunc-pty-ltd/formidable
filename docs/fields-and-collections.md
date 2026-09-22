@@ -47,6 +47,15 @@ because a `List<T>` property like `Lines` has no input of its own for a collecti
 (`Add at least one line`) to attach to — without it, that rule's failure would have nowhere in
 the markup to become visible at all.
 
+Adding, removing or reordering a row is a mutation the object graph feels at once, but the engine
+only feels half of it on its own. It notices the rendered field set moving — a removed row's
+fields leaving the page — and prunes their live issues rather than go on showing a verdict for a
+row that's gone; on a form already submitted, the same move also schedules a reconciling refresh.
+What it cannot notice is a rule whose verdict changes because of what the list now holds: "Add at
+least one line" doesn't start failing because a row left the page, it starts failing because the
+list is now empty, and no pass has asked that rule about the shorter list yet. That still needs
+`NotifyChanged()`, covered next for exactly this kind of page-driven edit.
+
 ## `FormidableField`, a first look
 
 Not every control on a form is one Formidable wraps for you. A UI library's own `<select>`, a

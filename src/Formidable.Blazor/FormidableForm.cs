@@ -27,6 +27,42 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private bool _renderModeChecked;
     private int _fieldOrderVersion = -1;
 
+    // Tracked apart from _fieldOrderVersion even though both watch the same counter: which fields
+    // are on the page and where on it they sit are independent questions, answered by different
+    // things (the engine itself; a JS round trip that may not be available at all), and a form
+    // that cannot answer the second must still answer the first.
+    private int _renderedFieldSetVersion = -1;
+
+    // Distinct from _fieldOrderVersion, which gates whether a resolve is started at all:
+    // _resolveStamp arbitrates between resolves that are already in flight together. Latching a
+    // new value right before every await keeps the arbitration a plain integer comparison rather
+    // than one that has to reason about which of two answers is "newer" — the last resolve to start
+    // is, by construction, the last value assigned here, and it is the only one whose result an
+    // earlier resolve returning afterward can no longer match.
+    private int _resolveStamp;
+
+    // The one thing none of the counters above can carry. A keyed reorder MOVES rendered elements
+    // without registering or unregistering anything, so the registry's version — which answers
+    // which fields exist, not where they are — does not move either. Only the browser sees it
+    // happen, so the browser is what says so, and this is what the render that follows reads.
+    private bool _layoutMoved;
+
+    // The observer's own half. The module is this component's rather than a shared service's:
+    // FormidableJsModule is written so whoever holds one disposes it, and the form is the only
+    // thing that knows when its own element stops existing. The reference into this component is
+    // created once and reused, since every observer this form establishes reports to it.
+    private FormidableJsModule? _jsModule;
+    private DotNetObjectReference<FormidableForm<TModel>>? _layoutObserverReference;
+
+    // Which form element the observer sits on: the context a rebuild replaces, and the element id
+    // that rebuild renders. A rebuilt form draws a fresh <form> element — BuildRenderTree keys its
+    // region on the context instance — so an observer left where the old one stood would watch a
+    // node that is no longer in the document.
+    private FormidableFormContext? _observedContext;
+    private string _observedFormId = string.Empty;
+
+    private bool _disposed;
+
     /// <summary>The form model. A reference change rebuilds the EditContext and engine.</summary>
     [Parameter, EditorRequired]
     public TModel Model { get; set; } = default!;
@@ -133,7 +169,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
-    /// Resolves where the form's fields actually sit on the page and hands the engine that order,
+    /// Reports a moved rendered field set to the engine, and resolves where the form's fields
+    /// actually sit on the page.
+    /// The first is what keeps a submitted form from reporting verdicts about fields that are no
+    /// longer on it: the registry is the only record that they left, and it raises no event, so
+    /// this form's own next render is where the engine hears about it — see
+    /// <see cref="FormValidationEngine{TModel}.OnRenderedFieldsChanged"/> for what it does with
+    /// that. Its reach is this component's render, exactly as the ordering resolve's is: a
+    /// nested component re-rendering on state of its own moves the registry without bringing the
+    /// form here, so the move is picked up by whichever of the form's renders comes next. It
+    /// happens ahead of everything below and on a tracker of its own, since a form with no
+    /// <see cref="IFormidableFieldOrderService"/> to consult still has fields that can leave.
+    /// The second hands the engine a reading order,
     /// so a blocked submit reports its issues — and focuses the first error among them — in the
     /// order a visitor reads the form, rather than the order the validator declares its rules.
     /// The request is not only the registered fields: the model-level field the form's own
@@ -141,8 +188,15 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// the rest instead of always trailing them.
     /// The browser is the only source for this, so it is answered by
     /// <see cref="IFormidableFieldOrderService"/> after the render that produced the elements.
-    /// The registry's version is what decides whether there is anything to re-resolve: it moves
-    /// only when a field registers or unregisters, so every later render stops at that check.
+    /// The registry's version is most of what decides whether there is anything to re-resolve: it
+    /// moves only when a field registers or unregisters, so every later render stops at that check.
+    /// It cannot be all of it, because it answers which fields exist and not where they are — a
+    /// keyed reorder moves rendered elements without a single registration changing. What sees that
+    /// happen is a browser-side observer over the form's own subtree, which reports it through
+    /// <see cref="NotifyLayoutMoved"/>, and a render following one re-resolves on a version that
+    /// has not moved. The observer is a private signal between this component and the library's own
+    /// script, not part of <see cref="IFormidableFieldOrderService"/>: an implementation of that
+    /// interface answers a question and is never asked to notice anything.
     /// A resolve that cannot be had — no service registered, or an interop boundary that is
     /// gone, disconnected or never loaded — leaves the engine on whatever order it already had
     /// (validator order, until a resolve has landed) rather than failing a render, and a failed one
@@ -161,7 +215,25 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
 
         var version = _engine.Registry.Version;
-        if (version == _fieldOrderVersion)
+
+        if (version != _renderedFieldSetVersion)
+        {
+            // Ahead of both gates below, and on its own tracker. A field leaving the page is the
+            // engine's business whether or not the page can also say where the remaining ones
+            // sit, so sharing a gate with the ordering resolve would leave staleness unhandled on
+            // every form with no IFormidableFieldOrderService registered. Nothing else announces
+            // the move: removing a collection row mutates the model without raising a field
+            // change, and the render that follows would otherwise redraw the verdict about a row
+            // that is gone.
+            //
+            // Recorded only once the call has returned: a throw leaves the tracker behind the
+            // registry so the next render tries again, the same retry the ordering path below
+            // reaches by clearing its own guard.
+            _engine.OnRenderedFieldsChanged();
+            _renderedFieldSetVersion = version;
+        }
+
+        if (version == _fieldOrderVersion && !_layoutMoved)
         {
             return;
         }
@@ -172,7 +244,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
+        // Cleared before anything below is awaited, for the same reason the version is latched
+        // before the resolve starts: a move reported while this pass is in flight describes a page
+        // the answer already being awaited cannot account for, so it has to survive as a set flag
+        // for the next render to act on rather than be wiped by this pass finishing.
+        _layoutMoved = false;
         _fieldOrderVersion = version;
+
+        await EstablishLayoutObserverAsync();
 
         // The model-level field's id rides on this form's own <form> element, which contains
         // every field in it — so document order puts it first, which is where a verdict about
@@ -189,6 +268,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         {
             fields.Add(_engine.ModelLevelField);
         }
+
+        // Latched before the await starts, same as the version above it: whichever resolve reaches
+        // this line last is the one whose stamp survives, so a resolve that returns to find its own
+        // stamp no longer current knows — without needing to compare maps or timestamps — that a
+        // resolve started after it already had its answer applied.
+        var resolveStamp = ++_resolveStamp;
 
         IReadOnlyList<FieldIdentifier>? ordered;
         try
@@ -215,6 +300,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
+        if (resolveStamp != _resolveStamp)
+        {
+            // A resolve that started after this one already ran to completion and applied its own
+            // map while this one was still in flight — this answer is real, just outdated, and
+            // installing it now would overwrite a newer map with an older one, permanently, since
+            // nothing would be left to retry it. Discarded rather than applied; the newer map stays
+            // in force.
+            return;
+        }
+
         if (_engine.Options.OrderIssues is { } reorder)
         {
             ordered = ApplyOrderDelegate(ordered, reorder);
@@ -226,10 +321,122 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             order[ordered[i]] = i;
         }
 
-        // No render is forced from here. The order takes effect on the next render of whatever
-        // reads issues, and everything that puts an issue on screen — a pass landing, an edit, a
-        // server apply — raises the engine's own notification as part of doing so.
+        // A render follows only if this answer differs from the order already in force — the engine
+        // decides that, and stays silent when it does not. It has to be the engine's call rather
+        // than this method's: a resolve lands after the render that produced the elements it
+        // measured, so a changed order has nothing else to arrive on. A move that registers nothing
+        // raises no pass, no edit and no server apply for it to ride.
         _engine.SetFieldOrder(order);
+    }
+
+    /// <summary>
+    /// Interop callback for the library's own script: the browser reporting that the form's
+    /// rendered elements moved, so the reading order resolved for them no longer describes the
+    /// page. Public only because <see cref="JSInvokableAttribute"/> requires it — it is not part of
+    /// the consumer-facing surface and nothing outside the library has any reason to call it.
+    /// </summary>
+    /// <remarks>
+    /// All it does is record the move and provoke a render, which is where
+    /// <see cref="OnAfterRenderAsync"/> picks it up: the resolve needs a rendered page to measure,
+    /// and this is called from a browser callback rather than the renderer's own loop.
+    /// </remarks>
+    /// <returns>A task completing once the render this provokes has been dispatched.</returns>
+    [JSInvokable]
+    public async Task NotifyLayoutMoved()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _layoutMoved = true;
+
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception) when (
+            exception is ObjectDisposedException or OperationCanceledException)
+        {
+            // The check above covers a form already torn down when the browser called; it cannot
+            // cover one torn down between that check and this dispatch, which is a race no check
+            // can close and only a catch can answer. Awaited rather than discarded so the failure
+            // is answered here instead of surfacing later as an unobserved task exception, and
+            // there is nothing to answer it with: a form on its way out has no reading order left
+            // to re-resolve.
+        }
+    }
+
+    /// <summary>
+    /// Puts the browser-side layout observer on the form element the current context renders,
+    /// moving it off whichever element it stood on before. Cheap to call on every ordering pass:
+    /// it does nothing at all while the context it was established for is still the one rendering.
+    /// Best-effort throughout: a form with no observer re-resolves its order when a field
+    /// registers or unregisters and not when the page merely moves the existing ones, which is
+    /// what every host with no JavaScript already does.
+    /// </summary>
+    /// <remarks>
+    /// The observer cannot feed itself. It reports DOM changes, and resolving an order only reads
+    /// where elements sit — nothing here writes to the page — so the render a report provokes
+    /// either changes the DOM because the order genuinely changed, which the following pass finds
+    /// settled, or changes nothing and produces no records to report.
+    /// </remarks>
+    private async Task EstablishLayoutObserverAsync()
+    {
+        if (ReferenceEquals(_observedContext, _context))
+        {
+            return;
+        }
+
+        var jsRuntime = Services.GetService<IJSRuntime>();
+        if (jsRuntime is null)
+        {
+            return;
+        }
+
+        _jsModule ??= new FormidableJsModule(jsRuntime);
+        _layoutObserverReference ??= DotNetObjectReference.Create(this);
+
+        var observing = _observedFormId;
+        _observedFormId = string.Empty;
+        _observedContext = null;
+
+        try
+        {
+            if (observing.Length > 0)
+            {
+                await _jsModule.InvokeVoidAsync("disconnectLayoutObserver", observing);
+            }
+
+            await _jsModule.InvokeVoidAsync(
+                "observeLayout", _modelLevelFieldId, _layoutObserverReference);
+        }
+        catch
+        {
+            // Prerender, attach mode, a host carrying no script at all, a test double standing in
+            // for the module: with no browser to watch the layout, none is watched, and the
+            // registry's version goes back to being the only thing that re-resolves an order —
+            // the documented fallback, costing the page re-ordering when the DOM moves under it
+            // and nothing else. That is the same bargain the ordering resolve's own catch strikes,
+            // and it is why this one is written wide open where that one names the interop family
+            // exactly: behind this call is the library's own script, reached through the library's
+            // own module, with no consumer code anywhere in it. There is no implementation bug to
+            // preserve for someone to see, so letting anything at all out of a lifecycle method
+            // here would take a working form down over a feature it can do without.
+            //
+            // Nothing is recorded as observed, so the next render to reach this method establishes
+            // the observer again. That is not the same as a retry: this method is reached only
+            // once the gate above has opened, and with no observer the only thing that opens it is
+            // a registration change. A form whose registered set never moves stays unobserved
+            // after a failure here — which is exactly the JS-less fallback, arrived at from a
+            // different direction. The version guard is deliberately not cleared to force the
+            // matter: on a host where this can never succeed, clearing it would buy a re-resolve
+            // on every single render, forever, for an observer that is never going to establish.
+            return;
+        }
+
+        _observedFormId = _modelLevelFieldId;
+        _observedContext = _context;
     }
 
     /// <summary>
@@ -319,8 +526,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
 
         // The new engine has its own registry, whose version starts over — and its own fields to
-        // locate, since the swapped-in model's identifiers are not the old ones.
+        // locate, since the swapped-in model's identifiers are not the old ones. Both trackers
+        // reset, or the old registry's count could happen to match the new one's and the first
+        // render after a swap would take itself for a render with nothing to do.
         _fieldOrderVersion = -1;
+        _renderedFieldSetVersion = -1;
     }
 
     /// <summary>
@@ -642,5 +852,69 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _engine?.Dispose();
+    public void Dispose()
+    {
+        // Recorded first: a move reported between here and the observer actually going away would
+        // otherwise ask a component that no longer exists to render.
+        _disposed = true;
+        _engine?.Dispose();
+        ReleaseLayoutObserver();
+    }
+
+    /// <summary>
+    /// Tears down the browser-side observer and the reference it reports through.
+    /// </summary>
+    /// <remarks>
+    /// Disconnecting is worth doing on its own account: the script module the observer lives in
+    /// outlives this component — a module is loaded once per document and stays — so an observer
+    /// left connected goes on watching a detached form and goes on holding the reference that
+    /// reaches back into a component nobody else can see. Disposal here is synchronous and the
+    /// disconnect is not, so the reference is released once the round trip still naming it has
+    /// returned rather than while it is in flight; an interop boundary that is already gone
+    /// releases it just the same, and has taken the observer with it anyway.
+    /// </remarks>
+    private void ReleaseLayoutObserver()
+    {
+        var module = _jsModule;
+        var reference = _layoutObserverReference;
+        var observing = _observedFormId;
+
+        _jsModule = null;
+        _layoutObserverReference = null;
+        _observedFormId = string.Empty;
+        _observedContext = null;
+
+        if (module is null)
+        {
+            reference?.Dispose();
+            return;
+        }
+
+        _ = DisconnectLayoutObserverAsync(module, reference, observing);
+    }
+
+    private static async Task DisconnectLayoutObserverAsync(
+        FormidableJsModule module,
+        DotNetObjectReference<FormidableForm<TModel>>? reference,
+        string observing)
+    {
+        try
+        {
+            if (observing.Length > 0)
+            {
+                await module.InvokeVoidAsync("disconnectLayoutObserver", observing);
+            }
+
+            await module.DisposeAsync();
+        }
+        catch (Exception exception) when (IsInteropFailure(exception))
+        {
+            // A boundary that is gone, disconnected or never loaded has nothing left holding the
+            // observer, and a component being torn down is no place to raise that as a failure.
+        }
+        finally
+        {
+            reference?.Dispose();
+        }
+    }
 }

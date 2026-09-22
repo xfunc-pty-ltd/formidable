@@ -20,10 +20,13 @@ public class FormidableOptionsResolutionTests : BunitContext
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
 
         // RenderForm's FormidableForm carries no fields at all, but the model-level field is
-        // still offered to the order service on its first render — so every test through here
-        // needs the module answered, not just the ones that care about ordering.
+        // still offered to the order service on its first render, and the form puts its layout
+        // observer on the same module then too — so every test through here needs the module
+        // answered, not just the ones that care about ordering.
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
     }
 
     [Fact]

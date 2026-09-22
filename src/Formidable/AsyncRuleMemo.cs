@@ -3,8 +3,9 @@ namespace Formidable;
 /// <summary>
 /// Reuses the answer an async check already gave for a value, for a short window, so a check that
 /// runs more than once over unchanged input costs a lookup instead of a round trip. Built for
-/// async validation rules: after a form has been submitted once, every edit runs both a live pass
-/// and the post-submit refresh, so a rule in the common bucket executes twice per edit.
+/// async validation rules, where a value is genuinely asked about twice: retyped after being
+/// cleared, or checked again by a submit that follows shortly after a live pass already answered
+/// the same field.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,8 +26,9 @@ namespace Formidable;
 /// waiting; the call it was waiting on carries on for whoever else wants it.
 /// </para>
 /// <para>
-/// Safe to use from several flows at once, which is the point of it: the two passes over one edit
-/// are separate async flows, and a consumer may validate away from the UI thread.
+/// Safe to use from several flows at once, which is what makes joining an in-flight call possible:
+/// two passes that end up validating around the same time share one in-flight check instead of
+/// each starting its own, and a consumer may validate away from the UI thread.
 /// </para>
 /// <para>
 /// A failed check is never served. The next caller runs it again, so a transient network failure
@@ -48,10 +50,11 @@ public sealed class AsyncRuleMemo<TKey, TResult>
 
     /// <summary>Creates a memo.</summary>
     /// <param name="window">
-    /// How long an answer stays usable, measured from the moment its check starts. The refresh
-    /// that follows a submit defers while a live pass is in flight and only runs once that pass
-    /// finishes, so a window meant to catch the duplicate between a live pass and its refresh has
-    /// to exceed the rule's own duration plus the refresh debounce, not just the debounce alone.
+    /// How long an answer stays usable, measured from the moment its check starts. Size it to the
+    /// pause it has to survive rather than to any of the engine's own scheduling windows: a value
+    /// retyped, or a submit pressed shortly after a live pass already answered the same field, are
+    /// both paced by the person at the keyboard, not by a timer, so a useful window is seconds
+    /// long and a judgement call rather than a derived value.
     /// </param>
     /// <param name="capacity">
     /// The most entries kept at once. A leak guard for a long-lived validator, not a tuning knob —

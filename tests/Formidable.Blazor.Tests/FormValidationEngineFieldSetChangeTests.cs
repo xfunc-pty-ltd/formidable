@@ -1,0 +1,279 @@
+using Formidable.Blazor.Tests.Fixtures;
+using Formidable.Introspection;
+using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.Extensions.Time.Testing;
+using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
+
+namespace Formidable.Blazor.Tests;
+
+/// <summary>
+/// A rendered field set that moves — a collection row removed, a section collapsed — announces
+/// itself as nothing at all: the model may be mutated without a field change, and the registry
+/// deliberately raises no event. These pin what the engine does once the host tells it, and
+/// equally what it declines to do.
+/// </summary>
+/// <remarks>
+/// The refresh assertions are carried by rule-execution counters rather than by verdicts. A
+/// refresh that never ran and a refresh that ran and changed nothing leave identical state, and
+/// the invalidation in particular is only visible as WHICH rules the next refresh executes — a
+/// reused report and a recomputed one agree about the verdict whenever the model has not moved,
+/// which is exactly the case that would make an assertion on state pass for the wrong reason.
+/// </remarks>
+public class FormValidationEngineFieldSetChangeTests
+{
+    private const int PastRefreshWindow = 301;
+
+    [Fact]
+    public void A_field_that_left_the_page_loses_its_live_issue()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FormidableOptions());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name);
+
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+
+        // The customer is still on the model — only its field's registration is gone, which is
+        // the whole difference between a row that left the page and one that is merely not being
+        // looked at.
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+    }
+
+    [Fact]
+    public void A_field_that_left_the_page_loses_its_store_message()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FormidableOptions());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name);
+
+        // The message store is the second place the verdict lives, and the one the platform's own
+        // ValidationMessage and ValidationSummary render from. An engine read that has dropped the
+        // issue while this still offers it is two answers to one question.
+        Assert.Contains(RuleRunCountingValidator.DraftMessage, editContext.GetValidationMessages());
+
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        Assert.DoesNotContain(RuleRunCountingValidator.DraftMessage, editContext.GetValidationMessages());
+    }
+
+    [Fact]
+    public void A_field_set_change_that_prunes_nothing_publishes_nothing()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FormidableOptions());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        using var registration = engine.Registry.Register(name);
+
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name);
+
+        var notifications = 0;
+        var validationStateChanges = 0;
+        engine.StateChanged += () => notifications++;
+        editContext.OnValidationStateChanged += (_, _) => validationStateChanges++;
+
+        // The field is still registered, so nothing leaves and there is nothing to republish. This
+        // is the case a page whose rows churn as it scrolls spends all its time in, and a render
+        // round per registration change is what it must not cost.
+        engine.OnRenderedFieldsChanged();
+
+        Assert.Equal(0, notifications);
+        Assert.Equal(0, validationStateChanges);
+    }
+
+    [Fact]
+    public void A_kept_registered_field_keeps_its_live_issue()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FormidableOptions());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name, keepRegistered: true);
+
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name);
+
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+
+        // What a virtualized row's disposal means: the element is gone from the DOM, the field has
+        // not left the form. Its messages have to survive being scrolled past.
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+    }
+
+    [Fact]
+    public async Task A_live_pass_in_flight_does_not_answer_for_a_field_that_left_the_page()
+    {
+        // A collapsed section rather than a removed row: the customer is still on the model, so
+        // the draft rule the field fails goes on failing, and the verdict the pass in flight is
+        // about to write is a real issue rather than an empty entry.
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        // A first edit, settled, so the field holds an issue the prune has to find — the state the
+        // pass below would be putting back rather than creating for the first time.
+        editContext.NotifyFieldChanged(name);
+        var first = Quiescence(engine);
+        validator.Gate.SetResult();
+        await first;
+
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+
+        // A second edit, held open on the gate: this is the pass that is still in flight when the
+        // section closes.
+        validator.Reset();
+        editContext.NotifyFieldChanged(name);
+
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+
+        // The verdict arrives for a field with nowhere left to show it. Writing it would restore
+        // precisely what the prune removed, and nothing filters the live channel on the way out,
+        // so it would stand in the summary until the next field-set change.
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+    }
+
+    [Fact]
+    public async Task A_field_set_change_after_a_submit_schedules_a_refresh()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext, validator, new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        // Both buckets fail, so the submit blocks and leaves error sites a refresh keeps current.
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
+
+        // No edit armed anything here — the field-set change is the only thing that could have.
+        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+    }
+
+    [Fact]
+    public void A_field_set_change_before_any_submit_schedules_no_refresh()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext, validator, new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        // An edit first, so the counters below are non-zero and demonstrably able to move: a form
+        // that had never validated anything would let this assertion hold against a rule that
+        // cannot run at all.
+        customer.Name = "still far too long";
+        editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
+        Assert.True(validator.DraftRuleRuns > 0);
+
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
+
+        // Nothing has been submitted, so there is no disclosed verdict to reconcile and no pass to
+        // run reconciling it.
+        Assert.Equal(draftBefore, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+    }
+
+    [Fact]
+    public async Task A_field_set_change_invalidates_the_retained_live_report()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext, validator, new FormidableOptions { DisclosureOverride = _ => true }, time);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        // This edit's live pass leaves a report behind, taken at the current edit count, that the
+        // refresh it also armed would otherwise reuse in place of running the draft bucket again.
+        customer.Name = "longer still";
+        editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
+
+        var draftBefore = validator.DraftRuleRuns;
+
+        // A field-set change moves no edit counter, so the retained report still looks current.
+        // Only being dropped outright can stop the refresh below reusing a report that was
+        // computed against the page — and the model — as they stood before the move.
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
+
+        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+    }
+
+    private static FormValidationEngine<EngineOrder> Build(
+        EngineOrder order,
+        EditContext editContext,
+        RuleRunCountingValidator validator,
+        FormidableOptions options,
+        TimeProvider? time = null) =>
+        new(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            options,
+            time ?? new FakeTimeProvider());
+}

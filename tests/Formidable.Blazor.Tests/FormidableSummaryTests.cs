@@ -30,12 +30,18 @@ public class FormidableSummaryTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
     }
 
     private IRenderedComponent<FormidableForm<EngineOrder>> RenderWithSummary(
         EngineOrder order,
         Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null,
-        SummaryFilter show = SummaryFilter.All)
+        SummaryFilter show = SummaryFilter.All,
+        string? errorsHeading = null,
+        string? warningsHeading = null,
+        string? infosHeading = null,
+        int? headingLevel = null)
     {
         var cut = Render(builder =>
         {
@@ -54,6 +60,22 @@ public class FormidableSummaryTests : BunitContext
                 if (focusFallback is not null)
                 {
                     inner.AddComponentParameter(2, "FocusFallback", focusFallback);
+                }
+                if (errorsHeading is not null)
+                {
+                    inner.AddComponentParameter(3, nameof(FormidableSummary.ErrorsHeading), errorsHeading);
+                }
+                if (warningsHeading is not null)
+                {
+                    inner.AddComponentParameter(4, nameof(FormidableSummary.WarningsHeading), warningsHeading);
+                }
+                if (infosHeading is not null)
+                {
+                    inner.AddComponentParameter(5, nameof(FormidableSummary.InfosHeading), infosHeading);
+                }
+                if (headingLevel is not null)
+                {
+                    inner.AddComponentParameter(6, nameof(FormidableSummary.HeadingLevel), headingLevel.Value);
                 }
 
                 inner.CloseComponent();
@@ -89,6 +111,119 @@ public class FormidableSummaryTests : BunitContext
             Assert.Contains("--warning", groups[1].GetAttribute("class"));
             Assert.Equal("alert", form.Find(".formidable-summary").GetAttribute("role"));
         });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Each_severity_band_is_wrapped()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var bands = form.FindAll(".formidable-summary__band");
+            Assert.Equal(2, bands.Count);
+            foreach (var band in bands)
+            {
+                Assert.Single(band.QuerySelectorAll("ul.formidable-summary__group"));
+            }
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task No_heading_renders_no_heading_element_and_no_aria_labelledby()
+    {
+        var order = new EngineOrder { Description = "a-b!", Customer = null }; // error + warning + info
+        var form = RenderWithSummary(order);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            Assert.NotEmpty(form.FindAll(".formidable-summary__band"));
+            Assert.Empty(form.FindAll(".formidable-summary__heading"));
+            Assert.All(
+                form.FindAll("ul.formidable-summary__group"),
+                group => Assert.Null(group.GetAttribute("aria-labelledby")));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_heading_is_associated_with_its_list()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order, errorsHeading: "Fix these before you can submit");
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var heading = form.Find(".formidable-summary__heading");
+            var errorList = form.Find("ul.formidable-summary__group--error");
+            var headingId = heading.GetAttribute("id");
+
+            Assert.False(string.IsNullOrEmpty(headingId));
+            Assert.Equal(headingId, errorList.GetAttribute("aria-labelledby"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_heading_applies_only_to_its_own_band()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order, warningsHeading: "Worth a look");
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            Assert.Single(form.FindAll(".formidable-summary__heading"));
+
+            var warningList = form.Find("ul.formidable-summary__group--warning");
+            var errorList = form.Find("ul.formidable-summary__group--error");
+
+            Assert.False(string.IsNullOrEmpty(warningList.GetAttribute("aria-labelledby")));
+            Assert.Null(errorList.GetAttribute("aria-labelledby"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_non_default_heading_level_renders_that_element()
+    {
+        var order = new EngineOrder { Description = "a-b", Customer = null }; // error (Customer) + warning (hyphens)
+        var form = RenderWithSummary(order, errorsHeading: "Fix these first", headingLevel: 3);
+
+        _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() =>
+        {
+            var heading = form.Find("h3.formidable-summary__heading");
+            Assert.Equal("Fix these first", heading.TextContent);
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task An_out_of_range_heading_level_throws()
+    {
+        var order = new EngineOrder();
+
+        var exception = Assert.ThrowsAny<Exception>(() => RenderWithSummary(order, headingLevel: 0));
+
+        Assert.Contains(nameof(FormidableSummary.HeadingLevel), exception.Message);
 
         await Services.DisposeAsync();
     }
@@ -202,6 +337,8 @@ public class FormidableSummaryTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(false);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>
@@ -226,6 +363,8 @@ public class FormidableSummaryTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>
@@ -250,6 +389,8 @@ public class FormidableSummaryTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(false);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var fallbackCalls = 0;
         var order = new EngineOrder();
         var form = RenderWithSummary(order, _ =>

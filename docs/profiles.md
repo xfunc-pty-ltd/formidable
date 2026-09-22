@@ -115,7 +115,9 @@ third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at run
 - **Live passes** — one per field change — run `LiveProfile` (`FormidableOptions.LiveProfile`,
   defaults to `ValidationProfile.Draft`).
 - **Submit** runs `SubmitProfile` (`FormidableOptions.SubmitProfile`, defaults to
-  `ValidationProfile.Submit`), and so does the debounced refresh that follows it.
+  `ValidationProfile.Submit`). The debounced refresh that follows it answers for the same
+  profile too, reusing what a live pass already found rather than re-running it where it can
+  (see [Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not)).
 
 Saving a draft doesn't go through the engine's submit pipeline at all — it's a separate, lenient
 validation call straight against the injected `IModelValidator<T>` with the `Draft` profile:

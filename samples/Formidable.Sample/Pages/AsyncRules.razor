@@ -11,8 +11,9 @@
             <li><strong>Display name</strong> — checked for uniqueness the same way, independently of Username. Taken display names: <code>Administrator</code>, <code>Root User</code>, <code>Formidable</code>.</li>
             <li><strong>Username</strong> — also required at submit.</li>
             <li>Editing after a submit also schedules a background refresh (300&nbsp;ms) that reconciles the whole form — but the pending indicator stays on the field you edited, before and after submit alike.</li>
-            <li>After a submit, one edit runs the check twice: the Submit profile includes the draft rules, so the live pass runs it and the refresh runs it again. The two answer different channels — the live pass answers the field being edited, the refresh keeps the submit's own messages current — so neither can stand in for the other.</li>
-            <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke.</li>
+            <li>Editing after a submit runs each check once: the refresh reruns only what the Submit profile adds beyond the live pass — here, just the required check — so the uniqueness check the live pass already answered does not run again.</li>
+            <li>Both uniqueness checks also memoize their answer for 10&nbsp;seconds: type <code>admin</code>, clear it, then retype it, and the second check comes back from that memo instead of running again — the same memo that lets a Submit pressed shortly after a live pass skip a repeat round trip too.</li>
+            <li><strong>LiveDebounce</strong> batches keystrokes: tick the checkbox below and a burst of typing starts one check after you pause, instead of one per keystroke. It is a separate clock from the delay above — the delay sets how long a check takes once it starts; LiveDebounce and the refresh's own 300&nbsp;ms set when one starts.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -21,9 +22,9 @@
             <li>Type quickly — each keystroke cancels the in-flight check; only the final value gets a verdict.</li>
             <li>Type in Display name — its indicator runs independently; the pending state is scoped to the field being edited.</li>
             <li>Clear Username and submit — the required rule blocks.</li>
-            <li>Drag the delay to 2000 ms and type — the pending state lingers long enough to watch supersession cancel a stale check mid-flight.</li>
-            <li>Submit, then type with the delay still high — the check lands, and a second one starts as the refresh comes due.</li>
-            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Because you already submitted in the step above, pausing now starts two passes: the 300&nbsp;ms refresh and the batched 400&nbsp;ms live pass, refresh first.</li>
+            <li>Drag the delay to 2000 ms and type — the slider only changes how long the check itself takes, not when it starts or how often; watch the pending state hold for the full two seconds before the verdict lands.</li>
+            <li>Submit, then type again — one "checking…" cycle, not two, even though editing after a submit also arms the background refresh (see above).</li>
+            <li>Tick <em>Debounce live checks</em>, then type <code>formidable</code> fast — no "checking…" flashes mid-keystroke. Pausing lands only one check here too, but for a different reason: LiveDebounce delays the live pass itself, so the refresh's 300&nbsp;ms clock elapses first, finds nothing has answered for this value yet, and pays for the full round trip itself; the live pass that follows finds the answer already in the memo above, not from reusing the delta the way an ordinary post-submit edit does.</li>
         </ol>
     </TryIt>
 </TeachingPanel>

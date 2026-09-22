@@ -1,7 +1,9 @@
+using System.Linq.Expressions;
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
@@ -93,6 +95,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder { Description = "ok" }; // only Customer fails
         var cut = RenderForm(order);
 
@@ -112,6 +116,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var cut = RenderForm(new EngineOrder(), focusFirstErrorOnInvalidSubmit: false);
 
         await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
@@ -128,6 +134,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var cut = RenderForm(order);
 
@@ -447,6 +455,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder();
         var cut = RenderForm(order);
 
@@ -467,6 +477,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder();
         var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
 
@@ -490,6 +502,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder();
         var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
 
@@ -516,6 +530,8 @@ public class FormidableFormComponentTests : BunitContext
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<bool>("focusField", _ => true).SetResult(true);
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
         var order = new EngineOrder();
         var cut = RenderForm(order);
 
@@ -580,5 +596,107 @@ public class FormidableFormComponentTests : BunitContext
         var form = container.Find("form");
         Assert.Equal(FormidableFieldId.For(new FieldIdentifier(order, string.Empty)), form.GetAttribute("id"));
         Assert.Equal("-1", form.GetAttribute("tabindex"));
+    }
+
+    [Fact]
+    public void Removing_a_row_after_a_submit_clears_its_summary_entry()
+    {
+        // The summary is the only component here that injects one, and the moves it would make are
+        // beside the point.
+        Services.AddSingleton<IFormidableFocusService, SilentFocusService>();
+
+        var keep = new EngineItem { Sku = "keep" };
+        var doomed = new EngineItem();
+        var order = new EngineOrder
+        {
+            Customer = new EngineCustomer(),
+            Items = [keep, doomed],
+        };
+
+        var host = Render<CollectionHost>(parameters => parameters
+            .Add(p => p.Order, order)
+            // Shorter than the default so the reconciliation this pins does not hold the test open
+            // for most of a second waiting for it.
+            .Add(p => p.Options, new FormidableOptions { RefreshDebounce = TimeSpan.FromMilliseconds(20) }));
+
+        host.Find("form").Submit();
+
+        // Two disclosed errors, so what follows can tell a summary that dropped one entry from a
+        // summary that stopped rendering.
+        Assert.Contains(SkuRequired, host.Markup, StringComparison.Ordinal);
+        Assert.Contains(DescriptionRequired, host.Markup, StringComparison.Ordinal);
+
+        // Exactly what a page's own Remove button does, and nothing more: the model is mutated and
+        // the page re-renders. Nothing announces the change — no NotifyChanged anywhere — which is
+        // the whole point. The engine has to notice the row left by itself.
+        order.Items.Remove(doomed);
+        host.Render(parameters => parameters.Add(p => p.Order, order));
+
+        host.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain(SkuRequired, host.Markup, StringComparison.Ordinal);
+            Assert.Contains(DescriptionRequired, host.Markup, StringComparison.Ordinal);
+        });
+    }
+
+    private const string SkuRequired = "SKU is required";
+
+    // EngineOrderValidator names the description before requiring it, so the rendered message is
+    // the renamed one rather than the property's own name.
+    private const string DescriptionRequired = "Order description";
+
+    /// <summary>
+    /// A form over a collection, rendered the way a page renders one: a summary, an anchor for the
+    /// form's own scalar field, and one keyed anchor per row, all read from <see cref="Order"/> on
+    /// every render so removing a row from the list is all it takes to unregister that row.
+    /// </summary>
+    private sealed class CollectionHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public FormidableOptions? Options { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), Options);
+            builder.AddComponentParameter(
+                3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
+            builder.AddComponentParameter(4, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment)(inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.CloseComponent();
+
+                inner.OpenComponent<FormidableFieldAnchor<string>>(1);
+                inner.AddComponentParameter(
+                    2,
+                    nameof(FormidableFieldAnchor<string>.For),
+                    (Expression<Func<string>>)(() => Order.Description));
+                inner.CloseComponent();
+
+                foreach (var item in Order.Items)
+                {
+                    inner.OpenComponent<FormidableFieldAnchor<string>>(3);
+                    inner.SetKey(item);
+                    inner.AddComponentParameter(
+                        4,
+                        nameof(FormidableFieldAnchor<string>.For),
+                        (Expression<Func<string>>)(() => item.Sku));
+                    inner.CloseComponent();
+                }
+
+                inner.AddMarkupContent(5, "<button type=\"submit\">Go</button>");
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>Answers every focus request without moving anything, so the summary can render.</summary>
+    private sealed class SilentFocusService : IFormidableFocusService
+    {
+        public ValueTask<bool> FocusAsync(FieldIdentifier field) => ValueTask.FromResult(true);
     }
 }

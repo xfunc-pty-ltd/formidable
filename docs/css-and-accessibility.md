@@ -87,9 +87,10 @@ the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOpti
 instance the form was built with, then merges the result with any consumer-splatted `class`. See
 [Component kit](component-kit.md) for the merge itself. `FormidableFieldMessage`/
 `FormidableCollectionMessage` and `FormidableSummary` use a related, fixed convention of their
-own for the messages they render — see
-[Severity](severity.md) for the `formidable-message--{severity}` and
-`formidable-summary__group--{severity}` class families.
+own for the messages they render — see [Severity](severity.md) for the
+`formidable-message--{severity}` and `formidable-summary__group--{severity}` class families, and
+[Component kit](component-kit.md#heading-each-band) for the `formidable-summary__band--{severity}`
+band each group sits inside.
 
 That's the entire class-name contract: rename the three strings, and the rule above still
 decides when each one applies. What follows is how to rename them, the rule a native `InputBase`
@@ -345,14 +346,18 @@ clears an error, a server-applied issue landing:
 
 ```csharp
         var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+```
 
+```csharp
         var sequence = 0;
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "formidable-summary");
         builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 ```
 
-*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
+*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is the heading-tag
+computation (`HeadingLevel`, see [Component kit](component-kit.md#formidablesummary)), unrelated to
+the role wiring shown here.
 
 It subscribes to the engine's `StateChanged` event itself, so the region's content — and
 whatever it announces — stays current through every kind of update, not just the moment of

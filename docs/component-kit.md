@@ -309,8 +309,12 @@ and disagree with `FormidableSummary`, which groups by severity and leads with t
 regardless. It falls back to the first visible
 issue when there is no error to find at all. A blocked submit reaches that state exactly one way:
 superseded by a second submit before its own verdict landed, it reports blocked without writing a
-verdict, leaving whatever preceded it on screen. Everything else that blocks is error-severity —
-the all-suppressed gate and the incomplete-validation fault issue included.
+verdict, leaving whatever preceded it on screen. Every other way a submit blocks writes an
+error-severity issue (the all-suppressed gate's explanation among them), so the fallback has
+nothing else to catch. A validator fault is error-severity too, when a live or refresh pass is
+the one reporting it: it never shows up from a submit itself, since `RunPassAsync` catches the
+exception only for those two kinds of pass, so a fault during submit propagates to the caller
+instead of leaving a blocked verdict behind.
 The call is best-effort in both directions a consumer might trip on: an app that never
 registered `IFormidableFocusService` (only `AddFormidable()`, not `AddFormidableBlazor()`) gets
 silence rather than a resolution failure, and a focus miss — no element carries the field's id
@@ -1080,14 +1084,17 @@ visible issue is error-severity, the politer `status` when the visible issues ar
 
 ```csharp
         var hasError = visibleIssues.Any(v => v.Issue.Severity == ValidationSeverity.Error);
+```
 
+```csharp
         var sequence = 0;
         builder.OpenElement(sequence++, "div");
         builder.AddAttribute(sequence++, "class", "formidable-summary");
         builder.AddAttribute(sequence++, "role", hasError ? "alert" : "status");
 ```
 
-*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
+*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is the heading-tag
+computation driven by the `HeadingLevel` parameter, unrelated to the role wiring shown here.
 
 Each item is a button that moves focus to the offending field through `IFormidableFocusService`,
 via the component's own `FocusWithFallbackAsync`:
@@ -1111,11 +1118,13 @@ than whichever rule the validator happened to declare first. Two issues on one f
 order the validator produced them in.
 
 `FormidableForm` is what supplies that order. After any render that changed the set of registered
-fields, it asks `IFormidableFieldOrderService` where those fields sit and hands the answer to its
-engine, which sorts `GetVisibleIssues()` by it. The browser is the only thing that knows where an
-element is, so the shipped implementation is JS-backed — and public for the same reason
-`IFormidableFocusService` and `IFormidableDomValueSync` are, so a bUnit test can fake the seam
-instead of standing up module interop (see [Testing](testing.md#the-form-under-bunit)).
+fields — or one a browser-side observer reports moved the form's existing elements around without
+registering or unregistering any of them — it asks `IFormidableFieldOrderService` where those
+fields sit and hands the answer to its engine, which sorts `GetVisibleIssues()` by it. The browser
+is the only thing that knows where an element is, so the shipped implementation is JS-backed — and
+public for the same reason `IFormidableFocusService` and `IFormidableDomValueSync` are, so a bUnit
+test can fake the seam instead of standing up module interop (see
+[Testing](testing.md#the-form-under-bunit)).
 
 The seam's currency is the field, not its rendered element id:
 
@@ -1201,6 +1210,33 @@ one always as the politer `status` (see
 **Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor) — two disjoint
 summaries stacked one above the other at the top of the form, so what blocks and what merely
 advises arrive as separate blocks, and the one with nothing to say is absent rather than empty.
+
+### Heading each band
+
+`ErrorsHeading`, `WarningsHeading` and `InfosHeading` (all `string?`, all `null` by default) give a
+severity band its own heading. Set one and the summary renders it as an `h{HeadingLevel}` (`2` by
+default, any of `1`–`6`; anything else throws from `OnParametersSet`) inside that band, with an id
+this component mints and wires to the band's `<ul>` via `aria-labelledby` — the relationship is the
+summary's to get right, not a consumer's to reconstruct. Leave a heading unset and neither the
+element nor the attribute appears, so a summary with none of the three set renders exactly as one
+that never mentions them. The library ships no user-facing text of its own, so there is no shipped
+English default here either: the string is a consumer's own, localized like every other piece of
+copy Formidable never writes.
+
+The band itself (`<div class="formidable-summary__band formidable-summary__band--{severity}">`,
+wrapping the heading, if any, and the `<ul>` together) renders for every band regardless of
+whether that band carries a heading, so a stylesheet has one consistent shape to target rather than
+a wrapper that appears only once a heading is set. That wrapper sits between `.formidable-summary`
+and each severity's `<ul>`, which is a real markup change for anyone styling past it: a
+`.formidable-summary > ul` selector stops matching. What it buys is a panel per severity to style
+as one — background, left rule, radius, padding on `.formidable-summary__band` rather than spread
+across the `<ul>` and its `formidable-summary__group` class. The sample styles it exactly that
+way; where a consumer's own panel styling lives is theirs to decide, since Formidable ships no CSS
+of its own (see [CSS and accessibility](css-and-accessibility.md)).
+
+**Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor) — the errors
+summary carries `ErrorsHeading`, and the advisories summary beside it carries both
+`WarningsHeading` and `InfosHeading` for its two bands.
 
 ## `FormidableValidator<TModel>`, attaching to an existing form
 

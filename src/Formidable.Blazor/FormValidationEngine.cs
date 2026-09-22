@@ -22,7 +22,8 @@ namespace Formidable.Blazor;
 /// _touched, _pendingRefreshFields, _pendingLiveFields, _pendingDebouncedLiveFields) mutates
 /// synchronously on the caller's context — except on the dispatcher for: _pendingRefreshFields,
 /// when a refresh pass snapshots and clears it as it begins; _pendingLiveFields, when a live
-/// pass clears it after writing its verdicts; _pendingDebouncedLiveFields, when the live
+/// pass clears it after writing its verdicts and when a rendered-field-set change drops the
+/// fields that have left the page from it; _pendingDebouncedLiveFields, when the live
 /// debounce timer fires and snapshots and clears it before starting the live pass those fields
 /// triggered; and _currentPass, which the pass that recorded it clears alongside IsValidating.
 /// A third, independent mechanism covers IsFormValid: _formValidityStamp mutates synchronously
@@ -31,9 +32,9 @@ namespace Formidable.Blazor;
 /// _version gates issue maps with, but the probe is not a pass, so it never touches
 /// _currentPass, _passCts, or any of the pass bookkeeping above.
 /// A fourth mechanism covers the report a refresh reuses: _editStamp mutates synchronously on the
-/// caller's context as each field change arrives, and _lastLiveReport/_lastLiveEditStamp mutate on
-/// the dispatcher from a live pass's verdict apply — so they are written only by a pass that is
-/// still the current one, exactly as the issue maps beside them are.
+/// caller's context as each field change arrives, and _retainedLiveReport mutates on the
+/// dispatcher from a live pass's verdict apply — so it is written only by a pass that is still
+/// the current one, exactly as the issue maps beside it are.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -79,15 +80,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private int _version;
     private int _formValidityStamp;
 
-    // Counts edits, so a report can be asked whether it still answers for the model. A refresh
-    // reuses a live pass's report only while the two stamps agree; anything that moves the model
-    // on without moving this counter is invisible here, which is why InvalidateRetainedLiveReport
-    // exists for the changes a counter cannot see.
+    // Counts field changes, so a report can be asked whether it still answers for the model. A
+    // refresh reuses a live pass's report only while the two stamps agree. What moves this is a
+    // notification, not a mutation: a model changed without one moves the counter no more than an
+    // untouched model does, so the agreement it reports is only ever as good as the notifications
+    // it is given. InvalidateRetainedLiveReport covers the one silent change the engine can see
+    // unaided — the rendered field set moving — and nothing covers the rest.
     private int _editStamp;
 
-    private ValidationReport? _lastLiveReport;
-    private int _lastLiveEditStamp;
-    private ValidationProfile? _lastLiveProfile;
+    // One value rather than a report, a stamp and a profile side by side: the three are only ever
+    // written together and only ever read together, and holding them apart is what would let an
+    // invalidation drop the report while leaving the stamp and profile standing beside a null.
+    private RetainedLiveReport? _retainedLiveReport;
 
     // The subtraction of the live profile from the submit profile, cached against the exact pair
     // it was computed from. Both are settable options, so the pair is re-read on every refresh and
@@ -454,14 +458,159 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// restores validator order.
     /// </summary>
     /// <remarks>
-    /// Deliberately silent: it takes effect on the next render of whatever reads issues, and every
-    /// pass, edit and server apply raises <see cref="StateChanged"/> already. Notifying from here
-    /// would put a full re-render round behind every registration change instead — which on a page
-    /// whose registered set churns as it scrolls (a virtualized collection) is a steady stream of
-    /// them, and one that can re-order a summary out from under a click.
+    /// Silence here is conditional, not unconditional. An order matching the one already in force
+    /// is taken without a word — which is the common answer, since most of what provokes a resolve
+    /// leaves the reading order exactly where it was — and only an order that genuinely differs
+    /// raises <see cref="StateChanged"/>. That keeps the cost the silence exists to avoid:
+    /// notifying on every resolve would put a full re-render round behind every registration
+    /// change, and on a page whose registered set churns as it scrolls (a virtualized collection)
+    /// that is a steady stream of them, one that can re-order a summary out from under a click.
+    /// What it must not do is stay quiet about a change. The order IS what a summary lists by, and
+    /// a resolve necessarily lands after the render that produced the elements it measured, so a
+    /// changed order has no other way onto the page: a reorder that registers nothing — rows moved
+    /// under a <c>@key</c> — raises no pass, no edit and no server apply to ride on, and the
+    /// summary would go on listing a page that is no longer there. Gating on difference is also
+    /// what settles the sequence a host watching the page for those moves sets off: the re-render a
+    /// changed order provokes mutates the DOM, the mutation resolves the order once more, and that
+    /// second answer matches what is now in force, so it says nothing and the sequence stops.
     /// </remarks>
     /// <param name="order">Field-to-ordinal map, or <c>null</c>.</param>
-    internal void SetFieldOrder(IReadOnlyDictionary<FieldIdentifier, int>? order) => _fieldOrder = order;
+    internal void SetFieldOrder(IReadOnlyDictionary<FieldIdentifier, int>? order)
+    {
+        if (SameFieldOrder(_fieldOrder, order))
+        {
+            return;
+        }
+
+        _fieldOrder = order;
+        NotifyStateChanged();
+    }
+
+    /// <summary>
+    /// Whether two resolved orders would sort visible issues identically. Count first, then every
+    /// ordinal: both maps hold one entry per field the host rendered, so this is a handful of
+    /// dictionary probes on a page and cheaper by far than the render it decides against.
+    /// Null is an order in its own right — validator order — so a transition to or from it counts
+    /// as a difference like any other.
+    /// </summary>
+    private static bool SameFieldOrder(
+        IReadOnlyDictionary<FieldIdentifier, int>? current,
+        IReadOnlyDictionary<FieldIdentifier, int>? replacement)
+    {
+        if (ReferenceEquals(current, replacement))
+        {
+            return true;
+        }
+
+        if (current is null || replacement is null || current.Count != replacement.Count)
+        {
+            return false;
+        }
+
+        foreach (var (field, ordinal) in current)
+        {
+            if (!replacement.TryGetValue(field, out var candidate) || candidate != ordinal)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Tells the engine that the set of fields the host has rendered moved — a collection row
+    /// removed, a section collapsed, a conditional branch swapped for another. Nothing announces
+    /// such a move as a field change, so this is the engine's only word that the page its
+    /// disclosed verdicts describe is not the page on screen.
+    /// </summary>
+    /// <remarks>
+    /// Four things follow, in that order. A live issue whose field is no longer rendered has no
+    /// site left to display it, so it goes — from the issue map and from the message store
+    /// alike, since the store is what a native <c>ValidationMessage</c> renders and what
+    /// <c>EditContext.GetValidationMessages</c> answers from, and a message for an element that
+    /// is gone is the very thing being removed. A field held by keep-registered has not left,
+    /// which is what lets a virtualized row scroll out of view without losing its messages. A
+    /// departed field also stops being one a live pass in flight will answer for, which is the
+    /// same removal made one step earlier: without it the verdict that pass is about to write
+    /// would put the pruned entry straight back. The report a live pass left behind for a refresh
+    /// to reuse goes too: the counter that report is
+    /// checked against counts edits, a rendered-field-set move is not one, so a report taken
+    /// before the move would pass that check while answering for a page — and, when a collection
+    /// row was what left, a model — that no longer exists. Then a submitted form schedules a
+    /// refresh, the one pass that recomputes the submit channel against the model as it stands.
+    /// That channel still speaks only for the sticky submit-time visible set, never for what is
+    /// rendered, so what a refresh drops is whatever the rules stop producing: a removed row's
+    /// entry goes because its rule no longer fires, not because the row left the page — and an
+    /// entry for a field a collapsed section took away survives, because the rule still fails.
+    /// A form that has never been submitted schedules nothing: it has disclosed no verdict to
+    /// reconcile, and a form the user has not asked to submit is not one to start reporting
+    /// failures at.
+    /// A model whose CONTENTS changed needs a field-change notification of its own regardless.
+    /// Dropping issues is all this can do, and a rule that must START failing because a row left —
+    /// a collection that requires at least one entry — produces an issue no pass has computed yet.
+    /// </remarks>
+    internal void OnRenderedFieldsChanged()
+    {
+        // Rendered-ness alone: DisclosureOverride is not consulted, so an issue an override
+        // forces visible still goes once its field unregisters. The override decides whether an
+        // unrendered field's issue may be SHOWN; nothing filters the live channel at all, and
+        // re-deciding that here — per issue, over a map keyed by field — would suppress live
+        // issues the engine otherwise reports. A field that never rendered can hold a live issue
+        // too, since a consumer may notify a change for one, and it leaves the same way: what
+        // is not on the page has nowhere to show it.
+        //
+        // Collected first: removing from the dictionary while enumerating its keys throws, and in
+        // the common case (a page whose churn is rows arriving, or a virtualized one whose rows
+        // stay registered) nothing leaves and there is no list to allocate.
+        List<FieldIdentifier>? departed = null;
+        foreach (var field in _liveIssues.Keys)
+        {
+            if (!IsRendered(field))
+            {
+                (departed ??= []).Add(field);
+            }
+        }
+
+        if (departed is not null)
+        {
+            foreach (var field in departed)
+            {
+                _liveIssues.Remove(field);
+            }
+
+            // The issue map is not the only place these live: the message store holds the same
+            // errors for the platform's own components to render, and dropping one without the
+            // other leaves an engine read and an EditContext read disagreeing — the store still
+            // offering a message whose field has no element left to focus. Rebuilding repairs
+            // that and publishes it, which is why this is a rebuild rather than a bare
+            // notification. Gated on something having actually left, the shape MarkTouched
+            // already notifies with: a virtualized row scrolling out is keep-registered, so
+            // nothing departs and a churning page pays nothing for this.
+            RebuildStore();
+        }
+
+        // The same argument, applied one step earlier: a field that has left the page has no
+        // verdict to receive. A live pass already in flight writes an entry for every field this
+        // set carries when its verdict lands — that is how a superseded pass's field still gets
+        // answered — so leaving a departed field in it would put back exactly what was just
+        // pruned, and for a field whose rule still fails (a collapsed section, whose object is
+        // still on the model) the entry put back is the issue itself. Nothing filters the live
+        // channel at read time, so it would then stand until the next field-set change.
+        //
+        // Its own pass rather than the loop above, because the two sets do not have the same
+        // members: a field edited for the first time is pending a verdict while holding no issue
+        // yet, and that is the case where the pass in flight is about to create the entry rather
+        // than restore one.
+        _pendingLiveFields.RemoveWhere(field => !IsRendered(field));
+
+        InvalidateRetainedLiveReport();
+
+        if (HasSubmitted)
+        {
+            ScheduleRefresh();
+        }
+    }
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {
@@ -759,9 +908,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // complete answer for every rule that profile selects. That is what lets a
                 // post-submit refresh run only the rules the live profile leaves out instead of
                 // running the shared ones a second time for the same model state.
-                _lastLiveReport = report;
-                _lastLiveEditStamp = editStamp;
-                _lastLiveProfile = liveProfile;
+                _retainedLiveReport = new RetainedLiveReport(report, editStamp, liveProfile);
 
                 // Every field whose pass this one superseded, not just the field that started it:
                 // each live pass validates the whole model under the same LiveProfile, so this
@@ -907,8 +1054,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return overridden.Value;
         }
 
-        return field.Equals(ModelLevelField) || Registry.IsRevealed(field);
+        return IsRendered(field);
     }
+
+    /// <summary>
+    /// Whether the page is showing somewhere the field's issues could be read — the
+    /// registration half of <see cref="IsVisible"/>, shared with
+    /// <see cref="OnRenderedFieldsChanged"/> so the two cannot come to disagree about what having
+    /// left the page means. The model-level field is always one of these: its element is the
+    /// form's own, which is on the page for as long as the form is, and it never registers.
+    /// </summary>
+    private bool IsRendered(FieldIdentifier field) =>
+        field.Equals(ModelLevelField) || Registry.IsRevealed(field);
 
     /// <summary>
     /// The submit report's non-error issues, resolved and filtered to visible fields, grouped by
@@ -1287,13 +1444,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     }
 
     /// <summary>
-    /// Drops the report a live pass left behind, so the next post-submit refresh validates the
-    /// whole submit profile rather than reusing it. The edit counter alone cannot see every change
-    /// that makes a retained report answer for the wrong thing — it counts edits to the model, and
-    /// a change to which fields are on the page changes which of that report's issues may be
-    /// disclosed without touching the model at all.
+    /// Drops the retained live report whole — report, stamp and profile together — so the next
+    /// post-submit refresh validates the whole submit profile rather than reusing it. The edit
+    /// counter cannot see this particular change: it counts field changes, and a change to which
+    /// fields are on the page changes which of that report's issues may be disclosed without
+    /// touching the model at all.
     /// </summary>
-    private void InvalidateRetainedLiveReport() => _lastLiveReport = null;
+    /// <remarks>
+    /// The rendered field set moving is the only silent change this covers, because it is the
+    /// only one the engine observes for itself. A model whose contents change with no field
+    /// notification behind them still needs one — see
+    /// <see cref="OnRenderedFieldsChanged"/>'s own remarks for why no engine-side mechanism can
+    /// stand in for it.
+    /// </remarks>
+    private void InvalidateRetainedLiveReport() => _retainedLiveReport = null;
 
     /// <summary>
     /// What the submit profile runs beyond the live profile, computed once per profile pair.
@@ -1346,19 +1510,28 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // report the live pass left behind.
         //
         // Three independent things have to hold, and failing any of them falls back to the whole
-        // submit profile: the retained report must still answer for the model as it stands (the
-        // edit stamps say so), it must have been produced under the live profile the subtraction
-        // below is computed against, and that subtraction must be defined at all. The middle one
+        // submit profile: the retained report must still answer for the model as it stands, it
+        // must have been produced under the live profile the subtraction below is computed
+        // against, and that subtraction must be defined at all. The middle one
         // is its own condition because both profiles are settable on an options instance the
         // engine holds and re-reads: subtracting a live profile the retained report never ran
         // under would drop rules from the verdict, or duplicate them. The fallback is total by
         // construction, and that is what makes the optimisation safe to reach for: the worst
         // outcome of a precondition not holding is the duplicated work this avoids, never a
         // verdict the full profile would not have produced.
-        var retained = _lastLiveReport is not null
-            && _lastLiveEditStamp == _editStamp
-            && ReferenceEquals(_lastLiveProfile, _options.LiveProfile)
-            ? _lastLiveReport
+        //
+        // The first of the three is evidence rather than proof. Matching edit stamps say that no
+        // field change has been notified since the report was taken, which is what "the model has
+        // not moved" means to an engine that is told about changes; a mutation made with no
+        // notification behind it moves neither stamp and is invisible here.
+        // InvalidateRetainedLiveReport covers the one silent change the engine can observe for
+        // itself — the rendered field set moving — and that is the whole of what it covers. A
+        // model whose CONTENTS change without a notification is outside the contract, and this is
+        // one of the places that shows: the verdict would combine live-profile rules answered
+        // against the model as it was with delta rules answered against the model as it is.
+        var retained = _retainedLiveReport is { } candidate
+            && candidate.IsCurrentFor(_editStamp, _options.LiveProfile)
+            ? candidate.Report
             : null;
 
         var delta = retained is not null
@@ -1519,3 +1692,34 @@ internal enum PassKind
 /// <param name="Version">The engine version this pass took when it began.</param>
 /// <param name="Token">The pass's cancellation token, linked to whatever the caller supplied.</param>
 internal readonly record struct PassScope(PassKind Kind, int Version, CancellationToken Token);
+
+/// <summary>
+/// The answer a live pass leaves behind for a post-submit refresh to reuse, together with
+/// everything that decides whether it may still be reused. Held as one value because the three
+/// are meaningless apart: a report with no idea which model state or which profile produced it
+/// cannot be checked against anything, and dropping the report while leaving the other two behind
+/// is the shape of invalidation this makes unrepresentable.
+/// </summary>
+/// <param name="Report">The live pass's full report, covering every rule its profile selected.</param>
+/// <param name="EditStamp">The engine's edit count as the pass began — what it answers for.</param>
+/// <param name="Profile">The live profile the pass actually ran, remembered because the option holding it is settable.</param>
+internal readonly record struct RetainedLiveReport(
+    ValidationReport Report,
+    int EditStamp,
+    ValidationProfile Profile)
+{
+    /// <summary>
+    /// Whether this report may stand in for the live half of a refresh's verdict: it has to
+    /// answer for the model state the refresh is reporting on, and to have been produced under
+    /// the live profile the subtraction is computed against.
+    /// </summary>
+    /// <param name="editStamp">The engine's edit count as the refresh begins.</param>
+    /// <param name="live">The live profile currently in force.</param>
+    /// <remarks>
+    /// The stamp comparison says only that no field change has been notified since — which is
+    /// what "the model is unchanged" means to an engine that is told about changes. A mutation
+    /// made without one is invisible to it.
+    /// </remarks>
+    internal bool IsCurrentFor(int editStamp, ValidationProfile live) =>
+        EditStamp == editStamp && ReferenceEquals(Profile, live);
+}

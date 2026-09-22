@@ -160,9 +160,10 @@ public class FormValidationEngineValidatingScopeTests
     [Fact]
     public async Task Refresh_flags_only_the_fields_edited_in_the_debounce_window()
     {
-        // Two independent async draft rules, as the sibling-field live-pass test above uses.
-        // The refresh pass revalidates the whole model under SubmitProfile, which (via
-        // ValidationProfile.Submit's IncludeDefaultRules) still runs both of these unnamed rules.
+        // Two independent async draft rules, as the sibling-field live-pass test above uses. The
+        // refresh pass runs only what the live pass left out, which is why holding one in flight
+        // means holding a rule from the fixture's SUBMIT bucket: gating the draft bucket alone
+        // would hold live passes and let the refresh run straight through.
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);

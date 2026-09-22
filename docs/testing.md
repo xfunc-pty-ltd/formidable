@@ -116,9 +116,10 @@ and which field a blocked submit moved to is worth pinning, since
 `FocusFirstErrorOnInvalidSubmit` moves it on every blocked submit by default.
 `IFormidableDomValueSync` matters as soon as a `FormidableInputNumber` or `FormidableInputDate` is
 on the form: both inject it and call it on blur. `IFormidableFieldOrderService` is what
-`FormidableForm` asks, after any render that changed its registered fields, for the document order
-its summary lists issues in — so a double is how a test states an order without a document, and
-how issue order or the field a blocked submit focused becomes assertable.
+`FormidableForm` asks — after any render that changed its registered fields, or one a browser-side
+observer reports moved the existing elements around — for the document order its summary lists
+issues in, so a double is how a test states an order without a document, and how issue order or
+the field a blocked submit focused becomes assertable.
 
 The seam speaks fields rather than element ids in both directions, so a double states its answer
 in the same currency the assertions are written in:
@@ -147,13 +148,24 @@ shape again over `FocusAsync`.
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
 JavaScript instead, with bUnit's
 `JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js")`. Plan every call the form
-makes, `orderFields` included. Strict mode is bUnit's default, and an unplanned call throws
-`JSRuntimeUnhandledInvocationException` — which derives from `Exception`, not `JSException`, so
-the form's own tolerance for a failed interop call never catches it. Render a `FormidableForm` at
-all with no plan for `orderFields`, fields or no fields, and the render itself throws. That is
+makes: `orderFields` for the resolve itself, `observeLayout` and `disconnectLayoutObserver` for
+the browser-side layout observer the form establishes beside it, and `focusField` once a blocked
+submit is going to move focus. Strict mode is bUnit's default, and an unplanned call throws
+`JSRuntimeUnhandledInvocationException`, which derives from `Exception` rather than `JSException`,
+so the form's own tolerance for a failed interop call never catches it. Render a `FormidableForm`
+at all with no plan for `orderFields`, fields or no fields, and the render itself throws. That is
 what Formidable's own `FocusServiceTests` do, because there the service *is* the thing under
 test.
 For a form test, the interface doubles are less machinery.
+
+One call reaches the module whichever route you take. The layout observer belongs to the form
+rather than to the order service, so registering an `IFormidableFieldOrderService` at all (the
+interface double included) has the form import `formidable.js` and call `observeLayout` on it.
+Establishing it is best-effort, which is the difference that matters here: a strict-mode refusal
+is absorbed exactly as a JavaScript-less host is, where an unplanned `orderFields` throws. A test
+built on the doubles therefore needs no module plan, and a test that does plan the module gets a
+form that genuinely observes. All an absorbed refusal costs is the re-resolve a page would
+otherwise get when it moves its fields around without registering or unregistering any.
 
 ### Waiting for the answer
 

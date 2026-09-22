@@ -128,8 +128,8 @@ So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
 <FormidableForm @ref="_form" Model="_listing">
-    <FormidableSummary Show="SummaryFilter.Errors" />
-    <FormidableSummary Show="SummaryFilter.Advisories" />
+    <FormidableSummary Show="SummaryFilter.Errors" ErrorsHeading="Errors" />
+    <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Infos" />
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" /></label>
         <FormidableFieldMessage For="() => _listing.Title" /></div>
@@ -198,6 +198,9 @@ itself:
 ```csharp
         foreach (var group in groups)
         {
+```
+
+```csharp
             builder.OpenElement(sequence++, "ul");
             builder.AddAttribute(
                 sequence++,
@@ -205,7 +208,9 @@ itself:
                 FormidableCss.SelectBySeverity(group.Key, ErrorGroupClass, WarningGroupClass, InfoGroupClass));
 ```
 
-*Source: `src/Formidable.Blazor/FormidableSummary.cs`*
+*Excerpt from `src/Formidable.Blazor/FormidableSummary.cs`* — elided in between is each group's
+band wrapper and optional heading; see [Component kit](component-kit.md#formidablesummary) for
+both.
 
 — giving `formidable-summary__group formidable-summary__group--error`,
 `formidable-summary__group formidable-summary__group--warning`, and

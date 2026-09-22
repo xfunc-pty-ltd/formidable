@@ -90,6 +90,11 @@ refresh owns what the submit disclosed, and neither writes the other's. Live bef
 the natural reading of the two, the pass judging the value on screen arriving ahead of the one
 re-checking what submit already said, and it is what the defaults give you.
 
+Same verdicts, not the same cost. Refresh-before-live is also the shape where a post-submit edit's
+retained-report reuse doesn't apply, so an async draft rule can answer twice instead of once — see
+[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) for that
+side of the race.
+
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps
 between the immediate default and a 400 ms window, with the "checking…" indicator showing the
 difference.
@@ -213,6 +218,9 @@ builder.Services.AddFormidableBlazor(options =>
 
 It costs an accessor resolution per bound component per render, and a form that reaches production
 with the mistake should misfile a message rather than take the page down.
+[`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) is the one exception in
+this corpus: it leaves the check on unconditionally, since demonstrating the guard is the page's
+own point.
 
 ### `InlineMessageRole`
 
@@ -267,13 +275,13 @@ the right length cannot push a real field out of the map either.
 It is synchronous by design. Measuring the DOM has to be async, and async ordering already has a
 home in the service; an async delegate here would duplicate that reach without adding to it.
 
-It runs once per order resolution, at the same cadence as the service and behind the same
-registry-version guard — not per render, and not per `GetVisibleIssues()` call. Its answer is
-baked into the ordinal map the engine sorts by, so reading it back is a lookup per issue rather
-than another run of the delegate. One consequence follows from that cadence: the map is rebuilt
-when the set of registered fields changes, so a sort criterion that moves on its own, a runtime
-"group the blocking ones first" toggle for instance, is not picked up until the next registration
-change.
+It runs once per order resolution, at the same cadence as the service — not per render, and not
+per `GetVisibleIssues()` call. Its answer is baked into the ordinal map the engine sorts by, so
+reading it back is a lookup per issue rather than another run of the delegate. One consequence
+follows from that cadence: the map is rebuilt when the set of registered fields changes, or when a
+browser-side observer reports the form's existing elements moved around without any of them
+registering or unregistering, so a sort criterion that moves on its own, a runtime "group the
+blocking ones first" toggle for instance, is not picked up until one of those two happens.
 
 ### `CssClasses`
 
@@ -407,9 +415,11 @@ that resolved it, not the one on screen.
   library's own classes ([`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor))
   and recoloured live via CSS custom properties
   ([`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor)).
+- `VerifyRowKeys` — [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor), on
+  unconditionally rather than gated to Development, since the page's whole point is the row-key
+  discipline the guard enforces.
 
-Four have no sample page, deliberately. `VerifyRowKeys` is a switch you flip in your own
-Development configuration and never see again unless it fires; `NeverRegisteredFieldDiagnostic`
+Three have no sample page, deliberately. `NeverRegisteredFieldDiagnostic`
 reports into your telemetry rather than onto the screen; `InlineMessageRole` changes only what a
 screen reader announces, which a page cannot demonstrate visually; `OrderIssues` re-sorts a
 reading order every sample page is already content with, since each lays its fields out top to

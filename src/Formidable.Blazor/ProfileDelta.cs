@@ -42,6 +42,17 @@ internal static class ProfileDelta
     /// <paramref name="submit"/>. Anything else means the live pass reached rules the submit pass
     /// does not, and silently ignoring that would drop rules from the submit verdict, so it reports
     /// <see cref="ProfileDeltaKind.NotSubtractable"/> instead of guessing.
+    /// <para>
+    /// Subtraction is over ruleset names, and a rule may belong to more than one ruleset. Such a
+    /// rule sits in both halves of a subtraction that names one of its rulesets on each side, and
+    /// runs in both — where a single unsplit run of <paramref name="submit"/> would have run it
+    /// once, because FluentValidation's selector runs a rule once however many of the selected
+    /// rulesets it belongs to. The combined verdict then carries its issue twice. Nothing here can
+    /// detect it: a rule's ruleset membership is not visible through the
+    /// <see cref="IModelValidator{TModel}"/> seam, and neither is it recorded on the issues a pass
+    /// produces, so the condition is documented for the consumer who declares such a rule rather
+    /// than guarded against.
+    /// </para>
     /// </remarks>
     internal static ProfileDeltaResult Compute(ValidationProfile submit, ValidationProfile live)
     {
@@ -66,7 +77,12 @@ internal static class ProfileDelta
             return new ProfileDeltaResult(ProfileDeltaKind.Empty, null);
         }
 
-        var profile = ValidationProfile.Named($"{submit.Name}.LiveDelta", includeDefaultRules, remainingRuleSets);
+        // Both operands in the name, because a profile's name is its identity: ValidationProfile
+        // equality is by name alone, so a name mentioning only the minuend would make every
+        // subtraction from one submit profile equal to every other, however differently they
+        // select. Deterministic in the pair, so the same subtraction always mints the same name.
+        var profile = ValidationProfile.Named(
+            $"{submit.Name}-{live.Name}.LiveDelta", includeDefaultRules, remainingRuleSets);
         return new ProfileDeltaResult(ProfileDeltaKind.Delta, profile);
     }
 }

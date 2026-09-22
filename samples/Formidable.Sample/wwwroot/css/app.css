@@ -449,59 +449,104 @@ button:focus-visible {
 
 /* ---------- summary (links excluded from the secondary-button rules above) ---------- */
 
-/* Neutral: FormidableSummary.Show can render a summary carrying only one severity band, so the
-   card itself must not imply "error" before its contents say so — the colour lives on each
-   group below instead. */
+/* Neutral: FormidableSummary.Show can render a summary carrying only one severity band, so no
+   single colour lives on the outer region — each band below carries its own. The bands are
+   peers, not a card-in-a-card: no outer background, border or padding here, just the stack. */
 .formidable-summary {
-    background: var(--field-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    padding: .5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
     margin-bottom: 1.1rem;
+}
+
+/* The panel treatment — tint, left rule, radius, padding — lives on the band, not the list, so
+   every band starts at the same left edge regardless of severity. */
+.formidable-summary__band {
+    border-radius: var(--radius-card);
+    padding: .45rem .7rem .45rem .65rem;
+}
+
+.formidable-summary__band--error {
+    background: var(--summary-bg);
+    border-left: 3px solid var(--error);
+}
+
+.formidable-summary__band--warning {
+    background: color-mix(in srgb, var(--warn) 10%, var(--bg));
+    border-left: 3px solid var(--warn);
+}
+
+.formidable-summary__band--info {
+    background: color-mix(in srgb, var(--info) 10%, var(--bg));
+    border-left: 3px solid var(--info);
+}
+
+.formidable-summary__heading {
+    margin: 0 0 .3rem;
+    font-size: .8rem;
+    font-weight: 700;
+}
+
+.formidable-summary__band--error .formidable-summary__heading {
+    color: var(--error-text);
+}
+
+.formidable-summary__band--warning .formidable-summary__heading {
+    color: var(--warn);
+}
+
+.formidable-summary__band--info .formidable-summary__heading {
+    color: var(--info);
 }
 
 .formidable-summary__group {
     list-style: none;
     margin: 0;
-    padding: .45rem .7rem .45rem .65rem;
-    border-radius: var(--radius-card);
-}
-
-.formidable-summary__group--error {
-    background: var(--summary-bg);
-    border-left: 3px solid var(--error);
-}
-
-.formidable-summary__group--warning {
-    background: color-mix(in srgb, var(--warn) 10%, var(--bg));
-    border-left: 3px solid var(--warn);
-}
-
-.formidable-summary__group--info {
-    background: color-mix(in srgb, var(--info) 10%, var(--bg));
-    border-left: 3px solid var(--info);
-}
-
-.formidable-summary__group + .formidable-summary__group {
-    margin-top: .4rem;
 }
 
 .formidable-summary__item {
     margin: .15rem 0;
 }
 
+/* display: block + width: 100% makes the whole row the hit target, not just the message text;
+   the chevron is what carries the "this is clickable" affordance. */
 button.formidable-summary__link {
+    display: block;
+    width: 100%;
+    position: relative;
     background: none;
     border: none;
-    padding: 0;
+    border-radius: var(--radius-button);
     margin: 0;
+    padding: .35rem .55rem .35rem 1.2rem;
     font: inherit;
     font-size: .9rem;
     font-weight: 500;
     color: var(--error-text);
-    text-decoration: underline;
     cursor: pointer;
     text-align: left;
+}
+
+/* A border-drawn triangle, not a text glyph: Chromium and Firefox both fold ::before/::after
+   text content into the accessible name of the element they decorate, which would prefix every
+   summary entry's name (and every Playwright locator keyed on that name) with the chevron
+   character. An empty content string carries no text into that computation. */
+button.formidable-summary__link::before {
+    content: "";
+    position: absolute;
+    left: .5rem;
+    top: 50%;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: .3em 0 .3em .35em;
+    border-color: transparent transparent transparent currentColor;
+    transform: translateY(-50%);
+}
+
+button.formidable-summary__link:hover,
+button.formidable-summary__link:focus-visible {
+    background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
 .formidable-summary__group--warning button.formidable-summary__link {
