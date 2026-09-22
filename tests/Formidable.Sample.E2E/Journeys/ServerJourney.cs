@@ -5,14 +5,12 @@ using static Microsoft.Playwright.Assertions;
 namespace Formidable.Sample.E2E;
 
 /// <summary>
-/// The half of a server verdict that is not an error. A rejected request carries advisories
-/// alongside its errors, and applying the response puts each one on the field it names at the
-/// severity it carries — so this walks the whole life of one: it arrives, it renders as a warning
-/// rather than an error, it outlives the edit that clears the error beside it, and it leaves only
-/// when the rule behind it stops failing.
+/// The server round trip: a rejected request applies at the severity it carries (errors block,
+/// advisories don't), a resubmission replaces the previous verdict rather than stacking on it,
+/// and the same filter answers behind either hosting style the page can post to.
 /// </summary>
 [Collection("e2e")]
-public sealed class ServerVerdict(SampleAppFixture app)
+public sealed class ServerJourney(SampleAppFixture app)
 {
     // Read from RoundTripOrderValidator and the page's own status line: the shipped text is the
     // contract a reader sees, so the test quotes it rather than matching loosely.
@@ -23,7 +21,8 @@ public sealed class ServerVerdict(SampleAppFixture app)
     [E2EFact]
     public async Task Server_advisories_render_beside_the_errors_and_outlive_them()
     {
-        var page = await app.NewPageAsync("/server");
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
 
         // A description the server advises against, with the SKU left empty so the request is
         // rejected at all — advisories ride a 400, never a success response.
@@ -67,6 +66,47 @@ public sealed class ServerVerdict(SampleAppFixture app)
         await Expect(MessagesFor(page, "description"))
             .ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await Expect(Summary(page)).ToHaveCountAsync(0);
+    }
+
+    [E2EFact]
+    public async Task Reapplying_the_same_verdict_replaces_instead_of_stacking()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        // A real-typed, real-blurred description — hyphenless, so it produces no advisory and
+        // leaves the SKU-only assertions below untouched; the point is a realistically-typed
+        // payload, not a different verdict.
+        await TypeAsync(Field(page, "description"), "Q3 restock");
+        await TabAsync(page);
+
+        // Two identical rejections: replace-per-apply means the second 400 replaces the
+        // first's issues rather than duplicating them. Neither send fills the SKU, and
+        // ServerRoundTrip's pre-send Normalize() only ever drops WHITESPACE-only SKU lines
+        // (RoundTripOrder.Normalize) — a genuinely empty one survives on purpose so NotEmpty can
+        // point at the row, which is exactly the case here. The page renders no raw/normalized
+        // preview the way /normalize does, so there is nothing else observable about that call
+        // to assert here.
+        await SendAsync(page);
+        await Expect(MessagesFor(page, "sku"))
+            .ToHaveTextAsync([SkuRequired], new() { Timeout = AsyncTimeoutMs });
+        await SendAsync(page);
+        await Expect(MessagesFor(page, "sku"))
+            .ToHaveTextAsync([SkuRequired], new() { Timeout = AsyncTimeoutMs });
+    }
+
+    [E2EFact]
+    public async Task The_controller_endpoint_speaks_the_same_filter()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        await page.GetByLabel("MVC controller").CheckAsync();
+        await Expect(page.Locator(".endpoint-caption")).ToContainTextAsync("/api/controller/orders");
+
+        await SendAsync(page);
+        await Expect(MessagesFor(page, "sku"))
+            .ToHaveTextAsync([SkuRequired], new() { Timeout = AsyncTimeoutMs });
     }
 
     private static Task SendAsync(IPage page) =>

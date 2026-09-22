@@ -2,14 +2,18 @@
 
 <PageTitle>Custom profiles</PageTitle>
 <h1>Custom profiles</h1>
-<p><code>ProfiledValidator&lt;T&gt;</code> composes arbitrary named rulesets, not just the built-in draft/submit pair. This page picks a profile at runtime; because the engine reads <code>Options</code> only when it binds a new <code>Model</code>, the picker resets the form — a fresh model instance alongside the new options — to make the change take effect.</p>
+<p><code>ProfiledValidator&lt;T&gt;</code> composes arbitrary named rulesets, not just the built-in draft/submit pair. This page picks a profile at runtime. The engine reads <code>Options</code> only when it binds a new <code>Model</code>, so the picker resets the form with a fresh model instance alongside the new options to make the change take effect.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "ReviewedPost.cs", "CustomProfiles.razor", "CustomProfiles.razor.cs" })">
     <Rules>
         <ul>
-            <li>Profiles are just named rule-set selections. <code>Draft</code> and <code>Submit</code> are the two built-ins <code>DraftSubmitValidator</code> wires up for you; this page's validator defines a third, <strong>AdminReview</strong>.</li>
-            <li><strong>Title</strong> — required under every profile (a common rule). <strong>Slug</strong>, <strong>Category</strong> (a <code>FormidableInputSelect</code> — a closed set is validated exactly like any other field), <strong>Read minutes</strong> (a <code>FormidableInputNumber</code>, whole number 1–180) and <strong>Publish date</strong> (a <code>FormidableInputDate</code>) — required under the <code>Submit</code> ruleset. <strong>Review note</strong> — required only under the <code>AdminReview</code> ruleset, which also includes <code>Submit</code>'s rules.</li>
-            <li>Read minutes and Publish date are the typed inputs: an unparseable or emptied entry reverts silently rather than raising its own error, so FluentValidation's "required"/range messages stay the only word on either field. Publish date also carries <code>UpdateOn="OnBlur"</code>, the recommended pairing for a date input.</li>
+            <li>Profiles are just named rule-set selections. <code>Draft</code> and <code>Submit</code> are the two built-ins <code>DraftSubmitValidator</code> wires up for you; this page's validator defines a third, <strong>AdminReview</strong>, which also includes <code>Submit</code>'s rules.</li>
+            <li><strong>Title</strong>: required under every profile (a common rule).</li>
+            <li><strong>Slug</strong>: required under the <code>Submit</code> ruleset.</li>
+            <li><strong>Category</strong>: required under <code>Submit</code>. A <code>FormidableInputSelect</code>: a closed set is validated exactly like any other field.</li>
+            <li><strong>Read minutes</strong>: a whole number from 1 to 180 under <code>Submit</code>. A <code>FormidableInputNumber</code>: an entry the box cannot parse (try <code>e3</code>) never reaches the model, never raises a message of its own, and clears from the box when you tab away, so FluentValidation's required and range messages stay the only word on the field.</li>
+            <li><strong>Publish date</strong>: required under <code>Submit</code>. A <code>FormidableInputDate</code> with <code>UpdateOn="OnBlur"</code>, the recommended pairing for a date input.</li>
+            <li><strong>Review note</strong>: required only under the <code>AdminReview</code> ruleset.</li>
             <li>The picker rebuilds the form on change: <code>FormidableForm</code> only reads its <code>Options</code> parameter when the <code>Model</code> reference changes, so a profile swap needs a fresh model instance to take effect.</li>
         </ul>
     </Rules>

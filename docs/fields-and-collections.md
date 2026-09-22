@@ -125,9 +125,11 @@ Model an optional number or date as the nullable form — `int?`, `decimal?`, `D
 on — and an emptied box commits `null`, the same way a cleared `<select>` can: FluentValidation's
 own rules speak from there (`NotNull()` for "required," `InclusiveBetween()` for a range). A
 non-nullable `TValue` has no `null` to fall back to, so an emptied box — like any input the box
-can't parse — reverts instead: Blazor's own binder no-ops, the model stays whatever it already
-was, and the rendered value snaps back to it. Neither typed input raises a message of its own for
-that; the message a visitor sees is always FluentValidation's, never a binder's.
+can't parse — reverts instead: the model stays whatever it already was, and when focus leaves the
+field the control writes that value back into the box, so even text the browser displays while
+reporting empty (a stray `e3` in a number box) cannot linger. Neither typed input raises a
+message of its own for that; the message a visitor sees is always FluentValidation's, never a
+binder's.
 
 Five typed inputs, and a seam for everything else, is the whole shape. Not a promise of more
 typed inputs to come.

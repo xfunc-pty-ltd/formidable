@@ -446,10 +446,7 @@ re-deciding which DOM event to bind:
         {
             builder.AddAttribute(sequence, "onchange", EventCallback.Factory.CreateBinder<TValue?>(this, v => CommitValueAsync(v), Value));
             builder.SetUpdatesAttributeName("value");
-            builder.AddAttribute(
-                sequence + 1,
-                BlurAttributeName,
-                EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
+            AddBlurBinding(builder, sequence + 1);
             return;
         }
 
@@ -458,10 +455,20 @@ re-deciding which DOM event to bind:
             UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
             EventCallback.Factory.CreateBinder<TValue?>(this, v => SetCurrentValueAsync(v), Value));
         builder.SetUpdatesAttributeName("value");
+
+        if (SyncsDomValueOnBlur)
+        {
+            AddBlurBinding(builder, sequence + 1);
+        }
     }
 ```
 
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
+
+The trailing branch is the number and date inputs' opt-in: those two controls bind `blur` in
+every mode, because their native elements can display text they report as empty and only a
+blur-time write can reconcile the box with the model — the mechanism their own sections below
+walk through.
 
 Under `OnChange` (default) and `OnInput`, a single event both commits the value and starts
 validation — that's `SetCurrentValueAsync`, which assigns `Value`, invokes `ValueChanged`, marks
@@ -845,11 +852,15 @@ control that needs invariant string conversion without losing `UpdateOn` is what
 for; `FormidableInputDate` below is the kit's other case.
 
 A string that fails to parse — including an emptied box when `TValue` is not nullable — leaves
-the field uncommitted, the same silent revert every kit input has: Blazor's own binder no-ops, so
-the model stays what it was and the rendered value snaps back to it on the next render. Model an
-optional number as `int?`, `decimal?`, and so on, so an emptied box commits `null` instead — a
-rule like `NotNull()` can then say so, and FluentValidation stays the only source of a message a
-visitor sees.
+the field uncommitted: the model stays what it was. The box itself is squared with the model on
+`blur`. A native number input admits the characters of scientific notation, so it can hold text
+like `e3` that it *displays* while reporting an empty value to every event — and no render-tree
+diff can overwrite a difference it cannot see. Every time focus leaves the field, the control
+therefore writes the model's formatted value straight into the element
+(`IFormidableDomValueSync`, registered by `AddFormidableBlazor()`): whatever the box showed, it
+ends up matching the model. Model an optional number as `int?`, `decimal?`, and so on, so an
+emptied box commits `null` instead — a rule like `NotNull()` can then say so, and FluentValidation
+stays the only source of a message a visitor sees.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
 `Read minutes`, required and range-checked under the `Submit` ruleset.
@@ -899,10 +910,11 @@ per-segment problem [Options](options.md#updateon-per-input-not-a-formidableopti
 covers for the general case, now answered by the typed input directly rather than by splatting
 `type="date"` onto a text box.
 
-The same silent-revert and nullable-modelling rules as `FormidableInputNumber` apply: an
-unparseable or emptied non-nullable box leaves the model untouched and the rendered value reverts;
-model an optional date as `DateOnly?`/`DateTime?`/`DateTimeOffset?` so an emptied box commits
-`null` and a rule such as `NotNull()` can judge it.
+The same uncommitted-value, blur-sync, and nullable-modelling rules as `FormidableInputNumber`
+apply: an unparseable or emptied non-nullable box leaves the model untouched, every blur writes
+the model's value back into the element so half-entered segments cannot linger, and modelling an
+optional date as `DateOnly?`/`DateTime?`/`DateTimeOffset?` lets an emptied box commit `null` for
+a rule such as `NotNull()` to judge.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
 `Publish date`, required under the `Submit` ruleset.
@@ -1253,19 +1265,20 @@ production consumer might poll for the element instead.
 
 The one-call registration for a Blazor client — everything `AddFormidable()` registers (see
 [Server integration](server-integration.md) for the server-side registration this
-mirrors) plus the focus service:
+mirrors) plus the two JS-backed services, focus and DOM value sync:
 
 ```csharp
     /// <summary>
     /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-    /// plus <see cref="IFormidableFocusService"/>. The one-call registration for Blazor consumers.
-    /// Existing registrations are respected.
+    /// plus <see cref="IFormidableFocusService"/> and <see cref="IFormidableDomValueSync"/>. The
+    /// one-call registration for Blazor consumers. Existing registrations are respected.
     /// </summary>
     public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddFormidable();
         services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
+        services.TryAddScoped<IFormidableDomValueSync, FormidableDomValueSync>();
         return services;
     }
 ```

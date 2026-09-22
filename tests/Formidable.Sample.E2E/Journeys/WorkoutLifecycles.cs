@@ -45,7 +45,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_attendee_rows_validate_and_remove()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         await AddAttendeeAsync(page);
         var row = page.Locator(".member-list li");
@@ -71,7 +72,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_warning_never_blocks()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         await FillValidRegistrationAsync(page, coupon: "WELCOME10");
 
@@ -106,7 +108,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_suppression_and_the_gate()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         // Everything the Submit profile asks for except the dietary note, whose rule is
         // unconditional while the checkbox above it decides whether the field is on screen at all.
@@ -142,7 +145,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_server_coupon_applies_and_replaces()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         // A code no client rule can know about: the client submit passes, the POST goes out, and
         // the API's 400 comes back as an issue on the coupon field.
@@ -168,7 +172,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_seats_verdict_lands_on_first_blur()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         // An accepted submit is the setup, not the subject: it leaves the form with no error sites
         // at all, which is the state in which the refresh used to have nothing to resurface.
@@ -180,7 +185,9 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // Only the rows near the scroll position exist in the DOM, so the row has to be scrolled
         // into existence before it can be edited — the panel's own scrollTop, exactly as the
         // page's focus fallback moves it.
-        await page.WaitForFunctionAsync(ScrollLastSessionIntoView);
+        await page.WaitForFunctionAsync(
+            ScrollLastSessionIntoView,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
         var row = page.Locator(".scroll-panel .field").Filter(new() { HasTextString = LastSessionTitle });
         await Expect(row).ToBeVisibleAsync();
 

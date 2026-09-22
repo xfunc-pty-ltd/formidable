@@ -41,4 +41,16 @@ internal static class SamplePage
     /// <summary>The same message list, inside one collection row (see <see cref="Field(ILocator, string)"/>).</summary>
     public static ILocator MessagesFor(ILocator row, string field) =>
         row.Locator($"ul[id$='-{field}-messages'] .formidable-message");
+
+    /// <summary>Real keystrokes into a field: click to focus, then type character by character.
+    /// The typing policy's tool — fill() sets a whole value in one event and cannot exercise
+    /// caret movement, per-keystroke passes, segment editors, or ghost text.</summary>
+    public static async Task TypeAsync(ILocator field, string text)
+    {
+        await field.ClickAsync();
+        await field.PressSequentiallyAsync(text);
+    }
+
+    /// <summary>A real blur: Tab moves focus the way a visitor leaves a field.</summary>
+    public static Task TabAsync(IPage page) => page.Keyboard.PressAsync("Tab");
 }

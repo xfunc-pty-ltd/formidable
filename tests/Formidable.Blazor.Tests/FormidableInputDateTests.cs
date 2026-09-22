@@ -1,6 +1,7 @@
 using System.Globalization;
 using Bunit;
 using FluentValidation;
+using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,9 @@ public class FormidableInputDateTests : BunitContext
     {
         Services.AddFormidable();
         Services.AddSingleton<IValidator<Trip>>(new TripValidator());
+        // The component injects the DOM value sync; the recording fake keeps these tests off
+        // JS interop (FormidableInputDomSyncTests owns the sync assertions).
+        Services.AddSingleton<IFormidableDomValueSync>(new RecordingDomValueSync());
     }
 
     private IRenderedComponent<FormidableForm<Trip>> RenderReturnDate(

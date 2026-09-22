@@ -8,3 +8,10 @@ export function focusField(id) {
     element.focus({ preventScroll: true });
     return true;
 }
+
+export function syncValue(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.value = value ?? "";
+    }
+}

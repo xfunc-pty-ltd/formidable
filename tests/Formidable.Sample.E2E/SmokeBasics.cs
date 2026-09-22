@@ -7,7 +7,8 @@ public sealed class SmokeBasics(SampleAppFixture app)
     [E2EFact]
     public async Task Home_page_renders_the_nav()
     {
-        var page = await app.NewPageAsync("/");
+        await using var session = await app.NewPageAsync("/");
+        var page = session.Page;
 
         var nav = await page.Locator("nav").InnerTextAsync();
 

@@ -83,11 +83,16 @@ on disk), waits for both to answer, and tears down the whole process tree afterw
 The tests fall into a few groups:
 
 - A navigation smoke test that walks the sidebar itself.
-- A smoke test per sample page — the page loads, its form renders, nothing throws.
-- A deeper set of tests on `/workout`, the composite page that exercises every feature at once —
+- A render smoke per sample page — the page loads, its heading renders, nothing throws.
+- A journey per behavior-bearing page, one file each under `Journeys/`, pinning that page's
+  central lesson with at least one real-typed, real-blurred path — a blocked submit, a live pass,
+  a suppression reveal, whatever the page teaches. `/workout`'s journeys are the deepest of these:
   blocked submit and every summary-entry kind landing (native input, collection fieldset, wrapped
   input, the disclosure gate), attendee add/remove and per-item rules, async pending state,
   server-applied coupon apply/replace, and a regression pin for a fixed engine race.
+- A handful of keystroke-level pins (`InputRegressions.cs`) for input mechanics no smoke or
+  journey drives deep enough to see — caret position mid-type, a date typed segment by segment, a
+  number field's blur-time value sync.
 
 `DocsCapture.cs` holds a further group: docs-capture utilities that regenerate the PNGs under
 `docs/assets`. They sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`,

@@ -19,6 +19,9 @@
     --summary-bg: #fdf1ef;
     --cta: #f26a2b;
     --cta-text: #ffffff;
+    /* the custom select chevron, stroked in the muted colour — a data URI cannot read a
+       token, so each scheme carries its own */
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%234a5565' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     /* chrome (same in both schemes) */
     --nav-bg: #1a1a2e;
@@ -45,6 +48,7 @@
         --warn: #fbbf24;
         --info: #a5b4fc;
         --summary-bg: rgba(248, 113, 113, .09);
+        --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2399a1af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
 
     /* Native picker/spinner chrome (calendar glyphs, the number input's up/down arrows) follows
@@ -81,6 +85,27 @@ body {
         background: var(--bg);
         color: var(--text);
     }
+}
+
+/* Pre-boot splash — replaced by Blazor's first render. This stylesheet loads in <head>,
+   so the tokens theme the splash before the runtime arrives. */
+.boot {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    color: var(--muted);
+}
+
+.boot-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: formidable-spin .8s linear infinite;
 }
 
 h1 {
@@ -289,7 +314,27 @@ form textarea:focus,
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--ring);
-    background: var(--bg);
+    /* background-color, not the shorthand: the shorthand would reset the select chevron's
+       background-image below */
+    background-color: var(--bg);
+}
+
+/* A native select paints its arrow hard against the right border, ignoring the padding
+   inset the date icon and number spinners respect. Drawing the chevron ourselves puts it
+   on the same .85rem line; the pending state hides it so the spinner owns that corner.
+   (The Bootstrap page's .form-select out-specifies this and keeps Bootstrap's own arrow.) */
+form select,
+.culture select {
+    appearance: none;
+    background-image: var(--select-chevron);
+    background-repeat: no-repeat;
+    background-position: right .85rem center;
+    background-size: 12px 8px;
+    padding-right: 2.3rem;
+}
+
+form select.formidable-pending {
+    background-image: none;
 }
 
 /* ---------- validation states (FormidableCssClasses defaults) ---------- */

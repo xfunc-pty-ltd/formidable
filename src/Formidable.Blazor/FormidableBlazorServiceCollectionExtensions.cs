@@ -8,14 +8,15 @@ public static class FormidableBlazorServiceCollectionExtensions
 {
     /// <summary>
     /// Registers Formidable's core services (see <see cref="FormidableServiceCollectionExtensions.AddFormidable"/>)
-    /// plus <see cref="IFormidableFocusService"/>. The one-call registration for Blazor consumers.
-    /// Existing registrations are respected.
+    /// plus <see cref="IFormidableFocusService"/> and <see cref="IFormidableDomValueSync"/>. The
+    /// one-call registration for Blazor consumers. Existing registrations are respected.
     /// </summary>
     public static IServiceCollection AddFormidableBlazor(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddFormidable();
         services.TryAddScoped<IFormidableFocusService, FormidableFocusService>();
+        services.TryAddScoped<IFormidableDomValueSync, FormidableDomValueSync>();
         return services;
     }
 

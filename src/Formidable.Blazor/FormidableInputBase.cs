@@ -36,10 +36,13 @@ namespace Formidable.Blazor;
 /// The same race catches event handlers, not just attributes:
 /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/>'s own <c>oninput</c>/<c>onchange</c> are
 /// rendered after <see cref="AdditionalAttributes"/> as well, and win outright — a consumer
-/// splatting either of those is competing with the value binding itself. Its <c>onblur</c> under
-/// <see cref="InputUpdateMode.OnBlur"/> is the exception: rather than clobber a handler the
-/// consumer wrote for a different purpose, it chains — the splatted handler runs first, and the
-/// engine notification follows once it completes.
+/// splatting either of those is competing with the value binding itself. The <c>onblur</c> the
+/// kit binds is the exception: rather than clobber a handler the consumer wrote for a different
+/// purpose, it chains — the splatted handler runs first, and the kit's own work follows once it
+/// completes. That blur is bound under <see cref="InputUpdateMode.OnBlur"/> for every input, and
+/// in every mode for a control that syncs its DOM value on blur
+/// (<see cref="FormidableInputNumber{TValue}"/> and <see cref="FormidableInputDate{TValue}"/>,
+/// via <see cref="IFormidableDomValueSync"/>).
 /// </remarks>
 /// <typeparam name="TValue">The field's value type.</typeparam>
 public abstract class FormidableInputBase<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
@@ -248,6 +251,26 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     protected void NotifyChanged() => Context!.EditContext.NotifyFieldChanged(Field);
 
     /// <summary>
+    /// Whether <see cref="AddValueBinding(RenderTreeBuilder, int)"/> binds <c>blur</c> in every
+    /// <see cref="UpdateOn"/> mode so <see cref="SyncDomValueAsync"/> can run there. False by
+    /// default: a control whose DOM always displays exactly what it reports has nothing to
+    /// reconcile. The kit's number and date inputs opt in, because their native elements can keep
+    /// displaying text they report as empty — which no render-tree diff can overwrite, since the
+    /// rendered value and the reported value already agree.
+    /// </summary>
+    private protected virtual bool SyncsDomValueOnBlur => false;
+
+    /// <summary>
+    /// Writes the field's authoritative value into the DOM element on <c>blur</c> — a no-op by
+    /// default; a control opting in via <see cref="SyncsDomValueOnBlur"/> overrides this to pass
+    /// its currently-formatted <see cref="Value"/> to <see cref="IFormidableDomValueSync"/>. Runs
+    /// after any consumer-splatted <c>onblur</c> and, under <see cref="InputUpdateMode.OnBlur"/>,
+    /// before the engine notification, so the live pass renders against a box that already
+    /// matches the model.
+    /// </summary>
+    private protected virtual ValueTask SyncDomValueAsync() => ValueTask.CompletedTask;
+
+    /// <summary>
     /// Adds the attribute(s) that commit a value change, honouring <see cref="UpdateOn"/>: under
     /// <see cref="InputUpdateMode.OnChange"/> (default) or <see cref="InputUpdateMode.OnInput"/> a
     /// single event both commits the value and notifies the engine (see
@@ -257,8 +280,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="NotifyChanged"/>, once the value has had a chance to settle. Reads
     /// <see cref="Value"/> directly rather than taking it as a parameter, since the base already
     /// owns it. Call this last, immediately before <see cref="RenderTreeBuilder.CloseElement"/>:
-    /// it consumes <paramref name="sequence"/> and, under <see cref="InputUpdateMode.OnBlur"/>
-    /// only, <paramref name="sequence"/> + 1 as well, so nothing else in the render tree should
+    /// it consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever it
+    /// also binds <c>blur</c> — under <see cref="InputUpdateMode.OnBlur"/>, or in any mode for a
+    /// control that syncs its DOM value on blur — so nothing else in the render tree should
     /// reuse either number. Also marks <c>value</c> as the attribute the just-added commit handler
     /// updates (<see cref="RenderTreeBuilder.SetUpdatesAttributeName(string)"/>), mirroring native
     /// <c>InputText</c>/<c>InputSelect</c>: before the handler runs, the renderer patches the
@@ -266,12 +290,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// following diff emits no edit when nothing actually changed.
     /// </summary>
     /// <remarks>
-    /// The <c>onblur</c> this adds under <see cref="InputUpdateMode.OnBlur"/> chains rather than
-    /// clobbers: a consumer-splatted <c>@onblur</c> handler is invoked first and awaited, and the
-    /// engine notification follows. A splatted value that is not a .NET handler at all — a raw
-    /// attribute string, say — has nothing to invoke, so only the notification runs. If the
-    /// consumer handler throws, it propagates as an unhandled component exception and the engine
-    /// notification never runs — the value itself was already committed on the earlier
+    /// The <c>onblur</c> this adds chains rather than clobbers: a consumer-splatted
+    /// <c>@onblur</c> handler is invoked first and awaited, and the kit's own blur work — the DOM
+    /// value sync for a control that opts in, then under <see cref="InputUpdateMode.OnBlur"/> the
+    /// engine notification — follows. A splatted value that is not a .NET handler at all — a raw
+    /// attribute string, say — has nothing to invoke, so only the kit's work runs. If the
+    /// consumer handler throws, it propagates as an unhandled component exception and neither the
+    /// sync nor the notification runs — the value itself was already committed on the earlier
     /// <c>change</c> event either way.
     /// </remarks>
     protected void AddValueBinding(RenderTreeBuilder builder, int sequence)
@@ -280,10 +305,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         {
             builder.AddAttribute(sequence, "onchange", EventCallback.Factory.CreateBinder<TValue?>(this, v => CommitValueAsync(v), Value));
             builder.SetUpdatesAttributeName("value");
-            builder.AddAttribute(
-                sequence + 1,
-                BlurAttributeName,
-                EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
+            AddBlurBinding(builder, sequence + 1);
             return;
         }
 
@@ -292,6 +314,11 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
             EventCallback.Factory.CreateBinder<TValue?>(this, v => SetCurrentValueAsync(v), Value));
         builder.SetUpdatesAttributeName("value");
+
+        if (SyncsDomValueOnBlur)
+        {
+            AddBlurBinding(builder, sequence + 1);
+        }
     }
 
     /// <summary>
@@ -353,9 +380,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="InputUpdateMode.OnBlur"/> needs, exactly as
     /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> provides them — including the
     /// consumer-splatted <c>onblur</c> chaining, since both overloads share the same
-    /// <see cref="HandleBlurAsync"/>. It consumes <paramref name="sequence"/> and, under
-    /// <see cref="InputUpdateMode.OnBlur"/> only, <paramref name="sequence"/> + 1, exactly like
-    /// the typed overload.
+    /// <see cref="HandleBlurAsync"/>. It consumes <paramref name="sequence"/>, and
+    /// <paramref name="sequence"/> + 1 whenever it also binds <c>blur</c>, exactly like the typed
+    /// overload.
     /// </summary>
     /// <param name="builder">The render tree being built.</param>
     /// <param name="sequence">The first sequence number this call consumes.</param>
@@ -374,10 +401,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
                 "onchange",
                 EventCallback.Factory.CreateBinder<string?>(this, v => CommitParsedAsync(tryParseValue, v), formattedValue));
             builder.SetUpdatesAttributeName("value");
-            builder.AddAttribute(
-                sequence + 1,
-                BlurAttributeName,
-                EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
+            AddBlurBinding(builder, sequence + 1);
             return;
         }
 
@@ -386,7 +410,22 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             UpdateOn == InputUpdateMode.OnInput ? "oninput" : "onchange",
             EventCallback.Factory.CreateBinder<string?>(this, v => SetCurrentParsedAsync(tryParseValue, v), formattedValue));
         builder.SetUpdatesAttributeName("value");
+
+        if (SyncsDomValueOnBlur)
+        {
+            AddBlurBinding(builder, sequence + 1);
+        }
     }
+
+    /// <summary>
+    /// Binds <see cref="HandleBlurAsync"/> as the element's <c>onblur</c> — after the splat, so it
+    /// wins the duplicate-attribute race and chains any consumer handler itself.
+    /// </summary>
+    private void AddBlurBinding(RenderTreeBuilder builder, int sequence) =>
+        builder.AddAttribute(
+            sequence,
+            BlurAttributeName,
+            EventCallback.Factory.Create<FocusEventArgs>(this, HandleBlurAsync));
 
     private Task CommitParsedAsync(StringValueParser tryParseValue, string? value) =>
         tryParseValue(value, out var parsed) ? CommitValueAsync(parsed) : Task.CompletedTask;
@@ -395,14 +434,25 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         tryParseValue(value, out var parsed) ? SetCurrentValueAsync(parsed) : Task.CompletedTask;
 
     /// <summary>
-    /// Runs a consumer-splatted <c>onblur</c> handler, then notifies the engine — the chain
-    /// <see cref="InputUpdateMode.OnBlur"/> needs so that wanting the <c>blur</c> event for
-    /// validation does not quietly take it away from the consumer.
+    /// Runs a consumer-splatted <c>onblur</c> handler, then the control's DOM value sync, then —
+    /// under <see cref="InputUpdateMode.OnBlur"/> only — notifies the engine. The chain exists so
+    /// that the kit wanting the <c>blur</c> event does not quietly take it away from the
+    /// consumer; the mode gate keeps the notification a blur-mode behaviour even for controls
+    /// whose sync binds blur in every mode.
     /// </summary>
     private async Task HandleBlurAsync(FocusEventArgs args)
     {
         await InvokeSplattedBlurAsync(args);
-        NotifyChanged();
+
+        if (SyncsDomValueOnBlur)
+        {
+            await SyncDomValueAsync();
+        }
+
+        if (UpdateOn == InputUpdateMode.OnBlur)
+        {
+            NotifyChanged();
+        }
     }
 
     /// <summary>

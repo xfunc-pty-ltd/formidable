@@ -63,6 +63,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       exactly like the other fields
 - [ ] Read minutes is a number input (`FormidableInputNumber`): typing `0` and submitting shows
       the range message; the native spinner chrome matches the theme in both light and dark
+- [ ] Typing `e3` into Read minutes and tabbing away clears the box — text the model never
+      accepted does not linger, and a submit's "read time is required" message sits over a box
+      that visibly agrees with it
 - [ ] Publish date is a date input (`FormidableInputDate`, `UpdateOn="OnBlur"`): typing a date and
       tabbing away commits it with no stray validation flash mid-type; calendar picker chrome is
       legible in dark mode
@@ -228,7 +231,10 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 - [ ] `"  spaced   out  title  "` + *Normalize now*: the raw value line below snaps clean AND
       the INPUT BOX itself loses its spaces — box and model can never show different text
-- [ ] *Try it* step 2 verbatim — `"    Meeting notes about the Q3 rollout    "` (42 raw, 34
+- [ ] Pad Title with spaces past 40 characters: "Title is 40 characters max" appears live;
+      *Normalize now* trims under the limit and the message clears AT ONCE — no tab-through or
+      submit needed
+- [ ] *Try it* step 3 verbatim — `"    Meeting notes about the Q3 rollout    "` (42 raw, 34
       trimmed) + *Normalize + submit*: trimming runs BEFORE validation, the 40-char rule judges
       the cleaned value, and the submit SUCCEEDS (status line confirms)
 - [ ] All-spaces Title + *Normalize + submit*: trims to empty and ONLY "Title is required"

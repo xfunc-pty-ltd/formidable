@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Formidable\Formidable.csproj" />
+    <ProjectReference Include="..\..\samples\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
   </ItemGroup>
 
 </Project>

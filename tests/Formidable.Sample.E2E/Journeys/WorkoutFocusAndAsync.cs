@@ -33,7 +33,8 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_blocked_submit_focuses_every_entry_kind()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         await SubmitRegistrationAsync(page);
         await Expect(Summary(page)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
@@ -56,11 +57,14 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_async_pending_scopes_to_the_email_field()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         // Armed before the keystroke that starts the check: the predicate above polls inside the
         // browser, so the window it has to catch is never shortened by a round trip from here.
-        var pendingScoped = page.WaitForFunctionAsync(PendingScopedToContactEmail);
+        var pendingScoped = page.WaitForFunctionAsync(
+            PendingScopedToContactEmail,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
         await Field(page, "contactemail").FillAsync("taken@example.com");
         await pendingScoped;
 
@@ -71,7 +75,8 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
     [E2EFact]
     public async Task Workout_normalize_runs_before_send()
     {
-        var page = await app.NewPageAsync("/workout");
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
 
         // Everything a Submit-profile pass asks for; the tier is preselected and catering starts
         // ticked, so the dietary note is the only catering field that has to be answered.

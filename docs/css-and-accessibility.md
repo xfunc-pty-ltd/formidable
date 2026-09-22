@@ -379,7 +379,8 @@ The shipped implementation is a thin JS-interop wrapper: it computes the field's
 the JS side reports:
 
 ```csharp
-        return await module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
+    public ValueTask<bool> FocusAsync(FieldIdentifier field) =>
+        _module.InvokeAsync<bool>("focusField", FormidableFieldId.For(field));
 ```
 
 *Source: `src/Formidable.Blazor/FormidableFocusService.cs`*

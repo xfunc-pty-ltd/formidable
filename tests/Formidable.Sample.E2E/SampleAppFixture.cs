@@ -46,8 +46,10 @@ public sealed class SampleAppFixture : IAsyncLifetime
         "The E2E browser was never launched — mark browser tests with [E2EFact] so they self-skip unless FORMIDABLE_E2E=1.");
 
     /// <summary>Opens the sample at <paramref name="path"/> in a fresh browser context and waits
-    /// for the app's nav, which is the first chrome a booted WASM app renders.</summary>
-    public async Task<IPage> NewPageAsync(string path)
+    /// for the app's nav, which is the first chrome a booted WASM app renders. The returned
+    /// session owns the context: dispose it (await using) so each test's storage, cookies and
+    /// pages end with the test instead of accumulating until fixture teardown.</summary>
+    public async Task<SampleSession> NewPageAsync(string path)
     {
         var context = await Browser.NewContextAsync();
         var page = await context.NewPageAsync();
@@ -56,7 +58,7 @@ public sealed class SampleAppFixture : IAsyncLifetime
         // A cold WASM boot downloads and starts the runtime before anything renders, so the
         // first navigation of a run is far slower than the rest.
         await page.WaitForSelectorAsync("nav", new PageWaitForSelectorOptions { Timeout = NavTimeoutMilliseconds });
-        return page;
+        return new SampleSession(context, page);
     }
 
     /// <inheritdoc />
@@ -83,6 +85,12 @@ public sealed class SampleAppFixture : IAsyncLifetime
 
             _playwright = await Playwright.CreateAsync();
             _browser = await LaunchBrowserAsync(_playwright);
+
+            // The suite's wait policy: Expect assertions get this default; anything slower
+            // (async rules, server round trips, virtualized passes) opts in to
+            // SamplePage.AsyncTimeoutMs explicitly. Stated here so no wait rides an
+            // unstated Playwright default.
+            Assertions.SetDefaultExpectTimeout(5_000);
         }
         catch
         {
@@ -276,4 +284,21 @@ public sealed class SampleAppFixture : IAsyncLifetime
             return new InvalidOperationException($"{Project} {problem}{Environment.NewLine}Server output:{Environment.NewLine}{output}");
         }
     }
+}
+
+/// <summary>One test's browser context and page. Disposing closes the context, so per-test
+/// state (localStorage, cookies) never leaks into the next test.</summary>
+public sealed class SampleSession : IAsyncDisposable
+{
+    private readonly IBrowserContext _context;
+
+    internal SampleSession(IBrowserContext context, IPage page)
+    {
+        _context = context;
+        Page = page;
+    }
+
+    public IPage Page { get; }
+
+    public ValueTask DisposeAsync() => new(_context.CloseAsync());
 }

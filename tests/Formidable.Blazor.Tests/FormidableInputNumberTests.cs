@@ -21,6 +21,9 @@ public class FormidableInputNumberTests : BunitContext
     {
         Services.AddFormidable();
         Services.AddSingleton<IValidator<Booking>>(new BookingValidator());
+        // The component injects the DOM value sync; the recording fake keeps these tests off
+        // JS interop (FormidableInputDomSyncTests owns the sync assertions).
+        Services.AddSingleton<IFormidableDomValueSync>(new RecordingDomValueSync());
     }
 
     private IRenderedComponent<FormidableForm<Booking>> RenderSeats(

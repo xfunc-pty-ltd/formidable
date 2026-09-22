@@ -50,12 +50,17 @@ namespace Formidable.Blazor;
 /// </para>
 /// <para>
 /// A string that fails to parse — including an emptied box when
-/// <typeparamref name="TValue"/> is not nullable — leaves the field uncommitted: Blazor's own
-/// binder infrastructure no-ops, so the model is unchanged and the rendered value reverts to it
-/// on the next render. Formidable has no separate binder-message channel; every validation
-/// message stays FluentValidation's. Model an optional number as <c>int?</c>/<c>decimal?</c>
-/// etc. so an emptied box commits <see langword="null"/> instead — a rule such as
-/// <c>NotNull()</c> can then say so.
+/// <typeparamref name="TValue"/> is not nullable — leaves the field uncommitted: the model is
+/// unchanged. The box itself is reconciled on <c>blur</c>: a native number input can keep
+/// displaying text it reports as empty (<c>"e3"</c>, a lone minus — the characters the browser
+/// itself admits for scientific notation), which no render-tree diff can overwrite because the
+/// rendered value and the reported value already agree, so on every blur, in every
+/// <see cref="FormidableInputBase{TValue}.UpdateOn"/> mode, the control writes the model's
+/// formatted value into the element through <see cref="IFormidableDomValueSync"/> — whatever the
+/// box showed, it ends up matching the model. Formidable has no separate binder-message channel;
+/// every validation message stays FluentValidation's. Model an optional number as
+/// <c>int?</c>/<c>decimal?</c> etc. so an emptied box commits <see langword="null"/> instead — a
+/// rule such as <c>NotNull()</c> can then say so.
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted
@@ -69,6 +74,14 @@ namespace Formidable.Blazor;
 public sealed class FormidableInputNumber<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableInputBase<TValue>
 {
+    [Inject]
+    private IFormidableDomValueSync DomValueSync { get; set; } = default!;
+
+    private protected override bool SyncsDomValueOnBlur => true;
+
+    private protected override ValueTask SyncDomValueAsync() =>
+        DomValueSync.SyncValueAsync(ElementId, FormatValueAsString(Value));
+
     static FormidableInputNumber()
     {
         var targetType = Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue);

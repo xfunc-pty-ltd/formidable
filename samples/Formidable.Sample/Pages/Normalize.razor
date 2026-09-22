@@ -10,12 +10,13 @@
             <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims both fields and collapses runs of internal whitespace in <strong>Title</strong> to single spaces. <strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed the same way.</li>
             <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
             <li>Client code has no automatic hook — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
-            <li>Messages describe the last validated value, not the model's current one — <em>Normalize now</em> changes only the model, so any message already on screen stays put until the next validation pass (e.g. submit) judges the cleaned value.</li>
+            <li>The engine listens for field-change notifications, not the model itself — code that mutates the model tells the engine which fields changed (<code>EditContext.NotifyFieldChanged</code>, one call per changed field), the same wiring a foreign control uses. <em>Normalize now</em> does exactly that, so a message already on screen re-judges the cleaned value immediately.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
             <li>Type <code>"  spaced   out  title  "</code> into Title and click <em>Normalize now</em> — watch the raw value below snap clean.</li>
+            <li>Pad Title with spaces until it passes 40 characters — "Title is 40 characters max" appears as you type. <em>Normalize now</em> trims it back under the limit and the message clears at once: the notification re-judged the cleaned value.</li>
             <li>Type <code>"    Meeting notes about the Q3 rollout    "</code> — 42 characters raw, 34 trimmed. <em>Normalize + submit</em>: trimming runs BEFORE validation, the length rule judges the cleaned value, and the submit succeeds.</li>
             <li>Leave Title all spaces and click <em>Normalize + submit</em> — it trims to empty and "Title is required" fires.</li>
         </ol>
