@@ -115,7 +115,8 @@ filters untouched.
 and `formidable-summary__group--{severity}`; the `EditContext`'s message store receives errors
 only, so a native `ValidationMessage` shows nothing for an advisory. Submit is the disclosure
 event for advisories exactly as for errors — a warning that was showing keeps refreshing as the
-user edits, and a newly warning-worthy field waits for the next submit.
+user edits, a field that was an error site at submit picks up a newly-appearing warning too, and
+only a field with neither an error nor a warning at submit waits for the next submit.
 
 **Read:** [`docs/severity.md`](severity.md).
 **Samples:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor),
@@ -170,8 +171,14 @@ run under every profile that includes the default rules — and each named rules
 `ValidationProfile.Named(name, includeDefaultRules, ruleSets)` and point
 `FormidableOptions.LiveProfile` or `SubmitProfile` at it.
 
-The engine reads `Options` once, when it binds a `Model` instance, so switching profiles at
-runtime means handing the form a fresh model alongside the new options. Server-side, minimal APIs
+`FormidableForm` picks up the `Options` parameter once, when it binds a `Model` instance, but the
+engine holds that instance for its whole lifetime and re-reads its properties fresh on every pass
+— mutating `LiveProfile`/`SubmitProfile` on the same `FormidableOptions` object takes effect
+starting with the very next pass, no fresh model required. Handing the form a wholly new
+`FormidableOptions` instance is a different move — that one does need a fresh model alongside it,
+since only a `Model` reference change makes `FormidableForm` look at the `Options` parameter again
+— and is worth reaching for when a batch of option changes should become visible together in one
+step rather than as several independently-observable mutations. Server-side, minimal APIs
 take a `ValidationProfile` value directly while `[Validate(Profile = "…")]` takes a name — any
 name other than Draft or Submit becomes the default rules plus the same-named ruleset.
 

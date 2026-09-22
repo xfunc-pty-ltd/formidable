@@ -37,4 +37,4 @@ answer isn't listed here yet.
 Every mechanism in the table above has its own doc with the full picture — start from
 [`docs/disclosure.md`](disclosure.md), [`docs/collections-and-row-identity.md`](collections-and-row-identity.md),
 or [`docs/server-integration.md`](server-integration.md) depending on which row you're chasing, or
-see the full list in the [README](../README.md#learn-more).
+see the full list in the [README](../README.md#documentation).

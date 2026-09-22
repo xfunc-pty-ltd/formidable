@@ -1,0 +1,51 @@
+name: Deploy Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PUBLISH_DIR: artifacts/pages
+  SITE_DIR: artifacts/pages/wwwroot
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish the hosted-demo build
+        run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true -o ${{ env.PUBLISH_DIR }}
+      - name: Rewrite base href for the project page path
+        run: sed -i 's#<base href="/" />#<base href="/formidable/" />#' "${{ env.SITE_DIR }}/index.html"
+      - name: Add the SPA 404 fallback
+        run: cp "${{ env.SITE_DIR }}/index.html" "${{ env.SITE_DIR }}/404.html"
+      - name: Add .nojekyll
+        run: touch "${{ env.SITE_DIR }}/.nojekyll"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.SITE_DIR }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,6 +4,13 @@
              that matches the browser's own language: ship the full globalization data. -->
         <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
     </PropertyGroup>
+    <!-- Publish with -p:HostedDemo=true (build-pages.ps1 does this) to compile the hosted-demo
+         message handler that answers the sample's API calls in-browser, for GitHub Pages, which
+         hosts static files only. A plain build/publish never defines HOSTED_DEMO, so ordinary
+         local runs keep talking to the real API exactly as before. -->
+    <PropertyGroup Condition="'$(HostedDemo)' == 'true'">
+        <DefineConstants>$(DefineConstants);HOSTED_DEMO</DefineConstants>
+    </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.10" PrivateAssets="all" />

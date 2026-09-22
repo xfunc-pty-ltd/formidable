@@ -19,6 +19,56 @@ steps around as tribal knowledge.
 Neither step is something the release workflow can do for you — both must be in place before
 the first tag is pushed.
 
+## Pre-release verification
+
+Run this on the commit you are about to tag. The release workflow builds and tests too, but it
+never sets `FORMIDABLE_E2E`, so the browser suite in `tests/Formidable.Sample.E2E` self-skips
+there — this local run is what covers it.
+
+1. **Build the solution.** The E2E fixture starts both sample servers with `--no-build`, so it
+   runs against whatever the Debug output already holds; a stale or missing build is the usual
+   cause of a start-up timeout:
+
+   ```bash
+   dotnet build
+   ```
+
+2. **Install Chromium** — once per machine, not once per release. `pwsh` is PowerShell 7
+   (PowerShell Core), not the Windows-builtin `powershell.exe` (5.1) — install it from
+   [github.com/PowerShell/PowerShell](https://github.com/PowerShell/PowerShell) if `pwsh` isn't
+   already on the machine; Playwright's install script is a `.ps1` and needs it regardless of
+   platform:
+
+   ```bash
+   pwsh tests/Formidable.Sample.E2E/bin/Debug/net10.0/playwright.ps1 install chromium
+   ```
+
+3. **Run the whole suite with the browser tests switched on.** The fixture owns both sample
+   ports (5180 API, 5181 sample), so stop any sample app you have running first:
+
+   ```bash
+   FORMIDABLE_E2E=1 dotnet test
+   ```
+
+   In PowerShell, set the variable first: `$env:FORMIDABLE_E2E = "1"; dotnet test`.
+
+   > [!IMPORTANT]
+   > Everything must pass with nothing skipped except the docs-capture utilities
+   > (`DocsCapture`), which stay behind their own `FORMIDABLE_CAPTURE=1` gate above this one and
+   > sit out of this run on purpose — they render the PNGs under `docs/assets`, not verify
+   > anything, and `FORMIDABLE_E2E=1 FORMIDABLE_CAPTURE=1 dotnet test --filter DocsCapture` is
+   > how you re-run them after a visual change. Any other skip here means the variable never
+   > reached the test host and the browser suite did not actually run — without it the same
+   > command still reports success, having skipped every E2E test.
+
+   `$env:FORMIDABLE_E2E` set this way persists for the rest of the PowerShell session, not just
+   this command — clear it once verification is done so a later plain `dotnet test` in the same
+   session doesn't unexpectedly try to run the gated suite again: `Remove-Item Env:FORMIDABLE_E2E`.
+
+4. **Walk the sample by eye.** [`samples/MANUAL-CHECKLIST.md`](../samples/MANUAL-CHECKLIST.md)
+   is the pass a headless browser cannot do for you: colour, contrast, spacing, focus cues and
+   native-control chrome, in both light and dark OS colour schemes.
+
 ## How a release ships
 
 Versions are not set by hand anywhere in the source tree. [MinVer](https://github.com/adamralph/minver)

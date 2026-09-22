@@ -4,6 +4,10 @@
 <PageTitle>Server round-trip</PageTitle>
 <h1>Server round-trip</h1>
 <p>This form deliberately skips client-side submit validation — press Send and watch the server's 400 land on the exact fields. Press "Send to server" rather than Enter — Enter triggers the browser's implicit form submission, which runs the client-side submit pipeline this page deliberately skips.</p>
+@if (IsHostedDemo)
+{
+    <p><small>This hosted demo has no server behind it — an in-browser handler answers with the same validators and the same response shapes the real API would send.</small></p>
+}
 
 <TeachingPanel CodeFiles="@(new[] { "RoundTripOrder.cs", "ServerRoundTrip.razor", "ServerRoundTrip.razor.cs", "OrdersController.cs" })">
     <Rules>
@@ -18,7 +22,14 @@
     </Rules>
     <TryIt>
         <ol>
-            <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
+            @if (IsHostedDemo)
+            {
+                <li>No server to start on this hosted demo — the in-browser handler answers as soon as you click Send.</li>
+            }
+            else
+            {
+                <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
+            }
             <li>Click <em>Send to server</em> with everything empty — the 400 lands inline on the exact fields.</li>
             <li>Click an entry in the summary — it focuses that field.</li>
             <li>Fix one field and send again — the new verdict replaces the old one entirely.</li>

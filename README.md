@@ -1,43 +1,34 @@
-# Formidable
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.png">
+    <img src="docs/assets/hero-light.png" alt="The Formidable sample app after a blocked submit: a validation summary listing several errors and an advisory, with red-bordered required fields below it." width="820">
+  </picture>
+</p>
 
-Formidable is a Blazor form-validation library built on FluentValidation. It adds what
-FluentValidation and Blazor's `EditForm` don't give you out of the box: multiple validation
-profiles (draft vs. submit lifecycles from one validator definition), progressive disclosure
-(errors only surface for fields that are actually rendered), row-stable collection error
-identity (add, remove, and reorder rows without errors jumping to the wrong row), severity
-levels for warnings and info messages, and one wire format shared by the client and the server.
-The component kit is headless — Formidable owns no visual design, so it drops into any UI
-library or plain HTML.
+<h1 align="center">Formidable</h1>
+<p align="center">Form validation for Blazor, built on FluentValidation — profiles, progressive disclosure, row-stable collections, and one wire format shared by client and server.</p>
 
-## Features
+<p align="center">
+  <a href="https://github.com/xfunc/formidable/actions/workflows/ci.yml"><img src="https://github.com/xfunc/formidable/actions/workflows/ci.yml/badge.svg" alt="CI status"></a><!-- publish-day: verify -->
+  <a href="https://github.com/xfunc/formidable/actions/workflows/deploy-pages.yml"><img src="https://github.com/xfunc/formidable/actions/workflows/deploy-pages.yml/badge.svg" alt="Deploy Pages status"></a><!-- publish-day: verify -->
+  <a href="https://www.nuget.org/packages/Formidable.Blazor/"><img src="https://img.shields.io/nuget/v/Formidable.Blazor.svg" alt="NuGet version"></a><!-- publish-day: verify -->
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a><!-- publish-day: verify -->
+</p>
 
-- **Multiple named validation profiles** — Draft and Submit ship as conventions; define
-  arbitrary custom profiles (wizard steps, approval stages) from the same validator.
-- **Progressive disclosure** — validation errors follow what's actually rendered; fields the
-  user can't see never nag.
-- **Row-stable collection errors** — indexed and nested collection paths resolve by instance,
-  so error identity survives add, remove, and reorder.
-- **Client + server validation from one validator** — the same FluentValidation rules run in
-  the browser and on the server.
-- **Async validation rules** — debounced, cancellable, with per-field `IsValidating` state.
-- **Severity levels** — warnings and info render distinctly and never block submit.
-- **Server-error round-trip** — apply a `ValidationProblemDetails` response straight into the
-  engine so a server-rejected save lights up the exact fields inline.
-- **Field state API** — `GetFieldState` reports touched, modified, validating, and error/warning
-  state per field; `ValidationReport.IsValid` and `SubmitOutcome.CanProceed` give the form-level
-  verdict.
-- **Normalize hook** — `INormalizableModel.Normalize()` is enforced at the server boundary
-  (both server adapters call it before validation); call `model.Normalize()` yourself on the
-  client (e.g. before a lenient draft save) if you want normalized data pre-submit — v0.x
-  doesn't ship a built-in client-side invocation hook.
-- **Localization pass-through** — FluentValidation localization and `WithName` display names
-  flow straight through.
-- **Focus and scroll to the first error**, with accessible messaging built in.
-- **Configurable validation triggers** — on-change or on-blur, debounce interval, and live
-  profile choice.
-- **Model swap and draft load** handled by the root component — no manual EditContext rebuild.
-- **Vanilla Blazor interop** — plain `InputBase` descendants and `ValidationMessage` keep
-  working alongside Formidable's own components.
+## What it is
+
+- **Draft/Submit orthogonality** — one validator definition, two built-in lifecycles: a lenient
+  Draft profile for save-as-you-go, and a strict Submit profile for the real thing. Define
+  further custom profiles (wizard steps, approval stages) from the same validator.
+- **A headless component kit** — `FormidableForm`, `FormidableField`, `FieldMessage`, and
+  `FormSummary` own the `EditContext` and render whatever the validator reports. Formidable
+  ships no CSS; it drops into any UI library or plain HTML.
+- **One validator, client and server** — the same FluentValidation rules run in the browser and
+  on the server; a `ValidationProblemDetails` response applies straight into the engine so a
+  server-rejected save lights up the exact fields inline.
+- **Progressive disclosure** — validation errors follow what's actually rendered; a field the
+  user can't see never nags, and a defensive gate catches the case where every failure would
+  otherwise go unseen.
 
 ## Packages
 
@@ -145,7 +136,7 @@ MVC controllers:
 
 *Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
 
-## Learn more
+## Documentation
 
 | Topic | Doc |
 |---|---|
@@ -161,8 +152,21 @@ MVC controllers:
 | CSS and accessibility | [`docs/css-and-accessibility.md`](docs/css-and-accessibility.md) |
 | Migrating from another integration layer | [`docs/migration-guide.md`](docs/migration-guide.md) |
 | Acceptance benchmark (workaround → mechanism) | [`docs/benchmark.md`](docs/benchmark.md) |
+| Testing (suite shape, how to run each layer, the release gate) | [`docs/testing.md`](docs/testing.md) |
+| Releasing a version (the maintainer runbook) | [`docs/releasing.md`](docs/releasing.md) |
+| Manual walkthrough of the sample (the eyes-on pass) | [`samples/MANUAL-CHECKLIST.md`](samples/MANUAL-CHECKLIST.md) |
 
-The sample app is a runnable tour, one page per feature. From the repo root:
+## Run the sample locally
+
+The sample app is a runnable tour, one page per feature.
+
+```bash
+git clone https://github.com/xfunc/formidable.git
+cd formidable
+```
+<!-- publish-day: verify (clone URL above) -->
+
+From the repo root, in two terminals:
 
 ```bash
 dotnet run --project samples/Formidable.Sample.Api
@@ -172,9 +176,16 @@ dotnet run --project samples/Formidable.Sample
 The API listens on `http://localhost:5180`; open the Blazor app at
 `http://localhost:5181`.
 
-## License
+## Live demo
 
-Formidable is licensed under the [MIT License](LICENSE).
+The same sample is mirrored to GitHub Pages, deployed from `main`, with a simulated in-browser
+API standing in for the real server — every other page behaves exactly as it does locally.
+
+**[xfunc.github.io/formidable](https://xfunc.github.io/formidable/)** <!-- publish-day: verify -->
+
+## Contributing, security, and license
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
-request.
+request. Found a security issue? See [SECURITY.md](SECURITY.md) for private disclosure.
+
+Formidable is licensed under the [MIT License](LICENSE).

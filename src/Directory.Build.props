@@ -6,14 +6,36 @@
         <Copyright>Copyright (c) xfunc</Copyright>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageIcon>icon.png</PackageIcon>
+        <!-- publish-day: verify (RepositoryUrl / PackageProjectUrl below) -->
         <RepositoryUrl>https://github.com/xfunc/formidable</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <!-- publish-day: verify - This repo has no git remote yet (pre-publish state) -
+             Microsoft.Build.Tasks.Git's own remote lookup warns whenever it can't find one, even
+             though RepositoryUrl above is set explicitly and does not depend on that lookup, and
+             Microsoft.SourceLink.Common separately warns that the (necessarily empty, remote-less)
+             source link it would embed is empty. Source link has nothing real to embed without a
+             remote either way, so both queries are switched off rather than left to warn;
+             removing these two lines brings SourceLink fully back once a real "origin" remote
+             exists. -->
+        <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+        <EnableSourceLink>false</EnableSourceLink>
         <PackageProjectUrl>https://github.com/xfunc/formidable</PackageProjectUrl>
         <MinVerTagPrefix>v</MinVerTagPrefix>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
+        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
     </ItemGroup>
     <ItemGroup>
-        <None Include="$(MSBuildThisFileDirectory)..\README.md" Pack="true" PackagePath="\" />
+        <!-- The repo-root README uses raw HTML (hero picture, centered badges) that renders
+             fine on GitHub but not on nuget.org's HTML-free markdown subset, so the package
+             ships the dedicated HTML-free readme under this name instead. -->
+        <None Include="$(MSBuildThisFileDirectory)..\docs\nuget-readme.md" Pack="true" PackagePath="README.md" />
+        <None Include="$(MSBuildThisFileDirectory)..\docs\assets\icon.png" Pack="true" PackagePath="\" />
     </ItemGroup>
 </Project>

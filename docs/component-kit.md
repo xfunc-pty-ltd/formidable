@@ -723,4 +723,6 @@ every kit component makes for itself.
 
 **Samples:** [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor),
 [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor),
-[`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor).
+[`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor), and
+[`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor) for the CSS merge
+(consumer `class` kept, computed state classes remapped onto a UI library's own).

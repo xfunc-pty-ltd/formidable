@@ -7,6 +7,15 @@ namespace Formidable.Sample.Pages;
 
 public partial class ServerRoundTrip
 {
+    // True only in a HOSTED_DEMO build (see HostedDemoApiHandler) - static readonly rather than
+    // const so the razor's @if is a real runtime branch, not something the compiler could ever
+    // flag as unreachable in the build where it is always false.
+#if HOSTED_DEMO
+    private static readonly bool IsHostedDemo = true;
+#else
+    private static readonly bool IsHostedDemo = false;
+#endif
+
     private readonly RoundTripOrder _order = new() { Lines = [new OrderLine()] };
     private FormidableForm<RoundTripOrder>? _form;
     private readonly List<string> _serverWarnings = [];

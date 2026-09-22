@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a new feature or a change to the public API.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        This library has a small, deliberate API surface on purpose — it's easier to add a
+        member than to remove one once it ships. An issue here is the place to discuss the
+        shape of a change before anyone writes a PR for it; see `CONTRIBUTING.md`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the problem, not just the solution — what are you unable to do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What would the API or behaviour look like? A code sketch is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're using today, or other approaches you considered.
+    validations:
+      required: false
+  - type: checkboxes
+    id: willing-to-pr
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to open a PR for this once the shape is agreed.
+          required: false

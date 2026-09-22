@@ -194,11 +194,14 @@ Submit is the disclosure event for a warning or an info exactly as it is for an 
 `ValidateForSubmitAsync` decides, once, which currently-rendered fields carry a visible issue of
 any severity; from that point, the debounced refresh that follows every further edit
 (`RefreshDebounce`, see [`docs/options.md`](options.md)) re-validates the whole model but only
-ever narrows *that* already-visible set — it does not go looking for newly warning-worthy fields
-on its own. Practically: a warning that was showing when the user last submitted keeps refreshing
-live as they keep editing — it clears the moment they fix it, and comes back if they break it
-again — while a field that only starts failing a warning-severity rule after that submit stays
-quiet, the same way a newly-failing error field would, until the user submits again.
+ever narrows the union of that submit's error-visible and advisory-visible fields — it does not go
+looking for newly warning-worthy fields outside that union. Practically: a warning that was
+showing when the user last submitted keeps refreshing live as they keep editing — it clears the
+moment they fix it, and comes back if they break it again — and a field that was an error site at
+submit picks up a newly-appearing warning too, because that field is already in the watched set
+regardless of whether it carried one at submit time. Only a field with neither an error nor a
+warning at submit stays quiet when it starts failing a warning-severity rule, the same way a
+newly-failing error field would, until the user submits again.
 
 ## Server-side
 

@@ -60,6 +60,9 @@ Derive from this directly when a form's lifecycle doesn't match the draft/submit
 three-stage approval workflow, for example, where "malformed vs. missing" isn't the axis that
 matters.
 
+**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a
+third, custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
+
 ### `DraftSubmitValidator<T>` — the shipped convention
 
 `DraftSubmitValidator<T>` is one packaged convention over `ProfiledValidator<T>`: it fixes the
@@ -121,6 +124,9 @@ validation call straight against the injected `IModelValidator<T>` with the `Dra
 
 *Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs`*
 
+**Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — draft-save next to
+an ordinary submit, both against the same `DraftSubmitValidator<T>`.
+
 ## Server-side profile selection
 
 Minimal APIs pass a `ValidationProfile` value directly:
@@ -154,4 +160,4 @@ a dialog or summary without any extra mapping step on your end.
 `WithName("Order description")` surfacing that exact display name in
 `SubmitOutcome.VisibleErrorSummary`.
 
-**Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)
+**Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor)

@@ -27,8 +27,9 @@ registry — it only narrows to fields that were already part of the visible set
 field revealed after the fact stays quiet even if it is now failing; it surfaces at the *next*
 submit, not the moment it renders.
 
-Suppressing every failing field would let a submit silently do nothing, so a defensive gate
-blocks that case with a form-level explanation instead:
+> [!NOTE]
+> Suppressing every failing field would let a submit silently do nothing, so a defensive gate
+> blocks that case with a form-level explanation instead.
 
 ```csharp
                     if (visibleErrors.Count == 0)
@@ -43,6 +44,27 @@ blocks that case with a form-level explanation instead:
 ```
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
+
+The flowchart below traces that lifecycle end to end: submit as the disclosure event, an
+unregistered field's issue getting suppressed, and the defensive gate that catches the
+all-suppressed case.
+
+```mermaid
+flowchart TD
+    A["Submit runs"] --> B["For each failing field: is a rendering component currently registered for it?"]
+    B -- "yes" --> C["Issue is revealed to FieldMessage / FormSummary"]
+    B -- "no" --> D["Issue is suppressed for this submit"]
+    D --> E["SuppressedIssueDiagnostic fires once per suppressed issue"]
+
+    C --> F{"Any revealed error left?"}
+    E --> F
+    F -- "yes" --> G["Submit blocks; FormSummary shows whichever issues are visible now"]
+    F -- "no, every failing field was hidden" --> H["Defensive gate adds one model-level explanation instead"]
+    H --> G
+
+    I["A field revealed at an earlier submit is hidden before the next one runs"] --> J["It unregisters, so the next submit's check at B finds it unregistered"]
+    J --> D
+```
 
 ## The two patterns
 
@@ -199,7 +221,10 @@ the registry check entirely rather than defer to it — they're visible unless
 submitted data and hiding a field the client happens not to have rendered isn't the concern
 disclosure exists to solve.
 
-**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
+**Samples:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the
 suppressed-issue list on the page reflects only the most recent submit: it's cleared at the start
 of each submit and the diagnostic repopulates it as that submit runs, so a fully disclosed submit
-leaves it empty instead of carrying forward what an earlier submit hid.
+leaves it empty instead of carrying forward what an earlier submit hid — and
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor), where the same UI-gating pattern
+(catering toggled off over an unconditional `DietaryNotes` rule) and the all-suppressed defensive
+gate both appear inside a composite form alongside every other feature.

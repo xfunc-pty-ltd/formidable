@@ -556,7 +556,13 @@ warnings attached, because there is no wire contract for a successful response t
 ## Samples
 
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) and
-[`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs). Run
-the API first (`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the
-Blazor sample and press "Send to server" — pressing Enter triggers the browser's implicit form
-submission, which runs the client-side submit pipeline this page deliberately skips.
+[`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs) for the
+Minimal API endpoint, with its MVC twin at
+[`samples/Formidable.Sample.Api/Controllers/OrdersController.cs`](../samples/Formidable.Sample.Api/Controllers/OrdersController.cs)
+— the page's endpoint picker posts to either one, with a caption under the radios naming the live
+URL so the two otherwise-identical 400s are traceable to their source.
+[`samples/Formidable.Sample.Api/requests.http`](../samples/Formidable.Sample.Api/requests.http)
+has ready-made requests against both endpoints for use outside the browser. Run the API first
+(`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the Blazor sample
+and press "Send to server" — pressing Enter triggers the browser's implicit form submission,
+which runs the client-side submit pipeline this page deliberately skips.

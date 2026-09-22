@@ -103,6 +103,32 @@ nothing to defer to — a newer live pass supersedes the older one outright — 
 writes the verdicts for the fields of the passes it superseded as well as its own, so a field
 edited moments before another still gets its answer.
 
+The flowchart below traces that ordering end to end — what an edit starts, how the refresh
+defers to whatever is already running, and how a submit sits above all of it:
+
+```mermaid
+flowchart TD
+    A["Field edit commits"] --> B{"Is a submit in flight?"}
+    B -- "yes" --> C["Live pass does not start for this edit"]
+    B -- "no" --> D["Live pass starts for the changed field"]
+    D --> E{"A newer live pass starts before this one finishes?"}
+    E -- "yes" --> F["This pass is cancelled, superseded"]
+    E -- "no" --> G["This pass wins: writes verdicts for its own field plus every field of the passes it superseded"]
+
+    A --> H{"HasSubmitted, or a submit already in flight?"}
+    H -- "no" --> I["No refresh armed"]
+    H -- "yes" --> J["Field added to the pending-refresh set; debounced refresh timer (re)armed"]
+
+    J --> K["Debounce quiets, 300 ms by default"]
+    K --> L{"Submit or a live pass in flight?"}
+    L -- "yes" --> M["Refresh defers: re-arms its timer instead of running"]
+    M --> K
+    L -- "no" --> N["Refresh pass runs SubmitProfile, scoped to the fields in the pending-refresh snapshot"]
+
+    O["Submit invoked"] --> P["Submit pass runs SubmitProfile form-wide, cancelling whatever pass was in flight"]
+    P --> Q["HasSubmitted set true"]
+```
+
 ## Pending UI
 
 Two flags both answer "is something still checking?", at different scopes. The engine-level
@@ -146,7 +172,7 @@ ordinary `Validated*` inputs apply automatically.
     </FormidableField>
 ```
 
-*Source: `samples/Formidable.Sample/Pages/AsyncRules.razor`*
+*Excerpt from `samples/Formidable.Sample/Pages/AsyncRules.razor`*
 
 Both fields use `UpdateOn="InputUpdateMode.OnInput"` so a live pass starts on every keystroke, not
 just on blur — otherwise there'd be nothing to cancel until the user tabbed away.

@@ -347,6 +347,12 @@ through to the programmatic focus, so the keyboard path keeps the mark while a m
 - The class rule and its interaction with the `Pending` state — every sample using
   `FormidableInputText` shows it implicitly; [`docs/async-validation.md`](async-validation.md)'s
   pending-UI section is the most direct look at `Pending` specifically.
+- Renaming `FormidableCssOptions`' three class names to fit a UI library's own —
+  [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor), which points
+  `Invalid`/`Valid` at Bootstrap's `is-invalid`/`is-valid` and lets Bootstrap's own stylesheet do
+  the rest.
+- A consumer stylesheet keying off those same class names with CSS custom properties instead of
+  fixed colours — [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor).
 - The `FieldCssClassProvider` bridge and a native `InputBase` picking up the same classes —
   [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor), covered in
   [`docs/component-kit.md`](component-kit.md).

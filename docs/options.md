@@ -66,8 +66,13 @@ telemetry, not the only place they get recorded.
 
 `FormidableForm<TModel>` builds its engine once per `Model` instance and passes `Options`
 straight into the engine's constructor at that point — the engine never re-reads the `Options`
-parameter on a later render. Create the `FormidableOptions` once and treat it as immutable for
-the life of the rendered form:
+*parameter* on a later render, so handing the form a whole new `FormidableOptions` instance
+without also swapping `Model` has no effect. The engine does keep re-reading that instance's
+*properties* on every pass, though: mutating `LiveProfile`, `RefreshDebounce`,
+`DisclosureOverride`, or any other property on the same object takes effect starting with the
+next validation pass — see [`docs/recipes.md`](recipes.md#9-i-want-profiles-of-my-own) for a
+worked case. Building the `FormidableOptions` once, up front, and leaving it alone for the life
+of the rendered form — as the sample below does — is still the simplest habit to default to:
 
 ```csharp
     protected override void OnInitialized()
@@ -94,7 +99,9 @@ because nothing rebuilds — the engine only rebuilds when the `Model` reference
 
 - `SuppressedIssueDiagnostic` and `DisclosureOverride` — the progressive disclosure sample
   (`/disclosure`) and [`docs/disclosure.md`](disclosure.md).
-- `CssClasses` — [`docs/css-and-accessibility.md`](css-and-accessibility.md).
+- `CssClasses` — [`docs/css-and-accessibility.md`](css-and-accessibility.md); remapped onto a UI
+  library's own classes (`/bootstrap`) and recoloured live via CSS custom properties
+  (`/css-colours`).
 - `LiveProfile` / `SubmitProfile` — [`docs/profiles.md`](profiles.md) and the `/profiles`
   sample (the sample relies on the defaults; it doesn't override them).
 

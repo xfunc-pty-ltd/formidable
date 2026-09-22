@@ -3,6 +3,10 @@
 <PageTitle>Full workout</PageTitle>
 <h1>Full workout</h1>
 <p>The kitchen-sink page: one registration form that exercises the library's features side by side. The details section pairs an async availability check with a cross-field date rule and a coupon only the server can judge; the catering section is gated by pure UI state while its rule stays unconditional. Two ways out: <em>Save draft</em> runs the Draft profile, and <em>Submit registration</em> runs the Submit profile and then posts to the API.</p>
+@if (IsHostedDemo)
+{
+    <p><small>This hosted demo has no server behind it — an in-browser handler answers with the same validators and the same response shapes the real API would send, coupon rejection included.</small></p>
+}
 
 <TeachingPanel CodeFiles="@(new[] { "Workout.razor", "Workout.razor.cs", "EventRegistration.cs" })">
     <Rules>
@@ -26,7 +30,14 @@
     </Rules>
     <TryIt>
         <ol>
-            <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
+            @if (IsHostedDemo)
+            {
+                <li>No server to start on this hosted demo — the in-browser handler answers as soon as you submit, coupon rejection included.</li>
+            }
+            else
+            {
+                <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
+            }
             <li>Click <em>Submit registration</em> with everything empty — every presence rule whose field is still empty answers at once, the summary lists them, and every entry has somewhere to land: an entry that names an input focuses that input, native ones included (step 15), and the attendee advisory focuses the Attendees group, which owns no input of its own. A group or the form scrolls into view and takes focus quietly under the mouse; reach the same entry from the keyboard and the landing shows an accent outline as well. The form-level entry the gate raises lands on the form itself (step 5).</li>
             <li>Type <code>taken@@example.com</code> into Contact email — "checking…" sits on that field for the 300 ms the availability check takes, then the taken message lands.</li>
             <li>Replace Contact email with a fresh address (the one from the last step is already taken), fill in Event name, Event date, Dietary notes and <strong>Venue region</strong>, and submit with the coupon <code>BOGUS</code>. The server can only speak once the client is clean, and the POST happens only after a valid client submit — so the coupon's verdict always arrives last: the server's 400 lands inline on Coupon code. Change it to <code>WELCOME10</code> and submit again: the new verdict replaces the old one and the registration is accepted.</li>

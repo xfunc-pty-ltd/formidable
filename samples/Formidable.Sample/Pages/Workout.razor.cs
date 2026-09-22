@@ -10,6 +10,15 @@ namespace Formidable.Sample.Pages;
 
 public partial class Workout : IDisposable
 {
+    // True only in a HOSTED_DEMO build (see HostedDemoApiHandler) - static readonly rather than
+    // const so the razor's @if is a real runtime branch, not something the compiler could ever
+    // flag as unreachable in the build where it is always false.
+#if HOSTED_DEMO
+    private static readonly bool IsHostedDemo = true;
+#else
+    private static readonly bool IsHostedDemo = false;
+#endif
+
     private const float SessionRowHeight = 96f;
 
     private static readonly string[] SessionTracks =
