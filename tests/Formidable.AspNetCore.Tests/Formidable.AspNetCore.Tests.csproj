@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Formidable.AspNetCore\Formidable.AspNetCore.csproj" />
