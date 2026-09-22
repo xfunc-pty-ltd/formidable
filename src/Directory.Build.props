@@ -15,21 +15,10 @@
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>icon.png</PackageIcon>
-        <!-- publish-day: verify (RepositoryUrl / PackageProjectUrl below) -->
         <RepositoryUrl>https://github.com/xfunc-pty-ltd/formidable</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <EmbedUntrackedSources>true</EmbedUntrackedSources>
-        <!-- publish-day: verify - This repo has no git remote yet (pre-publish state) -
-             Microsoft.Build.Tasks.Git's own remote lookup warns whenever it can't find one, even
-             though RepositoryUrl above is set explicitly and does not depend on that lookup, and
-             Microsoft.SourceLink.Common separately warns that the (necessarily empty, remote-less)
-             source link it would embed is empty. Source link has nothing real to embed without a
-             remote either way, so both queries are switched off rather than left to warn;
-             removing these two lines brings SourceLink fully back once a real "origin" remote
-             exists. -->
-        <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
-        <EnableSourceLink>false</EnableSourceLink>
         <PackageProjectUrl>https://github.com/xfunc-pty-ltd/formidable</PackageProjectUrl>
         <MinVerTagPrefix>v</MinVerTagPrefix>
         <IncludeSymbols>true</IncludeSymbols>
