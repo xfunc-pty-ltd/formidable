@@ -1,20 +1,51 @@
 # Testing
 
-The suite has two tiers: an unconditional unit/component tier that runs on every `dotnet test`
-and every CI build, and a browser tier that only runs when you ask for it. This doc is a map of
-both — what each layer covers, how to run it, and where the gate that combines them lives. See
-[`CONTRIBUTING.md`](../CONTRIBUTING.md) for dev setup and PR expectations, and
-[`docs/recipes.md`](recipes.md) for a task-oriented index of *behaviour* rather than tests.
+**You should already know:** how to wire up a form end to end
+([Quickstart](quickstart.md)) — this page assumes you already have something worth
+testing, not how to build it.
+
+A suite you can't run in ten seconds is a suite that stops getting run. Make every test spin up
+two servers and a real browser, and `dotnet test` turns from a save-time reflex into a coffee
+break — so the checks that would catch a blocked submit, a focus miss, or a dark-mode CSS token
+get skipped in practice, not on purpose. Formidable's suite draws that line deliberately instead:
+an unconditional tier fast enough to run on every save, and a browser tier real enough to catch
+what a simulated renderer can't, switched on only when asked. Even that doesn't cover
+everything — colour, contrast, and native control chrome still want a human's eyes, which is
+what the checklist at the end of this page is for.
+
+## Need to know
+
+Two commands cover almost everything:
+
+```bash
+dotnet test                    # unconditional tier
+FORMIDABLE_E2E=1 dotnet test   # adds the browser tier
+```
+
+The first is what CI and every PR run. The second is what a maintainer runs by hand before
+tagging a release — see [The release gate](#the-release-gate) below. Both should report zero
+failures before you trust a change. A plain run also reports some tests as *skipped* rather than
+run: that's expected, not a problem. Skipped there means the browser tier below, gated behind
+`FORMIDABLE_E2E`, plus a handful of docs-capture utilities gated further behind
+`FORMIDABLE_CAPTURE` (see [Browser tests](#browser-tests-env-gated)). What isn't expected is a
+run reporting fewer tests than usual — that's a signal an environment variable or a build step
+didn't do what it was supposed to, not that the suite shrank on its own.
+
+A PR is expected to pin new behaviour with a test at the tier that would actually exercise it —
+unit/bUnit for engine and component logic, browser for anything only a real rendered page can
+show — keep the plain suite green, and produce a clean Release build. See the
+[contributing guide](../CONTRIBUTING.md) for dev setup and the full PR checklist, and
+[Recipes](recipes.md) for a task-oriented index of *behaviour* rather than tests.
 
 ## Unit and component tests
 
 Three projects, unconditional — no environment variable, no running server, no browser:
 
-| Project | Count | Covers |
-|---|---|---|
-| `tests/Formidable.Tests` | 71 | Core: `Formidable` — profiles (Draft/Submit, `ProfiledValidator<T>`), the `IModelValidator<T>` seam, the reflection-based introspector, path resolution, service registration. |
-| `tests/Formidable.AspNetCore.Tests` | 21 | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/warnings wire mapping. |
-| `tests/Formidable.Blazor.Tests` | 108 | `Formidable.Blazor` — `FormValidationEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
+| Project | Covers |
+|---|---|
+| `tests/Formidable.Tests` | Core: `Formidable` — profiles (Draft/Submit, `ProfiledValidator<T>`), the `IModelValidator<T>` seam, the reflection-based introspector, path resolution, service registration. |
+| `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/warnings wire mapping. |
+| `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormValidationEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
 Run the whole tier from the repo root:
 
@@ -22,18 +53,16 @@ Run the whole tier from the repo root:
 dotnet test
 ```
 
-A clean run reports **200 passed + 30 skipped** — the 30 are the 27 browser tests below plus
-three docs-capture utilities that render the screenshots under `docs/assets` (see both below),
-reported as skipped rather than failing so their absence never looks like a broken build. To run
-just one
-project (useful while iterating), point `dotnet test` at its `.csproj` or use `--filter`:
+A clean run also reports the browser tier below as skipped rather than failed — see
+[Need to know](#need-to-know) for why that's expected. To run just one project (useful while
+iterating), point `dotnet test` at its `.csproj` or use `--filter`:
 
 ```bash
 dotnet test tests/Formidable.Blazor.Tests
 ```
 
 Both `dotnet build` and `dotnet test` should be clean before opening a PR — see
-[`CONTRIBUTING.md`](../CONTRIBUTING.md) for the warnings-as-errors and XML-doc requirements that
+the [contributing guide](../CONTRIBUTING.md) for the warnings-as-errors and XML-doc requirements that
 make a "clean" build stricter than it looks.
 
 ## Browser tests (env-gated)
@@ -46,18 +75,18 @@ browser or the sample servers. Its `SampleAppFixture` owns both: it starts
 `Formidable.Sample.Api` and `Formidable.Sample` itself (`--no-build`, so it needs a build already
 on disk), waits for both to answer, and tears down the whole process tree afterward.
 
-27 tests across four files:
+The tests fall into a few groups:
 
-- One navigation smoke test that walks the sidebar itself.
-- One smoke test per sample page (18) — the page loads, its form renders, nothing throws.
-- Eight tests going deep on `/workout`, the composite page that exercises every feature at once —
+- A navigation smoke test that walks the sidebar itself.
+- A smoke test per sample page — the page loads, its form renders, nothing throws.
+- A deeper set of tests on `/workout`, the composite page that exercises every feature at once —
   blocked submit and every summary-entry kind landing (native input, collection fieldset, wrapped
   input, the disclosure gate), attendee add/remove and per-item rules, async pending state,
   server-applied coupon apply/replace, and a regression pin for a fixed engine race.
 
-A fifth file, `DocsCapture.cs`, holds three docs-capture utilities that regenerate the PNGs under
-`docs/assets` — they sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`,
-so an ordinary gated run never rewrites the shipped images as a side effect (see the NOTE below).
+`DocsCapture.cs` holds a further group: docs-capture utilities that regenerate the PNGs under
+`docs/assets`. They sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`,
+so an ordinary gated run never rewrites the shipped images as a side effect (see the note below).
 
 Run it:
 
@@ -73,15 +102,14 @@ same session. Stop any sample app you already have running first: the fixture ow
 and 5181 and a port already in use fails the run with an actionable error rather than a hang.
 
 > [!NOTE]
-> A clean gated run reports **227 passed + 3 skipped** — nothing skipped except the docs-capture
-> utilities (`DocsCapture.cs`), which stay behind their own `FORMIDABLE_CAPTURE=1` gate on top of
-> this one and sit out of this run on purpose: they render the PNGs under `docs/assets`, not
-> verify anything. Any other skip here means the variable never reached the test host, not that
-> the suite is somehow smaller.
+> A gated run skips only the docs-capture utilities (`DocsCapture.cs`) — they stay behind their
+> own `FORMIDABLE_CAPTURE=1` gate on top of this one and sit out of this run on purpose: they
+> render the PNGs under `docs/assets`, not verify anything. Any other skip here means the
+> variable never reached the test host, not that the suite is somehow smaller.
 
 ## The release gate
 
-[`docs/releasing.md`](releasing.md)'s **Pre-release verification** section is where both tiers
+[Releasing](releasing.md)'s **Pre-release verification** section is where both tiers
 above, plus a manual pass, combine into the actual checklist a maintainer runs before tagging a
 release — build, gated `dotnet test`, and the walkthrough below, in that order. Run it on the
 commit you're about to tag, not just once at the start of a change.
@@ -90,7 +118,7 @@ commit you're about to tag, not just once at the start of a change.
 
 Some things a browser driven by a test script can't judge: colour and contrast, spacing, focus
 outlines, and native control chrome (date pickers, `<select>` dropdowns) rendering correctly in
-both light and dark OS colour schemes. [`samples/MANUAL-CHECKLIST.md`](../samples/MANUAL-CHECKLIST.md)
+both light and dark OS colour schemes. The [manual checklist](../samples/MANUAL-CHECKLIST.md)
 is the committed walkthrough for that eyes-on pass — one section per sample-page group, matching
 the sidebar, plus a navigation and a light/dark pass. It's the pre-release human gate the two
 automated tiers above can't replace, not a substitute for either of them.

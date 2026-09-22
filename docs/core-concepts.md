@@ -1,0 +1,99 @@
+# Core concepts
+
+One FluentValidation validator has one rule set, and a form asks it two different questions
+at two different moments. Require a name too eagerly and a fresh page complains before the
+visitor has typed a single character. Wait for submit before checking anything and a
+malformed email sits wrong through the whole form, discovered only when the visitor finally
+commits. Split the rules by hand — one subset for typing, one for submitting — and every
+validator either duplicates its rules across two classes or grows an if/else keyed on a flag
+nobody remembers the meaning of six months later. Formidable answers this with two profiles
+built into the same validator: rules that check shape run live, rules that check presence
+wait for submit, and neither moment needs its own copy of anything.
+
+## Draft and submit, not one rule set doing two jobs
+
+Two profiles ship as a convention. `ValidationProfile.Draft` runs the validator's default
+(unnamed) rules only. `ValidationProfile.Submit` runs those same default rules plus a
+`"Submit"` ruleset. The convention behind the split: draft rules ask "is this value
+malformed?" — wrong length, wrong shape — and treat an empty value as fine, since a blank
+field mid-draft isn't wrong yet. Submit rules ask "is this value present at all?" and treat
+that same empty value as missing. Keeping those two questions on separate axes means a single
+mistake never earns two error messages.
+
+`DraftSubmitValidator<T>` is the base class that gives you this split without naming a
+ruleset yourself: override `ConfigureDraftRules()` for the format checks and
+`ConfigureSubmitRules()` for the completeness checks.
+
+```csharp
+public class ProfileForm
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public string Bio { get; set; } = string.Empty;
+}
+
+public class ProfileFormValidator : DraftSubmitValidator<ProfileForm>
+{
+    protected override void ConfigureDraftRules()
+    {
+        // Format rule: enforced live, including while the form is still a draft.
+        RuleFor(p => p.Bio).MaximumLength(280).WithMessage("Bio is 280 characters max");
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        // Completeness rule: enforced only when the form is submitted.
+        RuleFor(p => p.DisplayName).NotEmpty().WithMessage("Display name is required");
+    }
+}
+```
+
+## Which profile runs when
+
+`FormidableForm`'s engine reads two profiles off `FormidableOptions`. `LiveProfile` runs on
+every field change and defaults to `ValidationProfile.Draft`. `SubmitProfile` runs when the
+form submits, and again on the debounced refresh that follows, defaulting to
+`ValidationProfile.Submit`:
+
+```csharp
+var options = new FormidableOptions
+{
+    LiveProfile = ValidationProfile.Draft,
+    SubmitProfile = ValidationProfile.Submit
+};
+```
+
+Pass that instance through the form's `Options` parameter to point either moment at a
+different profile — a wizard step, an approval stage — without touching the validator at all.
+
+Saving a draft skips the form's submit pipeline entirely. It's a plain call against the same
+validator you registered, naming the profile yourself:
+
+```csharp
+var report = await Validator.ValidateAsync(_profile, ValidationProfile.Draft);
+```
+
+## Severity: not everything wrong should block
+
+A rule doesn't have to block submission just because the model doesn't match it perfectly.
+FluentValidation rules carry a severity: `.WithSeverity(Severity.Warning)` or
+`.WithSeverity(Severity.Info)` marks a rule as advisory, and leaving it off makes the rule
+an `Error`, exactly as it always was. Formidable maps that straight onto its own severity
+— `Error` blocks submit, `Warning` and `Info` are shown to the user but never block it, so
+a model that's all warnings and infos, with no errors, still submits successfully. That
+mapping's `Error` leg includes an explicit `.WithSeverity(Severity.Error)` too: writing it
+out by hand maps exactly the way leaving it off does — worth doing if your team would
+rather every rule said its severity out loud.
+
+```csharp
+RuleFor(p => p.DisplayName)
+    .Must(n => n.Length <= 40)
+    .WithSeverity(Severity.Warning)
+    .WithMessage("Display names over 40 characters may be truncated in some views");
+```
+
+Warnings and infos don't get a disclosure rule of their own — a submit is what discloses them
+too, precisely as it discloses an error. From there, whatever's showing keeps refreshing live
+while the visitor edits: it clears the moment they fix it, returns if they break it again, and
+neither direction waits for a second submit.
+
+**Next:** [Fields and collections](fields-and-collections.md)

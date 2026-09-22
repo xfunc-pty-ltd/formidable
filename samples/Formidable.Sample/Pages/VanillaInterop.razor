@@ -25,12 +25,21 @@
 <FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
     <FormSummary />
 
-    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" id="@NicknameId" aria-invalid="@NicknameAriaInvalid" aria-describedby="@($"{NicknameId}-messages")" /></label>
+    <div class="field">
+        <label>Nickname (native InputText)
+            <InputText @bind-Value="_order.Nickname"
+                       id="@NicknameId"
+                       aria-invalid="@NicknameAriaInvalid"
+                       aria-describedby="@($"{NicknameId}-messages")" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
-        <FieldAnchor For="() => _order.Nickname" /></div>
+        <FieldAnchor For="() => _order.Nickname" />
+    </div>
 
-    <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
-        <FieldMessage For="() => _order.Colour" /></div>
+    <div class="field">
+        <label>Colour (Formidable input)
+            <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+        <FieldMessage For="() => _order.Colour" />
+    </div>
 
     <div class="actions">
         <button type="submit">Submit</button>

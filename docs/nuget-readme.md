@@ -3,20 +3,27 @@
 Form validation for Blazor, built on FluentValidation — profiles, progressive disclosure,
 row-stable collections, and one wire format shared by client and server.
 
+I wrote it because the layer between Blazor's EditForm and FluentValidation is one I kept
+rebuilding by hand, one client form at a time. This is that layer, built once and covered by
+tests, running a real project's forms today.
+
 ## What it is
 
-- Draft/Submit orthogonality — one validator definition, two built-in lifecycles: a lenient
-  Draft profile for save-as-you-go, and a strict Submit profile for the real thing. Define
-  further custom profiles from the same validator.
-- A headless component kit — FormidableForm, FormidableField, FieldMessage, and FormSummary
-  own the EditContext and render whatever the validator reports. Formidable ships no CSS; it
-  drops into any UI library or plain HTML.
-- One validator, client and server — the same FluentValidation rules run in the browser and on
-  the server; a ValidationProblemDetails response applies straight into the engine so a
-  server-rejected save lights up the exact fields inline.
-- Progressive disclosure — validation errors follow what's actually rendered; a field the user
-  can't see never nags, and a defensive gate catches the case where every failure would
-  otherwise go unseen.
+- Draft and Submit from one validator — two lifecycles ship built in: a lenient Draft profile
+  for save-as-you-go, a strict Submit profile for the real thing, both defined once in the same
+  FluentValidation class. Wizard steps and approval stages are custom profiles over that same
+  definition.
+- A headless component kit — FormidableForm, FormidableField, FieldMessage, and FormSummary own
+  the EditContext and render exactly what the validator reports. The library ships no CSS, so
+  the kit drops into a UI library, a design system, or plain HTML.
+- One validator, client and server — the same FluentValidation rules run in the browser and
+  again on the server, and the server's ValidationProblemDetails response applies straight into
+  the engine, so a rejected save lights up the exact fields inline.
+- Progressive disclosure — errors follow what is actually on screen. A field the visitor cannot
+  see never nags, and a defensive gate catches the case where every failure would otherwise go
+  unseen.
+- Collections that keep their errors — a message belongs to the row object, not to the row
+  number, so adding, removing, and reordering rows can never move an error onto the wrong line.
 
 ## Packages
 
@@ -39,12 +46,12 @@ Register it and your FluentValidation validators:
     builder.Services.AddFormidableBlazor();
     builder.Services.AddScoped<IValidator<QuickContact>, QuickContactValidator>();
 
-Then wrap a model in FormidableForm and let FormidableInputText / FieldMessage / FormSummary
-render whatever the validator reports.
+Then wrap a model in FormidableForm and let FormidableInputText, FieldMessage, and FormSummary
+render whatever the validator reports. That is a working form.
 
 ## Links
 
-Full documentation, the runnable sample app, and every recipe live in the repository:
+The full documentation, the runnable sample app, and every recipe live in the repository:
 
 - Repository: https://github.com/xfunc/formidable <!-- publish-day: verify -->
 - Documentation index: https://github.com/xfunc/formidable/tree/main/docs <!-- publish-day: verify -->

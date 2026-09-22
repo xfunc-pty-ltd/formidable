@@ -1,6 +1,24 @@
 # Severity levels
 
-Every `ValidationIssue` carries a `ValidationSeverity`:
+**You should already know:** the draft/submit split and which profile runs when
+([Core concepts](core-concepts.md)), and how a `ValidationProfile` selects rules out of
+one validator ([Profiles](profiles.md)).
+
+A validation rule looks binary until product wants a nudge instead of a wall. A listing with no
+title should block — there's nothing to sell without a name. A listing whose description has three
+exclamation marks probably shouldn't; it's shouty, not broken, and the person who typed it should
+hear about it without losing the ability to publish. Give a rule engine only pass and fail and
+both problems come out the same shape: a message on screen, a submit button that won't fire, no
+way to tell "you must fix this" from "you might want to fix this."
+
+FluentValidation already has a third state built in. This page is about what Formidable does
+with it: which severities block, how they render, and how long a warning or an info stays on
+screen once it's been shown.
+
+## Need to know
+
+A rule declares its severity with FluentValidation's own `.WithSeverity(...)`; leaving it off
+makes the rule an `Error`, exactly as it always was:
 
 ```csharp
 /// <summary>Severity of a <see cref="ValidationIssue"/>.</summary>
@@ -19,13 +37,14 @@ public enum ValidationSeverity
 
 *Source: `src/Formidable/ValidationSeverity.cs`*
 
-A rule declares its severity with FluentValidation's own `.WithSeverity(...)`. The adapter maps
-FluentValidation's `Severity` enum onto `ValidationSeverity` one-to-one — `Severity.Warning` →
-`ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`, and everything else
-(including FluentValidation's own default) → `ValidationSeverity.Error`. A rule with no
-`.WithSeverity(...)` call is an error, exactly as it always was.
-
-## Declaring severity
+The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` one-to-one —
+`Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`,
+and everything else (including FluentValidation's own default) → `ValidationSeverity.Error`.
+That "everything else" leg includes an explicit `.WithSeverity(Severity.Error)`: writing the
+default out by hand maps exactly the way leaving it off does, for teams that prefer every rule
+to state its severity. Where the rule lives decides when it's checked, same as any other rule —
+the common/draft bucket if an advisory should nag live, `ConfigureSubmitRules()` if it should
+stay quiet until the user commits:
 
 ```csharp
 public class Listing
@@ -59,15 +78,23 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 
 *Source: `samples/Formidable.Sample.Shared/Listing.cs`*
 
-The warning and info rules here live in `ConfigureDraftRules()` — Formidable's shared "common"
-bucket, run by both the draft/live ruleset and folded into `"Submit"` (see
-[`docs/profiles.md`](profiles.md)) — so under the default `LiveProfile` (`Draft`) they run live,
-on blur, exactly like the required-title error above, and are still enforced when the form
-submits. A validator that instead wants its warnings and infos to stay quiet until submit places
-them in `ConfigureSubmitRules()` — the scratch validator in
-`tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs` is a ready-made example of that
-shape. Either way, the disclosure lifecycle described in "The warning lifetime" below applies once
-the issue has first been shown.
+Both advisory rules above live in `ConfigureDraftRules()`, Formidable's shared "common" bucket.
+That bucket is run by the draft/live ruleset and folded into `"Submit"` (see
+[Profiles](profiles.md)). So under the default `LiveProfile` (`Draft`) they run live, on blur,
+exactly like the required-title error above them, and they are still enforced when the form
+submits. The scratch validator in `tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs`
+shows the other shape: warnings and infos placed in `ConfigureSubmitRules()` instead, so they stay
+quiet until submit. Either way, the disclosure lifecycle described in "The warning lifetime" below
+applies once the issue has first been shown.
+
+None of that changes what a warning or an info does to the submit itself: nothing. `IsValid`
+counts only errors, and `SubmitOutcome.CanProceed` is the same flag under a different name.
+`FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when `CanProceed`,
+`OnInvalidSubmit` otherwise. A model that's all warnings and infos, with no errors, submits
+successfully. That's the whole authoring surface: mark severities, put the rule where it should
+run, read `CanProceed` instead of counting errors by hand. What follows backs that guarantee with
+the actual types, shows how a severity renders, and covers how long a warning stays visible once
+it's shown.
 
 ## Warnings and infos never block
 
@@ -94,9 +121,9 @@ public sealed record SubmitOutcome(
 
 *Source: `src/Formidable.Blazor/SubmitOutcome.cs`*
 
-`FormidableForm<TModel>.SubmitAsync()` runs the submit pipeline and routes on exactly that flag —
-`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` (with the full `SubmitOutcome`) otherwise —
-so a model that's all warnings and infos, with no errors, submits successfully:
+`FormidableForm<TModel>.SubmitAsync()` runs the submit pipeline and routes on exactly that flag:
+`OnValidSubmit` when `CanProceed`, `OnInvalidSubmit` (with the full `SubmitOutcome`) otherwise.
+So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
 <FormidableForm @ref="_form" Model="_listing">
@@ -118,8 +145,8 @@ so a model that's all warnings and infos, with no errors, submits successfully:
 *Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor`* — the page also carries a
 teaching panel above the form.
 
-The submit handler in the code-behind routes purely on `CanProceed`, and reports what got through
-without blocking:
+The submit handler in the code-behind routes purely on `CanProceed`, and reports what got
+through without blocking:
 
 ```csharp
     private async Task Submit()
@@ -158,9 +185,9 @@ for a field as a list item, whatever its severity, with a class built straight f
 *Source: `src/Formidable.Blazor/FieldMessage.cs`*
 
 So a rendered message carries `formidable-message formidable-message--error`,
-`formidable-message formidable-message--warning`, or `formidable-message formidable-message--info`
-— style each in your own stylesheet; Formidable ships no CSS of its own (see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md)).
+`formidable-message formidable-message--warning`, or
+`formidable-message formidable-message--info`. Style each in your own stylesheet; Formidable ships
+no CSS of its own (see [CSS and accessibility](css-and-accessibility.md)).
 
 `FormSummary` groups the whole form's currently-visible issues by severity — errors, then
 warnings, then infos — one list per non-empty group, the same suffix convention applied to the
@@ -192,16 +219,17 @@ offending field.
 
 Submit is the disclosure event for a warning or an info exactly as it is for an error.
 `ValidateForSubmitAsync` decides, once, which currently-rendered fields carry a visible issue of
-any severity; from that point, the debounced refresh that follows every further edit
-(`RefreshDebounce`, see [`docs/options.md`](options.md)) re-validates the whole model but only
-ever narrows the union of that submit's error-visible and advisory-visible fields — it does not go
-looking for newly warning-worthy fields outside that union. Practically: a warning that was
-showing when the user last submitted keeps refreshing live as they keep editing — it clears the
-moment they fix it, and comes back if they break it again — and a field that was an error site at
-submit picks up a newly-appearing warning too, because that field is already in the watched set
-regardless of whether it carried one at submit time. Only a field with neither an error nor a
-warning at submit stays quiet when it starts failing a warning-severity rule, the same way a
-newly-failing error field would, until the user submits again.
+any severity. The union of that submit's error-visible and advisory-visible fields is the watched
+set from then on. Every further edit arms the debounced refresh (`RefreshDebounce`, see
+[Options](options.md)), which re-validates the whole model but only ever narrows that set. It
+never goes looking for newly warning-worthy fields outside it.
+
+A warning that was showing when the user last submitted keeps refreshing live as they keep
+editing: it clears the moment they fix it, and comes back if they break it again. A field that was
+an error site at submit picks up a newly-appearing warning too, because it is already in the
+watched set — whether or not it carried a warning at submit time. Only a field with neither an
+error nor a warning at submit stays quiet when it starts failing a warning-severity rule. It waits
+for the next submit, the same way a newly-failing error field would.
 
 ## Server-side
 
@@ -209,9 +237,9 @@ On the server, both the minimal-API `Validate<T>()` filter and the MVC `[Validat
 short-circuit to a 400 `ValidationProblemDetails` only when the report has at least one
 error-severity issue; a report that's all warnings and infos lets the request through unblocked.
 When a request *is* blocked, any warnings or infos in that same report ride along on the
-response's `warnings` extension key, alongside — not inside — the standard `errors` dictionary, so
-a client that wants to show them next to the fields that actually failed can. See
-[`docs/server-integration.md`](server-integration.md) for the full wire format and how the client
+response's `warnings` extension key. That key sits alongside the standard `errors` dictionary, not
+inside it, so a client can show them next to the fields that actually failed. See
+[Server integration](server-integration.md) for the full wire format and how the client
 re-applies a server response through `ApplyServerIssues`.
 
 **Sample:** [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor)

@@ -1,18 +1,64 @@
 # The component kit
 
-Formidable's Blazor package ships a component kit with no visual opinion at all — every piece
-renders unstyled markup (or, for the renderless pieces, no markup of its own), expressing
-validation state purely as class names and ARIA attributes for a consumer's own CSS to style (see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md)). Nothing in this kit assumes a
-particular UI library: the two ready-made shapes (`FormidableForm`, `FormidableInputText`) are a
-convenient default, and the renderless shapes (`FormidableField`, `FieldAnchor`,
-`FieldMessage`/`CollectionMessage`) exist specifically so any UI library — or plain HTML — can
-sit on top of the same engine without being wrapped by it.
+**You should already know:** the four components that make a working form
+([Quickstart](quickstart.md)), and the first look at `FormidableField` and
+`CollectionMessage` for fields and collections beyond a single typed input
+([Fields and collections](fields-and-collections.md)).
+
+Every Blazor form needs the same handful of things wired up: something to own the
+`EditContext`, a state class on each input that tracks validity, `aria-invalid`/
+`aria-describedby` kept current as the user types, a message list per field, a way to move
+focus to whatever failed. Build all of that by hand for every form and the wiring becomes the
+maintenance burden, not the validation rules. Reach for a component kit that also picks your
+CSS, and the wiring comes with a redesign tax the day the form needs a different look.
+
+Formidable's kit is headless: every piece renders unstyled markup, and the renderless pieces
+render no markup of their own. Validation state is expressed purely as class names and ARIA
+attributes for a consumer's own CSS to style (see
+[CSS and accessibility](css-and-accessibility.md)). Nothing in it assumes a particular UI
+library. The two ready-made shapes, `FormidableForm` and `FormidableInputText`, are a convenient
+default. `FormidableInputText` in particular is a convenience over the seam, not a contract of
+its own: a plain `<input>` with the registration, ids, aria and state class already wired in,
+because a text box is every form's common case. The renderless shapes exist specifically so any
+UI library, or plain HTML, can sit on top of the same engine without being wrapped by it. This
+page documents all of them, introduced in the order a growing form actually reaches for them.
+
+## Need to know
+
+Four names make a complete form, met together in [Quickstart](quickstart.md):
+`FormidableForm` owns the `EditContext`, `FormidableInputText` renders one validated field,
+`FieldMessage` shows that field's own issues, and `FormSummary` lists everything the form
+currently has to say. `FormidableForm` is the one with a contract worth stating explicitly —
+it resolves what it needs from either an argument or the DI container, and refuses to guess:
+
+```csharp
+                Validator
+                    ?? (IModelValidator<TModel>?)Services.GetService(typeof(IModelValidator<TModel>))
+                    ?? throw new InvalidOperationException(
+                        $"No IModelValidator<{FriendlyTypeName.Of(typeof(TModel))}> is registered — call services.AddFormidable() and register the FluentValidation validator."),
+                (IModelIntrospector?)Services.GetService(typeof(IModelIntrospector))
+                    ?? throw new InvalidOperationException("No IModelIntrospector is registered — call services.AddFormidable()."),
+                Options ?? new FormidableOptions(),
+```
+
+*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+
+An explicit `Validator` parameter wins if one is passed. Otherwise the form resolves
+`IModelValidator<TModel>` from `Services.GetService`, and if DI has nothing either it throws a
+message naming the missing type and the fix: `services.AddFormidable()` plus a registered
+validator. The model introspector follows the same two-step fallback, with its own throw.
+Neither fallback is configurable — it's the one place the kit fails loudly instead of quietly
+doing nothing, and it's worth knowing about before an exception is the first time you meet it.
+
+That's the one contract worth holding onto before the reference proper starts. What follows
+introduces the rest of the kit in the order a growing form reaches for it: the four names
+above in more depth, then the surfaces a form needs once it outgrows a single typed input,
+then the seams for controls Formidable doesn't wrap itself.
 
 ## `FormidableForm<TModel>`
 
 The primary root component. It owns the `EditContext` — nothing else in a Formidable-based form
-creates or replaces one — and renders a real `EditForm` underneath, so anything that already
+creates or replaces one — and renders a real `EditForm` underneath. So anything that already
 expects standard Blazor forms interop (native `InputBase` descendants, `ValidationMessage`, a
 `DataAnnotationsValidator` alongside it) keeps working:
 
@@ -76,8 +122,8 @@ never manages that lifecycle itself:
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
 `SubmitAsync()` is both the handler wired to the rendered `EditForm`'s `OnSubmit` and a public
-method a consumer can call directly (a toolbar "Submit" button outside the form element, a
-keyboard shortcut) — it runs the submit pipeline and routes to `OnValidSubmit` or
+method a consumer can call directly — a toolbar "Submit" button outside the form element, a
+keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
 `OnInvalidSubmit`:
 
 ```csharp
@@ -104,15 +150,10 @@ keyboard shortcut) — it runs the submit pipeline and routes to `OnValidSubmit`
 
 *Source: `src/Formidable.Blazor/FormidableForm.cs`*
 
-The engine itself is exposed as a public property — `Engine => _engine`, typed as the non-generic
-`IFormValidationEngine` — which is exactly what the server round-trip reaches for
-(`_form!.Engine!.ApplyServerIssues(issues)`; see
-[`docs/server-integration.md`](server-integration.md)) and what a page reads `IsValidating` or
-`HasSubmitted` from without going through a field.
-
-A form that must attach to an `EditForm` it doesn't own — an existing page already built around a
-plain `EditForm`/`EditContext` — has an alternative root, `FormidableValidator<TModel>`, covered
-in [`docs/migration-guide.md`](migration-guide.md).
+The engine itself is exposed as a public property: `Engine => _engine`, typed as the non-generic
+`IFormValidationEngine`. That property is exactly what the server round-trip reaches for
+(`_form!.Engine!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)),
+and what a page reads `IsValidating` or `HasSubmitted` from without going through a field.
 
 ## `FormidableInputText` and `ValidatedInputBase<TValue>`
 
@@ -123,7 +164,7 @@ handler:
 **Registration.** `OnParametersSet` resolves `For` to a `FieldIdentifier` and registers it with
 the cascaded context's `FieldRegistry` — this is what makes the field's issues visible to
 progressive disclosure while the component stays mounted (see
-[`docs/disclosure.md`](disclosure.md)):
+[Disclosure](disclosure.md)):
 
 ```csharp
     /// <inheritdoc />
@@ -144,7 +185,7 @@ progressive disclosure while the component stays mounted (see
 
 **Ids.** The same registration computes `ElementId` — the deterministic id every input, message
 list, and the focus service address the field by (see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md)).
+[CSS and accessibility](css-and-accessibility.md)).
 
 **CSS.** `CssClass` merges any consumer-splatted `class` with the computed state class:
 
@@ -278,15 +319,131 @@ sticks:
 
 — label-wrapping is what every sample using `FormidableInputText` does, since the label needs no
 explicit `for` when it wraps the control. `FormidableField`'s renderless template is the other
-option, for markup that isn't wrapping (see `ForeignControl.razor` below, which uses
-`<label for="@field.ElementId">` because the control it labels isn't a Formidable component at
-all).
+option, for markup that isn't wrapping — [the foreign-control pattern](#the-foreign-control-pattern)
+below uses `<label for="@field.ElementId">` because the control it labels isn't a Formidable
+component at all.
+
+## `FieldMessage<TValue>`
+
+Every field needs somewhere to show what's wrong with it. `FieldMessage` renders a field's
+current issues, any severity, as an accessible list, and nothing at all when the field has none.
+It shares one internal base (`FieldMessageBase<TValue>`) with its collection-level sibling for
+resolving `For`, subscribing to the engine's `StateChanged`, and rendering that same list.
+
+One base method decides whether rendering a message list also registers the field it lists:
+
+```csharp
+    /// <summary>
+    /// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
+    /// returns null to skip registration. Messages are not inputs, so the base implementation
+    /// (used by <see cref="FieldMessage{TValue}"/>) never registers; <see cref="CollectionMessage{TValue}"/>
+    /// overrides this to mark its collection-level path revealed so collection-level rules
+    /// surface even though the collection itself has no validated input registering it.
+    /// </summary>
+    private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
+```
+
+*Source: `src/Formidable.Blazor/FieldMessage.cs`*
+
+`FieldMessage` takes the base's default — it never registers:
+
+```csharp
+/// <summary>
+/// Renders a field's current validation issues (any severity) as an accessible message list;
+/// renders nothing when the field has none. Does not register with the field registry — messages
+/// are not inputs, so pairing a message with a validated input (or a <see cref="FieldAnchor{TValue}"/>)
+/// elsewhere in the form is what keeps the field revealed.
+/// </summary>
+/// <typeparam name="TValue">The field's value type (inferred from <see cref="FieldMessageBase{TValue}.For"/>).</typeparam>
+public sealed class FieldMessage<TValue> : FieldMessageBase<TValue>
+{
+}
+```
+
+*Source: `src/Formidable.Blazor/FieldMessage.cs`*
+
+Practically: `FieldMessage` always needs to be paired with something else that registers the same
+field — a `ValidatedInputBase` descendant, `FormidableField`, or `FieldAnchor` — or its messages
+stay permanently unrevealed. Its collection-level sibling, `CollectionMessage`, overrides that
+same hook to skip the pairing requirement entirely; it's introduced below, once collections are
+in scope.
+
+## `FormSummary`
+
+Renders a live, severity-grouped list of every currently-visible issue across the form as a
+`role="alert"` region — nothing while the form has no visible issues:
+
+```csharp
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "formidable-summary");
+        builder.AddAttribute(sequence++, "role", "alert");
+```
+
+*Source: `src/Formidable.Blazor/FormSummary.cs`*
+
+Each item is a button that moves focus to the offending field through `IFormidableFocusService`,
+via the component's own `FocusWithFallbackAsync`:
+
+```csharp
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusWithFallbackAsync(visibleIssue.Field)));
+```
+
+*Source: `src/Formidable.Blazor/FormSummary.cs`*
+
+Click-to-focus can only reach an element that's actually rendered — a row scrolled out of a
+virtualized container's window, for instance, has no DOM element yet to focus even though its
+summary entry is genuinely still there. `FocusFallback` is the escape hatch for that gap,
+covered once the seams that need it are in view — see [FocusFallback](#focusfallback) below.
+
+## `FormidableValidator<TModel>`, attaching to an existing form
+
+A form that must attach to an `EditForm` it doesn't own — an existing page already built around a
+plain `EditForm`/`EditContext` — doesn't need to give that up to use Formidable. It has an
+alternative root, `FormidableValidator<TModel>`, for exactly that case; the full pattern,
+including when to reach for it over `FormidableForm`, is covered in
+[Migration guide](migration-guide.md).
+
+## `CollectionMessage<TValue>`
+
+A `List<T>` property can carry its own rule — `RuleFor(x => x.Items).NotEmpty()` — with no single
+control anywhere in the form to register the path that rule reports against. `CollectionMessage`
+is `FieldMessage`'s collection-level sibling for exactly that gap: identical rendering, but its
+override of the registration hook shown above makes it its own registration:
+
+```csharp
+/// <summary>
+/// Renders a collection-level field's current validation issues (any severity) as an accessible
+/// message list — identical rendering to <see cref="FieldMessage{TValue}"/> — and additionally
+/// registers the field with the field registry, so a collection-level rule's issues are treated
+/// as revealed even though the collection itself (e.g. a <c>List&lt;T&gt;</c> property) has no
+/// validated input of its own to register it. Renders nothing when the field has no issues.
+/// </summary>
+/// <typeparam name="TValue">The field's value type (inferred from <see cref="FieldMessageBase{TValue}.For"/>).</typeparam>
+public sealed class CollectionMessage<TValue> : FieldMessageBase<TValue>
+{
+    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    [Parameter]
+    public bool KeepRegistered { get; set; }
+
+    private protected override FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) =>
+        context.Registry.Register(field, KeepRegistered);
+}
+```
+
+*Source: `src/Formidable.Blazor/CollectionMessage.cs`*
+
+`CollectionMessage` needs no pairing with anything else — it is its own registration, because a
+`List<T>` property with a collection-level rule otherwise has no rendered input to register the
+path at all. See [Collections and row identity](collections-and-row-identity.md) for
+the nested-collection pattern this exists for.
 
 ## `FormidableField<TValue>` and `FormidableFieldContext`
 
-`FormidableField` is the any-UI-library integration point: a renderless component that registers
-its field and, on every render, hands its `ChildContent` a fresh `FormidableFieldContext` —
-state, issues, computed CSS class, and the aria ids — instead of rendering any markup of its own:
+Not every control belongs to Formidable's own kit: a UI library's own `<select>`, a checkbox
+group, a date picker. `FormidableField` is the any-UI-library integration point for those. It is
+a renderless component that registers its field and, on every render, hands its `ChildContent` a
+fresh `FormidableFieldContext` — state, issues, computed CSS class, and the aria ids — instead
+of rendering any markup of its own:
 
 ```csharp
 public sealed class FormidableFieldContext
@@ -349,8 +506,58 @@ public sealed class FormidableFieldContext
 
 *Source: `src/Formidable.Blazor/FormidableFieldContext.cs`*
 
-The sample page for it wraps a plain `<select>` — a control Formidable does not, and cannot know
-how to, wrap itself:
+Everything a hand-rolled control needs is on that context: `ElementId` for the id to render,
+`CssClass` for the same state class a Formidable input would compute, `AriaInvalid`/
+`AriaDescribedBy` for the same aria pair, and `NotifyChanged()`/`MarkTouched()` to drive the
+engine the way a Formidable input's own change handler does internally. The worked example —
+wrapping a plain `<select>`, including how to label it correctly — is one of the seams below, in
+[The foreign-control pattern](#the-foreign-control-pattern).
+
+## `FieldAnchor<TValue>`
+
+A registration-only marker for a field rendered by markup Formidable doesn't wrap and that isn't
+using `FormidableField` either — a raw `<input>`, a native `<select>` bound manually, a
+third-party component. It renders nothing:
+
+```csharp
+public sealed class FieldAnchor<TValue> : ComponentBase, IDisposable
+{
+    private readonly FormContextBinding _binding = new();
+
+    [CascadingParameter]
+    private FormidableFormContext? Context { get; set; }
+
+    /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>
+    [Parameter, EditorRequired]
+    public Expression<Func<TValue>> For { get; set; } = default!;
+
+    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
+    [Parameter]
+    public bool KeepRegistered { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet() =>
+        _binding.Update(
+            Context,
+            GetType(),
+            register: context => context.Registry.Register(FieldIdentifier.Create(For), KeepRegistered));
+
+    /// <inheritdoc />
+    public void Dispose() => _binding.Dispose();
+}
+```
+
+*Source: `src/Formidable.Blazor/FieldAnchor.cs`*
+
+Without something registering a field, its issues are permanently unrevealed, and placing a
+`FieldAnchor` next to the raw control is the whole fix. See the Vanilla interop section below
+and [Disclosure](disclosure.md) for the fuller "FieldAnchor for raw and foreign controls"
+treatment.
+
+## The foreign-control pattern
+
+`FormidableField`'s sample page wraps a plain `<select>` — a control Formidable does not, and
+cannot know how to, wrap itself:
 
 ```razor
 <FormidableForm Model="_order" OnValidSubmit="HandleValid">
@@ -400,139 +607,14 @@ for `ValidatedInputBase` descendants — mark touched, notify the `EditContext` 
 explicitly instead of being baked into a base class, because there is no base class here to bake
 it into.
 
-## `FieldAnchor<TValue>`
+## `FocusFallback`
 
-A registration-only marker for a field rendered by markup Formidable doesn't wrap and that isn't
-using `FormidableField` either — a raw `<input>`, a native `<select>` bound manually, a
-third-party component. It renders nothing:
-
-```csharp
-public sealed class FieldAnchor<TValue> : ComponentBase, IDisposable
-{
-    private readonly FormContextBinding _binding = new();
-
-    [CascadingParameter]
-    private FormidableFormContext? Context { get; set; }
-
-    /// <summary>Accessor for the field to register, e.g. <c>() => Model.Description</c>.</summary>
-    [Parameter, EditorRequired]
-    public Expression<Func<TValue>> For { get; set; } = default!;
-
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
-    [Parameter]
-    public bool KeepRegistered { get; set; }
-
-    /// <inheritdoc />
-    protected override void OnParametersSet() =>
-        _binding.Update(
-            Context,
-            GetType(),
-            register: context => context.Registry.Register(FieldIdentifier.Create(For), KeepRegistered));
-
-    /// <inheritdoc />
-    public void Dispose() => _binding.Dispose();
-}
-```
-
-*Source: `src/Formidable.Blazor/FieldAnchor.cs`*
-
-Without something registering a field, its issues are permanently unrevealed — placing a
-`FieldAnchor` next to the raw control is the whole fix; see the Vanilla interop section below and
-[`docs/disclosure.md`](disclosure.md) for the fuller "FieldAnchor for raw and foreign controls"
-treatment.
-
-## `FieldMessage<TValue>` and `CollectionMessage<TValue>`
-
-Both share one internal base (`FieldMessageBase<TValue>`) for resolving `For`, subscribing to the
-engine's `StateChanged`, and rendering the same accessible message list. The one thing they
-differ on is whether rendering the message list also registers the field:
-
-```csharp
-    /// <summary>
-    /// Registers <paramref name="field"/> with <paramref name="context"/>'s field registry, or
-    /// returns null to skip registration. Messages are not inputs, so the base implementation
-    /// (used by <see cref="FieldMessage{TValue}"/>) never registers; <see cref="CollectionMessage{TValue}"/>
-    /// overrides this to mark its collection-level path revealed so collection-level rules
-    /// surface even though the collection itself has no validated input registering it.
-    /// </summary>
-    private protected virtual FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) => null;
-```
-
-*Source: `src/Formidable.Blazor/FieldMessage.cs`*
-
-```csharp
-/// <summary>
-/// Renders a field's current validation issues (any severity) as an accessible message list;
-/// renders nothing when the field has none. Does not register with the field registry — messages
-/// are not inputs, so pairing a message with a validated input (or a <see cref="FieldAnchor{TValue}"/>)
-/// elsewhere in the form is what keeps the field revealed.
-/// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FieldMessageBase{TValue}.For"/>).</typeparam>
-public sealed class FieldMessage<TValue> : FieldMessageBase<TValue>
-{
-}
-```
-
-*Source: `src/Formidable.Blazor/FieldMessage.cs`*
-
-```csharp
-/// <summary>
-/// Renders a collection-level field's current validation issues (any severity) as an accessible
-/// message list — identical rendering to <see cref="FieldMessage{TValue}"/> — and additionally
-/// registers the field with the field registry, so a collection-level rule's issues are treated
-/// as revealed even though the collection itself (e.g. a <c>List&lt;T&gt;</c> property) has no
-/// validated input of its own to register it. Renders nothing when the field has no issues.
-/// </summary>
-/// <typeparam name="TValue">The field's value type (inferred from <see cref="FieldMessageBase{TValue}.For"/>).</typeparam>
-public sealed class CollectionMessage<TValue> : FieldMessageBase<TValue>
-{
-    /// <summary>Keeps the field revealed after disposal — for virtualized containers.</summary>
-    [Parameter]
-    public bool KeepRegistered { get; set; }
-
-    private protected override FieldRegistration? Register(FormidableFormContext context, FieldIdentifier field) =>
-        context.Registry.Register(field, KeepRegistered);
-}
-```
-
-*Source: `src/Formidable.Blazor/CollectionMessage.cs`*
-
-Practically: `FieldMessage` always needs to be paired with something else that registers the same
-field (a `ValidatedInputBase` descendant, `FormidableField`, or `FieldAnchor`) or its messages
-stay permanently unrevealed. `CollectionMessage` needs no such pairing — it is its own
-registration, because a `List<T>` property with a collection-level rule (`RuleFor(x => x.Items).NotEmpty()`)
-otherwise has no rendered input to register the path at all. See
-[`docs/collections-and-row-identity.md`](collections-and-row-identity.md) for the nested-collection
-pattern this exists for.
-
-## `FormSummary`
-
-Renders a live, severity-grouped list of every currently-visible issue across the form as a
-`role="alert"` region — nothing while the form has no visible issues:
-
-```csharp
-        builder.OpenElement(sequence++, "div");
-        builder.AddAttribute(sequence++, "class", "formidable-summary");
-        builder.AddAttribute(sequence++, "role", "alert");
-```
-
-*Source: `src/Formidable.Blazor/FormSummary.cs`*
-
-Each item is a button that moves focus to the offending field through `IFormidableFocusService`,
-via the component's own `FocusWithFallbackAsync` (the fallback hop described below):
-
-```csharp
-                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => FocusWithFallbackAsync(visibleIssue.Field)));
-```
-
-*Source: `src/Formidable.Blazor/FormSummary.cs`*
-
-**`FocusFallback`.** `FocusAsync` locates the target by DOM id (see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md) for the focus service's mechanism), so
-click-to-focus can only reach an element that is actually rendered right now — a field whose row
-sits outside a `Virtualize` container's current render window keeps its summary entry (the issue is
-genuinely still there) but has no DOM element yet for the button to focus. `FocusFallback` is the
-escape hatch for exactly that gap:
+`FormSummary`'s click-to-focus targets elements in the DOM. `FocusAsync` locates the target by
+DOM id (see [CSS and accessibility](css-and-accessibility.md) for the focus service's
+mechanism), so a click can only reach an element that is actually rendered right now. A field
+whose row sits outside a `Virtualize` container's current render window keeps its summary entry
+(the issue is genuinely still there) but has no DOM element yet for the button to focus.
+`FocusFallback` is the escape hatch for exactly that gap:
 
 ```csharp
     /// <summary>
@@ -548,19 +630,18 @@ escape hatch for exactly that gap:
 
 *Source: `src/Formidable.Blazor/FormSummary.cs`*
 
-Click-to-focus targets elements in the DOM. For virtualized rows outside the render window, give
-`FormSummary` a `FocusFallback`: it receives the field identifier on a focus miss; make the element
-renderable (for example, scroll the virtualized container to the row's offset), return `true`, and
-the summary retries the focus once. The sample's Virtualize page
-([`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor)) shows the pattern — its
-fallback scrolls by approximate row height and lets the retried focus centre the row exactly. A
-fixed post-scroll delay keeps the sample honest and simple; a production consumer might poll for
-the element instead.
+Give `FormSummary` a `FocusFallback` for controls it might miss. The callback receives the field
+identifier on a focus miss: make the element renderable (for example, scroll the virtualized
+container to the row's offset), return `true`, and the summary retries the focus once.
+[Virtualize and `KeepRegistered`](#virtualize-and-keepregistered) below walks the sample's own
+fallback end to end — its fallback scrolls by approximate row height and lets the retried focus
+centre the row exactly. A fixed post-scroll delay keeps the sample honest and simple; a
+production consumer might poll for the element instead.
 
 ## `AddFormidableBlazor()`
 
 The one-call registration for a Blazor client — everything `AddFormidable()` registers (see
-[`docs/server-integration.md`](server-integration.md) for the server-side registration this
+[Server integration](server-integration.md) for the server-side registration this
 mirrors) plus the focus service:
 
 ```csharp
@@ -590,13 +671,13 @@ public static class FormidableBlazorServiceCollectionExtensions
 custom focus/scroll behavior) keeps it — `AddFormidableBlazor()` never overwrites an existing
 registration.
 
-## Virtualize + `KeepRegistered`
+## Virtualize and `KeepRegistered`
 
 Every registering component exposes a `KeepRegistered` parameter (`ValidatedInputBase<TValue>`
 descendants, `FieldAnchor`, `FormidableField`, `CollectionMessage`). A `Virtualize` container
-disposes rows that scroll out of view even though they remain part of the form; without
-`KeepRegistered`, a scrolled-away row's field would unregister and its already-showing error would
-go quiet, even though the row still exists in the model. The sample page pairs that with
+disposes rows that scroll out of view even though they remain part of the form. Without
+`KeepRegistered`, a scrolled-away row's field would unregister and its already-showing error
+would go quiet while the row still sits in the model. The sample page pairs that with
 `FormSummary`'s `FocusFallback` (see above), so a row far outside the render window is both kept
 disclosed and reachable by a summary click:
 
@@ -656,11 +737,11 @@ above:
 
 *Excerpt from `samples/Formidable.Sample/Pages/Virtualized.razor.cs`*
 
-Clicking a summary entry for a row inside the current render window still focuses it directly. For
-a row scrolled far away, the miss triggers `ScrollToRowAsync`, which scrolls `.scroll-panel` to the
-row's approximate offset (`index * RowHeight`) and waits 120ms for `Virtualize` to render it before
-returning `true` — the summary then retries the focus, and its own `scrollIntoView` centres the row
-exactly. See `FocusFallback` above for the general mechanism this page demonstrates.
+Clicking a summary entry for a row inside the current render window still focuses it directly.
+For a row scrolled far away, the miss triggers `ScrollToRowAsync`, which scrolls `.scroll-panel`
+to the row's approximate offset (`index * RowHeight`) and waits 120ms for `Virtualize` to render
+it before returning `true`. The summary then retries the focus, and its own `scrollIntoView`
+centres the row exactly.
 
 ## Vanilla interop
 
@@ -672,12 +753,21 @@ form:
 <FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
     <FormSummary />
 
-    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" id="@NicknameId" aria-invalid="@NicknameAriaInvalid" aria-describedby="@($"{NicknameId}-messages")" /></label>
+    <div class="field">
+        <label>Nickname (native InputText)
+            <InputText @bind-Value="_order.Nickname"
+                       id="@NicknameId"
+                       aria-invalid="@NicknameAriaInvalid"
+                       aria-describedby="@($"{NicknameId}-messages")" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
-        <FieldAnchor For="() => _order.Nickname" /></div>
+        <FieldAnchor For="() => _order.Nickname" />
+    </div>
 
-    <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
-        <FieldMessage For="() => _order.Colour" /></div>
+    <div class="field">
+        <label>Colour (Formidable input)
+            <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
+        <FieldMessage For="() => _order.Colour" />
+    </div>
 
     <div class="actions">
         <button type="submit">Submit</button>
@@ -698,28 +788,26 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
 
 *Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
 
-(See [`docs/css-and-accessibility.md`](css-and-accessibility.md) for exactly which classes that
+(See [CSS and accessibility](css-and-accessibility.md) for exactly which classes that
 provider applies, and how they differ from what a Formidable input's own `CssClass` computes.)
 
 `FieldAnchor` next to the native `InputText` is what keeps it participating in progressive
-disclosure at all — a plain `InputBase` never registers itself with Formidable's `FieldRegistry`,
+disclosure at all. A plain `InputBase` never registers itself with Formidable's `FieldRegistry`,
 so without the anchor its `ValidationMessage` would never receive an inline error no matter what
 the validator reports.
 
 The three attributes on that same line finish the crossing. A Formidable input renders
 `FormidableFieldId.For(field)` as its element id, points `aria-describedby` at the matching
-`-messages` id, and emits `aria-invalid="true"` while the field has errors; a native input renders
-none of them, so the page derives them from the same sources the kit uses — a small `NicknameId`
-property in the code-behind, and the engine's `GetFieldState(field).HasErrors` for `aria-invalid`
-(a `null` value renders no attribute at all). The id is the entirety of what `FormSummary`'s
-click-to-focus looks up, so with it the native field takes the summary's click exactly like a
-wrapped one (see [`docs/css-and-accessibility.md`](css-and-accessibility.md)). One addition per
-concern: `FieldAnchor` for disclosure, the id for focus, `aria-describedby` and `aria-invalid` for
-the assistive-technology story. Attributes derived from engine state need the page to re-render
-when that state changes, so the sample subscribes to `Engine.StateChanged` — the same subscription
-every kit component makes for itself.
-
-## Samples
+`-messages` id, and emits `aria-invalid="true"` while the field has errors. A native input
+renders none of them, so the page derives them from the same sources the kit uses: a small
+`NicknameId` property in the code-behind, and the engine's `GetFieldState(field).HasErrors` for
+`aria-invalid` (a `null` value renders no attribute at all). The id is the entirety of what
+`FormSummary`'s click-to-focus looks up, so with it the native field takes the summary's click
+exactly like a wrapped one (see [CSS and accessibility](css-and-accessibility.md)). One addition
+per concern: `FieldAnchor` for disclosure, the id for focus, `aria-describedby` and
+`aria-invalid` for the assistive-technology story. Attributes derived from engine state need the
+page to re-render when that state changes, so the sample subscribes to `Engine.StateChanged` —
+the same subscription every kit component makes for itself.
 
 **Samples:** [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor),
 [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor),

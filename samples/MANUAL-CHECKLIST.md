@@ -2,7 +2,7 @@
 
 The sample app is Formidable's runnable tour, one page per feature, and the Playwright suite in
 `tests/Formidable.Sample.E2E` drives it end to end in a real browser (`FORMIDABLE_E2E=1 dotnet
-test` — see [`docs/releasing.md`](../docs/releasing.md)). That suite covers *behaviour*: which
+test` — see [Releasing](../docs/releasing.md)). That suite covers *behaviour*: which
 messages appear, where focus lands, what the server sends back.
 
 This checklist covers what a headless browser cannot judge — colour, contrast, spacing, focus
@@ -338,19 +338,20 @@ steps build on each other.
 
 A reading check, not a browser check — do it from the repo.
 
-- [ ] `README.md`'s doc table carries the row *Recipes (behaviour → configuration) and
-      troubleshooting* linking to `docs/recipes.md`; follow the link and it resolves
-- [ ] `docs/recipes.md` opens with ten numbered "I want to…" recipes then a troubleshooting
-      table of eight rows
-- [ ] Spot-check recipe **7 ("I want every summary entry to land somewhere")** against what you
-      just saw on /workout, /vanilla, /collections and /disclosure — the ids, the containers
-      and the outline story match the pages
-- [ ] Spot-check recipe **1 ("validate while typing, on blur, or only at submit")** — its
-      `UpdateOn` × bucket table matches what /async and /field-state actually do, and the
-      troubleshooting row *"A date input reports impossible years while it is being typed"*
-      matches the workout's date behaviour you just walked
-- [ ] Every recipe points at a doc or a sample page rather than restating it (link-first), and
-      no recipe contradicts the page it names
+- [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, plus a
+      symptom-to-fix troubleshooting table* linking to `docs/recipes.md`; follow the link and it
+      resolves
+- [ ] `docs/recipes.md` opens with ten unnumbered `### I want to…` headings, then a
+      troubleshooting table of eight rows
+- [ ] Spot-check the recipe titled **"I want every summary entry to land somewhere"** against
+      what you just saw on /workout, /vanilla, /collections and /disclosure — the ids, the
+      containers and the outline story match the pages
+- [ ] Spot-check the recipe titled **"I want to validate while typing, on blur, or only at
+      submit"** — its `UpdateOn` × bucket table matches what /async and /field-state actually
+      do, and the troubleshooting row *"A date input reports impossible years while it is being
+      typed"* matches the workout's date behaviour you just walked
+- [ ] Every recipe answers with code first, then links to the doc that explains it in full and
+      the sample page that demonstrates it, and no recipe contradicts the page it names
 
 ---
 

@@ -1,32 +1,60 @@
 # Engine options
 
-`FormidableOptions` tunes the validation engine that `FormidableForm<TModel>` builds. Pass it
-via the `Options` parameter; every property has a default, so omitting `Options` (the form
-falls back to `new FormidableOptions()`) is a fully working configuration.
+**You should already know:** the live/submit split and why one validator serves both moments
+([Core concepts](core-concepts.md)), and the debounced refresh a submitted form runs on
+every further edit ([Async validation](async-validation.md)).
+
+Every default is somebody's opinion about how your form should behave, and the moment a form
+disagrees, that opinion becomes your problem. A 300ms debounce is well-mannered for a typical
+form and needlessly chatty for one whose async rule takes two seconds to answer. A field hidden
+behind a wizard step that genuinely can't have rendered yet still deserves to be forced visible
+sometimes, whatever the field registry says. Formidable picks sensible defaults so a form works
+out of the box, and hands every one of them back through `FormidableOptions` — pass it to
+`FormidableForm<TModel>`'s `Options` parameter, and the defaults stop being fixed.
+
+## Need to know
+
+Every property on `FormidableOptions` has a default, so omitting `Options` entirely (the form
+falls back to `new FormidableOptions()`) is a fully working configuration:
 
 ```razor
-<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form" id="@FormGateId" tabindex="-1">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
+                @ref="_form" id="@FormGateId" tabindex="-1">
 ```
 
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
 
-`Options` is the parameter this page is quoted for; the `id` and `tabindex` beside it are the
-sample's own, giving the model-level field the defensive gate reports under an element to focus
-(see [`docs/css-and-accessibility.md`](css-and-accessibility.md)). Any attribute
+`Options` is the parameter this page is quoted for. The `id` and `tabindex` beside it are the
+sample's own: they give the model-level field that the defensive gate reports under an element
+to focus (see [CSS and accessibility](css-and-accessibility.md)). Any attribute
 `FormidableForm<TModel>` does not recognise is splatted onto the `<form>` element it renders.
+
+Here's the one gotcha worth knowing before anything else: `FormidableForm<TModel>` builds its
+engine once per `Model` instance and passes `Options` straight into the engine's constructor at
+that point. The engine never re-reads the `Options` *parameter* on a later render, so handing
+the form a whole new `FormidableOptions` instance without also swapping `Model` has no effect.
+The engine does keep re-reading that instance's *properties* on every pass, though: mutating
+`LiveProfile`, `RefreshDebounce`, `DisclosureOverride`, or any other property on the same object
+takes effect starting with the next validation pass. See
+[Recipes](recipes.md#i-want-profiles-of-my-own) for a worked case. Building the
+`FormidableOptions` once, up front, and leaving it alone for the life of the rendered form — as
+the sample further below does — is still the simplest habit to default to.
+
+That's the contract. What follows is every property, what it defaults to, and where the sample
+demonstrates it.
 
 ## Properties
 
 ### `LiveProfile`
 
 `ValidationProfile`, defaults to `ValidationProfile.Draft`. The profile every live pass — one
-per field change — validates against. See [`docs/profiles.md`](profiles.md).
+per field change — validates against. See [Profiles](profiles.md).
 
 ### `SubmitProfile`
 
 `ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile the submit pipeline
 validates against, and the profile the debounced post-submit refresh re-validates against. See
-[`docs/profiles.md`](profiles.md).
+[Profiles](profiles.md).
 
 ### `RefreshDebounce`
 
@@ -60,19 +88,13 @@ telemetry, not the only place they get recorded.
 | `Pending` | a validation pass involving the field is in flight | `formidable-pending` |
 
 `Pending` appends alongside `Invalid`/`Valid` rather than replacing it — see
-[`docs/css-and-accessibility.md`](css-and-accessibility.md) for how the three compose.
+[CSS and accessibility](css-and-accessibility.md) for how the three compose.
 
-## One instance, bound at construction
+## `FormidableOptions`, built once
 
-`FormidableForm<TModel>` builds its engine once per `Model` instance and passes `Options`
-straight into the engine's constructor at that point — the engine never re-reads the `Options`
-*parameter* on a later render, so handing the form a whole new `FormidableOptions` instance
-without also swapping `Model` has no effect. The engine does keep re-reading that instance's
-*properties* on every pass, though: mutating `LiveProfile`, `RefreshDebounce`,
-`DisclosureOverride`, or any other property on the same object takes effect starting with the
-next validation pass — see [`docs/recipes.md`](recipes.md#9-i-want-profiles-of-my-own) for a
-worked case. Building the `FormidableOptions` once, up front, and leaving it alone for the life
-of the rendered form — as the sample below does — is still the simplest habit to default to:
+Since a new `Options` instance only takes effect together with a new `Model` instance, the
+simplest habit is building `FormidableOptions` once, up front, and never reassigning it — exactly
+what the sample below does:
 
 ```csharp
     protected override void OnInitialized()
@@ -91,18 +113,14 @@ of the rendered form — as the sample below does — is still the simplest habi
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor.cs`* — `_options` is a
 `FormidableOptions?` field on the page, built once here and never reassigned.
 
-Passing a different `FormidableOptions` instance on a later render has no effect by itself,
-because nothing rebuilds — the engine only rebuilds when the `Model` reference changes. A new
-`Options` instance only takes effect when passed together with a new `Model` instance.
-
 ## Where each option is demonstrated
 
 - `SuppressedIssueDiagnostic` and `DisclosureOverride` — the progressive disclosure sample
-  (`/disclosure`) and [`docs/disclosure.md`](disclosure.md).
-- `CssClasses` — [`docs/css-and-accessibility.md`](css-and-accessibility.md); remapped onto a UI
+  (`/disclosure`) and [Disclosure](disclosure.md).
+- `CssClasses` — [CSS and accessibility](css-and-accessibility.md); remapped onto a UI
   library's own classes (`/bootstrap`) and recoloured live via CSS custom properties
   (`/css-colours`).
-- `LiveProfile` / `SubmitProfile` — [`docs/profiles.md`](profiles.md) and the `/profiles`
+- `LiveProfile` / `SubmitProfile` — [Profiles](profiles.md) and the `/profiles`
   sample (the sample relies on the defaults; it doesn't override them).
 
 **Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)

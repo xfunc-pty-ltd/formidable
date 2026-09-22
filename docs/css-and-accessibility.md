@@ -1,12 +1,20 @@
 # CSS and accessibility
 
-Formidable ships no CSS and no visual opinion (see [`docs/component-kit.md`](component-kit.md)).
-What it ships instead is a small, consistent surface of class names and ARIA attributes that
-every field — Formidable's own inputs, a renderless `FormidableField` template, or a plain
-`InputBase` sitting beside them — exposes the same way, so a consumer's own stylesheet and
-assistive technology both have one thing to key off regardless of which shape rendered the field.
+**You should already know:** how a Formidable form wires up end to end
+([Quickstart](quickstart.md)).
 
-## The class rule
+Ship your own CSS and you own every consequence of it: browser default fights, a design system's
+naming convention that has nothing to do with "valid" and "invalid," a dark-mode audit nobody
+signed up for. A form library that ships CSS of its own trades that ownership away, quietly, the
+day its class names collide with yours or its colours don't match your brand. A headless kit
+means the classes stay yours: Formidable ships no CSS and no visual opinion (see
+[Component kit](component-kit.md)). What it ships instead is a small, consistent surface of
+class names and ARIA attributes. Every field exposes it the same way, whether it's Formidable's
+own input, a renderless `FormidableField` template, or a plain `InputBase` sitting beside them.
+So your own stylesheet and assistive technology both have one thing to key off, regardless of
+which shape rendered the field.
+
+## Need to know
 
 One static rule computes a field's state class, shared by every Formidable component that
 computes one:
@@ -53,8 +61,8 @@ touched/modified state. Failing that, **touched or modified is valid** — a fie
 interacted with (or that the `EditContext` reports as modified) and that currently has no errors
 is `Valid`; an untouched, unmodified, error-free field gets neither class. Finally, **pending
 appends** — whichever of those two classes was chosen (or neither) gets `Pending` added onto it,
-space-joined, while a validation pass involving the field is in flight; `Pending` never replaces
-`Invalid`/`Valid`, and can appear on its own if the field is validating before it's ever been
+space-joined, while a validation pass involving the field is in flight. `Pending` never replaces
+`Invalid`/`Valid`, and it can appear on its own if the field is validating before it's ever been
 touched.
 
 The three class names themselves are configurable, each with a default:
@@ -78,26 +86,31 @@ public sealed class FormidableCssOptions
 
 *Source: `src/Formidable.Blazor/FormidableCssOptions.cs`*
 
-`ValidatedInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for the
-renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
-instance the form was built with, then merges the result with any consumer-splatted `class` — see
-[`docs/component-kit.md`](component-kit.md) for the merge itself. `FieldMessage`/`CollectionMessage`
-and `FormSummary` use a related, fixed convention of their own for the messages they render — see
-[`docs/severity.md`](severity.md) for the `formidable-message--{severity}` and
+`ValidatedInputBase<TValue>`'s `CssClass` property (and `FormidableFieldContext.CssClass` for
+the renderless path) calls `FormidableCss.Compute` with whatever `FormidableOptions.CssClasses`
+instance the form was built with, then merges the result with any consumer-splatted `class`. See
+[Component kit](component-kit.md) for the merge itself. `FieldMessage`/`CollectionMessage` and
+`FormSummary` use a related, fixed convention of their own for the messages they render — see
+[Severity](severity.md) for the `formidable-message--{severity}` and
 `formidable-summary__group--{severity}` class families.
+
+That's the entire class-name contract: rename the three strings, and the rule above still
+decides when each one applies. What follows is how to rename them, the narrower rule a native
+`InputBase` picks up automatically, and the ids/aria/focus wiring built on top of the same field
+state.
 
 ## Configuring `FormidableCssOptions`
 
-`FormidableCssOptions` is a plain settings object — a mutable class with three `string` properties
-(`Invalid`, `Valid`, `Pending`, all shown with their defaults above). Construct one, set whichever
-properties you want to rename to match your own stylesheet or design system's naming convention,
-and assign it to `FormidableOptions.CssClasses` (a property of the options object every
-`FormidableForm<TModel>`/`FormidableValidator<TModel>` takes — see
-[`docs/options.md`](options.md)). Formidable doesn't care what the strings are, only when each one
-applies — the rule above is the entire contract. As with every other `FormidableOptions` property,
-`CssClasses` is read once, when the engine is built for a given `Model` instance, and has no effect
-if changed on a later render without also swapping the model — see options.md's "one instance,
-bound at construction" section for that rule.
+`FormidableCssOptions` is a plain settings object — a mutable class with three `string`
+properties (`Invalid`, `Valid`, `Pending`, all shown with their defaults above). Construct one,
+set whichever properties you want to rename to match your own stylesheet or design system's
+naming convention, and assign it to `FormidableOptions.CssClasses`. That property lives on the
+options object every `FormidableForm<TModel>`/`FormidableValidator<TModel>` takes (see
+[Options](options.md)). Formidable doesn't care what the strings are, only when each one
+applies. The rule above is the entire contract. As with every other `FormidableOptions`
+property, `CssClasses` is read once, when the engine is built for a given `Model` instance, and
+has no effect if changed on a later render without also swapping the model. See
+[Options](options.md#need-to-know) for that rule.
 
 ## The `FieldCssClassProvider` bridge
 
@@ -145,10 +158,10 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 
 This is the same three class names as `FormidableCss.Compute`, but a narrower rule: it has no
 `Pending` state at all, because `FieldCssClassProvider.GetFieldCssClass` is a synchronous
-`EditContext`-level hook with no notion of an in-flight validation pass — it can only read
-whatever is currently in the `EditContext`'s message store and its `IsModified` flag. A native
-input never shows the pending class a Formidable input can; see the Vanilla interop section of
-[`docs/component-kit.md`](component-kit.md) for the provider wired into a native `InputText`
+`EditContext`-level hook with no notion of an in-flight validation pass. All the hook can read
+is whatever is currently in the `EditContext`'s message store and its `IsModified` flag. A
+native input never shows the pending class a Formidable input can; see the Vanilla interop
+section of [Component kit](component-kit.md) for the provider wired into a native `InputText`
 beside a Formidable one.
 
 ## Accessibility wiring
@@ -183,7 +196,7 @@ public static class FormidableFieldId
 *Source: `src/Formidable.Blazor/FormidableFieldId.cs`*
 
 The model-level field — an empty `FieldIdentifier.FieldName`, the one the defensive
-all-suppressed gate in [`docs/disclosure.md`](disclosure.md) targets — gets `form` as its name
+all-suppressed gate in [Disclosure](disclosure.md) targets — gets `form` as its name
 segment rather than an empty one.
 
 ### `aria-invalid` and `aria-describedby`
@@ -315,47 +328,47 @@ export function focusField(id) {
 
 *Source: `src/Formidable.Blazor/wwwroot/formidable.js`*
 
-`document.getElementById(id)` is the entire lookup, and a miss is reported rather than swallowed:
-`focusField` returns `false` when no element carries the id, and `FocusAsync` propagates that bool
-straight back to its caller. The silent no-op lives one layer up, in `FormSummary`'s click-to-focus
-handler, when `FocusAsync` reports a miss and no `FocusFallback` is set (or the fallback itself
-fails to recover it) — which matters for two cases documented elsewhere: a field scrolled out of a
-`Virtualize` window with no current DOM element — the click-to-focus miss that `FormSummary`'s
-`FocusFallback` parameter exists to recover from (see [`docs/component-kit.md`](component-kit.md))
-— and a raw/foreign control whose markup never actually rendered `field.ElementId` as its `id`
-attribute — `FormidableField`'s `ForeignControl.razor` sample sets `id="@field.ElementId"`
-explicitly for exactly this reason (see [`docs/component-kit.md`](component-kit.md)); a
-`FieldAnchor`-only registration with no id on the control it anchors has nothing for the focus
-service to find — a gap the samples now close rather than illustrate, giving their native
-`InputText`s the field's id alongside the anchor.
+`document.getElementById(id)` is the entire lookup, and a miss is reported rather than
+swallowed: `focusField` returns `false` when no element carries the id, and `FocusAsync`
+propagates that bool straight back to its caller. The silent no-op lives one layer up, in
+`FormSummary`'s click-to-focus handler, when `FocusAsync` reports a miss and no `FocusFallback`
+is set (or the fallback itself fails to recover it). The no-op matters for two cases documented
+elsewhere. The first is a field scrolled out of a `Virtualize` window with no current DOM
+element: the click-to-focus miss that `FormSummary`'s `FocusFallback` parameter exists to
+recover from (see [Component kit](component-kit.md)). The second is a raw or foreign control
+whose markup never actually rendered `field.ElementId` as its `id` attribute, which is why
+`FormidableField`'s `ForeignControl.razor` sample sets `id="@field.ElementId"` explicitly (see
+[Component kit](component-kit.md)). A `FieldAnchor`-only registration with no id on the control
+it anchors has nothing for the focus service to find. The samples now close that gap rather than
+illustrate it, giving their native `InputText`s the field's id alongside the anchor.
 
-Because the id is the whole of the lookup, a field with no input of its own can be focused just as
-well: give any element the field's `FormidableFieldId.For(...)` id and a `tabindex="-1"` so it can
-hold focus, and that element is where the summary entry lands. The samples do this for the two
-field shapes that own no input — a collection, whose rules fail against the list rather than
-against any one control (the container holding every row takes the collection's id), and the
-model-level field the all-suppressed defensive gate reports under, whose id goes on the `<form>`
-element itself. A container shows nothing when it takes focus, so the sample stylesheet marks
-those landings with an outline — scoped to `:focus-visible`, because `tabindex="-1"` leaves an
-element focusable by mouse and a plain `:focus` rule would paint the whole container whenever a
-click landed on its padding. Activating a summary entry from the keyboard carries focus-visible
-through to the programmatic focus, so the keyboard path keeps the mark while a mouse click gets
-`scrollIntoView` alone.
+Because the id is the whole of the lookup, a field with no input of its own can be focused just
+as well. Give any element the field's `FormidableFieldId.For(...)` id and a `tabindex="-1"` so
+it can hold focus, and that element is where the summary entry lands. The samples do this for
+the two field shapes that own no input. A collection's rules fail against the list rather than
+against any one control, so the container holding every row takes the collection's id. The
+`<form>` element itself carries the id of the model-level field the all-suppressed defensive gate
+reports under. A container shows nothing when it takes focus, so the sample stylesheet marks
+those landings with an outline, scoped to `:focus-visible`. The scope matters because
+`tabindex="-1"` leaves an element focusable by mouse, and a plain `:focus` rule would paint the
+whole container whenever a click landed on its padding. Activating a summary entry from the
+keyboard carries focus-visible through to the programmatic focus, so the keyboard path keeps the
+mark while a mouse click gets `scrollIntoView` alone.
 
 ## Where this is demonstrated
 
 - The class rule and its interaction with the `Pending` state — every sample using
-  `FormidableInputText` shows it implicitly; [`docs/async-validation.md`](async-validation.md)'s
+  `FormidableInputText` shows it implicitly; [Async validation](async-validation.md)'s
   pending-UI section is the most direct look at `Pending` specifically.
-- Renaming `FormidableCssOptions`' three class names to fit a UI library's own —
+- Renaming two of `FormidableCssOptions`' three class names to fit a UI library's own —
   [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor), which points
   `Invalid`/`Valid` at Bootstrap's `is-invalid`/`is-valid` and lets Bootstrap's own stylesheet do
-  the rest.
+  the rest; `Pending` is left at its default there.
 - A consumer stylesheet keying off those same class names with CSS custom properties instead of
   fixed colours — [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor).
 - The `FieldCssClassProvider` bridge and a native `InputBase` picking up the same classes —
   [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor), covered in
-  [`docs/component-kit.md`](component-kit.md).
+  [Component kit](component-kit.md).
 - `aria-invalid`/`aria-describedby` on a hand-rolled control —
   [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor).
 - `FormSummary`'s live region and click-to-focus, including the virtualize limit —

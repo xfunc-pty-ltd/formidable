@@ -23,17 +23,27 @@
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form" id="@FormGateId" tabindex="-1">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
+                @ref="_form" id="@FormGateId" tabindex="-1">
     <FormSummary />
 
     <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>
         <FieldMessage For="() => _request.Destination" /></div>
 
-    <p><button type="button" @onclick="() => _showDetails = !_showDetails">@(_showDetails ? "Hide" : "Show") traveler details</button></p>
+    <p>
+        <button type="button"
+                @onclick="() => _showDetails = !_showDetails">
+            @(_showDetails ? "Hide" : "Show") traveler details
+        </button>
+    </p>
     @if (_showDetails)
     {
-        <div class="field"><label>Traveler name <FormidableInputText For="() => _request.TravelerName" @bind-Value="_request.TravelerName" /></label>
-            <FieldMessage For="() => _request.TravelerName" /></div>
+        <div class="field">
+            <label>Traveler name
+                <FormidableInputText For="() => _request.TravelerName"
+                                     @bind-Value="_request.TravelerName" /></label>
+            <FieldMessage For="() => _request.TravelerName" />
+        </div>
     }
 
     <fieldset>
@@ -73,9 +83,12 @@
 
             @if (_request.AccommodationType == "Accessible")
             {
-                <div class="field"><label>Special requirements
-                    <FormidableInputText For="() => _request.SpecialRequirements" @bind-Value="_request.SpecialRequirements" /></label>
-                    <FieldMessage For="() => _request.SpecialRequirements" /></div>
+                <div class="field">
+                    <label>Special requirements
+                        <FormidableInputText For="() => _request.SpecialRequirements"
+                                              @bind-Value="_request.SpecialRequirements" /></label>
+                    <FieldMessage For="() => _request.SpecialRequirements" />
+                </div>
             }
         </fieldset>
     }

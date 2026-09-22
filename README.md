@@ -15,20 +15,36 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a><!-- publish-day: verify -->
 </p>
 
+Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between —
+deciding which rules run while someone is still typing, which messages they have earned the
+right to see, and what to do when the server disagrees with the browser — is the layer I kept
+rebuilding by hand, one client form at a time, slightly differently each time. Formidable is
+that layer, built once and covered by tests.
+
+It runs one real client project's forms today. Exactly one: a number I'd rather give you
+straight than round up. What that buys you is a library that met a deadline before it met a
+README, so the awkward parts were found by shipping rather than by guessing.
+
+If you'd rather see it than read about it, there is a [live demo](#live-demo) and a
+[five-minute quickstart](#5-minute-quickstart) below.
+
 ## What it is
 
-- **Draft/Submit orthogonality** — one validator definition, two built-in lifecycles: a lenient
-  Draft profile for save-as-you-go, and a strict Submit profile for the real thing. Define
-  further custom profiles (wizard steps, approval stages) from the same validator.
+- **Draft and Submit from one validator** — two lifecycles ship built in: a lenient Draft
+  profile for save-as-you-go, a strict Submit profile for the real thing, both defined once in
+  the same FluentValidation class. Wizard steps and approval stages are custom profiles over
+  that same definition.
 - **A headless component kit** — `FormidableForm`, `FormidableField`, `FieldMessage`, and
-  `FormSummary` own the `EditContext` and render whatever the validator reports. Formidable
-  ships no CSS; it drops into any UI library or plain HTML.
+  `FormSummary` own the `EditContext` and render whatever the validator reports. The
+  library ships no CSS, so the same kit fits a UI library, a design system, or plain HTML.
 - **One validator, client and server** — the same FluentValidation rules run in the browser and
-  on the server; a `ValidationProblemDetails` response applies straight into the engine so a
-  server-rejected save lights up the exact fields inline.
-- **Progressive disclosure** — validation errors follow what's actually rendered; a field the
-  user can't see never nags, and a defensive gate catches the case where every failure would
+  again on the server, and the server's `ValidationProblemDetails` response applies straight
+  into the engine, so a rejected save lights up the exact fields inline.
+- **Progressive disclosure** — errors follow what is actually on screen. A field the visitor
+  cannot see never nags, and a defensive gate catches the case where every failure would
   otherwise go unseen.
+- **Collections that keep their errors** — a message belongs to the row object, not to the row
+  number, so adding, removing, and reordering rows can never move an error onto the wrong row.
 
 ## Packages
 
@@ -113,14 +129,15 @@ The page — routed at `@page "/"` in the sample:
 `HandleValid` handler live alongside in `Quickstart.razor.cs`. The `class` attributes are the
 sample app's own styling; the library ships none.
 
-That's it — `FormidableForm` owns the `EditContext`, `FormidableInputText` registers the field
-and applies validation CSS classes, and `FieldMessage`/`FormSummary` render whatever the
-validator reports.
+That is the whole form. `FormidableForm` owns the `EditContext`, `FormidableInputText`
+registers its field and applies the validation CSS classes, and `FieldMessage` and
+`FormSummary` render whatever the validator reports. The same four pieces taken slowly, with
+each line explained and a run at the end, are in [Quickstart](docs/quickstart.md).
 
 ## Server validation in two lines
 
-The same validator runs server-side and returns errors in the format the client expects to
-apply. Minimal APIs:
+The rules you just wrote run on the server too, and they answer in the exact format the client
+already knows how to apply. Minimal APIs:
 
 ```csharp
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
@@ -136,29 +153,52 @@ MVC controllers:
 
 *Source: `samples/Formidable.Sample.Api/Controllers/AgreementsController.cs`*
 
+Both filters return `ValidationProblemDetails`. On the client, `ToIssues()` flattens that
+response into issues, and `Engine.ApplyServerIssues(...)` lands each one on the field it names;
+the wire contract they share is in [Server integration](docs/server-integration.md).
+
 ## Documentation
 
-| Topic | Doc |
+The docs come in two tiers. The first is a path: read it in order and you will have built the
+thing. The second is the shelf you come back to afterwards.
+
+### Learn the library
+
+Six pages, in reading order. Start at the top and keep going.
+
+| Doc | What's in it |
 |---|---|
-| Recipes (behaviour → configuration) and troubleshooting | [`docs/recipes.md`](docs/recipes.md) |
-| Validation profiles (Draft/Submit and custom) | [`docs/profiles.md`](docs/profiles.md) |
-| `FormidableOptions` reference | [`docs/options.md`](docs/options.md) |
-| Progressive disclosure | [`docs/disclosure.md`](docs/disclosure.md) |
-| Collections and row-stable error identity | [`docs/collections-and-row-identity.md`](docs/collections-and-row-identity.md) |
-| Async validation rules | [`docs/async-validation.md`](docs/async-validation.md) |
-| Severity levels | [`docs/severity.md`](docs/severity.md) |
-| Server integration (minimal APIs, MVC, wire format) | [`docs/server-integration.md`](docs/server-integration.md) |
-| The headless component kit | [`docs/component-kit.md`](docs/component-kit.md) |
-| CSS and accessibility | [`docs/css-and-accessibility.md`](docs/css-and-accessibility.md) |
-| Migrating from another integration layer | [`docs/migration-guide.md`](docs/migration-guide.md) |
-| Acceptance benchmark (workaround → mechanism) | [`docs/benchmark.md`](docs/benchmark.md) |
-| Testing (suite shape, how to run each layer, the release gate) | [`docs/testing.md`](docs/testing.md) |
-| Releasing a version (the maintainer runbook) | [`docs/releasing.md`](docs/releasing.md) |
-| Manual walkthrough of the sample (the eyes-on pass) | [`samples/MANUAL-CHECKLIST.md`](samples/MANUAL-CHECKLIST.md) |
+| [Why Formidable](docs/why-formidable.md) | Why this layer exists, with one row per workaround it replaces. |
+| [Quickstart](docs/quickstart.md) | A model, a validator, and the four components that render it. |
+| [Core concepts](docs/core-concepts.md) | Draft and submit profiles, which pass runs when, and what severity decides. |
+| [Fields and collections](docs/fields-and-collections.md) | Rows that keep their errors, collection-level messages, and controls the kit ships no input for. |
+| [Async and server](docs/async-and-server.md) | Rules that take time, the pending state they carry, and the server running the same validator. |
+| [Recipes](docs/recipes.md) | "I want to…" answered with code, plus a symptom-to-fix troubleshooting table. |
+
+### Reference
+
+The deep dives, grouped the way the concepts stack.
+
+| Area | Doc | What it covers |
+|---|---|---|
+| Concepts | [Profiles](docs/profiles.md) | Draft, Submit, and profiles you define yourself: how a pass picks its rules. |
+| Concepts | [Severity](docs/severity.md) | Errors block a submit; warnings and infos say their piece and let it through. |
+| Concepts | [Disclosure](docs/disclosure.md) | Render-registration in full: why an issue surfaces only where its field is mounted. |
+| Fields & collections | [Collections and row identity](docs/collections-and-row-identity.md) | How a message stays attached to its row through add, remove, and reorder. |
+| Fields & collections | [Component kit](docs/component-kit.md) | Every component and parameter, plus the seams for foreign and native controls. |
+| Async & server | [Async validation](docs/async-validation.md) | Pending state and the debounce that drives it, then how overlapping passes settle their order. |
+| Async & server | [Server integration](docs/server-integration.md) | Two entry points, the endpoint filter and the `[Validate]` attribute, sharing one wire format. |
+| Presentation | [CSS and accessibility](docs/css-and-accessibility.md) | Formidable computes the class names and wires the ARIA; both are yours to override. |
+| Presentation | [Options](docs/options.md) | `FormidableOptions` property by property, from the debounce to the CSS class map. |
+| Project | [Migration guide](docs/migration-guide.md) | Moving an existing FluentValidation and `EditForm` integration across. |
+| Project | [Testing](docs/testing.md) | The suite's shape, how to run each layer, and the gate a release has to pass. |
+| Project | [Releasing](docs/releasing.md) | The maintainer's runbook for cutting a version. |
+| Project | [Manual checklist](samples/MANUAL-CHECKLIST.md) | The eyes-on walkthrough of the sample app, one check per behaviour. |
 
 ## Run the sample locally
 
-The sample app is a runnable tour, one page per feature.
+The sample app is a runnable tour: one page per feature, each carrying the real source that
+makes it work.
 
 ```bash
 git clone https://github.com/xfunc/formidable.git
@@ -178,14 +218,15 @@ The API listens on `http://localhost:5180`; open the Blazor app at
 
 ## Live demo
 
-The same sample is mirrored to GitHub Pages, deployed from `main`, with a simulated in-browser
-API standing in for the real server — every other page behaves exactly as it does locally.
+The same sample runs on GitHub Pages, deployed from `main`. A simulated in-browser API stands
+in for the real server; every other page behaves exactly as it does locally.
 
 **[xfunc.github.io/formidable](https://xfunc.github.io/formidable/)** <!-- publish-day: verify -->
 
 ## Contributing, security, and license
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
-request. Found a security issue? See [SECURITY.md](SECURITY.md) for private disclosure.
+Contributions are welcome, and [CONTRIBUTING.md](CONTRIBUTING.md) is where to start: project
+layout, dev setup, and what to do before opening a pull request. Found a security issue?
+[SECURITY.md](SECURITY.md) has the private disclosure route.
 
 Formidable is licensed under the [MIT License](LICENSE).

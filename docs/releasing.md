@@ -2,8 +2,8 @@
 
 This is the maintainer runbook for publishing Formidable, Formidable.Blazor, and
 Formidable.AspNetCore to NuGet. It documents what the automated `Release` workflow actually
-does — not an aspirational description — so the release is reproducible without carrying the
-steps around as tribal knowledge.
+does — not an aspirational description — so a release stays reproducible without depending on
+anyone's memory of the steps.
 
 ## Prerequisites (one-time)
 
@@ -16,14 +16,14 @@ steps around as tribal knowledge.
   and package versions for `Formidable`, `Formidable.Blazor`, and `Formidable.AspNetCore` (or a
   glob covering all three, e.g. `Formidable*`).
 
-Neither step is something the release workflow can do for you — both must be in place before
-the first tag is pushed.
+Both are on you — the workflow can't do either one, and both need to be in place before the
+first tag is pushed.
 
 ## Pre-release verification
 
 Run this on the commit you are about to tag. The release workflow builds and tests too, but it
-never sets `FORMIDABLE_E2E`, so the browser suite in `tests/Formidable.Sample.E2E` self-skips
-there — this local run is what covers it.
+never sets `FORMIDABLE_E2E`, so the browser suite in `tests/Formidable.Sample.E2E` sits out
+there — this local run is the only thing that actually exercises it.
 
 1. **Build the solution.** The E2E fixture starts both sample servers with `--no-build`, so it
    runs against whatever the Debug output already holds; a stale or missing build is the usual
@@ -65,7 +65,7 @@ there — this local run is what covers it.
    this command — clear it once verification is done so a later plain `dotnet test` in the same
    session doesn't unexpectedly try to run the gated suite again: `Remove-Item Env:FORMIDABLE_E2E`.
 
-4. **Walk the sample by eye.** [`samples/MANUAL-CHECKLIST.md`](../samples/MANUAL-CHECKLIST.md)
+4. **Walk the sample by eye.** The [manual checklist](../samples/MANUAL-CHECKLIST.md)
    is the pass a headless browser cannot do for you: colour, contrast, spacing, focus cues and
    native-control chrome, in both light and dark OS colour schemes.
 
@@ -126,10 +126,10 @@ never ships a package by itself.
 
 ## Local dry run
 
-Do this before pushing a tag you're not fully sure about, or any time you want to sanity-check
-what a given commit would publish as. It packs to a throwaway directory outside the repo (or a
-gitignored one you delete afterward) using the exact same `--no-build` pack invocations as the
-workflow, so what you're inspecting matches production behavior.
+Do this before pushing a tag you're not fully sure about, or any time you just want to
+sanity-check what a given commit would publish as. It packs to a throwaway directory outside the
+repo (or a gitignored one you delete afterward) using the exact same `--no-build` pack
+invocations as the workflow, so what you're inspecting matches production behavior.
 
 ```bash
 dotnet build -c Release

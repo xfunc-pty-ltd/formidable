@@ -62,7 +62,7 @@ FORMIDABLE_E2E=1 dotnet test
 In PowerShell, set the variable first: `$env:FORMIDABLE_E2E = "1"; dotnet test`. The E2E
 fixture starts both sample servers itself (killing them on teardown), so stop any sample app
 you already have running first, and expect nothing skipped except the three docs-capture
-utilities. [`docs/releasing.md`](docs/releasing.md) has the full pre-release version of this same
+utilities. [Releasing](docs/releasing.md) has the full pre-release version of this same
 checklist.
 
 ### Manually exercising a change
@@ -79,9 +79,9 @@ The API listens on `http://localhost:5180`; the Blazor app is at `http://localho
 your change touches the engine, the component kit, or the server adapters, find the sample page
 that already exercises that area (see the README's [Learn more](README.md#documentation) table for
 which doc — and therefore which sample route — covers what) and check it by hand before opening
-a PR, even if the automated tests pass. [`samples/MANUAL-CHECKLIST.md`](samples/MANUAL-CHECKLIST.md)
+a PR, even if the automated tests pass. The [manual checklist](samples/MANUAL-CHECKLIST.md)
 is the committed walkthrough checklist covering every sample page in both light and dark OS
-colour schemes; [`docs/recipes.md`](docs/recipes.md) is a task-oriented "I want to…" index if
+colour schemes; [Recipes](docs/recipes.md) is a task-oriented "I want to…" index if
 you're trying to find where a particular behaviour lives before changing it.
 
 ## Commit conventions

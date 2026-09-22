@@ -1,18 +1,51 @@
 # Server integration
 
-Formidable's server story is one validator run twice: the same FluentValidation rules and
-profile definitions that drive the client run again on the server, and a rejected request comes
-back in exactly the shape the client already knows how to apply. Two adapters cover the two
-common hosting models — a minimal-API endpoint filter and an MVC action filter — and both funnel
-into the same wire format, defined once, in the dependency-free core package.
+**You should already know:** why the server needs to run the same validator at all, and roughly
+what `ApplyServerIssues` does with what comes back
+([Async and server](async-and-server.md)), plus the draft/submit split that decides
+which profile a request runs under ([Core concepts](core-concepts.md)).
+
+A form's client-side code is never something a server can trust on its own. A request can skip
+the browser entirely, replay old values, or arrive from a client that never ran a single rule.
+So the server validates again, every time, no matter how thorough the checks in front of the
+user already were. That's the easy half. The harder one is what happens when the server
+disagrees. A rejection shaped differently from a client-side one — a raw string with no field
+attached, a status code and nothing else — teaches the user nothing they can act on. And a form
+that looked fine a second ago suddenly isn't, for reasons the page can't show. Formidable's
+server story answers both problems with one move: the same FluentValidation rules and profile
+definitions that drive the client run again on the server, and a rejected request comes back in
+exactly the shape the client already knows how to apply.
+
+## Need to know
+
+One call wires an endpoint into that same validator, and on the sample's minimal API it looks
+like this:
+
+```csharp
+// Group-level validation: every endpoint in the group runs the submit profile.
+var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
+orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, lines = order.Lines.Count }));
+```
+
+*Source: `samples/Formidable.Sample.Api/Program.cs`*
+
+MVC gets the same thing from `[Validate]`, an action filter instead of an endpoint filter. Both
+adapters funnel into one wire format, defined once in the dependency-free core package, so
+whichever one rejects a request, the shape it sends back is identical. On the client side,
+closing the loop is three calls: deserialize the 400 body, flatten it with `ToIssues()`, and
+hand the result to `IFormValidationEngine.ApplyServerIssues`. That third call replaces what its
+own previous call added rather than piling onto it, so resubmitting the same or a corrected
+payload never leaves a stale duplicate error behind. That's the whole authoring surface: pick an
+adapter, apply what it sends back. What follows is the wire format underneath both of them, each
+adapter's own shape, and the normalize step both run before they validate anything.
 
 ## The wire contract
 
 A rejected request returns a 400 `ValidationProblemDetails`. Its `errors` dictionary is keyed by
 the same property-path format the client uses internally (`Items[0].Sku`, and so on — see
-[`docs/collections-and-row-identity.md`](collections-and-row-identity.md)), and a `warnings`
-extension alongside it carries every non-error issue from the same report. The client-side shape
-of that body is one type in the core `Formidable` package — no ASP.NET Core or Blazor dependency
+[Collections and row identity](collections-and-row-identity.md)). A `warnings` extension
+alongside `errors` carries every non-error issue from the same report. The client-side shape of
+that body is one type in the core `Formidable` package — no ASP.NET Core or Blazor dependency
 required to read it:
 
 ```csharp
@@ -72,6 +105,10 @@ public sealed class FormidableValidationProblem
 
 *Source: `src/Formidable/FormidableValidationProblem.cs`*
 
+`ToIssues()` deliberately tolerates a null or hostile payload shape rather than throwing — a
+foreign 400 body (a proxy, a gateway, a handwritten test double) can carry explicit JSON nulls
+that survive deserialization and override the property initializers above.
+
 ```csharp
 /// <summary>
 /// The wire shape of one non-error issue carried on the <c>warnings</c> extension of a
@@ -92,10 +129,6 @@ public sealed record ValidationProblemWarning(
 ```
 
 *Source: `src/Formidable/ValidationProblemWarning.cs`*
-
-`ToIssues()` deliberately tolerates a null or hostile payload shape rather than throwing — a
-foreign 400 body (a proxy, a gateway, a handwritten test double) can carry explicit JSON nulls
-that survive deserialization and override the property initializers above.
 
 Building the other side of that contract — turning a `ValidationReport` into the two wire pieces
 — is one static mapper in `Formidable.AspNetCore`, shared by both server adapters below:
@@ -140,7 +173,7 @@ public static class ValidationReportProblemMapper
 ## Minimal APIs
 
 `Validate<TModel>(profile?)` is an endpoint-filter extension with two overloads — one route
-handler at a time, or every handler in a route group at once:
+handler at a time, or every handler in a route group at once, the shape the recipe above uses:
 
 ```csharp
 namespace Formidable.AspNetCore;
@@ -237,19 +270,9 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
 
 That throw is exactly the caveat above made concrete — a group-validated endpoint with no
 `TModel`-typed argument fails every request with an `InvalidOperationException`, not a silent
-skip. `report.IsValid` is `true` whenever the report has no error-severity issues (warnings and
-infos don't affect it — see [`docs/severity.md`](severity.md)), which is why an all-warnings
-report falls straight through to `next(context)` and the handler's own return value, unmodified.
-
-The sample wires the group overload:
-
-```csharp
-// Group-level validation: every endpoint in the group runs the submit profile.
-var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();
-orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, lines = order.Lines.Count }));
-```
-
-*Source: `samples/Formidable.Sample.Api/Program.cs`*
+skip. `report.IsValid` is `true` whenever the report has no error-severity issues; warnings and
+infos don't affect it (see [Severity](severity.md)). That is why an all-warnings report falls
+straight through to `next(context)` and the handler's own return value, unmodified.
 
 ## MVC
 
@@ -385,8 +408,7 @@ normalized nor validated — before the aggregate's `IsValid` gate runs once, af
 ### Profile string mapping
 
 `[Validate]`'s `Profile` property is a string (`"Submit"` by default), resolved once per request
-against the same two conventional profiles the client uses (see
-[`docs/profiles.md`](profiles.md)):
+against the same two conventional profiles the client uses (see [Profiles](profiles.md)):
 
 ```csharp
     private static ValidationProfile ResolveProfile(string name)
@@ -457,18 +479,17 @@ public class RoundTripOrder : INormalizableModel
 
 *Excerpt from `samples/Formidable.Sample.Shared/RoundTripOrder.cs`*
 
-Both `ValidationEndpointFilter<TModel>` and `[Validate]` call `(model as INormalizableModel)?.Normalize()`
-in place, on the exact instance the framework already deserialized and bound — before that instance
-is handed to `ValidateAsync`. `Normalize()` mutates the object rather than returning a copy, so the
-same instance the request model binder produced is what the validator checks and, if validation
-passes, what the route handler or action ultimately runs against — the handler sees the normalized
-model, not the wire-deserialized one.
+Both `ValidationEndpointFilter<TModel>` and `[Validate]` call
+`(model as INormalizableModel)?.Normalize()` in place, on the exact instance the framework
+already deserialized and bound — before that instance is handed to `ValidateAsync`.
+`Normalize()` mutates the object rather than returning a copy. So the same instance the request
+model binder produced is what the validator checks and, if validation passes, what the route
+handler or action ultimately runs against. The handler sees the normalized model, not the
+wire-deserialized one.
 
 ## Client round-trip
 
-The client side is three calls: deserialize the 400 body, flatten it with `ToIssues()`, and hand
-the result to the engine. `IFormValidationEngine.ApplyServerIssues` documents its own contract in
-full:
+`IFormValidationEngine.ApplyServerIssues` documents its own contract in full:
 
 ```csharp
     /// <summary>
@@ -495,10 +516,10 @@ full:
 *Source: `src/Formidable.Blazor/IFormValidationEngine.cs`*
 
 **Replace, not accumulate.** Each call is the server's current verdict, full stop — it undoes
-exactly what its own previous call added, then applies the new payload. Calling it twice in a row
-with the same or a corrected body never leaves a stale duplicate inline error behind. Only
+exactly what its own previous call added, then applies the new payload. Calling it twice in a
+row with the same or a corrected body never leaves a stale duplicate inline error behind. Only
 error-severity issues in the payload are applied to fields; anything else in the payload is
-ignored by the engine entirely — which is why the page, not the engine, is responsible for
+ignored by the engine entirely. That is why the page, not the engine, is responsible for
 presenting the warnings a 400 carries.
 
 The sample deliberately skips client-side submit validation so the round-trip is visible end to
@@ -537,32 +558,29 @@ end — press Send and the server's 400 lands on the exact fields:
 
 *Source: `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs`*
 
-Error issues from `ToIssues()` reach the form's fields the moment `ApplyServerIssues` runs — they
-bypass the field-registry disclosure check entirely (see
-[`docs/disclosure.md`](disclosure.md)), because the server
-already validated the submitted data and a field the client happens not to have rendered isn't a
-disclosure concern. Non-error issues in the same payload are not applied to any field by the
-engine — the page pulls them back out of the same `issues` list itself (`_serverWarnings` above)
-and renders them however it chooses; Formidable draws no opinion about where a server warning
-belongs on the page.
+Error issues from `ToIssues()` reach the form's fields the moment `ApplyServerIssues` runs,
+bypassing the field-registry disclosure check entirely (see [Disclosure](disclosure.md)). The
+server already validated the submitted data, so a field the client happens not to have rendered
+isn't a disclosure concern. Non-error issues in the same payload are not applied to any field by
+the engine. The page pulls them back out of the same `issues` list itself (`_serverWarnings`
+above) and renders them however it chooses. Formidable draws no opinion about where a server
+warning belongs on the page.
 
 **Warnings never ride a success response.** The wire contract above only defines the *rejection*
 shape — the `warnings` extension exists on a 400 `ValidationProblemDetails` body. Both adapters
 skip straight to the framework's ordinary success path when the report has no errors
-(`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections above)
-— the handler's or action's own return value passes through completely untouched, with no
+(`return await next(context)` / `await next()`, shown in the Minimal APIs and MVC sections
+above). The handler's or action's own return value passes through completely untouched, with no
 warnings attached, because there is no wire contract for a successful response to carry them.
 
-## Samples
-
 **Samples:** [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) and
-[`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs) for the
-Minimal API endpoint, with its MVC twin at
-[`samples/Formidable.Sample.Api/Controllers/OrdersController.cs`](../samples/Formidable.Sample.Api/Controllers/OrdersController.cs)
-— the page's endpoint picker posts to either one, with a caption under the radios naming the live
-URL so the two otherwise-identical 400s are traceable to their source.
+[`samples/Formidable.Sample.Api/Program.cs`](../samples/Formidable.Sample.Api/Program.cs) for
+the Minimal API endpoint, with its MVC twin at
+[`samples/Formidable.Sample.Api/Controllers/OrdersController.cs`](../samples/Formidable.Sample.Api/Controllers/OrdersController.cs).
+The page's endpoint picker posts to either one, with a caption under the radios naming the live
+URL, so the two otherwise-identical 400s are traceable to their source.
 [`samples/Formidable.Sample.Api/requests.http`](../samples/Formidable.Sample.Api/requests.http)
 has ready-made requests against both endpoints for use outside the browser. Run the API first
 (`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the Blazor sample
-and press "Send to server" — pressing Enter triggers the browser's implicit form submission,
+and press "Send to server". Pressing Enter triggers the browser's implicit form submission,
 which runs the client-side submit pipeline this page deliberately skips.
