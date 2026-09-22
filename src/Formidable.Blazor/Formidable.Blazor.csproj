@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+    <PropertyGroup>
+        <Description>Blazor validation engine for Formidable: EditContext integration, validation profiles, render-registration progressive disclosure, and row-stable collection error identity.</Description>
+        <PackageTags>blazor;validation;fluentvalidation;forms;editform</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Formidable\Formidable.csproj" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.10" />
+    </ItemGroup>
+</Project>
