@@ -8,7 +8,6 @@ Use [GitHub's private vulnerability reporting](https://docs.github.com/en/code-s
 for this repository (repo → **Security** tab → **Report a vulnerability**) to open a private
 advisory.
 
-<!-- publish-day: verify (private vulnerability reporting enabled, and the mailbox below) -->
 If the Security tab offers no such button, private reporting is not enabled for the repository
 and there is no advisory for you to open. Email <security@xfunc.com.au> instead, rather than
 falling back to a public issue.

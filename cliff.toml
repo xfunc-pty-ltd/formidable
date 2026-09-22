@@ -27,7 +27,6 @@ body = """
 """
 footer = """
 
-<!-- publish-day: verify -->
 {%- for release in releases %}
 {% if release.version %}[{{ release.version | trim_start_matches(pat="v") }}]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/{{ release.version }}{% else %}[Unreleased]: https://github.com/xfunc-pty-ltd/formidable/commits/main{% endif %}
 {%- endfor %}"""

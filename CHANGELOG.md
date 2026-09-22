@@ -85,5 +85,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0:
 - Fold the commit shape into the existing conventions section ([63d5ff6](https://github.com/xfunc-pty-ltd/formidable/commit/63d5ff62f622ea27e711f4a69902af0f1d9606b5))
 - Explain the fork and pull request flow ([e3c8cb9](https://github.com/xfunc-pty-ltd/formidable/commit/e3c8cb96fde4920bc5a18796ed6973762c19d661))
 
-<!-- publish-day: verify -->
 [Unreleased]: https://github.com/xfunc-pty-ltd/formidable/commits/main

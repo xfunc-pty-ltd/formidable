@@ -15,9 +15,10 @@ memory of the steps.
   rather than the act of publishing.
 - A Trusted Publishing policy exists on nuget.org (account menu → Trusted Publishing), naming
   repository owner `xfunc-pty-ltd`, repository `formidable`, workflow file `release.yml`, and
-  environment `nuget-org`, scoped to new packages and versions under the glob `Formidable*`. A
-  freshly created policy can sit "temporarily active" for only seven days, so create or re-arm it
-  close to the release rather than long in advance.
+  environment `nuget-org`, scoped to new packages and versions under the glob `Formidable*`. The
+  policy is created with the `xfunc-pty-ltd` organisation as owner, so the packages land under the
+  organisation. A freshly created policy can sit "temporarily active" for only seven days, so
+  create or re-arm it close to the release rather than long in advance.
 - An environment secret named `NUGET_USER` is configured **on the `nuget-org` environment**
   (Settings → Environments → `nuget-org` → Environment secrets), holding the nuget.org username the
   policy above belongs to (nuget.org's own caution: the profile name, not an email address). The

@@ -9,10 +9,10 @@
 <p align="center">Form validation for Blazor, built on FluentValidation — profiles, progressive disclosure, row-stable collections, and one wire format shared by client and server.</p>
 
 <p align="center">
-  <a href="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/ci.yml"><img src="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/ci.yml/badge.svg" alt="CI status"></a><!-- publish-day: verify -->
-  <a href="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/deploy-pages.yml"><img src="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/deploy-pages.yml/badge.svg" alt="Deploy Pages status"></a><!-- publish-day: verify -->
-  <a href="https://www.nuget.org/packages/Formidable.Blazor/"><img src="https://img.shields.io/nuget/v/Formidable.Blazor.svg" alt="NuGet version"></a><!-- publish-day: verify -->
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a><!-- publish-day: verify -->
+  <a href="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/ci.yml"><img src="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/deploy-pages.yml"><img src="https://github.com/xfunc-pty-ltd/formidable/actions/workflows/deploy-pages.yml/badge.svg" alt="Deploy Pages status"></a>
+  <a href="https://www.nuget.org/packages/Formidable.Blazor/"><img src="https://img.shields.io/nuget/v/Formidable.Blazor.svg" alt="NuGet version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
 Blazor hands you `EditForm`. FluentValidation hands you rules. The layer in between decides which
@@ -264,7 +264,6 @@ work.
 git clone https://github.com/xfunc-pty-ltd/formidable.git
 cd formidable
 ```
-<!-- publish-day: verify (clone URL above) -->
 
 From the repo root, in two terminals:
 
@@ -280,7 +279,7 @@ The API listens on `http://localhost:5180`; open the Blazor app at `http://local
 The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. A simulated
 in-browser API stands in for the real server; every other page behaves exactly as it does locally.
 
-**[xfunc-pty-ltd.github.io/formidable](https://xfunc-pty-ltd.github.io/formidable/)** <!-- publish-day: verify -->
+**[xfunc-pty-ltd.github.io/formidable](https://xfunc-pty-ltd.github.io/formidable/)**
 
 ## Contributing, security, and license
 
