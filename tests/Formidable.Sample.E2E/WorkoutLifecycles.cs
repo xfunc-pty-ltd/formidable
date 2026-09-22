@@ -1,0 +1,233 @@
+using Microsoft.Playwright;
+using static Formidable.Sample.E2E.SamplePage;
+using static Microsoft.Playwright.Assertions;
+
+namespace Formidable.Sample.E2E;
+
+/// <summary>
+/// The workout page's lifecycles: what happens to an issue between the submit that revealed it and
+/// the interaction that answers it. Rows that come and go, an advisory that must never block, a
+/// rule whose field leaves the screen while the rule stays, the server's verdict replacing its own
+/// previous one, and — the one these exist to protect — a live verdict surviving the refresh its
+/// own edit armed.
+/// </summary>
+[Collection("e2e")]
+public sealed class WorkoutLifecycles(SampleAppFixture app)
+{
+    // Read from EventRegistrationValidator, the sample API's registrations endpoint, and the
+    // engine's defensive gate: the shipped text is the contract a reader sees, so the tests quote
+    // it rather than matching loosely.
+    private const string AttendeeNameRequired = "Attendee name is required";
+    private const string TooManyAttendees = "More than 10 attendees needs approval — submission is not blocked";
+    private const string DietaryNotesRequired = "Dietary notes are required for catering";
+    private const string HiddenIssueGate = "The form cannot be submitted because information that is not currently displayed is invalid.";
+    private const string CouponRejected = "Coupon code is not recognised";
+    private const string SeatsOutOfRange = "Seats must be a whole number between 0 and 500";
+    private const string Accepted = "Submitted — registration accepted.";
+    private const string Rejected = "The server rejected the registration — see the messages above.";
+
+    // The row the race test edits: the last of 150, far past anything Virtualize has rendered, so
+    // the test has to scroll it into existence first. Its title is what addresses it — the one
+    // thing about a collection row that is the row's own.
+    private const string LastSessionTitle = "Session 150:";
+
+    // Virtualize is told a row is 96px while a real row is taller, so the panel's scrollHeight
+    // grows as rows replace spacers and one jump to the bottom lands short of it. Re-pushing the
+    // scroll on each poll converges on the true end without waiting a fixed time for it.
+    private const string ScrollLastSessionIntoView = $$"""
+        () => {
+            const panel = document.querySelector('.scroll-panel');
+            panel.scrollTop = panel.scrollHeight;
+            return panel.textContent.includes('{{LastSessionTitle}}');
+        }
+        """;
+
+    [E2EFact]
+    public async Task Workout_attendee_rows_validate_and_remove()
+    {
+        var page = await app.NewPageAsync("/workout");
+
+        await AddAttendeeAsync(page);
+        var row = page.Locator(".member-list li");
+        await SubmitAsync(page);
+
+        // A per-item rule from the Submit ruleset, answered on the row that owns it: the message
+        // lands inside that row, and the summary carries it for the form.
+        await Expect(MessagesFor(row, "name"))
+            .ToHaveTextAsync([AttendeeNameRequired], new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, AttendeeNameRequired)).ToBeVisibleAsync();
+
+        await Field(row, "name").FillAsync("Ada Lovelace");
+        await row.GetByRole(AriaRole.Button, new() { Name = "Remove", Exact = true }).ClickAsync();
+
+        // The row leaves and takes its message with it — inline in the same render, because the
+        // row that carried it is gone, and out of the summary as soon as a post-submit refresh
+        // reconciles it: there is no longer an attendee for that entry to be about.
+        await Expect(page.Locator(".member-list li")).ToHaveCountAsync(0);
+        await Expect(MessagesFor(page, "name")).ToHaveCountAsync(0);
+        await Expect(SummaryEntry(page, AttendeeNameRequired)).ToHaveCountAsync(0);
+    }
+
+    [E2EFact]
+    public async Task Workout_warning_never_blocks()
+    {
+        var page = await app.NewPageAsync("/workout");
+
+        await FillValidRegistrationAsync(page, coupon: "WELCOME10");
+
+        for (var i = 0; i < 11; i++)
+        {
+            await AddAttendeeAsync(page);
+        }
+
+        // Identical blank rows have nothing of their own to be addressed by until they are named,
+        // so the fill loop is the one place a row is reached by position.
+        var names = page.Locator(".member-list li [id$='-name']");
+        await Expect(names).ToHaveCountAsync(11);
+        for (var i = 0; i < 11; i++)
+        {
+            await names.Nth(i).FillAsync($"Attendee {i + 1}");
+        }
+
+        // The collection-level rule answers as the eleventh row lands, and it answers as a warning:
+        // the severity is what the rest of this test is about, so it is asserted, not assumed.
+        var advisory = page.Locator("ul[id$='-attendees-messages'] .formidable-message--warning");
+        await Expect(advisory).ToHaveTextAsync(TooManyAttendees);
+
+        await SubmitAsync(page);
+
+        // Eleven attendees, an advisory on screen, and the registration still goes through — a
+        // warning is disclosure, never a veto.
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync(Accepted, new() { Timeout = AsyncTimeoutMs });
+        await Expect(advisory).ToHaveTextAsync(TooManyAttendees);
+    }
+
+    [E2EFact]
+    public async Task Workout_suppression_and_the_gate()
+    {
+        var page = await app.NewPageAsync("/workout");
+
+        // Everything the Submit profile asks for except the dietary note, whose rule is
+        // unconditional while the checkbox above it decides whether the field is on screen at all.
+        await FillValidRegistrationAsync(page, dietaryNotes: "");
+        await SubmitAsync(page);
+
+        await Expect(MessagesFor(page, "dietarynotes"))
+            .ToHaveTextAsync([DietaryNotesRequired], new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
+
+        await Field(page, "includecatering").UncheckAsync();
+
+        // Unticking removes the field, so its inline message goes with it in the same render. The
+        // summary is not re-decided by an edit: the entry stands until a submit rules on it again.
+        await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
+
+        await SubmitAsync(page);
+
+        // That submit is the re-decision: the only failing rule now has nowhere to show, so the
+        // form blocks with the model-level gate instead of with an entry pointing at nothing.
+        await Expect(SummaryEntry(page, HiddenIssueGate))
+            .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
+        await Expect(SummaryEntry(page, DietaryNotesRequired)).ToHaveCountAsync(0);
+
+        await SummaryEntry(page, HiddenIssueGate).ClickAsync();
+
+        // A model-level entry has no input to land on, so it lands on the form the page gave the
+        // model-level id to.
+        await Expect(Field(page, "form")).ToBeFocusedAsync();
+    }
+
+    [E2EFact]
+    public async Task Workout_server_coupon_applies_and_replaces()
+    {
+        var page = await app.NewPageAsync("/workout");
+
+        // A code no client rule can know about: the client submit passes, the POST goes out, and
+        // the API's 400 comes back as an issue on the coupon field.
+        await FillValidRegistrationAsync(page, coupon: "BOGUS");
+        await SubmitAsync(page);
+
+        await Expect(MessagesFor(page, "couponcode"))
+            .ToHaveTextAsync([CouponRejected], new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator("p[role='status']")).ToHaveTextAsync(Rejected);
+        await Expect(SummaryEntry(page, CouponRejected)).ToBeVisibleAsync();
+
+        await Field(page, "couponcode").FillAsync("WELCOME10");
+        await SubmitAsync(page);
+
+        // Each response carries the server's current verdict, so the corrected resubmission leaves
+        // no trace of the previous rejection — inline or in the summary.
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync(Accepted, new() { Timeout = AsyncTimeoutMs });
+        await Expect(MessagesFor(page, "couponcode")).ToHaveCountAsync(0);
+        await Expect(SummaryEntry(page, CouponRejected)).ToHaveCountAsync(0);
+    }
+
+    [E2EFact]
+    public async Task Workout_seats_verdict_lands_on_first_blur()
+    {
+        var page = await app.NewPageAsync("/workout");
+
+        // An accepted submit is the setup, not the subject: it leaves the form with no error sites
+        // at all, which is the state in which the refresh used to have nothing to resurface.
+        await FillValidRegistrationAsync(page);
+        await SubmitAsync(page);
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync(Accepted, new() { Timeout = AsyncTimeoutMs });
+
+        // Only the rows near the scroll position exist in the DOM, so the row has to be scrolled
+        // into existence before it can be edited — the panel's own scrollTop, exactly as the
+        // page's focus fallback moves it.
+        await page.WaitForFunctionAsync(ScrollLastSessionIntoView);
+        var row = page.Locator(".scroll-panel .field").Filter(new() { HasTextString = LastSessionTitle });
+        await Expect(row).ToBeVisibleAsync();
+
+        await Field(row, "seats").FillAsync("900");
+        await Field(row, "seats").PressAsync("Tab");
+
+        // That single edit starts a live pass and arms the post-submit refresh at the same instant.
+        // The live pass runs the whole model, so the contact email's 300 ms availability check
+        // makes it outlast the 300 ms debounce — the refresh comes due while it is still in
+        // flight. The refresh now waits for it instead of cancelling it, and the live pass writes
+        // the verdict, so the message arrives with no second submit to ask for it. Before that
+        // fix, both channels dropped this verdict and it never arrived at all — which is why the
+        // assertion is deliberately the auto-waiting one, with no submit and no sleep behind it.
+        await Expect(MessagesFor(row, "seats"))
+            .ToHaveTextAsync([SeatsOutOfRange], new() { Timeout = AsyncTimeoutMs });
+    }
+
+    // Everything the Submit profile asks for, with the two fields the individual tests vary left to
+    // the caller: the tier is preselected and catering starts ticked, so a filled dietary note is
+    // all the catering section needs, and an empty coupon is one the API accepts.
+    private static async Task FillValidRegistrationAsync(
+        IPage page,
+        string coupon = "",
+        string dietaryNotes = "No nuts")
+    {
+        await Field(page, "contactemail").FillAsync("workout-e2e@example.com");
+        await Field(page, "eventname").FillAsync("Dev Summit");
+        await Field(page, "eventdate").FillAsync("2027-05-01");
+
+        if (dietaryNotes.Length > 0)
+        {
+            await Field(page, "dietarynotes").FillAsync(dietaryNotes);
+        }
+
+        if (coupon.Length > 0)
+        {
+            await Field(page, "couponcode").FillAsync(coupon);
+        }
+
+        // Last, so the date field above has been blurred — it commits its value on blur, the way a
+        // native date input has to be treated.
+        await Field(page, "venueregion").FillAsync("South Australia");
+    }
+
+    private static Task AddAttendeeAsync(IPage page) =>
+        page.GetByRole(AriaRole.Button, new() { Name = "Add attendee", Exact = true }).ClickAsync();
+
+    private static Task SubmitAsync(IPage page) =>
+        page.GetByRole(AriaRole.Button, new() { Name = "Submit registration", Exact = true }).ClickAsync();
+}
