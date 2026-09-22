@@ -43,8 +43,12 @@ public sealed class EventRegistration : INormalizableModel
 
 public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration>
 {
+    // Chromium fires change on every segment keystroke of a native date input and reports a
+    // half-typed year as valid zero-padded ISO (e.g. "0019-01-01"), so a plausible-year bound
+    // is part of "is this a real date" for this form, not a separate rule.
     private static bool TryParseDate(string value, out DateTime date) =>
-        DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+        DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
+        && date.Year is >= 1900 and <= 2100;
 
     protected override void ConfigureDraftRules()
     {

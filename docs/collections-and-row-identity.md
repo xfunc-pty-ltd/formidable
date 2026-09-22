@@ -76,34 +76,36 @@ idioms at both levels:
     <FormSummary />
     <CollectionMessage For="() => _roster.Teams" />
 
-    @foreach (var team in _roster.Teams)
-    {
-        <fieldset @key="team">
-            <legend>Team</legend>
-            <div class="field"><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
-                <FieldMessage For="() => team.Name" /></div>
+    <div class="team-list" id="@TeamsId" tabindex="-1">
+        @foreach (var team in _roster.Teams)
+        {
+            <fieldset @key="team" id="@MembersId(team)" tabindex="-1">
+                <legend>Team</legend>
+                <div class="field"><label>Name <FormidableInputText For="() => team.Name" @bind-Value="team.Name" /></label>
+                    <FieldMessage For="() => team.Name" /></div>
 
-            <CollectionMessage For="() => team.Members" />
-            <ul class="member-list">
-                @foreach (var member in team.Members)
-                {
-                    <li class="field" @key="member">
-                        <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
-                        <FieldMessage For="() => member.Alias" />
-                        <div class="actions">
-                            <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
-                            <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
-                        </div>
-                    </li>
-                }
-            </ul>
-            <div class="actions">
-                <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
-                <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
-                <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
-            </div>
-        </fieldset>
-    }
+                <CollectionMessage For="() => team.Members" />
+                <ul class="member-list">
+                    @foreach (var member in team.Members)
+                    {
+                        <li class="field" @key="member">
+                            <label>Alias <FormidableInputText For="() => member.Alias" @bind-Value="member.Alias" /></label>
+                            <FieldMessage For="() => member.Alias" />
+                            <div class="actions">
+                                <button type="button" @onclick="() => team.Members.Remove(member)">Remove</button>
+                                <button type="button" @onclick="() => MoveUp(team.Members, member)">Move up</button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+                <div class="actions">
+                    <button type="button" @onclick="() => team.Members.Add(new Member())">Add member</button>
+                    <button type="button" @onclick="() => _roster.Teams.Remove(team)">Remove team</button>
+                    <button type="button" @onclick="() => MoveUp(_roster.Teams, team)">Move team up</button>
+                </div>
+            </fieldset>
+        }
+    </div>
 
     <div class="actions">
         <button type="button" @onclick="() => _roster.Teams.Add(new Team())">Add team</button>
@@ -114,7 +116,10 @@ idioms at both levels:
 
 *Excerpt from `samples/Formidable.Sample/Pages/Collections.razor`* — the page also carries a
 teaching panel above the form. The `class` attributes are the sample app's own styling; the
-library ships none.
+library ships none. The `id`/`tabindex` pairs are what give a collection's summary entry
+somewhere to land — a collection rule fails against the list rather than against any one input,
+so the container carrying the collection's `FormidableFieldId` takes the click (see
+[`docs/css-and-accessibility.md`](css-and-accessibility.md)).
 
 The validator behind it mirrors the nesting with `RuleForEach(...).ChildRules(...)`, one level
 for teams and a second, nested level for each team's members:

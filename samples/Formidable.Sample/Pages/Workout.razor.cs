@@ -8,7 +8,7 @@ using Microsoft.JSInterop;
 
 namespace Formidable.Sample.Pages;
 
-public partial class Workout
+public partial class Workout : IDisposable
 {
     private const float SessionRowHeight = 96f;
 
@@ -35,6 +35,24 @@ public partial class Workout
 
     private FormidableForm<EventRegistration>? _form;
     private string _status = string.Empty;
+
+    private IFormValidationEngine? _subscribedEngine;
+
+    private FieldIdentifier VenueRegionField => new(_registration, nameof(EventRegistration.VenueRegion));
+
+    // The focus service addresses a field by its id and nothing else, so a field this page renders
+    // itself has to render that id too. The native venue input is one; the model-level field the
+    // defensive gate reports under is the other, and it has no input at all - the form element
+    // carries it.
+    private string VenueRegionId => FormidableFieldId.For(VenueRegionField);
+
+    private string FormGateId => FormidableFieldId.For(new FieldIdentifier(_registration, string.Empty));
+
+    // A wrapped input takes aria-invalid from its field context; a native one has no context, so
+    // the page reads the same state off the engine. Null renders no attribute at all, which is
+    // what a field with nothing to complain about must have.
+    private string? VenueRegionAriaInvalid =>
+        _form?.Engine?.GetFieldState(VenueRegionField).HasErrors == true ? "true" : null;
 
     protected override void OnInitialized()
     {
@@ -113,6 +131,14 @@ public partial class Workout
         field.NotifyChanged();
     }
 
+    // Change fires per segment keystroke on a native date input, so these only write the
+    // model - NotifyChanged waits for @onblur, once the value has settled.
+    private void ChangeEventDate(ChangeEventArgs args) =>
+        _registration.EventDate = args.Value?.ToString() ?? string.Empty;
+
+    private void ChangeEarlyBirdDeadline(ChangeEventArgs args) =>
+        _registration.EarlyBirdDeadline = args.Value?.ToString() ?? string.Empty;
+
     private void ChangeTicketTier(ChangeEventArgs args, FormidableFieldContext field)
     {
         _registration.TicketTier = args.Value?.ToString() ?? string.Empty;
@@ -142,5 +168,28 @@ public partial class Workout
         await Js.InvokeVoidAsync("formidableSample.scrollPanelTo", ".scroll-panel", index * SessionRowHeight);
         await Task.Delay(120);
         return true;
+    }
+
+    // The engine notifies the components bound to it, not the page, so the aria-invalid above
+    // would otherwise be one interaction stale: right at submit, then still "true" through the
+    // pass that cleared the error. The kit's own components subscribe for exactly this reason.
+    // This page's model never swaps, so the first engine it sees is the only one.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_subscribedEngine is null && _form?.Engine is { } engine)
+        {
+            _subscribedEngine = engine;
+            engine.StateChanged += OnEngineStateChanged;
+        }
+    }
+
+    private void OnEngineStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribedEngine is not null)
+        {
+            _subscribedEngine.StateChanged -= OnEngineStateChanged;
+        }
     }
 }

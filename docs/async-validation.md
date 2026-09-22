@@ -90,9 +90,18 @@ The one place a genuine timer-based debounce exists is the refresh that follows 
 exists to keep already-visible submit errors and warnings current without re-validating the whole
 profile on every keystroke of a form the user is still correcting after a failed submit.
 
-A field change while a submit is itself in flight does neither of these — the live pass for that
-keystroke never starts, because submit is the higher-intent operation and a live or refresh pass
-never supersedes it.
+A field change while a submit is itself in flight only stops the first of these — the live pass
+for that keystroke never starts, because submit is the higher-intent operation and a live or
+refresh pass never supersedes it. The edit still lands in the pending-refresh set and arms the
+debounced refresh, though, which defers to the submit for as long as it stays in flight and runs
+once the submit lands.
+
+The refresh defers to a live pass the same way: rather than cancelling one that is still running,
+it re-arms its own timer and runs once that pass has landed, so an edit whose async rule outlasts
+the debounce still gets the answer its own live pass was computing. Between live passes there is
+nothing to defer to — a newer live pass supersedes the older one outright — but the pass that wins
+writes the verdicts for the fields of the passes it superseded as well as its own, so a field
+edited moments before another still gets its answer.
 
 ## Pending UI
 

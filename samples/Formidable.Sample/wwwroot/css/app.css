@@ -223,6 +223,45 @@ main {
     margin-bottom: .1rem;
 }
 
+/* Padding does not margin-collapse the way the field's own bottom margin does, so a
+   field showing messages keeps this room on top of its normal trailing margin. The
+   4.8px gap above the messages (.formidable-messages' margin-top) already groups them
+   with their input correctly; without this, a field with messages ended in the same
+   trailing gap as a clean field, so on a long blocked form the messages read as
+   floating above the next label rather than owned by the field above them. */
+.field:has(.formidable-messages) {
+    padding-bottom: .35rem;
+}
+
+/* The rule above only reaches messages rendered inside the field. Where a renderless
+   FormidableField wraps the pair, the message list is the field's SIBLING instead, and the
+   default margins land backwards: the field's 1rem bottom margin opens a full field-gap above
+   the message while the list's own zero bottom margin leaves it flush against the next label,
+   so the message reads as a heading for the field below rather than a verdict on the one
+   above. These two restore the nested shape's proportions - the field snugs down to the same
+   grouping gap the list's own top margin gives it inside a field, and the list takes over the
+   trailing room the field's margin used to provide - sized to 1.35rem (1rem + the nested
+   shape's .35rem padding-bottom) so the two shapes end in exactly the same trailing gap. */
+.field:has(+ .formidable-messages) {
+    margin-bottom: .3rem;
+}
+
+.field + .formidable-messages {
+    margin: 0 0 1.35rem;
+}
+
+/* One sibling message list must keep the default proportions: a collection's messages
+   introduce the item list below them, and on the roster pages that list follows a team's name
+   field, so the pair above would glue a team-level message to the name field it does not
+   belong to. Matching on the item list that follows restores both defaults for that shape. */
+.field:has(+ .formidable-messages + .member-list) {
+    margin-bottom: 1rem;
+}
+
+.field + .formidable-messages:has(+ .member-list) {
+    margin: .3rem 0 0;
+}
+
 /* .culture is the localization page's language picker: it sits outside the form, so it has to
    ask for the field chrome the form selectors give every other select. */
 form input:where(:not([type=radio]):not([type=checkbox])),
@@ -557,4 +596,20 @@ p[role=status] {
 .state-table thead {
     color: var(--muted);
     background: var(--field-bg);
+}
+
+/* ---------- summary focus landing ---------- */
+
+/* A field with no input of its own - a collection, the model-level gate - takes the summary's
+   click on the container carrying its id, and a container shows nothing when focused. The mark is
+   scoped to :focus-visible on purpose: these containers are focusable by mouse too (tabindex="-1"
+   only removes them from the tab order), so plain :focus would paint the whole form or fieldset
+   whenever a click landed on padding or a caption. Activating a summary entry from the keyboard
+   carries focus-visible into the programmatic focus, so the keyboard path keeps its mark while a
+   mouse click gets the scroll alone. The accent token covers both colour schemes. */
+form:focus-visible,
+fieldset:focus-visible,
+.team-list:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
 }

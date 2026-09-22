@@ -9,22 +9,24 @@
         <ul>
             <li><strong>Nickname</strong> (a native <code>InputText</code>) and <strong>Colour</strong> (a Formidable input) — both required, validated live, in the same form.</li>
             <li>The css provider gives native InputBase components the same state classes, so both inputs style identically with zero extra wiring.</li>
+            <li>The rest is rendered by hand, one concern at a time: <code>FieldAnchor</code> registers it so its issues disclose, the field's own id on the input is what the summary's click-to-focus looks for, and <code>aria-describedby</code> plus <code>aria-invalid</code> give a screen reader the same message pairing and error state a Formidable input emits — the page reads that state off the engine, so it appears and clears with the message beside it.</li>
         </ul>
     </Rules>
     <TryIt>
         <ol>
             <li>Submit empty — both inputs show the identical red border.</li>
+            <li>Click the <em>Nickname is required</em> entry in the summary — focus lands in the native input, just as the colour entry lands in the Formidable one. The focus service resolves a field to an element id and looks for nothing else, so a native input carrying that id is as reachable as a wrapped one.</li>
             <li>Note the native <code>ValidationMessage</code> and Formidable's <code>FieldMessage</code> rendering side by side.</li>
             <li>Fill both and submit — the status line confirms.</li>
         </ol>
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
     <FormSummary />
 
-    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
-        <ValidationMessage For="() => _order.Nickname" />
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" id="@NicknameId" aria-invalid="@NicknameAriaInvalid" aria-describedby="@($"{NicknameId}-messages")" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
         <FieldAnchor For="() => _order.Nickname" /></div>
 
     <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>

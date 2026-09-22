@@ -83,6 +83,39 @@ public sealed class ThrowingValidator : DraftSubmitValidator<EngineOrder>
 }
 
 /// <summary>
+/// Draft validator whose <see cref="EngineOrder.Description"/> rule blocks on <see cref="Gate"/>
+/// (mirrors the sample's async uniqueness check) while the customer-name and item-SKU rules fail
+/// synchronously — so a live pass can be held in flight, across the refresh debounce if need be,
+/// with ordinary field verdicts riding on whichever pass wins.
+/// </summary>
+public sealed class SlowLiveRuleValidator : DraftSubmitValidator<EngineOrder>
+{
+    public TaskCompletionSource Gate { get; private set; } = new();
+
+    protected override void ConfigureDraftRules()
+    {
+        RuleFor(x => x.Description).MustAsync(async (_, ct) =>
+        {
+            await Gate.Task.WaitAsync(ct);
+            return true;
+        });
+
+        RuleFor(x => x.Customer!.Name)
+            .MaximumLength(3).WithMessage("Customer name is too long")
+            .When(x => x.Customer is not null);
+
+        RuleForEach(x => x.Items).ChildRules(item =>
+            item.RuleFor(i => i.Sku).MaximumLength(3).WithMessage("SKU is too long"));
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+    }
+
+    public void Reset() => Gate = new TaskCompletionSource();
+}
+
+/// <summary>
 /// Draft validator with two independent async rules (mirrors the sample's <c>HandleValidator</c>
 /// shape): the <see cref="EngineOrder.Description"/> rule resolves on its own, while the
 /// <see cref="EngineCustomer.Name"/> rule blocks on <see cref="CustomerNameGate"/> until

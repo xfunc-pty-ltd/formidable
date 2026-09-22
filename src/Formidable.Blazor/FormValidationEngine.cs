@@ -18,9 +18,11 @@ namespace Formidable.Blazor;
 /// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
 /// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
 /// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _submitInFlight,
-/// _touched, _pendingRefreshFields) mutates synchronously on the caller's context — except that
-/// _pendingRefreshFields also mutates on the dispatcher, when RunRefreshPassAsync snapshots and
-/// clears it at the start of a refresh pass.
+/// _liveVersion, _touched, _pendingRefreshFields, _pendingLiveFields) mutates synchronously on the
+/// caller's context — except on the dispatcher for: _pendingRefreshFields, when RunRefreshPassAsync
+/// snapshots and clears it at the start of a refresh pass; _pendingLiveFields, when a live pass
+/// clears it after writing its verdicts; and the two in-flight markers _submitInFlight and
+/// _liveVersion, which the pass that set them clears alongside IsValidating.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDisposable
     where TModel : class
@@ -37,6 +39,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveIssues = [];
     private readonly HashSet<FieldIdentifier> _touched = [];
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
+    private readonly HashSet<FieldIdentifier> _pendingLiveFields = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitIssues = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
     private HashSet<FieldIdentifier> _submitVisible = [];
@@ -51,6 +54,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     private HashSet<FieldIdentifier>? _validatingScope;
 
     private int _version;
+
+    // The pass version of the live pass in flight; -1 when none is. Held as a version rather than
+    // as a plain in-flight flag so it cannot go stale: a submit supersedes a live pass without
+    // waiting for it, and a flag the dying pass then declined to clear — it is no longer the
+    // current pass, so it must not write state — would leave every later refresh deferring to a
+    // pass that ended long ago.
+    private int _liveVersion = -1;
 
     /// <summary>Creates an engine bound to one model + edit context pair.</summary>
     public FormValidationEngine(
@@ -197,6 +207,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
     }
 
     /// <summary>
+    /// Whether the pass currently in flight is a live pass — true from the moment a live pass takes
+    /// the current version until it finishes, and false again as soon as any newer pass takes that
+    /// version from it.
+    /// </summary>
+    private bool LiveInFlight => _liveVersion == _version;
+
+    /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
     /// new one linked to <paramref name="external"/>. Only one pass (live, submit, or refresh) is ever
     /// in flight at a time — starting a new one supersedes whatever came before.
@@ -239,8 +256,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
             return; // submit is the higher-intent operation; live/refresh passes never supersede it
         }
 
+        _pendingLiveFields.Add(changedField);
         var version = _version + 1;
         var token = BeginPass(CancellationToken.None);
+        _liveVersion = version;
         await SetValidating(true, version, [changedField]).ConfigureAwait(false);
         try
         {
@@ -279,16 +298,41 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 }
 
                 _faultIssue = null;
-                _liveIssues[changedField] = report.Issues
-                    .Where(issue => Resolve(issue).Equals(changedField))
-                    .ToList();
+
+                // Every field whose pass this one superseded, not just the field that started it:
+                // each live pass validates the whole model under the same LiveProfile, so this
+                // report answers for those fields too. A superseded pass writes nothing — it is no
+                // longer current — so without this the field it was answering for would keep a
+                // stale verdict, or none at all, until something else happened to revalidate it.
+                foreach (var field in _pendingLiveFields)
+                {
+                    _liveIssues[field] = report.Issues
+                        .Where(issue => Resolve(issue).Equals(field))
+                        .ToList();
+                }
+
+                _pendingLiveFields.Clear();
                 RebuildStore();
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
         finally
         {
-            await SetValidating(false, version).ConfigureAwait(false);
+            // What SetValidating does, plus the in-flight marker — cleared in the same dispatch and
+            // before the notification, exactly as the submit pass clears _submitInFlight, so that a
+            // handler which reacts by letting a deferred refresh run cannot still see this pass as
+            // the one in flight.
+            await _renderDispatch(() =>
+            {
+                if (version == _version)
+                {
+                    IsValidating = false;
+                    _validatingScope = null;
+                    _liveVersion = -1;
+                    NotifyStateChanged();
+                }
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
     }
 
@@ -418,6 +462,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
                 applied = true;
                 HasSubmitted = true;
                 _liveIssues.Clear();
+
+                // Submit takes the live channel over wholesale, so a live pass it superseded has
+                // nothing left to hand on: its field's verdict is this report's, and any further
+                // edit is revalidated by the refresh that edit arms.
+                _pendingLiveFields.Clear();
                 _faultIssue = null;
 
                 if (report.IsValid)
@@ -580,9 +629,17 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IDispo
 
     private async Task RunRefreshPassAsync()
     {
-        if (_submitInFlight)
+        if (_submitInFlight || LiveInFlight)
         {
-            ScheduleRefresh(); // defer and re-arm — the edit must still be revalidated once submit finishes
+            // Defer and re-arm — the edit must still be revalidated once the pass in flight
+            // finishes. Submit is the higher-intent operation and is never superseded; a live pass
+            // is waited out for a different reason: starting here would cancel it (see BeginPass)
+            // and this pass would then discard its own verdict for any field that was not an error
+            // site at the last submit, so a single edit's answer would be lost on both channels at
+            // once. Waiting can in principle be starved by passes that never quiesce — the same
+            // exposure the submit case has always carried, and a form whose passes never settle
+            // has no moment at which a refresh would be meaningful anyway.
+            ScheduleRefresh();
             return;
         }
 

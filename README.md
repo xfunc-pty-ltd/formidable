@@ -149,6 +149,7 @@ MVC controllers:
 
 | Topic | Doc |
 |---|---|
+| Recipes (behaviour → configuration) and troubleshooting | [`docs/recipes.md`](docs/recipes.md) |
 | Validation profiles (Draft/Submit and custom) | [`docs/profiles.md`](docs/profiles.md) |
 | `FormidableOptions` reference | [`docs/options.md`](docs/options.md) |
 | Progressive disclosure | [`docs/disclosure.md`](docs/disclosure.md) |

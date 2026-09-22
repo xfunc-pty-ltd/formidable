@@ -154,12 +154,16 @@ pipeline — a native `InputText` is itself an `InputBase<TValue>` descendant, s
 nickname field is the remaining genuine example:
 
 ```razor
-    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
-        <ValidationMessage For="() => _order.Nickname" />
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" id="@NicknameId" aria-invalid="@NicknameAriaInvalid" aria-describedby="@($"{NicknameId}-messages")" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
         <FieldAnchor For="() => _order.Nickname" /></div>
 ```
 
 *Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor`*
+
+The `id`, `aria-describedby` and `aria-invalid` alongside it answer a different question —
+click-to-focus and the input's assistive-technology story, both covered in
+[`docs/css-and-accessibility.md`](css-and-accessibility.md). Disclosure is the anchor's job alone.
 
 Without the anchor, `Nickname`'s failure would be unrevealed forever — the native `InputText`
 never mounts a Formidable component, so nothing registers the field for disclosure even though

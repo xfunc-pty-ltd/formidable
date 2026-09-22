@@ -183,26 +183,25 @@ public class FormValidationEngineValidatingScopeTests
         await submit;
         validator.Reset();
 
-        // Notify a change for field B only, then advance the fake clock past the 300ms debounce
-        // so the refresh pass starts and (via the gate) sits in flight.
+        // Notify a change for field B only. The edit's own live pass runs first and the refresh
+        // defers to it, so settle that pass and re-gate the validator before advancing the fake
+        // clock past the 300ms debounce - that is what leaves the REFRESH pass, this test's
+        // subject, sitting in flight.
         editContext.NotifyFieldChanged(fieldB);
+        var live = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await live;
+        validator.Reset();
+
         time.Advance(TimeSpan.FromMilliseconds(301));
 
         Assert.True(engine.GetFieldState(fieldB).IsValidating);  // edited in the window: scoped flag set
         Assert.False(engine.GetFieldState(fieldA).IsValidating); // untouched: scope excludes it
         Assert.True(engine.IsValidating);                        // engine-level flag stays form-wide
 
-        var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
-        {
-            if (!engine.IsValidating)
-            {
-                quiescent.TrySetResult();
-            }
-        };
-
+        var settled = Quiescence(engine);
         validator.CustomerNameGate.SetResult();
-        await quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await settled;
 
         Assert.False(engine.GetFieldState(fieldA).IsValidating);
         Assert.False(engine.GetFieldState(fieldB).IsValidating);
@@ -230,26 +229,30 @@ public class FormValidationEngineValidatingScopeTests
         await submit;
         validator.Reset();
 
-        // Notify changes for BOTH fields before the debounce elapses.
+        // Notify changes for BOTH fields before the debounce elapses, settling each edit's own
+        // live pass (the refresh defers to one that is still running) so the refresh is what
+        // sits in flight when the clock advances.
         editContext.NotifyFieldChanged(fieldA);
+        var liveA = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await liveA;
+        validator.Reset();
+
         editContext.NotifyFieldChanged(fieldB);
+        var liveB = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await liveB;
+        validator.Reset();
+
         time.Advance(TimeSpan.FromMilliseconds(301));
 
         Assert.True(engine.GetFieldState(fieldA).IsValidating); // both edited in the window
         Assert.True(engine.GetFieldState(fieldB).IsValidating);
         Assert.True(engine.IsValidating);
 
-        var quiescent = new TaskCompletionSource();
-        engine.StateChanged += () =>
-        {
-            if (!engine.IsValidating)
-            {
-                quiescent.TrySetResult();
-            }
-        };
-
+        var settled = Quiescence(engine);
         validator.CustomerNameGate.SetResult();
-        await quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await settled;
 
         Assert.False(engine.GetFieldState(fieldA).IsValidating);
         Assert.False(engine.GetFieldState(fieldB).IsValidating);
@@ -284,20 +287,55 @@ public class FormValidationEngineValidatingScopeTests
         await submit;
         validator.Reset();
 
-        // Edit B; let its refresh (#1) start and sit in flight, scoped to {B}.
+        // Edit B and settle the edit's own live pass first (a refresh defers to one still in
+        // flight), so its refresh (#1) is what starts on the debounce and sits in flight,
+        // scoped to {B}.
         editContext.NotifyFieldChanged(fieldB);
+        var liveB = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await liveB;
+        validator.Reset();
+
         time.Advance(TimeSpan.FromMilliseconds(301));
         Assert.True(engine.GetFieldState(fieldB).IsValidating); // refresh #1 in flight, scoped to B
 
         // Edit A mid-flight: supersedes refresh #1 (live passes never defer to refreshes),
         // takes the pending indicator with it, and re-arms the debounce for a second refresh.
         editContext.NotifyFieldChanged(fieldA);
-        time.Advance(TimeSpan.FromMilliseconds(301));
 
-        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // refresh #2: scoped to the new edit
+        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // the superseding live pass: scoped to the new edit
         Assert.False(engine.GetFieldState(fieldB).IsValidating); // B's scope was dropped by the supersession
         Assert.True(engine.IsValidating);                        // engine-level flag stays form-wide
 
+        // Settle A's live pass so refresh #2, which its edit re-armed, can run: it flags A alone,
+        // pinning that a field edited while a refresh was in flight accumulates for the NEXT
+        // window instead of being lost.
+        var liveA = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await liveA;
+        validator.Reset();
+
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // refresh #2: scoped to the new edit
+        Assert.False(engine.GetFieldState(fieldB).IsValidating);
+        Assert.True(engine.IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.CustomerNameGate.SetResult();
+        await settled;
+
+        Assert.False(engine.GetFieldState(fieldA).IsValidating);
+        Assert.False(engine.GetFieldState(fieldB).IsValidating);
+    }
+
+    /// <summary>
+    /// Completes the next time the engine reports it is no longer validating. Call it only once
+    /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
+    /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
+    /// </summary>
+    private static Task Quiescence(FormValidationEngine<EngineOrder> engine)
+    {
         var quiescent = new TaskCompletionSource();
         engine.StateChanged += () =>
         {
@@ -306,11 +344,6 @@ public class FormValidationEngineValidatingScopeTests
                 quiescent.TrySetResult();
             }
         };
-
-        validator.CustomerNameGate.SetResult();
-        await quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Assert.False(engine.GetFieldState(fieldA).IsValidating);
-        Assert.False(engine.GetFieldState(fieldB).IsValidating);
+        return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 }

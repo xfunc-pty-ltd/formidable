@@ -326,7 +326,21 @@ fails to recover it) — which matters for two cases documented elsewhere: a fie
 attribute — `FormidableField`'s `ForeignControl.razor` sample sets `id="@field.ElementId"`
 explicitly for exactly this reason (see [`docs/component-kit.md`](component-kit.md)); a
 `FieldAnchor`-only registration with no id on the control it anchors has nothing for the focus
-service to find.
+service to find — a gap the samples now close rather than illustrate, giving their native
+`InputText`s the field's id alongside the anchor.
+
+Because the id is the whole of the lookup, a field with no input of its own can be focused just as
+well: give any element the field's `FormidableFieldId.For(...)` id and a `tabindex="-1"` so it can
+hold focus, and that element is where the summary entry lands. The samples do this for the two
+field shapes that own no input — a collection, whose rules fail against the list rather than
+against any one control (the container holding every row takes the collection's id), and the
+model-level field the all-suppressed defensive gate reports under, whose id goes on the `<form>`
+element itself. A container shows nothing when it takes focus, so the sample stylesheet marks
+those landings with an outline — scoped to `:focus-visible`, because `tabindex="-1"` leaves an
+element focusable by mouse and a plain `:focus` rule would paint the whole container whenever a
+click landed on its padding. Activating a summary entry from the keyboard carries focus-visible
+through to the programmatic focus, so the keyboard path keeps the mark while a mouse click gets
+`scrollIntoView` alone.
 
 ## Where this is demonstrated
 
@@ -340,3 +354,8 @@ service to find.
   [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor).
 - `FormSummary`'s live region and click-to-focus, including the virtualize limit —
   [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor).
+- The field id on markup the page renders itself — a native input, a collection's container, the
+  form element behind the gate — [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
+  [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor),
+  [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) and
+  [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor).

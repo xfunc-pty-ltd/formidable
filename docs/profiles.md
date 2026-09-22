@@ -24,7 +24,7 @@ profile from any combination of rulesets — wizard steps, an approval stage lay
 Submit, whatever your form's lifecycle needs:
 
 ```csharp
-var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
+        var approve = ValidationProfile.Named("Approve", includeDefaultRules: true, ValidationProfile.SubmitRuleSetName, "Approve");
 ```
 
 *Source: `tests/Formidable.Tests/DraftSubmitValidatorTests.cs`*

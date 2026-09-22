@@ -23,7 +23,7 @@
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form" id="@FormGateId" tabindex="-1">
     <FormSummary />
 
     <div class="field"><label>Destination <FormidableInputText For="() => _request.Destination" @bind-Value="_request.Destination" /></label>

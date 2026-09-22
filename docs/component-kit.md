@@ -669,11 +669,11 @@ unmodified — a native `InputText` and `ValidationMessage` beside a Formidable 
 form:
 
 ```razor
-<FormidableForm Model="_order" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
     <FormSummary />
 
-    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" /></label>
-        <ValidationMessage For="() => _order.Nickname" />
+    <div class="field"><label>Nickname (native InputText) <InputText @bind-Value="_order.Nickname" id="@NicknameId" aria-invalid="@NicknameAriaInvalid" aria-describedby="@($"{NicknameId}-messages")" /></label>
+        <ValidationMessage For="() => _order.Nickname" id="@($"{NicknameId}-messages")" />
         <FieldAnchor For="() => _order.Nickname" /></div>
 
     <div class="field"><label>Colour (Formidable input) <FormidableInputText For="() => _order.Colour" @bind-Value="_order.Colour" /></label>
@@ -705,6 +705,19 @@ provider applies, and how they differ from what a Formidable input's own `CssCla
 disclosure at all — a plain `InputBase` never registers itself with Formidable's `FieldRegistry`,
 so without the anchor its `ValidationMessage` would never receive an inline error no matter what
 the validator reports.
+
+The three attributes on that same line finish the crossing. A Formidable input renders
+`FormidableFieldId.For(field)` as its element id, points `aria-describedby` at the matching
+`-messages` id, and emits `aria-invalid="true"` while the field has errors; a native input renders
+none of them, so the page derives them from the same sources the kit uses — a small `NicknameId`
+property in the code-behind, and the engine's `GetFieldState(field).HasErrors` for `aria-invalid`
+(a `null` value renders no attribute at all). The id is the entirety of what `FormSummary`'s
+click-to-focus looks up, so with it the native field takes the summary's click exactly like a
+wrapped one (see [`docs/css-and-accessibility.md`](css-and-accessibility.md)). One addition per
+concern: `FieldAnchor` for disclosure, the id for focus, `aria-describedby` and `aria-invalid` for
+the assistive-technology story. Attributes derived from engine state need the page to re-render
+when that state changes, so the sample subscribes to `Engine.StateChanged` — the same subscription
+every kit component makes for itself.
 
 ## Samples
 

@@ -5,10 +5,15 @@ via the `Options` parameter; every property has a default, so omitting `Options`
 falls back to `new FormidableOptions()`) is a fully working configuration.
 
 ```razor
-<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form">
+<FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid" @ref="_form" id="@FormGateId" tabindex="-1">
 ```
 
 *Excerpt from `samples/Formidable.Sample/Pages/Disclosure.razor`*
+
+`Options` is the parameter this page is quoted for; the `id` and `tabindex` beside it are the
+sample's own, giving the model-level field the defensive gate reports under an element to focus
+(see [`docs/css-and-accessibility.md`](css-and-accessibility.md)). Any attribute
+`FormidableForm<TModel>` does not recognise is splatted onto the `<form>` element it renders.
 
 ## Properties
 
