@@ -10,7 +10,7 @@
             <li><strong>Touched</strong> — the user has interacted with the field.</li>
             <li><strong>Modified</strong> — the EditContext says the value changed.</li>
             <li><strong>Validating</strong> — a validation pass involving this field is in flight; scoped to the field for live/refresh passes, form-wide for submit.</li>
-            <li><strong>Blur</strong> marks touched on this page: it wires <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. The built-in inputs mark touched on the first value commit, so without this wiring, tabbing through never touches.</li>
+            <li><strong>Blur</strong> marks touched on this page: it wires <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. A built-in input marks touched only when a committed value change notifies the engine, in every <code>UpdateOn</code> mode, so without this wiring, tabbing through never touches.</li>
             <li><strong>Errors</strong> — the field currently carries error-severity messages.</li>
             <li><strong>Warnings</strong> — the field currently carries warning-severity messages.</li>
             <li><strong>Form valid</strong> — the readout above Submit, kept live by <code>FormidableOptions.TrackFormValidity</code>: an invisible Submit-profile probe that reruns on every change and disables Submit until it says the whole form would pass.</li>

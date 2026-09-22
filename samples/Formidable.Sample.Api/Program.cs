@@ -19,6 +19,11 @@ orders.MapPost("/", (RoundTripOrder order) => Results.Ok(new { accepted = true, 
 
 // The workout page's coupon story needs a rejection only the server can make - the client
 // validator stays silent about codes it cannot know - so the handler owns the code list.
+//
+// The default profile (ValidationProfile.Submit) is enough here: the attendee name rule is a
+// member of both the "Submit" and "Engaged" rulesets at its declaration
+// (EventRegistrationValidator.ConfigureAdditionalProfiles), so a plain Submit validation already
+// enforces it server-side with no extra profile wiring on this route.
 var registrations = app.MapGroup("/api/registrations").Validate<EventRegistration>();
 registrations.MapPost("/", (EventRegistration registration) =>
 {

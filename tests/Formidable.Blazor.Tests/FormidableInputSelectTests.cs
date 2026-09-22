@@ -214,6 +214,25 @@ public class FormidableInputSelectTests : BunitContext
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
     }
 
+    // Pins the commit gate through the string-projected binding: a blur with no committed
+    // change delivers nothing — no OnFieldChanged, no touch, no state class. An unconditional
+    // blur notification breaks all three.
+    [Fact]
+    public void A_select_blur_with_no_committed_change_notifies_nothing()
+    {
+        var order = new EngineOrder();
+        var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
+        var notifications = 0;
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
+
+        form.Find("select").Blur();
+
+        Assert.Equal(0, notifications);
+        Assert.False(form.Instance.Engine!.GetFieldState(
+            new FieldIdentifier(order, nameof(EngineOrder.Description))).IsTouched);
+        Assert.Equal(string.Empty, form.Find("select").GetAttribute("class"));
+    }
+
     [Fact]
     public async Task Pending_class_appears_during_the_pass_and_clears_after_it()
     {

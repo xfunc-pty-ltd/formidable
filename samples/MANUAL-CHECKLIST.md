@@ -364,6 +364,9 @@ steps build on each other.
       SLOWLY (`2`, `0`, `2`, `6`): no message appears and nothing turns red while you are
       mid-year. Tab out: only then does the field get a verdict, and a complete date passes
       cleanly
+- [ ] **A pure tab-through shows nothing.** Tab into **Event date** and straight out again
+      without typing: no message, no state class on the box, no pending flash — a blur with no
+      committed change behind it never notifies the engine, in this mode like every other
 - [ ] Now type a deliberately garbled year (e.g. `0019`) and tab out: it is REJECTED as not a
       real date (the 1900–2100 range), not silently accepted. Fix it and the message goes
 - [ ] Set **Early-bird deadline** AFTER **Event date** and tab out: the cross-field rule
@@ -383,10 +386,12 @@ steps build on each other.
 - [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
       only — the malformed address (plus Dietary notes if empty); Event name/Event date stay
       silent
-- [ ] *Add attendee*, leave Name empty, submit: the row's own message says "Attendee name is
-      required", the summary lists it, and clicking that entry focuses that row's Name
+- [ ] *Add attendee*: the row stays silent even though Name's rule is already failing — nothing
+      has engaged it yet. Type a name, then clear it and Tab: "Attendee name is required"
+      appears immediately, inline and in the summary, with NO submit; clicking that entry
+      focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
-      attendees needs approval — submission is not blocked" appears above the list
+      attendees needs approval — submission is not blocked" appears below the list
 - [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
       the page scrolls so the warning message itself lands in view near the top of the
       viewport, not centred with the message off-screen above or below it
@@ -398,12 +403,15 @@ steps build on each other.
 - [ ] Scroll the session panel to the bottom, set the last session's Seats to `900` and Tab:
       the row objects on the **FIRST tab-out** — "Seats must be a whole number between 0 and
       500" appears immediately, with no second edit needed to shake it loose. Repeat on another
-      row to be sure it is not a one-off
-- [ ] Scroll back to the top and submit: blocked, and the summary carries the same seats
-      message for a row nowhere on screen
-- [ ] Click that summary entry: the panel scrolls itself, Virtualize renders the row, focus
-      lands in its Seats box. Set it back to `0` — the post-submit refresh takes both the
-      inline message and the summary entry away
+      row to be sure it is not a one-off, then set THAT row back to `0` too — leaving it dirty
+      would let its error outrank Ticket tier's in document order and steal the focus at step 13
+- [ ] Scroll back to the top and submit: blocked, the summary carries the same seats message
+      for a row nowhere on screen — **and the submit's own focus reaches it too**: with no click
+      at all, the panel scrolls itself, Virtualize renders the row, and focus lands in its Seats
+      box
+- [ ] Scroll the panel back to the top, then click that summary entry: the panel scrolls
+      itself, Virtualize renders the row, focus lands in its Seats box. Set it back to `0` —
+      the post-submit refresh takes both the inline message and the summary entry away
 - [ ] Set **Ticket tier** to the blank *Choose…* and submit: the foreign select takes the same
       red border, inline message and summary entry as any wrapped input, and clicking that
       entry moves focus INTO the select

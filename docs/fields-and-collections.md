@@ -131,7 +131,8 @@ the way Workout's `TryParseDate` does. `FormidableInputDate` pairs with
 `UpdateOn="InputUpdateMode.OnBlur"` by preference: Chromium fires a native date input's `change`
 event once per typed segment (day, month, year), so the default `OnChange` can run a live pass
 against a year the visitor hasn't finished typing — `OnBlur` commits the model on every segment
-but validates only once, when the visitor moves on.
+and validates once, when the visitor moves on: the blur delivers the one notification those
+commits armed.
 
 Reach for the typed input when the model is a number or a date; reach for the string-modelled
 pattern — `FormidableInputText type="date"`/`type="number"`, with the page parsing by hand — when

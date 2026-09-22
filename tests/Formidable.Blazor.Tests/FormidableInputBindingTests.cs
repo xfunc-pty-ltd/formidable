@@ -111,6 +111,7 @@ public class FormidableInputBindingTests : BunitContext
     }
 
     // The chain contract: the consumer's handler runs first, the library's notification second.
+    // A committed change precedes the blur so a notification is pending for it to deliver.
     // EditContext.OnFieldChanged is the library half's own event, so the recorded order is the
     // real dispatch order rather than a proxy for it.
     [Fact]
@@ -127,6 +128,7 @@ public class FormidableInputBindingTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
+        form.Find("input").Change("committed");
         form.Find("input").Blur();
 
         form.WaitForAssertion(() => Assert.Equal(["consumer", "library"], log));
@@ -195,6 +197,8 @@ public class FormidableInputBindingTests : BunitContext
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
+    // A committed change precedes the blur so a notification is pending — the property under
+    // test is that the delivery waits for the consumer's handler to complete, not merely start.
     [Fact]
     public async Task A_splatted_onblur_task_delegate_is_awaited_before_the_engine_is_notified()
     {
@@ -214,6 +218,7 @@ public class FormidableInputBindingTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
+        form.Find("input").Change("committed");
         var blur = form.Find("input").BlurAsync(new FocusEventArgs());
         Assert.Empty(log);
 

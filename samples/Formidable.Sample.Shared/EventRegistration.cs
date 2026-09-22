@@ -126,11 +126,29 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
 
         RuleForEach(r => r.Attendees).ChildRules(attendee =>
         {
-            attendee.RuleFor(a => a.Name).NotEmpty().WithMessage("Attendee name is required");
             attendee.RuleFor(a => a.Email)
                 .EmailAddress()
                 .WithMessage("Attendee email must be a valid email address")
                 .When(a => !string.IsNullOrEmpty(a.Email));
         });
+    }
+
+    // The attendee name rule is a member of BOTH rulesets, defined once: FluentValidation's
+    // RuleSet accepts a comma-separated name and tags every rule declared inside with all of
+    // them, so the one rule answers a live pass under "Engaged" and a submit under "Submit"
+    // without running twice or risking two copies drifting apart. Profile(name, rules) can't
+    // express this - it registers ruleset-name verification under the exact string it is given,
+    // so "Submit,Engaged" would register as its own (wrong) name rather than as "Submit" and
+    // "Engaged" separately - hence the raw RuleSet call below instead of Profile for this one
+    // rule. The empty Profile("Engaged", ...) alongside it exists only to register "Engaged" with
+    // that same verification, so a typo'd LiveProfile ruleset name still throws loudly rather
+    // than silently selecting nothing. Dietary notes is a different demo on purpose - it stays in
+    // the draft bucket, unconditional, to exercise disclosure suppression.
+    protected override void ConfigureAdditionalProfiles()
+    {
+        Profile("Engaged", () => { });
+        RuleSet("Submit,Engaged", () =>
+            RuleForEach(r => r.Attendees).ChildRules(attendee =>
+                attendee.RuleFor(a => a.Name).NotEmpty().WithMessage("Attendee name is required")));
     }
 }

@@ -11,8 +11,10 @@ public enum InputUpdateMode
 
     /// <summary>
     /// Commits the value on the <c>change</c> event, same as <see cref="OnChange"/>, but defers
-    /// the engine's field-change notification to the element's own <c>blur</c> event instead of
-    /// firing it as part of the same commit. For a native control whose <c>change</c> event fires
+    /// the engine's field-change notification instead of firing it as part of the same commit:
+    /// delivers the notification on blur when a value commit has occurred since the last one, and
+    /// delivers nothing on a blur with no committed change — tabbing through the field starts no
+    /// live pass at all. For a native control whose <c>change</c> event fires
     /// more than once per logical edit — a date input firing per date-segment, a number input
     /// firing per spinner click — so the live pass a notification starts waits until the value has
     /// actually settled instead of running on a half-typed value.

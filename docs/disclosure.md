@@ -14,11 +14,14 @@ ever surfaces when the markup that would show it is actually mounted.
 
 ## Need to know
 
-A field's issue only ever reaches the screen if something is currently rendering that field —
-`FormidableInputText` and other `FormidableInputBase<TValue>` descendants, the renderless
-`FormidableField`, or the registration-only `FormidableFieldAnchor`. Each of those registers the field for
-as long as it stays mounted. The one guardrail: if literally everything that's failing is
-unregistered, submit still blocks with a form-level explanation instead of quietly doing nothing —
+At submit, a field's issue only ever reaches the screen if something is currently rendering that
+field — `FormidableInputText` and other `FormidableInputBase<TValue>` descendants, the renderless
+`FormidableField`, or the registration-only `FormidableFieldAnchor`. Each of those registers the
+field for as long as it stays mounted. (The live pass that runs between submits answers to a
+different rule entirely — engagement, not registration —
+[below](#the-live-channel-plays-by-its-own-rule).) The one guardrail: if
+literally everything that's failing is unregistered, submit still blocks with a form-level
+explanation instead of quietly doing nothing —
 
 > [!NOTE]
 > Suppressing every failing field would let a submit silently do nothing, so a defensive gate
@@ -85,10 +88,49 @@ flowchart TD
     J --> D
 ```
 
-That's the mechanism in full: render it and an issue can show; don't, and it can't, until the
-next submit says otherwise. What's left is the shape of the rules that keep a UI condition and a
-`.When(...)` condition honest with each other, and the escape hatches for controls Formidable
-doesn't wrap.
+That's the submit channel's mechanism in full: render it and a submit-revealed issue can show;
+don't, and it can't, until the next submit says otherwise. The live channel that runs between
+submits works differently — covered next. What's left after that is the shape of the rules that
+keep a UI condition and a `.When(...)` condition honest with each other, and the escape hatches
+for controls Formidable doesn't wrap.
+
+## The live channel plays by its own rule
+
+Everything above is the submit channel's story: an issue reaches the screen only if a rendering
+component is registered for its field *at the moment submit runs*. The live pass that runs after
+every field change has no such gate. Registration filters it nowhere, at write time or at read
+time: the engine writes a live verdict with no registration check at all, and reads it back the
+same way, whether or not anything currently renders that field. There's one bound on how long
+that can last: a live issue for a field that has since left the page stands only until the next
+rendered-field-set change prunes it, along with everything else the departure invalidates.
+
+What gates the live channel is a different question: not *is this field rendered*, but *has this
+field been engaged*. The engine keeps a first-class engaged-field set, and a field enters it the
+moment a field-changed notification names it — a kit input committing a value (in every
+`UpdateOn` mode, `OnBlur` included, since a committed change is the only thing that ever
+notifies), a native input's own change, or an explicit `FormidableFieldContext.NotifyChanged()`.
+A live pass validates the whole model on every change, the same as any other pass, and its
+verdict answers every engaged field: the report's issues where it has them, an empty verdict
+where it says nothing. An engaged field's message therefore clears — or appears — because of an
+edit to a *different* field, which is what keeps a cross-field rule current between submits. A
+field never engaged keeps no live verdict at all, however loudly its rule is failing underneath.
+That's the entire mechanism behind [disclosing a rule on
+engagement](recipes.md#i-want-a-rule-to-disclose-on-engagement-instead-of-waiting-for-submit)
+without moving it out of the submit bucket, and it's also why a fresh, untouched row in a
+collection stays silent even when its rule is already failing against it: nothing has engaged its
+fields yet. Engagement ends the way a live issue does — a field pruned from the rendered set
+leaves the engaged set with it, one committed change away from re-engaging.
+[The live/refresh asymmetry](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)
+covers how this interacts with the debounced refresh that follows a submit.
+
+One more distinction is worth being precise about, since it looks related and isn't: whether a
+field has been touched or modified gates its CSS class only, never a message. `formidable-invalid`
+paints the moment there's an error, ungated; the warning/info/valid tiers wait for the field to be
+touched or modified, so an untouched field earns no state class at all before the visitor has done
+anything to it (see [CSS and accessibility](css-and-accessibility.md) for the full rule). A
+message list, a summary entry, and the message store all read whatever the engine currently holds
+for the field regardless — live issues included — so a field can carry a visible message before it
+ever earns a class describing it.
 
 ## The two patterns
 

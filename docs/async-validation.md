@@ -148,7 +148,7 @@ flowchart TD
     B -- "no" --> D["Live pass starts for the changed field"]
     D --> E{"A newer live pass starts before this one finishes?"}
     E -- "yes" --> F["This pass is cancelled, superseded"]
-    E -- "no" --> G["This pass wins: writes verdicts for its own field plus every field of the passes it superseded"]
+    E -- "no" --> G["This pass wins: its verdict answers every engaged field, the superseded passes' fields included"]
 
     A --> H{"HasSubmitted, or a submit already in flight?"}
     H -- "no" --> I["No refresh armed"]
@@ -197,8 +197,8 @@ lands.
 Feedback that waits for blur is feedback the user has already outrun: they have typed six more
 characters and moved on before anything told them the first three were a problem.
 
-With no submit in flight, the edit starts its own pass immediately, for the field that changed.
-There is no timer sitting in front of a live pass — it begins on the keystroke itself.
+With no submit in flight, the edit starts its own pass immediately, triggered by the field that
+changed. There is no timer sitting in front of a live pass — it begins on the keystroke itself.
 
 Unless you ask for one. `FormidableOptions.LiveDebounce` is `null` by default, which is the cadence
 just described; set it and a field change arms a single shared timer instead of starting a pass.
@@ -228,8 +228,9 @@ answer is the one the user is left looking at.
 
 That can't happen here, because starting a pass cancels the one before it, which is exactly why
 an async rule has to honour its token. The cancelled pass writes nothing: it is no longer the
-authority on anything. The pass that wins writes the verdicts for the fields of the passes it
-superseded as well as its own, so a field edited moments before another still gets its answer.
+authority on anything. The pass that wins answers every engaged field — the superseded passes'
+fields were engaged before the winner began — so a field edited moments before another still
+gets its answer, from the one report that saw the model last.
 
 ### After a submit, an edit also arms a refresh
 

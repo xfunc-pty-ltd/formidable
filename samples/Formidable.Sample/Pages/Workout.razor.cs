@@ -40,10 +40,20 @@ public partial class Workout : IDisposable
     // would hide their issues until the user scrolled to them. Forcing the collection visible
     // costs nothing: validation always runs the full in-memory model - only visibility is
     // render-gated.
+    //
+    // LiveProfile puts the attendee name rule's "Engaged" ruleset onto the live channel: a live
+    // pass runs that rule and lands its verdict on every engaged field - every field a committed
+    // change has named. SubmitProfile stays the
+    // plain Submit profile - no composite needed, because the rule is a member of BOTH rulesets
+    // at its declaration (EventRegistrationValidator.ConfigureAdditionalProfiles), so a submit
+    // already runs it as part of "Submit" without this page naming "Engaged" a second time. Every
+    // other presence rule on this page stays in "Submit" alone and keeps waiting for a submit -
+    // this is per-rule granularity, not a form-wide switch to live disclosure.
     private readonly FormidableOptions _options = new()
     {
         DisclosureOverride = issue =>
-            issue.Path.StartsWith("Sessions[", StringComparison.Ordinal) ? true : null
+            issue.Path.StartsWith("Sessions[", StringComparison.Ordinal) ? true : null,
+        LiveProfile = ValidationProfile.Named("Engaged", true, "Engaged"),
     };
 
     private FormidableForm<EventRegistration>? _form;
@@ -155,9 +165,10 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    // FormidableSummary calls this when a clicked issue's element is not in the DOM (a session outside
-    // Virtualize's render window): scroll the panel to the row's approximate offset, give
-    // Virtualize a moment to render it, then let the summary retry the focus. The retry's own
+    // FormidableSummary calls this when a clicked issue's element is not in the DOM (a session
+    // outside Virtualize's render window), and FormidableForm calls it the same way when its own
+    // blocked-submit auto-focus misses: scroll the panel to the row's approximate offset, give
+    // Virtualize a moment to render it, then let the caller retry the focus. The retry's own
     // scrollIntoView centres the row exactly, so the row height only needs to be close.
     private async ValueTask<bool> ScrollToSessionAsync(FieldIdentifier field)
     {

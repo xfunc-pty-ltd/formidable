@@ -432,8 +432,8 @@ first visible issue, because issue order follows the page and the topmost field 
 only a warning: a keyboard visitor whose submit was refused should arrive at the thing that refused
 it, not at an advisory above it. In the rare case where a submit blocks with no error on screen at
 all, it falls back to the first visible issue, so focus still moves rather than being left wherever
-the submit button was. Both callers treat a miss the same way, which the service's own contract
-explains:
+the submit button was. Both callers read a miss off the same signal, which the service's own
+contract explains:
 
 ```csharp
 namespace Formidable.Blazor;
@@ -508,16 +508,22 @@ among its rows.
 `document.getElementById(id)` locates both targets, and a miss on the focus target is reported
 rather than swallowed: `focusField` returns `false` when no element carries the focus id, and
 `FocusAsync` propagates that bool straight back to its caller. A miss on the scroll id alone is
-not an error — it falls back to the focus element itself, which is always the size-aware
-scroll's minimum viable target. The silent no-op lives one layer up, in
-`FormidableSummary`'s click-to-focus handler, when `FocusAsync` reports a miss and no
-`FocusFallback` is set (or the fallback itself fails to recover it). The no-op matters for two
-cases documented elsewhere. The first is a field scrolled out of a `Virtualize` window with no
-current DOM element: the click-to-focus miss that `FormidableSummary`'s `FocusFallback`
-parameter exists to recover from (see [Component kit](component-kit.md)). The second is a raw
-or foreign control whose markup never actually rendered `field.ElementId` as its `id` attribute,
-which is why `FormidableField`'s `ForeignControl.razor` sample splats
-`@attributes="field.InputAttributes"` onto its `<select>` — the id, the state class and the aria
+not an error: it falls back to the focus element itself, which is always the size-aware scroll's
+minimum viable target. What happens next diverges by caller. `FormidableSummary`'s click-to-focus
+handler no-ops silently when `FocusAsync` reports a miss and no `FocusFallback` is set (or the
+fallback itself fails to recover it). `FormidableForm`'s own auto-focus reads the identical miss
+and retries it through its own `FocusFallback` parameter, the same name and delegate shape as the
+summary's and typically wired to the same callback. With none wired, though, it does not share the
+summary's silent no-op: a blocked submit's visitor has nowhere else to land, where a summary click
+simply has no effect, so the form reports a diagnostic instead (see
+[Component kit](component-kit.md#focusfallback)).
+
+The gap `FocusFallback` recovers, on either component, matters for two cases documented elsewhere.
+The first is a field scrolled out of a `Virtualize` window with no current DOM element: the focus
+miss `FocusFallback` exists to recover from (see [Component kit](component-kit.md#focusfallback)).
+The second is a raw or foreign control whose markup never actually rendered `field.ElementId` as
+its `id` attribute, which is why `FormidableField`'s `ForeignControl.razor` sample splats
+`@attributes="field.InputAttributes"` onto its `<select>`: the id, the state class and the aria
 pair in one go (see [Component kit](component-kit.md)). A `FormidableFieldAnchor`-only registration
 with no id on the control it anchors has nothing for the focus service to find. The samples now
 close that gap rather than illustrate it, giving their native `InputText`s the field's id

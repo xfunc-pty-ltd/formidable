@@ -117,7 +117,8 @@ public class FormValidationEngineLiveRefreshRaceTests
         var sku = new FieldIdentifier(item, nameof(EngineItem.Sku));
 
         // No submit here: this is two live passes in quick succession, the shape a fast typist
-        // produces across two fields.
+        // produces across two fields. Both fields are engaged, so the winning pass's verdict
+        // answers the superseded pass's field as well as its own.
         customer.Name = "far too long";
         editContext.NotifyFieldChanged(customerName); // live pass held open by the async rule
 

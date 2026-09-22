@@ -31,6 +31,68 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         }
         """;
 
+    // The row the fallback test edits: the last of 150, far past anything Virtualize renders at
+    // rest, so it has to be scrolled into existence to set an invalid value and scrolled away again
+    // to reproduce the shape a blocked submit's auto-focus has to recover from — the one thing
+    // about a collection row that addresses it on its own.
+    private const string LastSessionTitle = "Session 150:";
+
+    // ItemSize is pinned to match the real row height, but scrollHeight can still shift by a pixel
+    // or two as placeholder spacers give way to rendered rows before layout settles. Re-pushing the
+    // scroll on each poll is a defensive convergence check, not a single jump that assumes
+    // scrollHeight is already final. Mirrors WorkoutLifecycles' identical helper.
+    private const string ScrollLastSessionIntoView = $$"""
+        () => {
+            const panel = document.querySelector('.scroll-panel');
+            panel.scrollTop = panel.scrollHeight;
+            return panel.textContent.includes('{{LastSessionTitle}}');
+        }
+        """;
+
+    [E2EFact]
+    public async Task Workout_blocked_submit_focus_falls_back_to_an_offscreen_session_row()
+    {
+        await using var session = await app.NewPageAsync("/workout");
+        var page = session.Page;
+
+        // Everything the Submit profile asks for, except the session row this test edits invalid:
+        // the first error in document order has to be the seats issue, or the auto-focus lands
+        // on something else entirely before it ever reaches the panel.
+        await Field(page, "contactemail").FillAsync("workout-e2e-focus@example.com");
+        await Field(page, "eventname").FillAsync("Dev Summit");
+        await Field(page, "eventdate").FillAsync("2027-05-01");
+        await Field(page, "dietarynotes").FillAsync("No nuts");
+        await Field(page, "venueregion").FillAsync("South Australia");
+
+        await page.WaitForFunctionAsync(
+            ScrollLastSessionIntoView,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
+        var row = page.Locator(".scroll-panel .field").Filter(new() { HasTextString = LastSessionTitle });
+        await Field(row, "seats").FillAsync("900");
+        await Field(row, "seats").PressAsync("Tab");
+        await Expect(MessagesFor(row, "seats"))
+            .ToHaveTextAsync(["Seats must be a whole number between 0 and 500"], new() { Timeout = AsyncTimeoutMs });
+
+        // Scroll the invalid row back out of the render window — the step-11 shape: the only error
+        // on the form sits on a row that is not in the DOM at all.
+        await page.EvaluateAsync("() => { document.querySelector('.scroll-panel').scrollTop = 0; }");
+        await Expect(row).ToHaveCountAsync(0);
+
+        await SubmitRegistrationAsync(page);
+
+        // FormidableForm's own auto-focus misses on the first try (no element carries the field's
+        // id yet), falls back through FocusFallback (ScrollToSessionAsync — the identical callback
+        // /workout already hands FormidableSummary), and retries once: the panel scrolls to the row
+        // and focus lands in its Seats box, with no summary click needed. The bUnit pin at
+        // FormidableFormComponentTests.A_blocked_submit_focus_miss_invokes_the_fallback_and_retries_once
+        // proves the same try -> fallback -> retry shape at the component level against a stubbed
+        // service; this is its browser-level counterpart, with the real scroll and the real DOM.
+        // Unwiring FormidableForm's FocusFallback on /workout reproduces the miss unhandled: the
+        // submit blocks and neither the panel nor the focus moves.
+        await Expect(Field(row, "seats")).ToBeFocusedAsync(new() { Timeout = AsyncTimeoutMs });
+        await Expect(row).ToBeVisibleAsync();
+    }
+
     [E2EFact]
     public async Task Workout_blocked_submit_focuses_every_entry_kind()
     {

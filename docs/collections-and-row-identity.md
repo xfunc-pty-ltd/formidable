@@ -60,7 +60,8 @@ The two buttons in that excerpt aren't part of the row-identity story on their o
 a page needs when it drives the list itself. `membersField` is the `FormidableFieldContext` a
 wrapping `FormidableField` hands its content (the wrapper itself is in
 [Nested collections](#nested-collections) below); `NotifyChanged()` tells the engine a page-driven
-edit happened, since the engine only re-validates a field it's told changed. Removing the last
+edit happened — a live pass answers only the fields such notifications have engaged, so an edit
+the engine never hears about is one it never re-judges. Removing the last
 member doesn't just shrink a list on screen — it can flip a collection rule from passing to
 failing, and no prune can invent a failure no pass produced.
 

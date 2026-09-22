@@ -10,7 +10,7 @@
             <li>Every row's <strong>Serial</strong> is required (live). Every 7th row starts empty — 28 errors across 200 rows.</li>
             <li>Disclosure is render-registration: a row can show issues once it has rendered. <code>KeepRegistered</code> keeps scrolled-past rows disclosed after they leave the window.</li>
             <li>This page also sets a <code>DisclosureOverride</code> for the collection, so the summary lists every row's errors from the first submit — even rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
-            <li>Clicking a never-rendered row's entry uses the summary's <code>FocusFallback</code>: scroll the panel, let the row render, retry the focus.</li>
+            <li>Clicking a never-rendered row's entry uses the summary's <code>FocusFallback</code>: scroll the panel, let the row render, retry the focus. A blocked submit's own auto-focus uses the form's matching <code>FocusFallback</code> the same way, whenever the first error it lands on is itself off-screen.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -23,7 +23,7 @@
     </TryIt>
 </TeachingPanel>
 
-<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">
     <div class="summary-slot">
         <FormidableSummary FocusFallback="ScrollToRowAsync" />
     </div>

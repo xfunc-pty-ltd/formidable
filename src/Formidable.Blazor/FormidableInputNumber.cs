@@ -51,7 +51,8 @@ namespace Formidable.Blazor;
 /// <para>
 /// A string that fails to parse — including an emptied box when
 /// <typeparamref name="TValue"/> is not nullable — leaves the field uncommitted: the model is
-/// unchanged. The box itself is reconciled on <c>blur</c>: a native number input can keep
+/// unchanged, and no blur-delivered notification is armed under <see cref="InputUpdateMode.OnBlur"/>.
+/// The box itself is reconciled on <c>blur</c>: a native number input can keep
 /// displaying text it reports as empty (<c>"e3"</c>, a lone minus — the characters the browser
 /// itself admits for scientific notation), which no render-tree diff can overwrite because the
 /// rendered value and the reported value already agree, so on every blur, in every

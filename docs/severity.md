@@ -80,8 +80,9 @@ public class ListingValidator : DraftSubmitValidator<Listing>
 
 Both advisory rules above live in `ConfigureDraftRules()`, Formidable's shared "common" bucket.
 That bucket is run by the draft/live ruleset and folded into `"Submit"` (see
-[Profiles](profiles.md)). So under the default `LiveProfile` (`Draft`) they run live, on blur,
-exactly like the required-title error above them, and they are still enforced when the form
+[Profiles](profiles.md)). So under the default `LiveProfile` (`Draft`) they run live, on each
+committed change (under the default `UpdateOn`, the commit lands as the field is left), exactly
+like the required-title error above them, and they are still enforced when the form
 submits. The scratch validator in `tests/Formidable.Blazor.Tests/SubmitSeverityRenderingTests.cs`
 shows the other shape: warnings and infos placed in `ConfigureSubmitRules()` instead, so they stay
 quiet until submit. Either way, the disclosure lifecycle described in "The warning lifetime" below

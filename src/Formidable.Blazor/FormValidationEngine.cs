@@ -19,11 +19,13 @@ namespace Formidable.Blazor;
 /// synchronously on the calling thread within <see cref="ApplyServerIssues"/>, which is why that
 /// method (like <see cref="ValidateForSubmitAsync"/>) documents that it must be called from the
 /// renderer's synchronization context. Pass bookkeeping (_version, _passCts, _currentPass,
-/// _touched, _pendingRefreshFields, _pendingLiveFields, _pendingDebouncedLiveFields) mutates
+/// _touched, _engagedFields, _pendingRefreshFields, _pendingDebouncedLiveFields) mutates
 /// synchronously on the caller's context — except on the dispatcher for: _pendingRefreshFields,
-/// when a refresh pass snapshots and clears it as it begins; _pendingLiveFields, when a live
-/// pass clears it after writing its verdicts and when a rendered-field-set change drops the
-/// fields that have left the page from it; _pendingDebouncedLiveFields, when the live
+/// when a refresh pass snapshots and clears it as it begins; _engagedFields, when a
+/// rendered-field-set change drops the fields that have left the page from it — a live pass
+/// snapshots the set as it begins and intersects that snapshot with the set again as its
+/// verdict lands, but no pass ever removes an entry, and submit leaves the set standing;
+/// _pendingDebouncedLiveFields, when the live
 /// debounce timer fires and snapshots and clears it before starting the live pass those fields
 /// triggered, and when a rendered-field-set change drops the fields that have left the page
 /// from it; and _currentPass, which the pass that recorded it clears alongside IsValidating.
@@ -58,8 +60,16 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveIssues = [];
     private readonly HashSet<FieldIdentifier> _touched = [];
+
+    // The fields the user has committed a change to and that are still on the page — fed by
+    // HandleFieldChanged, pruned by OnRenderedFieldsChanged, never cleared by any pass. A live
+    // pass's verdict answers exactly this set (snapshotted as the pass begins), which is what
+    // lets a cross-field verdict clear, or appear, on a field the triggering edit never named.
+    // Distinct from _touched: touched gates CSS state classes, engagement gates live verdict
+    // application.
+    private readonly HashSet<FieldIdentifier> _engagedFields = [];
+
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
-    private readonly HashSet<FieldIdentifier> _pendingLiveFields = [];
     private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitIssues = [];
     private Dictionary<FieldIdentifier, List<ValidationIssue>> _submitAdvisories = [];
@@ -636,18 +646,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         }
 
         // The same argument, applied one step earlier: a field that has left the page has no
-        // verdict to receive. A live pass already in flight writes an entry for every field this
-        // set carries when its verdict lands — that is how a superseded pass's field still gets
-        // answered — so leaving a departed field in it would put back exactly what was just
-        // pruned, and for a field whose rule still fails (a collapsed section, whose object is
-        // still on the model) the entry put back is the issue itself. Nothing filters the live
-        // channel at read time, so it would then stand until the next field-set change.
+        // verdict to receive, so it leaves the engaged set too. A live pass writes an entry for
+        // every engaged field when its verdict lands — intersecting its pass-begin snapshot with
+        // this set as it stands then — so leaving a departed field engaged would put back exactly
+        // what was just pruned, and for a field whose rule still fails (a collapsed section,
+        // whose object is still on the model) the entry put back is the issue itself. Nothing
+        // filters the live channel at read time, so it would then stand until the next field-set
+        // change. A field that comes back re-engages with its next committed change, which is
+        // one edit away.
         //
         // Its own pass rather than the loop above, because the two sets do not have the same
-        // members: a field edited for the first time is pending a verdict while holding no issue
-        // yet, and that is the case where the pass in flight is about to create the entry rather
-        // than restore one.
-        _pendingLiveFields.RemoveWhere(field => !IsRendered(field));
+        // members: a field engaged for the first time is awaiting a verdict while holding no
+        // issue yet, and that is the case where the pass in flight is about to create the entry
+        // rather than restore one.
+        _engagedFields.RemoveWhere(field => !IsRendered(field));
 
         // One step earlier again: a field an open live-debounce window has only accumulated is
         // not yet pending any pass's verdict, only the window's own fire. Left in, that fire would
@@ -672,6 +684,13 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         _editStamp++;
 
         MarkTouched(e.FieldIdentifier);
+
+        // A notification is a committed change, and a committed change engages the field: from
+        // here on every live pass answers it — its issue can clear, or appear, because of an
+        // edit elsewhere — until it leaves the rendered page. Deliberately not folded into
+        // MarkTouched: touched is CSS disclosure a component may grant on a bare blur, while
+        // engagement is the engine's record of what the user has actually changed.
+        _engagedFields.Add(e.FieldIdentifier);
 
         // Read once and reused below for the refresh's own due time: options are mutated in place,
         // so a single read here is what keeps the two armings answering for the same value rather
@@ -951,8 +970,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// Runs a live pass triggered by <paramref name="triggeringFields"/> — one field for an
     /// immediate (non-debounced) edit, or every field an open debounce window accumulated before
     /// it fired. <paramref name="triggeringFields"/> become this one pass's pending-indicator
-    /// scope, while <see cref="_pendingLiveFields"/> still carries any superseded pass's fields
-    /// into this one's verdict, exactly as it always has.
+    /// scope; the verdict answers the engaged set, snapshotted as the pass begins. The indicator
+    /// shows where the user acted, while the verdict covers every field the user has committed a
+    /// change to — which is how a cross-field issue clears, or appears, on a field the
+    /// triggering edit never named.
     /// </summary>
     private async Task RunLivePassAsync(IReadOnlyCollection<FieldIdentifier> triggeringFields)
     {
@@ -961,17 +982,18 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return; // submit is the higher-intent operation; live/refresh passes never supersede it
         }
 
-        foreach (var field in triggeringFields)
-        {
-            _pendingLiveFields.Add(field);
-        }
-
         // Read as the pass begins rather than when its verdict lands. The report answers for the
         // model the validator actually saw, and an edit arriving mid-pass moves the model on
         // without the report following it. Recording the earlier stamp makes such a report simply
         // fail a refresh's currency check; recording the later one would let it answer for a state
         // it never validated.
         var editStamp = _editStamp;
+
+        // Snapshotted beside the stamp, and for the same reason: the report answers for the
+        // engaged set as this pass reads it. A field engaged after this line, under an open
+        // debounce window, made an edit this report predates — its own window's fire answers it,
+        // and with no debounce the engaging edit's own pass supersedes this one outright.
+        var engagedSnapshot = new HashSet<FieldIdentifier>(_engagedFields);
 
         // Captured alongside the stamp, and handed to the pass rather than read again later: the
         // option holds a mutable instance a consumer may swap at any moment, so the profile this
@@ -992,19 +1014,24 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // running the shared ones a second time for the same model state.
                 _retainedLiveReport = new RetainedLiveReport(report, editStamp, liveProfile);
 
-                // Every field whose pass this one superseded, not just the field that started it:
-                // each live pass validates the whole model under the same LiveProfile, so this
-                // report answers for those fields too. A superseded pass writes nothing — it is no
-                // longer current — so without this the field it was answering for would keep a
-                // stale verdict, or none at all, until something else happened to revalidate it. A
-                // field the report says nothing about gets an empty verdict, not a skipped one.
+                // Every engaged field, not just the fields that triggered this pass: each live
+                // pass validates the whole model under the same LiveProfile, so this report is a
+                // complete answer for every field the user has committed a change to — a
+                // superseded pass's fields included, since they were engaged before this pass
+                // began. A field the report says nothing about gets an empty verdict, not a
+                // skipped one, which is what lets a cross-field error clear when the fixing edit
+                // lands on the OTHER field; the complement is the blank-row silence, where a
+                // field never engaged gets no entry at all. Intersected with the engaged set as
+                // it stands here, so a field pruned mid-pass — it left the page — does not have
+                // its entry restored.
                 var byField = GroupByResolvedField(report.Issues);
-                foreach (var field in _pendingLiveFields)
+                foreach (var field in engagedSnapshot)
                 {
-                    _liveIssues[field] = byField.TryGetValue(field, out var forField) ? forField : [];
+                    if (_engagedFields.Contains(field))
+                    {
+                        _liveIssues[field] = byField.TryGetValue(field, out var forField) ? forField : [];
+                    }
                 }
-
-                _pendingLiveFields.Clear();
             }).ConfigureAwait(false);
     }
 
@@ -1251,12 +1278,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             report =>
             {
                 HasSubmitted = true;
-                _liveIssues.Clear();
 
-                // Submit takes the live channel over wholesale, so a live pass it superseded has
-                // nothing left to hand on: its field's verdict is this report's, and any further
-                // edit is revalidated by the refresh that edit arms.
-                _pendingLiveFields.Clear();
+                // Submit takes the live channel over wholesale: every engaged field's verdict is
+                // this report's. The engaged set itself stands — engagement records which fields
+                // the user has committed changes to, and submitting does not un-commit them — so
+                // the first post-submit live pass re-answers every engaged field.
+                _liveIssues.Clear();
 
                 // Submit already IS the whole-model SubmitProfile validation IsFormValid tracks —
                 // adopting it here means a disable-submit button reflects the submit's own answer
@@ -1524,9 +1551,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // re-arm it — the edit that would normally do that (see RefreshInFlight's remarks)
                 // already happened when this window opened, so the refresh's own verdict would go
                 // stale with no edit left to fix it. LiveInFlight is deliberately not checked: one
-                // live pass superseding another is the existing, correct contract, and
-                // _pendingLiveFields already carries the superseded pass's fields into the winner's
-                // verdict.
+                // live pass superseding another is the existing, correct contract, and the
+                // winner's verdict answers every engaged field — the superseded pass's fields
+                // among them.
                 ScheduleLiveDebounce(liveDebounce);
                 return Task.CompletedTask;
             }

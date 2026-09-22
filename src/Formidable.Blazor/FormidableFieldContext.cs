@@ -83,7 +83,10 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
-    /// engine's live validation pass — call from a custom input's change handler.
+    /// engine's live validation pass — call from a custom input's change handler. Calling it is the
+    /// consumer's statement that a committed value change happened: it engages the field, and every
+    /// subsequent live pass answers an engaged field's verdict, not only the pass this call
+    /// triggers.
     /// </summary>
     public void NotifyChanged() => _engine.EditContext.NotifyFieldChanged(Field);
 

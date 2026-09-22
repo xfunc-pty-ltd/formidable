@@ -206,6 +206,26 @@ public class FormidableInputNumberTests : BunitContext
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
+    // Pins that a failed parse is not a commit: the change commits nothing (the silent-revert
+    // contract), so the following blur syncs the box back to the model without delivering any
+    // notification. Arming the blur-time notification on a failed parse breaks the count.
+    [Fact]
+    public void An_unparseable_change_then_blur_syncs_without_notifying()
+    {
+        var booking = new Booking { Seats = 3 };
+        var form = RenderSeats(booking, InputUpdateMode.OnBlur);
+        var domSync = (RecordingDomValueSync)Services.GetRequiredService<IFormidableDomValueSync>();
+        var notifications = 0;
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
+
+        form.Find("input").Change("not-a-number");
+        form.Find("input").Blur();
+
+        var expectedId = FormidableFieldId.For(new FieldIdentifier(booking, nameof(Booking.Seats)));
+        Assert.Equal([(expectedId, "3")], domSync.Calls);
+        Assert.Equal(0, notifications);
+    }
+
     [Fact]
     public async Task Pending_class_appears_during_the_pass_and_clears_after_it()
     {
@@ -307,10 +327,11 @@ public class FormidableInputNumberTests : BunitContext
         }
     }
 
-    // The new string-projected-but-UpdateOn-honouring AddValueBinding overload shares the base's
-    // existing HandleBlurAsync rather than reimplementing blur-chaining — this pins that the
+    // The string-projected-but-UpdateOn-honouring AddValueBinding overload shares the base's
+    // HandleBlurAsync rather than reimplementing blur-chaining — this pins that the
     // splatted-handler-runs-before-the-engine-notifies contract (see
-    // FormidableInputBindingTests) survives through the new overload too.
+    // FormidableInputBindingTests) survives through this overload too. A committed change
+    // precedes the blur so a notification is pending for the chain's library half to deliver.
     [Fact]
     public void A_splatted_onblur_runs_before_the_library_notifies_the_engine()
     {
@@ -320,6 +341,7 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
+        form.Find("input").Change("4");
         form.Find("input").Blur();
 
         form.WaitForAssertion(() => Assert.Equal(["consumer", "library"], log));

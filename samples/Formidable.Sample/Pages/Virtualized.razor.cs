@@ -37,8 +37,9 @@ public partial class Virtualized
     private void HandleValid() => _status = "Submitted — all 200 serials present.";
 
     // FormidableSummary calls this when a clicked issue's element is not in the DOM (row outside
-    // the virtualized render window): scroll the panel to the row's approximate offset, give
-    // Virtualize a moment to render it, then let the summary retry the focus. The retry's own
+    // the virtualized render window), and FormidableForm calls it the same way when its own
+    // blocked-submit auto-focus misses: scroll the panel to the row's approximate offset, give
+    // Virtualize a moment to render it, then let the caller retry the focus. The retry's own
     // scrollIntoView centres the row exactly, so RowHeight only needs to be close, not perfect.
     // A production consumer might poll for the element instead of a fixed delay.
     private async ValueTask<bool> ScrollToRowAsync(FieldIdentifier field)

@@ -143,10 +143,14 @@ and it is the only automatic client-side invocation there is (page code is other
 `model.Normalize()` itself, which is what several samples do).
 
 Calling it yourself outside the submit path takes one more step this option does for free: the
-mutation changes the model directly, and the engine only re-judges a field once it hears
-`EditContext.NotifyFieldChanged` for it — call that per field the mutation actually changed (the
-`/normalize` sample's own "Normalize now" button does exactly this), or a message already on
-screen keeps judging the stale value until the next edit or submit.
+mutation changes the model directly, and the engine starts a live pass only when it hears
+`EditContext.NotifyFieldChanged`. Call that per field the mutation actually changed (the
+`/normalize` sample's own "Normalize now" button does exactly this). Strictly, the live pass
+any one call starts re-judges every field a committed change has ever engaged, so an
+already-engaged field's message follows along however the pass was triggered — naming each
+mutated field is what engages the ones nothing has engaged yet, and it costs nothing. Skip the
+calls entirely and every message on screen keeps judging the stale values until the next edit
+or submit.
 
 Because the mutation happens before the pass, the submit's own re-render repaints every bound input
 straight from the normalized model: a value that normalization trimmed, cleared or collapsed
@@ -320,10 +324,11 @@ governs a live pass's.
 `InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the
 element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke
 instead. `InputUpdateMode.OnBlur` splits the pair across two events: the value commits on
-`change`, but the engine isn't notified until `blur` — for a native control whose `change` event
-fires more than once per logical edit (a date input, segment by segment, is the clearest case),
-so the live pass a notification starts waits for the value to actually settle instead of running
-on a value still being typed.
+`change`, arming a notification the next `blur` delivers — one delivery however many commits
+accumulate before it, and none at all on a blur nothing was committed before. The split exists
+for a native control whose `change` event fires more than once per logical edit (a date input,
+segment by segment, is the clearest case), so the live pass a notification starts waits for the
+value to actually settle instead of running on a value still being typed.
 
 ```razor
 <FormidableInputDate @bind-Value="Model.EventDate"
@@ -332,8 +337,8 @@ on a value still being typed.
 
 `OnBlur` is the one mode that binds an event a page may already want for itself, so it chains
 rather than claims: an input carrying its own splatted `@onblur` runs that handler first, awaits
-it, and notifies the engine afterwards. A field that marks itself touched on blur keeps doing so
-after the mode is switched on.
+it, and only then delivers whatever notification a commit left pending. A field that marks
+itself touched on blur keeps doing so after the mode is switched on.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
 full behaviour table across all three modes and both rule buckets, and [Component

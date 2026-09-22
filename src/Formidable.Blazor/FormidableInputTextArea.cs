@@ -16,7 +16,8 @@ namespace Formidable.Blazor;
 /// ignored in favour of the deterministic <see cref="FormidableFieldId"/>. <see cref="FormidableInputBase{TValue}.UpdateOn"/>
 /// applies exactly as it does for <see cref="FormidableInputText"/>: <c>OnChange</c> (default)
 /// commits on the element's <c>change</c> event, <c>OnInput</c> commits on every keystroke, and
-/// <c>OnBlur</c> commits on <c>change</c> while deferring the engine notification to <c>blur</c>.
+/// <c>OnBlur</c> commits on <c>change</c> while deferring the engine notification to <c>blur</c>,
+/// delivered only when a commit has occurred since the last one.
 /// </remarks>
 public sealed class FormidableInputTextArea : FormidableInputBase<string?>
 {

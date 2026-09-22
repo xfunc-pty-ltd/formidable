@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Formidable.Blazor.Tests;
 
@@ -21,7 +22,8 @@ public class FormidableFormComponentTests : BunitContext
         Action<SubmitOutcome>? onInvalid = null,
         Action? onValid = null,
         bool? focusFirstErrorOnInvalidSubmit = null,
-        Action<EngineOrder>? onModelChanged = null)
+        Action<EngineOrder>? onModelChanged = null,
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null)
     {
         var container = Render(builder =>
         {
@@ -55,6 +57,11 @@ public class FormidableFormComponentTests : BunitContext
                     7,
                     nameof(FormidableForm<EngineOrder>.ModelChanged),
                     EventCallback.Factory.Create<EngineOrder>(this, onModelChanged));
+            }
+
+            if (focusFallback is not null)
+            {
+                builder.AddComponentParameter(8, nameof(FormidableForm<EngineOrder>.FocusFallback), focusFallback);
             }
 
             builder.CloseComponent();
@@ -105,6 +112,89 @@ public class FormidableFormComponentTests : BunitContext
         Assert.Equal(
             FormidableFieldId.For(new FieldIdentifier(order, nameof(EngineOrder.Customer))),
             module.Invocations["focusField"].Single().Arguments[0]);
+
+        await Services.DisposeAsync();
+    }
+
+    // Mirrors FormidableSummaryTests' "Fallback_is_invoked_on_focus_miss_and_true_triggers_one_retry":
+    // the same miss signal (focusField's false return), the same try -> fallback -> retry shape,
+    // now exercised through the form's own auto-focus path instead of a summary click.
+    [Fact]
+    public async Task A_blocked_submit_focus_miss_invokes_the_fallback_and_retries_once()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var fallbackCalls = 0;
+        FieldIdentifier? fallbackField = null;
+        var cut = RenderForm(order, focusFallback: field =>
+        {
+            fallbackCalls++;
+            fallbackField = field;
+            return ValueTask.FromResult(true);
+        });
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.Equal(1, fallbackCalls);
+        Assert.Equal(new FieldIdentifier(order, nameof(EngineOrder.Customer)), fallbackField);
+        JSInterop.VerifyInvoke("focusField", 2);
+
+        await Services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_rendered_first_error_never_invokes_the_fallback()
+    {
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(true);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var fallbackCalls = 0;
+        var cut = RenderForm(order, focusFallback: _ =>
+        {
+            fallbackCalls++;
+            return ValueTask.FromResult(true);
+        });
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        Assert.Equal(0, fallbackCalls);
+        JSInterop.VerifyInvoke("focusField", 1);
+
+        await Services.DisposeAsync();
+    }
+
+    // Mirrors SuppressedIssueLoggingTests' logger-capturing shape for the engine's own
+    // ReportSuppressed dual channel; this pins the form's parallel diagnostic for a focus miss
+    // with no FocusFallback wired, so a consumer's console points at the seam by name.
+    [Fact]
+    public async Task A_focus_miss_without_a_fallback_reports_a_diagnostic()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        Services.AddFormidableBlazor();
+        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        module.Setup<bool>("focusField", _ => true).SetResult(false);
+        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+        var order = new EngineOrder { Description = "ok" }; // only Customer fails
+        var cut = RenderForm(order);
+
+        var exception = await Record.ExceptionAsync(() => cut.InvokeAsync(() => cut.Instance.SubmitAsync()));
+
+        Assert.Null(exception);
+        Assert.Contains(
+            loggerProvider.Entries,
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("FocusFallback"));
 
         await Services.DisposeAsync();
     }
@@ -698,5 +788,32 @@ public class FormidableFormComponentTests : BunitContext
     private sealed class SilentFocusService : IFormidableFocusService
     {
         public ValueTask<bool> FocusAsync(FieldIdentifier field) => ValueTask.FromResult(true);
+    }
+
+    /// <summary>Mirrors SuppressedIssueLoggingTests' own capturing provider for this file's diagnostic test.</summary>
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(CapturingLoggerProvider owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                owner.Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 }

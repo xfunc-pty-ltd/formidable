@@ -173,9 +173,11 @@ public class FormValidationEngineFieldSetChangeTests
         validator.Gate.SetResult();
         await settled;
 
-        // The verdict arrives for a field with nowhere left to show it. Writing it would restore
-        // precisely what the prune removed, and nothing filters the live channel on the way out,
-        // so it would stand in the summary until the next field-set change.
+        // The verdict arrives for a field the prune already disengaged: the pass intersects its
+        // pass-begin engaged snapshot with the set as it stands at apply time, so no entry lands.
+        // Writing one would restore precisely what the prune removed, and nothing filters the
+        // live channel on the way out, so it would stand in the summary until the next field-set
+        // change.
         Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
     }
 
@@ -411,7 +413,9 @@ public class FormValidationEngineFieldSetChangeTests
 
         time.Advance(TimeSpan.FromMilliseconds(400)); // window closes; held open on Description's gate
 
-        // The survivor is what the pass answers for; the departed field never entered its scope.
+        // The survivor is what the pass answers for: the departed field was pruned from the
+        // window's accumulator and the engaged set alike, so it is neither in the pending scope
+        // nor in the verdict the pass applies.
         Assert.True(engine.GetFieldState(skuField).IsValidating);
         Assert.False(engine.GetFieldState(customerNameField).IsValidating);
 

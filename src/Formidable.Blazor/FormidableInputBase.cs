@@ -39,16 +39,26 @@ namespace Formidable.Blazor;
 /// splatting either of those is competing with the value binding itself. The <c>onblur</c> the
 /// kit binds is the exception: rather than clobber a handler the consumer wrote for a different
 /// purpose, it chains — the splatted handler runs first, and the kit's own work follows once it
-/// completes. That blur is bound under <see cref="InputUpdateMode.OnBlur"/> for every input, and
-/// in every mode for a control that syncs its DOM value on blur
-/// (<see cref="FormidableInputNumber{TValue}"/> and <see cref="FormidableInputDate{TValue}"/>,
-/// via <see cref="IFormidableDomValueSync"/>).
+/// completes: the DOM value sync for a control that opts in, then the delivery of any
+/// notification a value commit has left pending. That delivery happens only under
+/// <see cref="InputUpdateMode.OnBlur"/>, the one mode that binds blur on every input; a control
+/// that syncs its DOM value on blur (<see cref="FormidableInputNumber{TValue}"/> and
+/// <see cref="FormidableInputDate{TValue}"/>, via <see cref="IFormidableDomValueSync"/>) binds
+/// it in every mode.
 /// </remarks>
 /// <typeparam name="TValue">The field's value type.</typeparam>
 public abstract class FormidableInputBase<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableComponentBase
 {
     private const string BlurAttributeName = "onblur";
+
+    /// <summary>
+    /// Whether a value commit has occurred since the engine was last notified — armed by
+    /// <see cref="CommitValueAsync"/>, consumed by <see cref="NotifyChanged"/>, cleared on
+    /// rebind. Under <see cref="InputUpdateMode.OnBlur"/> this is what makes blur a delivery
+    /// rather than a trigger: <see cref="HandleBlurAsync"/> notifies only while one is pending.
+    /// </summary>
+    private bool _notificationPending;
 
     /// <summary>
     /// Accessor for the field this input edits, e.g. <c>() => Model.Description</c> — the
@@ -160,6 +170,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
+        // A commit made against the outgoing context is not delivered to its successor.
+        _notificationPending = false;
         Field = ResolveField();
         ElementId = FormidableFieldId.For(Field);
         MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
@@ -223,7 +235,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="InputUpdateMode.OnBlur"/>, which
     /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> implements that
     /// way). A concrete input rendering its own markup can still call this directly from a change
-    /// handler for the two combined modes.
+    /// handler for the two combined modes. The commit arms a pending notification and the
+    /// immediate <see cref="NotifyChanged"/> consumes it, so the two-call sequence leaves nothing
+    /// pending for a later blur to deliver.
     /// </summary>
     protected async Task SetCurrentValueAsync(TValue? value)
     {
@@ -237,10 +251,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// EditContext. Pairs with <see cref="NotifyChanged"/> under
     /// <see cref="InputUpdateMode.OnBlur"/>: the model updates on <c>change</c> even though the
     /// value may not have settled yet (a date input firing per date-segment, for instance), and no
-    /// live pass starts until the paired <see cref="NotifyChanged"/> call says it should.
+    /// live pass starts until the paired <see cref="NotifyChanged"/> call says it should. Each
+    /// call also arms the pending notification that mode's blur delivers — however many commits
+    /// accumulate before the blur, <see cref="NotifyChanged"/> consumes them as one.
     /// </summary>
     protected Task CommitValueAsync(TValue? value)
     {
+        _notificationPending = true;
         Value = value;
         return ValueChanged.HasDelegate ? ValueChanged.InvokeAsync(value) : Task.CompletedTask;
     }
@@ -250,10 +267,17 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// engine's live validation pass — the notify half of <see cref="SetCurrentValueAsync"/>,
     /// without touching <see cref="Value"/>. Pairs with <see cref="CommitValueAsync"/> under
     /// <see cref="InputUpdateMode.OnBlur"/>: call this once the value committed earlier has had a
-    /// chance to settle. Named to match <see cref="FormidableFieldContext.NotifyChanged"/>, which
-    /// does the same for a foreign control with no base class to call it from.
+    /// chance to settle. Delivering the notification consumes any pending one a commit armed,
+    /// whichever path calls it, so a following blur under <see cref="InputUpdateMode.OnBlur"/>
+    /// delivers nothing of its own. Named to match
+    /// <see cref="FormidableFieldContext.NotifyChanged"/>, which does the same for a foreign
+    /// control with no base class to call it from.
     /// </summary>
-    protected void NotifyChanged() => Context!.EditContext.NotifyFieldChanged(Field);
+    protected void NotifyChanged()
+    {
+        _notificationPending = false;
+        Context!.EditContext.NotifyFieldChanged(Field);
+    }
 
     /// <summary>
     /// Whether <see cref="AddValueBinding(RenderTreeBuilder, int)"/> binds <c>blur</c> in every
@@ -269,9 +293,10 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// Writes the field's authoritative value into the DOM element on <c>blur</c> — a no-op by
     /// default; a control opting in via <see cref="SyncsDomValueOnBlur"/> overrides this to pass
     /// its currently-formatted <see cref="Value"/> to <see cref="IFormidableDomValueSync"/>. Runs
-    /// after any consumer-splatted <c>onblur</c> and, under <see cref="InputUpdateMode.OnBlur"/>,
-    /// before the engine notification, so the live pass renders against a box that already
-    /// matches the model.
+    /// on every blur, whether or not anything committed — the box must revert either way — after
+    /// any consumer-splatted <c>onblur</c> and, under <see cref="InputUpdateMode.OnBlur"/>,
+    /// before any engine notification the blur delivers, so the live pass renders against a box
+    /// that already matches the model.
     /// </summary>
     private protected virtual ValueTask SyncDomValueAsync() => ValueTask.CompletedTask;
 
@@ -281,8 +306,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// single event both commits the value and notifies the engine (see
     /// <see cref="SetCurrentValueAsync"/>); under <see cref="InputUpdateMode.OnBlur"/> the two
     /// split across two events instead — the value commits on <c>change</c> via
-    /// <see cref="CommitValueAsync"/>, and the engine is notified separately on <c>blur</c> via
-    /// <see cref="NotifyChanged"/>, once the value has had a chance to settle. Reads
+    /// <see cref="CommitValueAsync"/>, arming a pending notification that the next <c>blur</c>
+    /// delivers via <see cref="NotifyChanged"/>, once the value has had a chance to settle; a
+    /// blur with no commit pending delivers nothing. Reads
     /// <see cref="Value"/> directly rather than taking it as a parameter, since the base already
     /// owns it. Call this last, immediately before <see cref="RenderTreeBuilder.CloseElement"/>:
     /// it consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 whenever it
@@ -298,11 +324,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// The <c>onblur</c> this adds chains rather than clobbers: a consumer-splatted
     /// <c>@onblur</c> handler is invoked first and awaited, and the kit's own blur work — the DOM
     /// value sync for a control that opts in, then under <see cref="InputUpdateMode.OnBlur"/> the
-    /// engine notification — follows. A splatted value that is not a .NET handler at all — a raw
-    /// attribute string, say — has nothing to invoke, so only the kit's work runs. If the
-    /// consumer handler throws, it propagates as an unhandled component exception and neither the
-    /// sync nor the notification runs — the value itself was already committed on the earlier
-    /// <c>change</c> event either way.
+    /// delivery of a pending commit notification — follows. A splatted value that is not a .NET
+    /// handler at all — a raw attribute string, say — has nothing to invoke, so only the kit's
+    /// work runs. If the consumer handler throws, it propagates as an unhandled component
+    /// exception and neither the sync nor the notification runs — the value itself was already
+    /// committed on the earlier <c>change</c> event either way, and its notification stays
+    /// pending for the next blur to deliver.
     /// </remarks>
     protected void AddValueBinding(RenderTreeBuilder builder, int sequence)
     {
@@ -335,11 +362,12 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="InputUpdateMode.OnChange"/> (the default) — both bind <c>onchange</c> and, once
     /// <paramref name="tryCommitAsync"/> reports a value was committed, notify the engine
     /// immediately. Under <see cref="InputUpdateMode.OnBlur"/> the same <c>change</c> event still
-    /// commits the value, but the notification defers to <c>blur</c> instead, riding the same
-    /// <see cref="HandleBlurAsync"/> the typed overload uses — including the
-    /// consumer-splatted-<c>onblur</c> chaining. Also marks <c>value</c> as the attribute the
-    /// commit handler updates, exactly as <see cref="AddValueBinding(RenderTreeBuilder, int)"/>
-    /// does. It consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 under
+    /// commits the value, but the notification the commit arms defers to <c>blur</c> instead,
+    /// riding the same <see cref="HandleBlurAsync"/> the typed overload uses — including the
+    /// consumer-splatted-<c>onblur</c> chaining; a string that fails to parse commits nothing and
+    /// arms nothing, so the following blur delivers nothing. Also marks <c>value</c> as the
+    /// attribute the commit handler updates, exactly as
+    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> does. It consumes <paramref name="sequence"/>, and <paramref name="sequence"/> + 1 under
     /// <see cref="InputUpdateMode.OnBlur"/>.
     /// </summary>
     /// <param name="builder">The render tree being built.</param>
@@ -410,7 +438,8 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <see cref="FormidableInputDate{TValue}"/> are the kit's two cases) while still getting
     /// <see cref="InputUpdateMode.OnInput"/> and the commit/notify split
     /// <see cref="InputUpdateMode.OnBlur"/> needs, exactly as
-    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> provides them — including the
+    /// <see cref="AddValueBinding(RenderTreeBuilder, int)"/> provides them (a string the parser
+    /// rejects commits nothing, so it arms no blur-delivered notification) — including the
     /// consumer-splatted <c>onblur</c> chaining, since both overloads share the same
     /// <see cref="HandleBlurAsync"/>. It consumes <paramref name="sequence"/>, and
     /// <paramref name="sequence"/> + 1 whenever it also binds <c>blur</c>, exactly like the typed
@@ -467,10 +496,13 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
 
     /// <summary>
     /// Runs a consumer-splatted <c>onblur</c> handler, then the control's DOM value sync, then —
-    /// under <see cref="InputUpdateMode.OnBlur"/> only — notifies the engine. The chain exists so
-    /// that the kit wanting the <c>blur</c> event does not quietly take it away from the
+    /// under <see cref="InputUpdateMode.OnBlur"/>, and only while a value commit has left a
+    /// notification pending — notifies the engine, consuming that notification. The chain exists
+    /// so that the kit wanting the <c>blur</c> event does not quietly take it away from the
     /// consumer; the mode gate keeps the notification a blur-mode behaviour even for controls
-    /// whose sync binds blur in every mode.
+    /// whose sync binds blur in every mode; the commit gate makes blur a delivery rather than a
+    /// trigger, so a focus-then-leave with nothing committed notifies nothing, and however many
+    /// commits precede a blur, it delivers exactly one notification.
     /// </summary>
     private async Task HandleBlurAsync(FocusEventArgs args)
     {
@@ -481,7 +513,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
             await SyncDomValueAsync();
         }
 
-        if (UpdateOn == InputUpdateMode.OnBlur)
+        if (UpdateOn == InputUpdateMode.OnBlur && _notificationPending)
         {
             NotifyChanged();
         }

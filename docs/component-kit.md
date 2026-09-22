@@ -315,10 +315,16 @@ nothing else to catch. A validator fault is error-severity too, when a live or r
 the one reporting it: it never shows up from a submit itself, since `RunPassAsync` catches the
 exception only for those two kinds of pass, so a fault during submit propagates to the caller
 instead of leaving a blocked verdict behind.
-The call is best-effort in both directions a consumer might trip on: an app that never
-registered `IFormidableFocusService` (only `AddFormidable()`, not `AddFormidableBlazor()`) gets
-silence rather than a resolution failure, and a focus miss — no element carries the field's id
-yet — is silent too, exactly like the summary's own click-to-focus.
+An app that never registered `IFormidableFocusService` (only `AddFormidable()`, not
+`AddFormidableBlazor()`) gets silence rather than a resolution failure. A focus miss is different:
+when no element carries the field's id yet — a row scrolled out of a `Virtualize` window, say —
+the form retries it once through its own `FocusFallback` parameter, identical in name and delegate
+shape to [`FormidableSummary.FocusFallback`](#focusfallback) below, so a page wiring both typically
+passes the same callback to each. With no `FocusFallback` wired, the miss does not fall silent the
+way the summary's click-to-focus does. A blocked submit has nowhere else for the visitor to land,
+so it reports a diagnostic instead: a `Trace`-output line, plus a `LogWarning` naming
+`FocusFallback` by parameter name when the host resolved an `ILoggerFactory` — the same dual
+channel [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) writes to.
 Set `FocusFirstErrorOnInvalidSubmit="false"` to choose focus yourself from `OnInvalidSubmit`
 instead.
 
@@ -423,6 +429,8 @@ the component stays mounted (see [Disclosure](disclosure.md)):
 ```csharp
     protected sealed override FieldRegistration? Register(FormidableFormContext context)
     {
+        // A commit made against the outgoing context is not delivered to its successor.
+        _notificationPending = false;
         Field = ResolveField();
         ElementId = FormidableFieldId.For(Field);
         MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
@@ -588,10 +596,13 @@ in one call:
 *Source: `src/Formidable.Blazor/FormidableInputBase.cs`*
 
 Under `OnBlur`, `AddValueBinding` calls the same two steps apart instead: `CommitValueAsync` alone
-on `change` (assigns `Value`, invokes `ValueChanged` — no touch, no notify), then `NotifyChanged`
-alone on `blur` (marks the field touched and notifies the `EditContext` — the same two things
-`FormidableFieldContext.NotifyChanged` does for a foreign control with no base class to call it
-from; see [the foreign-control pattern](#the-foreign-control-pattern) below). Neither half is
+on `change` (assigns `Value`, invokes `ValueChanged`, arms a pending notification — no touch, no
+notify yet), then `NotifyChanged` on `blur`, only while a commit has left a notification pending:
+however many commits accumulate before the blur, it delivers exactly one, and a blur with none
+pending delivers none. (`NotifyChanged` marks the field touched and notifies the `EditContext` —
+the same two things `FormidableFieldContext.NotifyChanged` does for a foreign control with no
+base class to call it from; see [the foreign-control
+pattern](#the-foreign-control-pattern) below.) Neither half is
 markup a derived control writes by hand: `AddValueBinding` is the one call that changes if a
 control ever wants different `UpdateOn` behaviour, so a mode the control doesn't specifically know
 about still gets a correct binding instead of silently falling back to `onchange`.
@@ -624,7 +635,8 @@ consumer-supplied `id` is silently ignored rather than merged: the rendered id m
 deterministic `FormidableFieldId`, because the message list's `aria-describedby` target and
 `IFormidableFocusService` both address the field by it. The
 `onblur` that `UpdateOn="OnBlur"` adds is the one handler that chains instead of winning: a
-consumer's own `@onblur` runs first and is awaited, then the engine is notified. Wanting the
+consumer's own `@onblur` runs first and is awaited, then any notification a commit left pending
+is delivered. Wanting the
 `blur` event for validation is not a reason to take it away from the page that also wants it.
 If markup needs to label the input without relying on implicit wrapping, address it by
 the context's id instead of assuming a consumer id sticks:
@@ -766,9 +778,10 @@ therefore reaches them all.
 The overload honours `UpdateOn`, with one coercion: a `<select>` has no meaningful `input` event
 distinct from `change`, the way there is for a text box, so `OnInput` behaves exactly like
 `OnChange` (the default) — both bind `onchange` and notify the moment `TryCommitAsync` reports a
-value committed. `OnBlur` still commits on that same `change` event, but the notification defers
-to `blur` instead — the same commit/notify split every other kit input gives that mode, riding the
-same `onblur` chaining.
+value committed. `OnBlur` still commits on that same `change` event, but the notification the
+commit arms defers to `blur` instead — the same commit/notify split every other kit input gives
+that mode, riding the same `onblur` chaining; a string that fails to parse commits nothing and
+arms nothing, so the blur that follows delivers nothing.
 
 Conversion mirrors native closely — the same
 `BindConverter.TryConvertTo<TValue>` native's own `InputSelect` calls internally, with the same
@@ -850,8 +863,8 @@ the property it names:
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
 `Category`, required under the `Submit` ruleset exactly like `Slug`, is the select, carrying
-`UpdateOn="OnBlur"` so picking an option commits it at once but the message waits until the
-control is actually left.
+`UpdateOn="OnBlur"` so picking an option commits it at once while the message waits for the blur
+that delivers the commit's notification.
 
 ## `FormidableInputTextArea`
 
@@ -960,7 +973,8 @@ that needs invariant string conversion without losing `UpdateOn` is what this ov
 `FormidableInputDate` below is the kit's other case.
 
 A string that fails to parse — including an emptied box when `TValue` is not nullable — leaves
-the field uncommitted: the model stays what it was. The box itself is squared with the model on
+the field uncommitted: the model stays what it was, and under `OnBlur` no notification is armed,
+so the blur that follows has nothing to deliver. The box itself is squared with the model on
 `blur`. A native number input admits the characters of scientific notation, so it can hold text
 like `e3` that it *displays* while reporting an empty value to every event — and no render-tree
 diff can overwrite a difference it cannot see. Every time focus leaves the field, the control
@@ -1013,9 +1027,11 @@ native date input's `change` event once per typed segment — day, month, year �
 per completed date, so the default `OnChange` can run a live pass, and briefly show a stale
 verdict, against a year the visitor hasn't finished typing. Under `OnBlur` the model still commits
 on every segment's `change` (so a wrapping form always reads the field's current value), but the
-engine is notified only once, on `blur`, once the value has had a chance to settle — the same
+engine is notified only once, on `blur`, once the value has had a chance to settle — and only
+because those segment commits armed it: tabbing through without committing anything notifies
+nothing. It is the same
 per-segment problem [Options](options.md#updateon-per-input-not-a-formidableoptions-property)
-covers for the general case, now answered by the typed input directly rather than by splatting
+covers for the general case, answered by the typed input directly rather than by splatting
 `type="date"` onto a text box.
 
 The same uncommitted-value, blur-sync, and nullable-modelling rules as `FormidableInputNumber`
@@ -1439,7 +1455,10 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// Notifies the EditContext that the field changed, which is what marks it touched and runs the
-    /// engine's live validation pass — call from a custom input's change handler.
+    /// engine's live validation pass — call from a custom input's change handler. Calling it is the
+    /// consumer's statement that a committed value change happened: it engages the field, and every
+    /// subsequent live pass answers an engaged field's verdict, not only the pass this call
+    /// triggers.
     /// </summary>
     public void NotifyChanged() => _engine.EditContext.NotifyFieldChanged(Field);
 
@@ -1585,6 +1604,35 @@ fallback end to end — its fallback scrolls by approximate row height and lets 
 centre the row exactly. A fixed post-scroll delay keeps the sample honest and simple; a
 production consumer might poll for the element instead.
 
+`FormidableForm` has the identical gap and the identical seam: a blocked submit's own auto-focus
+(see [above](#formidableformtmodel)) can miss the same way a summary click can, and its
+`FocusFallback` parameter recovers it the same way:
+
+```csharp
+    /// <summary>
+    /// Invoked once when a blocked submit's auto-focused first error has no rendered element to
+    /// focus (e.g. a virtualized row outside the render window). Return <c>true</c> after making
+    /// the element renderable (scrolling its container, expanding a section) and the focus is
+    /// retried exactly once; return <c>false</c> to leave the miss as-is. Same delegate shape as
+    /// <see cref="FormidableSummary.FocusFallback"/> — a page wiring both typically passes the same
+    /// callback to each. When unset, a miss reports a diagnostic instead of the summary's silent
+    /// default: a form's blocked submit has nowhere else for the visitor to land, where the
+    /// summary's own click just leaves the click without effect.
+    /// </summary>
+    [Parameter]
+    public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+```
+
+*Source: `src/Formidable.Blazor/FormidableForm.cs`*
+
+Same name, same delegate type, same try-fallback-retry-once shape — a page that already wrote a
+fallback for its summary hands the identical method to the form. `/workout` does exactly that: the
+same `ScrollToSessionAsync` that recovers a summary click for an off-screen session row also
+recovers the form's own auto-focus on a blocked submit, so a visitor who never clicks the summary
+at all still lands in the row that failed. The one place the two callers diverge is what happens
+with nothing wired: the summary stays silent (a miss just leaves the click without effect), but the
+form reports a diagnostic, because a blocked submit's visitor has nowhere else to go.
+
 ## `AddFormidableBlazor()`
 
 The one-call registration for a Blazor client — everything `AddFormidable()` registers (see
@@ -1710,7 +1758,7 @@ pairs that with `FormidableSummary`'s `FocusFallback` (see above), so a row far 
 render window is both kept disclosed and reachable by a summary click:
 
 ```razor
-<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
+<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">
     <div class="summary-slot">
         <FormidableSummary FocusFallback="ScrollToRowAsync" />
     </div>
@@ -1738,8 +1786,10 @@ itself is unchanged from what's shown here.
 `FormidableSummary` no matter how far it scrolls, exactly as before. The sample also sets a
 `DisclosureOverride` for the collection, so even rows Virtualize has never rendered keep their
 place in the summary — validation always runs against the full model; the override only lifts the
-visibility gate. What's new is `ScrollToRowAsync`, the code-behind method wired to `FocusFallback`
-above:
+visibility gate. The same `ScrollToRowAsync` callback goes to both `FocusFallback` parameters
+above, so a blocked submit's own auto-focus recovers an off-screen row exactly as a summary click
+does — no click required to reach the row a submit's first error names. What's new is
+`ScrollToRowAsync` itself, the code-behind method wired to both:
 
 ```csharp
     private const float RowHeight = 118f;
@@ -1770,8 +1820,11 @@ above:
 Clicking a summary entry for a row inside the current render window still focuses it directly.
 For a row scrolled far away, the miss triggers `ScrollToRowAsync`, which scrolls `.scroll-panel`
 to the row's approximate offset (`index * RowHeight`) and waits 120ms for `Virtualize` to render
-it before returning `true`. The summary then retries the focus, and its own `scrollIntoView`
-centres the row exactly.
+it before returning `true`. The caller then retries the focus, and its own `scrollIntoView`
+centres the row exactly. A blocked submit reaches the identical miss the same way: `FormidableForm`
+tries the row's element first, falls back to `ScrollToRowAsync` on the same terms as the summary,
+and retries — so submitting with the first error on an unrendered row needs no summary click at
+all to land there.
 
 ## Vanilla interop
 

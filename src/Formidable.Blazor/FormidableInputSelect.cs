@@ -40,7 +40,8 @@ namespace Formidable.Blazor;
 /// <see cref="InputUpdateMode.OnInput"/> behaves exactly like <see cref="InputUpdateMode.OnChange"/>
 /// (the default): both bind <c>onchange</c> and notify the engine the moment a value commits.
 /// <see cref="InputUpdateMode.OnBlur"/> still commits the value on <c>change</c>, but the
-/// validation notification defers to <c>blur</c> instead, the same commit/notify split every
+/// validation notification the commit arms defers to <c>blur</c> instead — a blur with no
+/// committed change delivers nothing — the same commit/notify split every
 /// other kit input gives that mode. That is the string-projected
 /// <see cref="FormidableInputBase{TValue}.AddValueBinding(RenderTreeBuilder, int, string, Func{string, Task{bool}})"/>
 /// overload's own contract, honoured here rather than worked around.

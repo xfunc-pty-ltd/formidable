@@ -33,7 +33,8 @@ namespace Formidable.Blazor;
 /// <para>
 /// A string that fails to parse — including an emptied box when
 /// <typeparamref name="TValue"/> is not nullable — leaves the field uncommitted: the model is
-/// unchanged. The box itself is reconciled on <c>blur</c>: a native date input can keep
+/// unchanged, and no blur-delivered notification is armed under <see cref="InputUpdateMode.OnBlur"/>.
+/// The box itself is reconciled on <c>blur</c>: a native date input can keep
 /// displaying segments it reports as empty (a half-entered date), which no render-tree diff can
 /// overwrite because the rendered value and the reported value already agree, so on every blur,
 /// in every <see cref="FormidableInputBase{TValue}.UpdateOn"/> mode, the control writes the
@@ -51,7 +52,9 @@ namespace Formidable.Blazor;
 /// show a stale verdict — against a year the visitor has not finished typing. Under
 /// <see cref="InputUpdateMode.OnBlur"/> the model still commits on every segment's <c>change</c>
 /// (so a wrapping form always reads the field's current value), but the engine is notified only
-/// once, on <c>blur</c>, once the visitor has moved on and the value has had a chance to settle.
+/// once, on <c>blur</c>, once the visitor has moved on and the value has had a chance to settle
+/// — and only because those segment commits armed it: tabbing through the field without
+/// committing anything notifies nothing.
 /// </para>
 /// <para>
 /// The same consumer guarantees as <see cref="FormidableInputText"/> apply: a consumer-splatted

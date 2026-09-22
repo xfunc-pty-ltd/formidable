@@ -117,6 +117,67 @@ public class FormidableInputBaseTests : BunitContext
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
+    // Pins the commit gate on the blur-mode notification: blur delivers a pending commit
+    // notification and never invents one, so focus-then-leave with no committed change fires no
+    // OnFieldChanged, touches nothing, and paints no state class. An unconditional blur
+    // notification breaks all three.
+    [Fact]
+    public void A_blur_with_no_committed_change_notifies_nothing()
+    {
+        var order = new EngineOrder();
+        var form = RenderInput(order, InputUpdateMode.OnBlur);
+        var notifications = 0;
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
+
+        form.Find("input").Blur();
+
+        Assert.Equal(0, notifications);
+        Assert.False(form.Instance.Engine!.GetFieldState(
+            new FieldIdentifier(order, nameof(EngineOrder.Description))).IsTouched);
+        Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
+    }
+
+    // Pins arm-and-consume: one commit arms exactly one notification, the first blur delivers
+    // it, and the second blur — with nothing committed in between — delivers nothing. Notifying
+    // per blur, or delivering without disarming, breaks the final count.
+    [Fact]
+    public void A_second_blur_after_one_commit_notifies_once()
+    {
+        var order = new EngineOrder();
+        var form = RenderInput(order, InputUpdateMode.OnBlur);
+        var notifications = 0;
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
+
+        form.Find("input").Change(new string('x', 11));
+        Assert.Equal(0, notifications);
+
+        form.Find("input").Blur();
+        Assert.Equal(1, notifications);
+
+        form.Find("input").Blur();
+        Assert.Equal(1, notifications);
+    }
+
+    // Pins coalescing: two commits between blurs — the shape a date input's per-segment change
+    // events produce — arm one notification, delivered once at the next blur. Notifying per
+    // commit breaks the count.
+    [Fact]
+    public void Two_commits_before_one_blur_notify_once()
+    {
+        var order = new EngineOrder();
+        var form = RenderInput(order, InputUpdateMode.OnBlur);
+        var notifications = 0;
+        form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
+
+        form.Find("input").Change("first");
+        form.Find("input").Change("second");
+        Assert.Equal(0, notifications);
+
+        form.Find("input").Blur();
+
+        Assert.Equal(1, notifications);
+    }
+
     [Fact]
     public void Aria_attributes_reflect_error_state()
     {

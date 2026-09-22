@@ -162,6 +162,8 @@ public class FormidableInputDomSyncTests : BunitContext
         _domSync.OnSync = () => log.Add("sync");
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("notify");
 
+        // The committed change arms the notification the blur delivers.
+        form.Find("input").Change("2024-02-20");
         form.Find("input").Blur();
 
         // The DOM is reconciled before the engine is told the field settled, so the live pass
