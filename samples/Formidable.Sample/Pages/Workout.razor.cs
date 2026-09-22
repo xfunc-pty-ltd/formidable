@@ -69,6 +69,12 @@ public partial class Workout : IDisposable
     private string? VenueRegionAriaInvalid =>
         _form?.Engine?.GetFieldState(VenueRegionField).HasErrors == true ? "true" : null;
 
+    // Requiredness crosses the seam the same way: a wrapped input takes aria-required from its
+    // field context, and a native one has no context to ask, so the page reads what the submit
+    // profile demands off the engine and renders the attribute the kit's inputs would.
+    private string? VenueRegionAriaRequired =>
+        _form?.Engine?.GetFieldRequirement(VenueRegionField) == RuleRequirement.Required ? "true" : null;
+
     protected override void OnInitialized()
     {
         // Catering starts included so the dietary field is on screen for the happy path: its

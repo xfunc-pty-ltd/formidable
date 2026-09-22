@@ -1222,7 +1222,7 @@ pairing requirement entirely; it's introduced below, once collections are in sco
 
 Marks a field the submit profile demands a value for. It renders
 `<span class="formidable-required" aria-hidden="true">` around
-[`FormidableOptions.RequiredIndicator`](options.md#requiredindicator) — `"*"` unless you say
+[`FormidableOptions.RequiredIndicatorContent`](options.md#requiredindicatorcontent) — `"*"` unless you say
 otherwise — and nothing at all for a field the rules do not demand:
 
 ```razor
@@ -1268,22 +1268,30 @@ wants to say something there reads `FormidableFieldContext.Requirement` from a `
 and renders its own markup, or declares the field outright with
 [`RequiredOverride`](options.md#requiredoverride).
 
-Detection has limits. These three cost a mark rather than producing a wrong one:
+A field inside a collection row is marked exactly as a top-level field is. The rules declare it
+with the index left open (`Attendees[].Name`) — the rule speaks about the shape — and the answer
+is expanded against the rows the model actually holds, one entry per row under the row's own
+identifier, so each attendee's Name earns its own marker and its own `aria-required`, and a row
+added later is answered by the derivation that follows its arrival. A collection rule that
+filters its rows (`RuleForEach(...).Where(...)`) is conditional the same way a `When` is — which
+rows the filter admits cannot be answered without a model — so its demands answer
+`ConditionallyRequired` for every row, the answer being a property of the rules rather than of
+any one row's values.
+
+Detection has limits, and they cost a mark rather than producing a wrong one:
 
 - Presence has to be written as FluentValidation's own `NotEmpty()` or `NotNull()`. Written as a
   predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`, it is indistinguishable from any other
   predicate.
 - A validator that cannot be inspected reports nothing for any of its fields.
-- A field of a collection row reports nothing. The rules declare it with the index left open
-  (`Attendees[].Name`), which names a shape rather than a field, and one shape is as many fields
-  as the model has rows.
 
-One limit runs the other way. A child validator scoped by the `SetValidator` call itself
-(`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) is read whole, because
-that scoping is not applied: an untagged `NotEmpty()` inside `AddressValidator` is read under
-whatever profile reaches the rule carrying it, so `Address.City` is reported as a demand, marked,
-and given `aria-required` under a profile that never runs it. Scoping the child by tagging its own
-rules instead, with a `RuleSet` block inside `AddressValidator`, is read exactly.
+Scoping is read as FluentValidation executes it. A child validator scoped by the `SetValidator`
+call itself (`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) runs under
+a selection built from those ruleset names, which replaces the one that selected the rule holding
+the child — and it is read under that same selection. A rule inside `AddressValidator` tagged
+into `"Admin"` demands its field whenever the holding rule is selected; an untagged `NotEmpty()`
+in there is one FluentValidation runs under no profile, so it demands nothing anywhere, and the
+absent mark is the honest report of a rule no submit enforces.
 
 A rule the root does not declare for itself **is** read, by whichever of three routes carries it:
 one inside a child validator answers under the child's own path (`Address.City`), one merged in
@@ -1295,7 +1303,7 @@ cannot be read, [`RequiredOverride`](options.md#requiredoverride) is what a form
 it decides the marker and `aria-required` together so the two cannot disagree.
 
 The library ships no styling, so `formidable-required` is a hook for your stylesheet and the option
-supplies the text inside it. Setting `RequiredIndicator` to `null` turns every marker on the form
+supplies the text inside it. Setting `RequiredIndicatorContent` to `null` turns every marker on the form
 off at once and leaves `aria-required` exactly where it was.
 
 One practical note for tests: the marker's text sits inside the `<label>`, so a query matching raw
@@ -1304,7 +1312,10 @@ label text sees it and a role-and-name query, which runs the accessible-name alg
 visitor using assistive technology hears.
 
 **Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor) — three marked
-fields, one of which is marked and silent at the same time.
+fields, one of which is marked and silent at the same time; and
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) — required marks on kit inputs, a
+foreign select, a native input and the attendee rows, with the unmarked fields carrying the same
+component.
 
 ## `FormidableSummary`
 

@@ -93,18 +93,21 @@ public interface IFormValidationEngine
     /// <c>ChildRules</c> form) at the root's own level, since that is where each one's failures
     /// land.
     /// <para>
-    /// A field of a collection row is the one shape the rules describe and this does not answer
-    /// for. The rules declare it with the index left open — <c>Attendees[].Name</c> — which
-    /// names a shape rather than a field, and one shape is as many fields as the model has rows,
-    /// each of which comes and goes as the collection does. So a row reports
-    /// <see cref="RuleRequirement.NotRequired"/> however plainly its rule demands a value, and
-    /// the override is what a form marking its rows uses.
+    /// A field of a collection row is answered from the template its rule declares —
+    /// <c>Attendees[].Name</c> — expanded against the rows the model holds when the answer is
+    /// derived: one entry per row, keyed by the row's own resolved identifier, so an attendee's
+    /// Name is marked and announced exactly as a top-level field is. The validator is asked
+    /// once per template and every row shares that answer, which is what a template means: the
+    /// rule was declared about the shape, not about any particular row. A row's fields register
+    /// and unregister as rendered-field-set moves, so the derivation that follows a row's
+    /// arrival is the one that first answers for it.
     /// </para>
     /// <para>
     /// One further limit is about which field an answer is filed under rather than about what
-    /// the rules say, and it reaches only nested members. An answer is keyed exactly the way an
-    /// ISSUE is keyed — the declared path resolved against the model graph — so a demand lands
-    /// on the field the failure it describes would land on; and a component asks with the
+    /// the rules say, and it reaches any member filed under a resolved owner — a nested
+    /// object's members and a collection row's fields alike. An answer is keyed exactly the way
+    /// an ISSUE is keyed — the declared path resolved against the model graph — so a demand
+    /// lands on the field the failure it describes would land on; and a component asks with the
     /// identifier it resolved when it last bound to the cascaded form context. Both name the
     /// same object, and go on naming it after a page replaces a nested object in place
     /// (<c>model.Address = new Address()</c>): the swap alone disturbs nothing. What separates
@@ -118,16 +121,13 @@ public interface IFormValidationEngine
     /// <see cref="FormidableOptions.RequiredOverride"/> answers over it.
     /// </para>
     /// <para>
-    /// One shape runs the OTHER way, and the direction the limits above share does not reach it.
-    /// <c>SetValidator(validator, ruleSets)</c> scopes a child validator's rules to those
-    /// rulesets, and the read behind this answer does not apply that scoping: the child is read
-    /// whole, under whatever profile reaches the rule holding it. A presence rule inside such a
-    /// child is therefore reported as a demand under a profile that never runs it, and where
-    /// that demand is unconditional the field takes a marker and <c>aria-required</c> for a
-    /// value the submit profile does not require. Scoping the child by tagging its own rules
-    /// instead (a <c>RuleSet</c> block inside the child validator) is read exactly, because the
-    /// selection is then applied where the walk can see it — and
-    /// <see cref="FormidableOptions.RequiredOverride"/> answers over either shape.
+    /// A child validator scoped by its own call — <c>SetValidator(validator, ruleSets)</c> —
+    /// is read under the selection FluentValidation runs it with: one built from those ruleset
+    /// names, replacing the selection that chose the rule holding the child. A presence rule
+    /// inside such a child is therefore a demand exactly where a submit would enforce it: a
+    /// tagged rule those names admit demands its field whenever the holding rule is selected,
+    /// and an untagged one, which FluentValidation runs under no profile, demands it nowhere —
+    /// the field takes no marker and no <c>aria-required</c> for a value no submit asks of it.
     /// </para>
     /// <para>
     /// Because the derived answer is reused, asking per field per render is a dictionary lookup;
@@ -239,17 +239,16 @@ public interface IFormValidationEngine
     /// validator with no inspection capability vouches for nothing. That list is the validator's
     /// declared shape, child validators and <c>Include</c>d rules included, so a row inside a
     /// collection is confirmed and disclosed exactly as a top-level field is. Its own limits are
-    /// documented on it, and all but one of them cost a green rather than producing a wrong one:
-    /// a child validator scoped with <c>SetValidator(validator, ruleSets)</c> is read whole, so
-    /// a load can vouch for a field under rules that profile never runs.
+    /// documented on it, and each costs a green rather than producing a wrong one: a shape the
+    /// walk cannot read leaves its paths absent, and an absent path is a field nothing vouches
+    /// for.
     /// </para>
     /// <para>
     /// Where the value cannot be read at all, nothing is claimed: a path whose intermediate is
     /// null (<c>Address.City</c> where <c>Address</c> is), a model-level failure, which names no
     /// member, and a path naming no member. Those fail in the safe direction — the field stays
     /// unstyled rather than being painted red.
-    /// <see cref="GetFieldRequirement"/> errs the same way at all but one of its own limits (the
-    /// ruleset-scoped child above over-claims for it exactly as it does here), but what
+    /// <see cref="GetFieldRequirement"/> errs the same way at its own limits, but what
     /// claiming nothing LOOKS like differs: it reports
     /// <see cref="RuleRequirement.NotRequired"/> and drops a marker, where this stays silent
     /// and paints no class.

@@ -126,11 +126,11 @@ public class FormidableRequiredIndicatorTests : BunitContext
 
     // Suppression is form-wide and total for the drawn marker — and deliberately not total for
     // the announcement, which is a fact about the input rather than a decoration. Mutation that
-    // must break this: ignoring RequiredIndicator, or letting it gate aria-required too.
+    // must break this: ignoring RequiredIndicatorContent, or letting it gate aria-required too.
     [Fact]
     public void Suppressing_the_indicator_removes_every_marker_and_keeps_the_announcement()
     {
-        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicator = null });
+        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicatorContent = null });
 
         Assert.Empty(cut.FindAll("span.formidable-required"));
         Assert.Equal("true", InputFor(cut, nameof(MarkerModel.Name)).GetAttribute("aria-required"));
@@ -141,7 +141,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
     [Fact]
     public void The_marker_renders_the_configured_content()
     {
-        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicator = "(required)" });
+        var cut = RenderForm(new MarkerModel(), new FormidableOptions { RequiredIndicatorContent = "(required)" });
 
         var marker = MarkerFor(cut, nameof(MarkerModel.Name))!;
         Assert.Equal("(required)", marker.TextContent);
@@ -219,6 +219,24 @@ public class FormidableRequiredIndicatorTests : BunitContext
 
         Assert.Equal("*", cut.FindAll("label[data-field='City'] span.formidable-required").Single().TextContent);
         Assert.Equal("true", cut.FindAll("label[data-field='City'] input").Single().GetAttribute("aria-required"));
+    }
+
+    // A presence rule declared per collection row is a template - Rows[].City - and the fields
+    // it demands are the rows the model actually holds. The marker and the announcement land on
+    // a row-bound field exactly as on a top-level one, and the SECOND row is the one asserted,
+    // so an answer that reached only a first entry could not pass. The two assertions are the
+    // pair the Include sibling makes, for the same reason - a mark nobody is told about, or an
+    // announcement with no mark, would be one field described two ways. Mutation that must
+    // break this: building the requirement map from the scalar declared paths alone, skipping
+    // templates instead of expanding them against the model's rows.
+    [Fact]
+    public void A_presence_rule_declared_per_row_marks_the_rendered_row_field()
+    {
+        var model = new RowsRoot();
+        var cut = RenderRowsForm(model, new FluentValidationModelValidator<RowsRoot>(new RowsRootValidator()));
+
+        Assert.Equal("*", cut.FindAll("label[data-field='Row1'] span.formidable-required").Single().TextContent);
+        Assert.Equal("true", cut.FindAll("label[data-field='Row1'] input").Single().GetAttribute("aria-required"));
     }
 
     // A validator with no inspection capability answers "not known to be required" for every
@@ -413,6 +431,34 @@ public class FormidableRequiredIndicatorTests : BunitContext
         return cut.FindComponent<FormidableForm<NestedRoot>>();
     }
 
+    /// <summary>
+    /// One labelled field per collection row, in the shape a page's row loop writes — each
+    /// accessor closing over its own row instance, which is the identifier the components hold
+    /// and the one the engine's expanded template entries must land on.
+    /// </summary>
+    private IRenderedComponent<FormidableForm<RowsRoot>> RenderRowsForm(
+        RowsRoot model, IModelValidator<RowsRoot> validator)
+    {
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<RowsRoot>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", validator);
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+            {
+                var sequence = 0;
+                for (var index = 0; index < model.Rows.Count; index++)
+                {
+                    var row = model.Rows[index];
+                    Field(inner, ref sequence, $"Row{index}", () => row.City, () => row.City);
+                }
+            }));
+            builder.CloseComponent();
+        });
+
+        return cut.FindComponent<FormidableForm<RowsRoot>>();
+    }
+
     private IRenderedComponent<FormidableForm<MarkerModel>> RenderForm(
         MarkerModel model,
         FormidableOptions? options = null,
@@ -498,6 +544,22 @@ public sealed class NestedRoot
 public sealed class NestedChild
 {
     public string City { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// A root whose demanded fields live one per collection row — the shape the template
+/// <c>Rows[].City</c> answers for. Two rows, so an answer reaching every row is told apart
+/// from one reaching a first entry alone.
+/// </summary>
+public sealed class RowsRoot
+{
+    public List<NestedChild> Rows { get; set; } = [new(), new()];
+}
+
+/// <summary>A presence demand declared once, about every row.</summary>
+public sealed class RowsRootValidator : AbstractValidator<RowsRoot>
+{
+    public RowsRootValidator() => RuleForEach(m => m.Rows).SetValidator(new NestedChildValidator());
 }
 
 public sealed class NestedRootValidator : AbstractValidator<NestedRoot>

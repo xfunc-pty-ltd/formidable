@@ -283,9 +283,8 @@ It is not a nicety. Reading rules sees presence written as FluentValidation's ow
 or `NotNull()` and nothing else, so presence written as a predicate —
 `Must(s => !string.IsNullOrWhiteSpace(s))` — is indistinguishable from any other predicate and
 answers `RuleRequirement.NotRequired`. So does every field of a validator that cannot be
-inspected, and every field of a collection row, whose rules are declared against a shape
-(`Attendees[].Name`) rather than against one field. `NotRequired` means "not known to be
-required", never "proven optional", and this delegate is what a form says instead.
+inspected. `NotRequired` means "not known to be required", never "proven optional", and this
+delegate is what a form says instead.
 
 It declares in both directions. `RuleRequirement.Required` marks a field the rules cannot be read
 to demand; `RuleRequirement.NotRequired` unmarks one they can, a `NotNull()` on a value the page
@@ -300,7 +299,7 @@ and keep it a pure read: it runs inside a render.
 **Recipe:** [I want to mark fields required when the rules cannot say
 so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
 
-### `RequiredIndicator`
+### `RequiredIndicatorContent`
 
 `string?`, defaults to `"*"`. The content
 [`FormidableRequiredIndicator`](component-kit.md#formidablerequiredindicatortvalue) renders for a
@@ -622,7 +621,7 @@ that resolved it, not the one on screen.
 - `VerifyRowKeys` — [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor), on
   unconditionally rather than gated to Development, since the page's whole point is the row-key
   discipline the guard enforces.
-- `RequiredIndicator` (and the marker it feeds) —
+- `RequiredIndicatorContent` (and the marker it feeds) —
   [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
   carries its mark and stays silent at the same time.
 

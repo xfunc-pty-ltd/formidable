@@ -125,12 +125,11 @@ public sealed class FormidableOptions
     /// Not a nicety: reading rules can only see presence expressed as FluentValidation's own
     /// <c>NotEmpty()</c>/<c>NotNull()</c>, so presence written as a predicate —
     /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> — is indistinguishable from any other
-    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>, as does every field of a
-    /// validator that cannot be inspected at all, and every field of a collection row, whose
-    /// rules are declared against a shape rather than against one field. This is what a form says instead, and it declares in both
-    /// directions: <see cref="RuleRequirement.Required"/> marks a field the rules cannot be read
-    /// to demand, and <see cref="RuleRequirement.NotRequired"/> unmarks one they can — a
-    /// <c>NotNull()</c> on a value the page fills in itself, say.
+    /// predicate and reports <see cref="RuleRequirement.NotRequired"/>; a validator that cannot
+    /// be inspected at all reports it for every field. This is what a form says instead, and it
+    /// declares in both directions: <see cref="RuleRequirement.Required"/> marks a field the
+    /// rules cannot be read to demand, and <see cref="RuleRequirement.NotRequired"/> unmarks
+    /// one they can — a <c>NotNull()</c> on a value the page fills in itself, say.
     /// It decides both surfaces at once, so the marker a <c>FormidableRequiredIndicator</c>
     /// renders and the <c>aria-required</c> the kit's inputs carry cannot disagree.
     /// Invoked on every ask — once per bound component per render — rather than cached with the
@@ -153,7 +152,7 @@ public sealed class FormidableOptions
     /// about the input, not a decoration, so assistive technology keeps being told even where
     /// nothing is drawn.
     /// </remarks>
-    public string? RequiredIndicator { get; set; } = "*";
+    public string? RequiredIndicatorContent { get; set; } = "*";
 
     /// <summary>
     /// How the live channel discloses an engaged field's issues. Defaults to

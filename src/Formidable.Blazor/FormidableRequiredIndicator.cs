@@ -8,7 +8,7 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Marks a field the submit profile demands a value for. Renders
 /// <c>&lt;span class="formidable-required" aria-hidden="true"&gt;</c> around
-/// <see cref="FormidableOptions.RequiredIndicator"/> while
+/// <see cref="FormidableOptions.RequiredIndicatorContent"/> while
 /// <see cref="IFormValidationEngine.GetFieldRequirement"/> answers
 /// <see cref="RuleRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
 /// Place it wherever the marker belongs — inside the field's <c>&lt;label&gt;</c>, after the
@@ -84,7 +84,7 @@ public sealed class FormidableRequiredIndicator<TValue> : FormidableComponentBas
             return;
         }
 
-        var content = Context.Engine.Options.RequiredIndicator;
+        var content = Context.Engine.Options.RequiredIndicatorContent;
         if (content is null || Context.Engine.GetFieldRequirement(_field) != RuleRequirement.Required)
         {
             return;

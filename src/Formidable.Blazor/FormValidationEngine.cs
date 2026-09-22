@@ -341,7 +341,9 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <para>
     /// Keys are resolved through the same introspector that puts an ISSUE on a field, so a
     /// demand lands on exactly the field the failure it describes would land on — which is the
-    /// whole point of resolving rather than comparing names. That resolution reads the model
+    /// whole point of resolving rather than comparing names. A templated path resolves per ROW —
+    /// expanded against the collection the model holds before resolution, so each row's field
+    /// carries its own entry under the row's own identifier. That resolution reads the model
     /// graph, so it is dropped when the rendered field set moves, for the same reason the
     /// verdict store is: a change to what is on the page can carry a change to the objects
     /// behind it, with no field-changed notification anywhere. What that keeps current is this
@@ -373,21 +375,32 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         {
             try
             {
+                var expanded = new List<string>();
                 foreach (var path in inspector.GetDeclaredFieldPaths(profile))
                 {
-                    if (path.Contains("[]", StringComparison.Ordinal))
+                    var requirement = inspector.GetFieldRequirement(path, profile);
+                    if (requirement == RuleRequirement.NotRequired)
                     {
-                        // A templated path names a shape, not a field: one entry here would have
-                        // to become one per row, and the rows move under it. An indicator inside
-                        // a collection row is a separate decision, and this is where it would be
-                        // taken.
                         continue;
                     }
 
-                    var requirement = inspector.GetFieldRequirement(path, profile);
-                    if (requirement != RuleRequirement.NotRequired)
+                    // A templated path (Attendees[].Name) names a shape, and the fields that
+                    // shape demands are the rows the model holds when this map is derived — so
+                    // it is expanded against the model, one entry per row, through the same
+                    // expansion the load's green enumeration uses; a scalar path passes through
+                    // it unchanged. The inspector is asked once per DECLARED path, above,
+                    // because a requirement is a property of the template — a condition
+                    // attaches to the declaration, so no row can carry a different answer —
+                    // and per-row work stays expansion plus resolution, on a map that rebuilds
+                    // on every rendered-field-set move, which a virtualized panel delivers in
+                    // scroll bursts. Row churn keeps the entries current by the same signal
+                    // that drops them: a row's fields registering or unregistering is exactly
+                    // such a move.
+                    expanded.Clear();
+                    ExpandTemplate(path, expanded);
+                    foreach (var rowPath in expanded)
                     {
-                        map[ResolvePath(path)] = requirement;
+                        map[ResolvePath(rowPath)] = requirement;
                     }
                 }
             }

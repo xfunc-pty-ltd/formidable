@@ -383,17 +383,17 @@ to be required" rather than "proven optional":
 
 - presence written as a predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`;
 - any field of a validator that cannot be inspected at all;
-- a field of a collection row, whose rules are declared against a shape (`Attendees[].Name`)
-  rather than against one field;
-- a presence rule that carries a condition, which answers `ConditionallyRequired` and draws
-  nothing, because whether the demand applies cannot be decided without evaluating the condition
-  against the model.
+- a presence rule that carries a condition — a `When`/`Unless`, or a collection rule's per-row
+  `Where` filter, judged row by row — which answers `ConditionallyRequired` and draws nothing,
+  because whether the demand applies cannot be decided without evaluating the condition against
+  the model.
 
-One shape runs the other way and draws a mark nothing enforces. A child validator scoped by the
-`SetValidator` call itself (`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`)
-is read whole, because that scoping is not applied, so an untagged `NotEmpty()` inside
-`AddressValidator` demands `Address.City` under a profile that never runs it. Tagging the child's
-own rules instead, with a `RuleSet` block inside `AddressValidator`, is read exactly.
+A child validator scoped by the `SetValidator` call itself
+(`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) is read under the
+selection FluentValidation runs it with, built from those ruleset names and replacing the
+profile's own — a rule tagged into those rulesets demands its field whenever the holding rule is
+selected, and any other rule inside the child, tagged into a set the call does not name or not
+tagged at all, draws no mark anywhere, because FluentValidation runs it under no profile.
 
 The override answers before any of that, and it declares in both directions: `Required` marks a
 field the rules cannot be read to demand, `NotRequired` unmarks one they can. It decides the

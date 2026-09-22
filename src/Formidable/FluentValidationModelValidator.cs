@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using FluentValidation;
 using FluentValidation.Internal;
 using FluentValidation.Results;
@@ -13,7 +14,7 @@ namespace Formidable;
 /// <see cref="IRuleLevelValidator{TModel}"/> and rule-level inspection through
 /// <see cref="IRuleInspectingValidator{TModel}"/>.
 /// </summary>
-public sealed class FluentValidationModelValidator<TModel>
+public sealed partial class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
     private readonly IValidator<TModel> _validator;
@@ -22,7 +23,7 @@ public sealed class FluentValidationModelValidator<TModel>
     // this validator's rules are fixed once it is constructed. Bounded by the number of
     // child-validator components the wrapped validator declares, which is a property of the
     // code rather than of anything a request carries.
-    private readonly ConcurrentDictionary<IRuleComponent, IValidator?> _childValidators = new();
+    private readonly ConcurrentDictionary<IRuleComponent, ChildReading> _childReadings = new();
 
     private DeclaredSnapshot? _declared;
 
@@ -64,10 +65,12 @@ public sealed class FluentValidationModelValidator<TModel>
         var abstractValidator = RequireRuleLevelCapability();
         VerifyRuleSets(profile);
 
+        var selector = BuildProfileSelector(profile);
+        var selectionContext = CreateSelectionContext();
         var selected = new List<RuleIdentity>();
         foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
         {
-            if (IsSelected(rule, profile))
+            if (selector.CanExecute(rule, string.Empty, selectionContext))
             {
                 selected.Add(new RuleIdentity(rule));
             }
@@ -106,10 +109,50 @@ public sealed class FluentValidationModelValidator<TModel>
         ArgumentNullException.ThrowIfNull(fieldPath);
         ArgumentNullException.ThrowIfNull(profile);
 
-        return DeclaredFields(profile).TryGetValue(fieldPath, out var requirement)
-            ? requirement
-            : RuleRequirement.NotRequired;
+        var declared = DeclaredFields(profile);
+        if (declared.TryGetValue(fieldPath, out var requirement))
+        {
+            return requirement;
+        }
+
+        // An indexed path (Attendees[0].Name) is answered by the template that declares its
+        // rule (Attendees[].Name). Exact match first, normalised second — the order
+        // FluentValidation's own member-name matching tries them in — so a rule whose
+        // overridden property name literally carries brackets is answered as declared before
+        // any rewriting is tried. The bracket test just skips the rewrite where it could only
+        // reproduce the miss above.
+        if (fieldPath.Contains('[')
+            && declared.TryGetValue(CollectionIndexNormalizer().Replace(fieldPath, "[]"), out var templated))
+        {
+            return templated;
+        }
+
+        return RuleRequirement.NotRequired;
     }
+
+    /// <summary>
+    /// FluentValidation's collection-index normalisation, mirrored: the pattern is the one its
+    /// <c>MemberNameValidatorSelector.CollectionIndexNormalizer</c> declares, and the
+    /// replacement applied to it above — <c>"[]"</c> — is the one that selector's
+    /// <c>CanExecute</c> applies before comparing a property path against wildcard member
+    /// names. Mirrored rather than invoked because that member is private.
+    /// </summary>
+    /// <remarks>
+    /// The library reads bracket segments in one other place:
+    /// <see cref="Introspection.PropertyPath"/>, which
+    /// <see cref="Introspection.ReflectionModelIntrospector"/> parses concrete paths through on
+    /// the way to an owner instance. The two agree on what an index IS — a bracketed span
+    /// ending at the first <c>]</c>, the parser by scanning to it and this pattern by its lazy
+    /// quantifier — and they divide by question rather than by disputed authority. Matching a
+    /// path against declared templates is FluentValidation's own question, so its pattern is
+    /// authoritative here; resolving a path to the object owning its final member is a question
+    /// FluentValidation never answers, so the parser is authoritative there — and it never
+    /// meets a template, because it rejects the empty <c>[]</c> span, the one segment shape
+    /// only templates carry: a template must be expanded against a live model before anything
+    /// can resolve it.
+    /// </remarks>
+    [GeneratedRegex(@"\[.*?\]")]
+    private static partial Regex CollectionIndexNormalizer();
 
     /// <inheritdoc />
     public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
@@ -154,7 +197,8 @@ public sealed class FluentValidationModelValidator<TModel>
             typeof(TModel),
             string.Empty,
             conditional: false,
-            profile,
+            BuildProfileSelector(profile),
+            CreateSelectionContext(),
             declared,
             new HashSet<object>(ReferenceEqualityComparer.Instance));
 
@@ -176,6 +220,11 @@ public sealed class FluentValidationModelValidator<TModel>
     /// child's failures land at this level.
     /// </summary>
     /// <remarks>
+    /// Selection is asked of <paramref name="selector"/>, and a child boundary follows
+    /// FluentValidation's own dispatch: an adaptor carrying rulesets replaces the selector its
+    /// child is read under — a scoped child's rules are never consulted against the profile's
+    /// selector, exactly as a run never consults them against it — while an adaptor carrying
+    /// none hands its child the selector in force unchanged.
     /// <paramref name="walking"/> holds the validators on the current path, not every validator
     /// seen: a validator reached twice down two different branches is read twice (the paths
     /// differ), while one that reaches itself is read once, which is what bounds a recursive
@@ -188,7 +237,8 @@ public sealed class FluentValidationModelValidator<TModel>
         Type modelType,
         string prefix,
         bool conditional,
-        ValidationProfile profile,
+        IValidatorSelector selector,
+        IValidationContext selectionContext,
         Dictionary<string, RuleRequirement> declared,
         HashSet<object> walking)
     {
@@ -199,7 +249,7 @@ public sealed class FluentValidationModelValidator<TModel>
 
         foreach (var rule in rules)
         {
-            if (!IsSelected(rule, profile))
+            if (!selector.CanExecute(rule, string.Empty, selectionContext))
             {
                 continue;
             }
@@ -211,8 +261,15 @@ public sealed class FluentValidationModelValidator<TModel>
             // chained after a component marks the COMPONENT — including the
             // ApplyConditionTo.CurrentValidator form, which marks that one component alone and
             // leaves its siblings unconditional. Both places carry a synchronous and an
-            // asynchronous flag, so all four are consulted.
-            var ruleConditional = conditional || rule.HasCondition || rule.HasAsyncCondition;
+            // asynchronous flag, so all four are consulted. A collection rule can carry one
+            // more, judged per row rather than per model: RuleForEach(...).Where and its
+            // asynchronous twin, stored as the rule's Filter/AsyncFilter rather than as
+            // condition flags. Which rows a filter admits is as unanswerable without a model
+            // as any When, so a filtered rule is conditional the same way.
+            var ruleConditional = conditional
+                || rule.HasCondition
+                || rule.HasAsyncCondition
+                || HasRowFilter(rule, modelType);
 
             foreach (var component in rule.Components)
             {
@@ -222,7 +279,7 @@ public sealed class FluentValidationModelValidator<TModel>
                 if (component.Validator is IChildValidatorAdaptor)
                 {
                     var child = ResolveChildValidator(component, modelType, rule.TypeToValidate);
-                    if (child is null)
+                    if (child.Validator is null)
                     {
                         continue;
                     }
@@ -231,8 +288,20 @@ public sealed class FluentValidationModelValidator<TModel>
                         ? prefix
                         : $"{prefix}{name}{(IsCollectionRule(rule, modelType) ? "[]" : string.Empty)}.";
 
+                    // FluentValidation's own child dispatch (ChildValidatorAdaptor.GetSelector):
+                    // rulesets on the adaptor build a replacing selector — the one in force is
+                    // not intersected with, and never sees the child's rules — while an adaptor
+                    // carrying none inherits it unchanged. Constructed directly because
+                    // GetSelector constructs directly, without consulting the global selector
+                    // factory; routing this through the factory would diverge from what a run
+                    // does at this boundary.
+                    var childSelector = child.RuleSets is { Length: > 0 }
+                        ? new RulesetValidatorSelector(child.RuleSets)
+                        : selector;
+
                     WalkDeclaredRules(
-                        child, rule.TypeToValidate, childPrefix, componentConditional, profile, declared, walking);
+                        child.Validator, rule.TypeToValidate, childPrefix, componentConditional,
+                        childSelector, selectionContext, declared, walking);
                     continue;
                 }
 
@@ -262,6 +331,43 @@ public sealed class FluentValidationModelValidator<TModel>
     }
 
     /// <summary>
+    /// Whether the rule filters the rows it judges — <c>RuleForEach(...).Where(...)</c> or its
+    /// asynchronous twin, which FluentValidation stores as the collection rule's <c>Filter</c>
+    /// and <c>AsyncFilter</c> properties rather than as condition flags. A row filter is a
+    /// per-row condition, and inspection has no rows to evaluate it against, so its presence
+    /// makes the rule's demands conditional exactly as a <c>When</c> on the rule does. The
+    /// closed interface is built from a literal <c>typeof</c> so the trimmer keeps the
+    /// interface the instance test needs; the properties are found by name, which no
+    /// <c>typeof</c> roots, so a build that trims them away fails the read quietly rather
+    /// than crashing.
+    /// </summary>
+    /// <remarks>
+    /// True only on a positive read of a non-null filter: a rule whose filter cannot be read
+    /// answers as unfiltered, because a demand the rules make of every row must not weaken
+    /// merely because a property could not be reached — the failed read costs the filtered
+    /// shape its cap, never an unfiltered rule its demand.
+    /// </remarks>
+    private static bool HasRowFilter(IValidationRule rule, Type modelType)
+    {
+        try
+        {
+            var collectionRule = typeof(ICollectionRule<,>)
+                .MakeGenericType(modelType, rule.TypeToValidate);
+            if (!collectionRule.IsInstanceOfType(rule))
+            {
+                return false;
+            }
+
+            return collectionRule.GetProperty("Filter", BindingFlags.Public | BindingFlags.Instance)?.GetValue(rule) is not null
+                || collectionRule.GetProperty("AsyncFilter", BindingFlags.Public | BindingFlags.Instance)?.GetValue(rule) is not null;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Whether the rule judges each element of a collection rather than the member itself —
     /// what decides whether the walk descends under <c>Name[]</c> or under <c>Name</c>. The
     /// closed interface is built from a literal <c>typeof</c> so the trimmer keeps what this
@@ -282,11 +388,23 @@ public sealed class FluentValidationModelValidator<TModel>
     }
 
     /// <summary>
-    /// The validator a child component wraps, or <see langword="null"/> where it cannot be had
-    /// without a model. FluentValidation exposes the child through
-    /// <c>ChildValidatorAdaptor&lt;T, TProperty&gt;.GetValidator</c>, whose signature is closed
-    /// over the container type and the member type; the closed type is built from a literal
-    /// <c>typeof</c>, which is what keeps the trimmer from removing the method this calls.
+    /// What one child-validator component yields to inspection: the validator it wraps — or
+    /// <see langword="null"/> where that cannot be had without a model — and the rulesets the
+    /// adaptor scopes the child with, exactly as declared, <see langword="null"/> and empty
+    /// both meaning unscoped.
+    /// </summary>
+    private sealed record ChildReading(IValidator? Validator, string[]? RuleSets)
+    {
+        public static readonly ChildReading Unreadable = new(null, null);
+    }
+
+    /// <summary>
+    /// The validator a child component wraps and the rulesets its adaptor scopes it with, the
+    /// validator <see langword="null"/> where it cannot be had without a model.
+    /// FluentValidation exposes both through <c>ChildValidatorAdaptor&lt;T, TProperty&gt;</c> —
+    /// the <c>GetValidator</c> method and the public <c>RuleSets</c> property its published XML
+    /// docs do not mention — whose closed type is built from a literal <c>typeof</c>, which is
+    /// what keeps the trimmer from removing the members this reads.
     /// </summary>
     /// <remarks>
     /// The call needs a context, and inspection has no model, so it passes one carrying none.
@@ -303,19 +421,19 @@ public sealed class FluentValidationModelValidator<TModel>
     /// reflective resolve of every child in the form on every ask.
     /// </para>
     /// </remarks>
-    private IValidator? ResolveChildValidator(IRuleComponent component, Type modelType, Type propertyType)
+    private ChildReading ResolveChildValidator(IRuleComponent component, Type modelType, Type propertyType)
     {
-        if (_childValidators.TryGetValue(component, out var cached))
+        if (_childReadings.TryGetValue(component, out var cached))
         {
             return cached;
         }
 
         var resolved = ReadChildValidator(component, modelType, propertyType);
-        _childValidators[component] = resolved;
+        _childReadings[component] = resolved;
         return resolved;
     }
 
-    private static IValidator? ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
+    private static ChildReading ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
     {
         try
         {
@@ -323,17 +441,26 @@ public sealed class FluentValidationModelValidator<TModel>
             var getValidator = adaptor.GetMethod("GetValidator", BindingFlags.Public | BindingFlags.Instance);
             if (getValidator is null)
             {
-                return null;
+                return ChildReading.Unreadable;
             }
 
             var context = Activator.CreateInstance(
                 typeof(ValidationContext<>).MakeGenericType(modelType), [null]);
 
-            return getValidator.Invoke(component.Validator, [context, null]) as IValidator;
+            if (getValidator.Invoke(component.Validator, [context, null]) is not IValidator validator)
+            {
+                return ChildReading.Unreadable;
+            }
+
+            var ruleSets = adaptor
+                .GetProperty("RuleSets", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(component.Validator) as string[];
+
+            return new ChildReading(validator, ruleSets);
         }
         catch (Exception)
         {
-            return null;
+            return ChildReading.Unreadable;
         }
     }
 
@@ -360,65 +487,31 @@ public sealed class FluentValidationModelValidator<TModel>
     }
 
     /// <summary>
-    /// Selection semantics equivalent to the whole-profile selector the profile-aware entry
-    /// points build (<see cref="ValidatorProfileExtensions"/>): FluentValidation's ruleset
-    /// selector consulted with the profile's rulesets plus <c>"default"</c> when
-    /// <see cref="ValidationProfile.IncludeDefaultRules"/> is set. A literal <c>"*"</c> among
-    /// the profile's rulesets admits every rule; an untagged <c>Include()</c> rule always
-    /// executes so its included rules can be filtered individually, while a tagged one is
-    /// admitted on membership like any other tagged rule; otherwise untagged rules ride the
-    /// default bucket and tagged rules are admitted on any case-insensitive membership match.
-    /// A rule declared with a comma-separated ruleset list (<c>RuleSet("A,B", ...)</c>) is
-    /// reachable through either name because FluentValidation splits the list into per-rule
-    /// memberships at declaration time.
+    /// The profile's root selector, obtained from FluentValidation's global ruleset-selector
+    /// factory with the same name list the profile-aware entry points hand its validation
+    /// strategy (<see cref="ValidatorProfileExtensions"/>) — and the strategy resolves its own
+    /// selector through the same factory, so a consumer who replaces
+    /// <c>ValidatorOptions.Global.ValidatorSelectors.RulesetValidatorSelectorFactory</c>
+    /// changes what a whole-profile run selects and what this validator selects and reports in
+    /// the same stroke.
     /// </summary>
-    private static bool IsSelected(IValidationRule rule, ValidationProfile profile)
-    {
-        // FluentValidation matches the wildcard by ordinal equality, and its presence admits
-        // every rule regardless of what the other branches would say.
-        if (profile.RuleSets.Contains(RulesetValidatorSelector.WildcardRuleSetName, StringComparer.Ordinal))
-        {
-            return true;
-        }
-
-        var memberships = rule.RuleSets;
-        if (memberships is not { Length: > 0 })
-        {
-            return rule is IIncludeRule || IncludesDefaultBucket(profile);
-        }
-
-        foreach (var membership in memberships)
-        {
-            // A rule tagged into the literal "default" ruleset is admitted by any profile
-            // that includes default rules — the name lands in the selector's list.
-            if (profile.IncludeDefaultRules
-                && string.Equals(membership, RulesetValidatorSelector.DefaultRuleSetName, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            foreach (var ruleSet in profile.RuleSets)
-            {
-                if (string.Equals(membership, ruleSet, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IncludesDefaultBucket(ValidationProfile profile) =>
-        profile.IncludeDefaultRules
-        || profile.RuleSets.Contains(RulesetValidatorSelector.DefaultRuleSetName, StringComparer.OrdinalIgnoreCase);
+    private static IValidatorSelector BuildProfileSelector(ValidationProfile profile) =>
+        ValidatorOptions.Global.ValidatorSelectors.RulesetValidatorSelectorFactory(ProfileRuleSetNames(profile));
 
     /// <summary>
-    /// The exact selector shape the whole-profile entry points build for the profile
-    /// (<see cref="ValidatorProfileExtensions"/>): the profile's rulesets, plus
-    /// <c>"default"</c> when default rules are included.
+    /// The stock selector for the profile's name list — the shape the whole-profile entry
+    /// points produce while the global factory is unreplaced. The single-rule executor
+    /// delegates its child-context decisions here.
     /// </summary>
-    private static RulesetValidatorSelector BuildWholeProfileSelector(ValidationProfile profile)
+    private static RulesetValidatorSelector BuildWholeProfileSelector(ValidationProfile profile) =>
+        new(ProfileRuleSetNames(profile));
+
+    /// <summary>
+    /// The profile's rulesets, plus <c>"default"</c> when
+    /// <see cref="ValidationProfile.IncludeDefaultRules"/> is set — the name list every
+    /// profile-shaped selector is built from.
+    /// </summary>
+    private static string[] ProfileRuleSetNames(ValidationProfile profile)
     {
         var names = new List<string>(profile.RuleSets.Count + 1);
         names.AddRange(profile.RuleSets);
@@ -427,8 +520,18 @@ public sealed class FluentValidationModelValidator<TModel>
             names.Add(RulesetValidatorSelector.DefaultRuleSetName);
         }
 
-        return new RulesetValidatorSelector(names);
+        return [.. names];
     }
+
+    /// <summary>
+    /// The context selection questions are asked against. Inspection has no model, and none is
+    /// needed: FluentValidation's ruleset selector answers from the rule's memberships and its
+    /// own name list, using the context only as a scratchpad for bookkeeping it never reads
+    /// back. A replaced selector factory (<see cref="BuildProfileSelector"/>) whose selector
+    /// does read the model reads <see langword="null"/> here, because inspection has none to
+    /// give.
+    /// </summary>
+    private static ValidationContext<TModel> CreateSelectionContext() => new(default!);
 
     private AbstractValidator<TModel> RequireRuleLevelCapability()
     {
@@ -470,14 +573,18 @@ public sealed class FluentValidationModelValidator<TModel>
     }
 
     /// <summary>
-    /// Admits exactly one top-level rule, by reference. FluentValidation hands a child
-    /// validator's context the parent context's selector, so child-context consultations
-    /// reach this selector too; those decisions delegate to the profile's own
-    /// <see cref="RulesetValidatorSelector"/> — the same selector shape, built from the same
-    /// name list, that filters them in a whole-profile run — so nested rulesets, child
-    /// validators, and <c>Include()</c> internals are filtered identically by construction.
-    /// Along the way it records whether any child decision depended on the profile rather
-    /// than following from the rule's own selection — the
+    /// Admits exactly one top-level rule, by reference. When a child validator's adaptor
+    /// carries no rulesets, FluentValidation hands the child's context the parent context's
+    /// selector, so consultations for that child's rules reach this selector too; those
+    /// decisions delegate to the profile's own <see cref="RulesetValidatorSelector"/> — the
+    /// same selector shape, built from the same name list, that filters them in a
+    /// whole-profile run — so nested rulesets, unscoped child validators, and <c>Include()</c>
+    /// internals are filtered identically by construction. A child whose adaptor does carry
+    /// rulesets runs under a selector FluentValidation builds from those rulesets alone; this
+    /// selector is never consulted for such a child's rules, and loses nothing by that — a
+    /// selection that never reads the profile cannot depend on one. Along the way this
+    /// selector records whether any decision it was consulted for depended on the profile
+    /// rather than following from the rule's own selection — the
     /// <see cref="RuleLevelResult.IsProfileScoped"/> signal.
     /// </summary>
     private sealed class SingleRuleSelector : IValidatorSelector

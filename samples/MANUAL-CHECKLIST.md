@@ -440,6 +440,10 @@ steps build on each other.
 - [ ] Load the page: **Ticket tier** already reads *General admission* (not *Choose…*), and
       **Include catering** is already ticked — a first submit never complains about a decision
       the visitor was not asked to make
+- [ ] **Required marks at load.** Contact email, Event name, Event date, Dietary notes, Ticket
+      tier and Venue region wear the asterisk; Early-bird deadline, Description, Coupon code and
+      Catering headcount do not — every one of those labels carries the same indicator
+      component, so the rules alone decide the difference
 - [ ] Submit without filling anything in (step 2): every presence rule whose field is empty
       answers at once — contact email, event name, event date, **dietary notes** and venue
       region, five fields — and the summary lists them all
@@ -503,8 +507,10 @@ steps build on each other.
       because you engaged that field. Save the draft again and the status line still never
       mentions it, since a draft save runs the Draft profile and that presence rule is not in
       it. Type Event name back in
-- [ ] *Add attendee*: the row stays silent even though Name's rule is already failing — nothing
-      has engaged it yet. Type a name and Tab, then come back, clear it and Tab again:
+- [ ] *Add attendee*: the row appears with the required mark on Name and none on Email — both
+      carry the indicator; the rules decide — and stays silent even though Name's rule is
+      already failing: a mark is not a message, and nothing has engaged the row yet. Type a
+      name and Tab, then come back, clear it and Tab again:
       "Attendee name is required" appears as soon as that edit's live pass does, inline and in
       the summary, with NO submit; clicking that entry focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
@@ -545,9 +551,11 @@ steps build on each other.
       own message store — the summary lists it on the same terms, and clicking THAT entry
       **lands in the native input** — the page renders it the field's id, which is the whole of
       what the focus service looks for. No console error, no lost scroll position
-- [ ] While that error stands, inspect the native input: `aria-invalid="true"` plus an
-      `aria-describedby` naming the message below it. Fill the region and blur: `aria-invalid`
-      disappears (it is conditional, and it stays current without a resubmit)
+- [ ] While that error stands, inspect the native input: `aria-invalid="true"`, an
+      `aria-describedby` naming the message below it, and `aria-required="true"` beside them.
+      Fill the region and blur: `aria-invalid` disappears (it is conditional, and it stays
+      current without a resubmit) while `aria-required` stays — the rules demand the value
+      whether the box is full or empty
 - [ ] **Message-bearing fields separate from the next field — both shapes.** With several
       errors showing at once, check the two idioms side by side: a message rendered INSIDE its
       field box (Event name, both dates, Description, Coupon code) and one rendered as the

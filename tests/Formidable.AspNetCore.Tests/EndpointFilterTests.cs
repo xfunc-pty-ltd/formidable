@@ -2,11 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using FluentValidation;
 using Formidable;
 using Formidable.AspNetCore.Tests.Fixtures;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.AspNetCore.Tests;
 
@@ -108,16 +111,32 @@ public class EndpointFilterTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    [Fact]
-    public async Task Missing_model_argument_is_a_configuration_error()
+    // Builds an app with everything correctly registered but never starts it and never sends a
+    // request, so InvokeAsync can never run — endpoint building is the only moment the
+    // validation wiring executes in the missing-argument tests below.
+    private static WebApplication BuildUnstartedApp()
     {
-        await using var app = await TestApp.StartAsync(a =>
-            a.MapGet("/nothing", () => Results.Ok()).Validate<SampleOrder>());
-        var client = app.GetTestClient();
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddFormidable();
+        builder.Services.AddScoped<IValidator<SampleOrder>, SampleOrderValidator>();
+        return builder.Build();
+    }
 
-        var response = await client.GetAsync("/nothing");
+    // Materializing the route endpoints is what routing itself does before it can match any
+    // request; building each endpoint's request pipeline runs its endpoint filter factories.
+    private static Endpoint[] MaterializeEndpoints(WebApplication app) =>
+        [.. ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)];
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+    [Fact]
+    public async Task Missing_model_argument_throws_at_endpoint_building_not_at_a_request()
+    {
+        await using var app = BuildUnstartedApp();
+        app.MapGet("/nothing", () => Results.Ok()).Validate<SampleOrder>();
+
+        // The server is never started and no request is ever made — the wiring bug surfaces
+        // from building the endpoint alone.
+        var exception = Assert.Throws<InvalidOperationException>(() => MaterializeEndpoints(app));
+        Assert.Contains("Validate<SampleOrder>() found no endpoint argument", exception.Message);
     }
 
     [Fact]
@@ -156,22 +175,19 @@ public class EndpointFilterTests
     }
 
     [Fact]
-    public async Task Grouped_endpoint_genuinely_missing_the_argument_still_throws()
+    public async Task Grouped_endpoint_missing_the_argument_fails_endpoint_building_despite_a_valid_sibling()
     {
-        await using var app = await TestApp.StartAsync(a =>
-        {
-            var group = a.MapGroup("/mixed-group").Validate<SampleOrder>();
-            group.MapPost("/orders", (SampleOrder order) => Results.Ok(order));
-            group.MapGet("/health", () => Results.Ok());
-        });
-        var client = app.GetTestClient();
+        await using var app = BuildUnstartedApp();
+        var group = app.MapGroup("/mixed-group").Validate<SampleOrder>();
+        group.MapPost("/orders", (SampleOrder order) => Results.Ok(order));
+        group.MapGet("/health", () => Results.Ok());
 
         // /health declares no SampleOrder parameter at all -- a wiring bug, not something a
-        // client's request shape can influence, so it stays a thrown 500 even though a sibling
-        // endpoint in the very same group has the argument.
-        var response = await client.GetAsync("/mixed-group/health");
-
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        // client's request shape can influence. The check runs per endpoint (the sibling with
+        // the argument is fine); the server is never started and no request is ever made -- the
+        // wiring bug surfaces from building the group's endpoints alone.
+        var exception = Assert.Throws<InvalidOperationException>(() => MaterializeEndpoints(app));
+        Assert.Contains("Validate<SampleOrder>() found no endpoint argument", exception.Message);
     }
 
     [Fact]
@@ -185,10 +201,11 @@ public class EndpointFilterTests
         var client = app.GetTestClient();
 
         // The handler declares a MORE DERIVED parameter type (RushPolymorphicSampleOrder) than
-        // the group's validated TModel (PolymorphicSampleOrder). HasDeclaredParameter must
+        // the group's validated TModel (PolymorphicSampleOrder). ThrowIfNoDeclaredParameter must
         // recognize this as the same parameter InvokeAsync's own OfType<TModel> retrieval would
         // match -- an exact-type check would misreport it as "no parameter of this type" and
-        // throw 500 instead of the 400 a client can trigger by posting a null body.
+        // fail endpoint building, taking every route in the app down with it, instead of leaving
+        // the endpoint serving the 400 a client can trigger by posting a null body.
         var response = await client.PostAsync("/derived-group/orders",
             new StringContent("null", Encoding.UTF8, "application/json"));
 

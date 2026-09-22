@@ -101,4 +101,91 @@ public class FormidableValidationProblemTests
 
         Assert.Empty(problem.ToIssues());
     }
+
+    [Fact]
+    public void ToIssues_skips_a_null_advisory_entry_and_keeps_its_siblings()
+    {
+        // A `null` element inside the advisories array deserializes to a null list entry; it
+        // carries no path, message, or severity to show, so it is skipped rather than thrown on.
+        const string body = """
+            { "advisories": [ null, { "path": "Notes", "message": "FYI", "severity": "Info" } ] }
+            """;
+
+        var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(
+            body, JsonSerializerOptions.Web)!;
+
+        var issue = Assert.Single(problem.ToIssues());
+        Assert.Equal("Notes", issue.Path);
+        Assert.Equal("FYI", issue.Message);
+        Assert.Equal(ValidationSeverity.Info, issue.Severity);
+    }
+
+    [Fact]
+    public void ToIssues_maps_a_missing_advisory_path_to_the_model_level_path()
+    {
+        // An advisory object with no "path" key deserializes with Path = null (the record has no
+        // required members; the deserializer supplies the default). It maps to "", the
+        // model-level path convention, rather than carrying a null into the engine.
+        const string body = """
+            { "advisories": [ { "message": "General note", "severity": "Warning" } ] }
+            """;
+
+        var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(
+            body, JsonSerializerOptions.Web)!;
+
+        var issue = Assert.Single(problem.ToIssues());
+        Assert.Equal(string.Empty, issue.Path);
+        Assert.Equal("General note", issue.Message);
+    }
+
+    [Fact]
+    public void ToIssues_coalesces_a_null_message_to_empty_in_both_loops()
+    {
+        // A null element inside an error-message array and an advisory with no "message" key
+        // both map to an empty message, never a null one.
+        const string body = """
+            {
+              "errors": { "Name": [ null, "Real" ] },
+              "advisories": [ { "path": "Notes", "severity": "Info" } ]
+            }
+            """;
+
+        var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(
+            body, JsonSerializerOptions.Web)!;
+
+        var issues = problem.ToIssues();
+
+        Assert.Equal(3, issues.Count);
+        Assert.Contains(issues, i => i.Path == "Name" && i.Message == string.Empty && i.Severity == ValidationSeverity.Error);
+        Assert.Contains(issues, i => i.Path == "Name" && i.Message == "Real");
+        Assert.Contains(issues, i => i.Path == "Notes" && i.Message == string.Empty && i.Severity == ValidationSeverity.Info);
+    }
+
+    [Fact]
+    public void ToIssues_maps_a_well_formed_body_unchanged()
+    {
+        // The tolerance for malformed entries must not touch a well-formed payload: every field
+        // of every entry comes through exactly as sent.
+        const string body = """
+            {
+              "errors": { "Description": [ "Required", "Too long" ], "Items[0].Sku": [ "Unknown SKU" ] },
+              "advisories": [
+                { "path": "Description", "message": "Avoid hyphens", "severity": "Warning", "code": "HYPHENS", "displayName": "Description" }
+              ]
+            }
+            """;
+
+        var problem = JsonSerializer.Deserialize<FormidableValidationProblem>(
+            body, JsonSerializerOptions.Web)!;
+
+        var issues = problem.ToIssues();
+
+        Assert.Equal(4, issues.Count);
+        Assert.Contains(issues, i => i.Path == "Description" && i.Message == "Required" && i.Severity == ValidationSeverity.Error);
+        Assert.Contains(issues, i => i.Path == "Description" && i.Message == "Too long" && i.Severity == ValidationSeverity.Error);
+        Assert.Contains(issues, i => i.Path == "Items[0].Sku" && i.Message == "Unknown SKU" && i.Severity == ValidationSeverity.Error);
+        Assert.Contains(issues, i =>
+            i.Path == "Description" && i.Message == "Avoid hyphens" && i.Severity == ValidationSeverity.Warning
+            && i.Code == "HYPHENS" && i.DisplayName == "Description");
+    }
 }

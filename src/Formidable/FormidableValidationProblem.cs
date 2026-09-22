@@ -25,26 +25,39 @@ public sealed class FormidableValidationProblem
     {
         var issues = new List<ValidationIssue>();
 
-        // A foreign 400 body can carry explicit JSON nulls that override the property
-        // initializers below (the deserializer doesn't enforce nullable-reference annotations),
-        // and a key's message array itself can be null — tolerate both rather than throw.
+        // A foreign 400 body can carry explicit JSON nulls anywhere its shape admits one — the
+        // collections themselves, a key's message array, an element inside that array, a whole
+        // advisory entry, or an advisory's fields (the deserializer doesn't enforce
+        // nullable-reference annotations) — tolerate every shape rather than throw. A null
+        // advisory entry carries nothing to show, so it is skipped; a null path reads as ""
+        // (the model-level path); a null message reads as "".
         var errors = Errors ?? new Dictionary<string, string[]>();
         var advisories = Advisories ?? [];
 
         foreach (var (path, messages) in errors)
         {
-            issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message)));
+            issues.AddRange((messages ?? []).Select(message => new ValidationIssue(path, message ?? string.Empty)));
         }
 
         foreach (var advisory in advisories)
         {
+            if (advisory is null)
+            {
+                continue;
+            }
+
             var severity =
                 Enum.TryParse<ValidationSeverity>(advisory.Severity, ignoreCase: true, out var parsed)
                 && parsed != ValidationSeverity.Error
                     ? parsed
                     : ValidationSeverity.Warning;
 
-            issues.Add(new ValidationIssue(advisory.Path, advisory.Message, severity, advisory.Code, advisory.DisplayName));
+            issues.Add(new ValidationIssue(
+                advisory.Path ?? string.Empty,
+                advisory.Message ?? string.Empty,
+                severity,
+                advisory.Code,
+                advisory.DisplayName));
         }
 
         return issues;

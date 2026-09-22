@@ -48,15 +48,21 @@ public interface IRuleInspectingValidator<in TModel>
     /// it carries an unconditional <c>NotEmpty()</c> or <c>NotNull()</c> component,
     /// conditionally required when every such component is reached only through a condition
     /// (<c>When</c>, <c>Unless</c>, or their async forms, declared on the rule, on the
-    /// component, or on a rule the walk passed through to reach it), and not required
-    /// otherwise. An unconditional demand wins over a conditional one on the same field.
+    /// component, or on a rule the walk passed through to reach it — or a collection rule's
+    /// per-row <c>Where</c>/<c>WhereAsync</c> filter, a condition judged row by row that
+    /// inspection has no rows to evaluate), and not required otherwise. An unconditional
+    /// demand wins over a conditional one on the same field.
     /// </summary>
     /// <param name="fieldPath">
     /// One of the paths <see cref="GetDeclaredFieldPaths"/> lists — <c>Title</c>,
     /// <c>Address.City</c> for a nested member, or the templated <c>Attendees[].Name</c> for a
-    /// rule declared per collection element. Compared ordinally. Any other string reports
-    /// <see cref="RuleRequirement.NotRequired"/>, which includes the INDEXED path a failure
-    /// carries (<c>Attendees[0].Name</c>): replace an index with <c>[]</c> before asking.
+    /// rule declared per collection element — or an INDEXED form of one: the path a failure or
+    /// a bound row field carries (<c>Attendees[0].Name</c>, at any nesting depth) is answered
+    /// by its declaring template, each index normalised to <c>[]</c> exactly as
+    /// FluentValidation's own member-name matching normalises it, with an exact match tried
+    /// first. The answer is a property of the rules rather than of any model, so no index is
+    /// out of range. Compared ordinally; any other string reports
+    /// <see cref="RuleRequirement.NotRequired"/>.
     /// </param>
     /// <param name="profile">The profile whose rule selection decides the answer.</param>
     /// <remarks>
@@ -91,8 +97,16 @@ public interface IRuleInspectingValidator<in TModel>
     /// templates chain (<c>Teams[].Members[].Alias</c>), and paths are compared ordinally.
     /// <para>
     /// The walk descends into child validators — <c>SetValidator</c>, <c>ChildRules</c> and
-    /// <c>Include</c> alike — and applies the profile's selection at every level, so a child
-    /// rule tagged into a ruleset the profile does not name is absent exactly as a top-level
+    /// <c>Include</c> alike — and applies at every level the selection FluentValidation would
+    /// run there: the profile's own, except that a <c>SetValidator(validator, ruleSets)</c>
+    /// boundary replaces it, for the child it scopes, with a selection built from those
+    /// ruleset names (a deeper scoped child replaces again). A child rule that replacing
+    /// selection admits is listed under every profile that selects the rule holding the child,
+    /// and one it does not admit is listed under none, because FluentValidation runs it under
+    /// none: an untagged rule inside <c>SetValidator(validator, "Admin")</c> is absent from
+    /// every profile's answer, while its "Admin"-tagged sibling is present wherever the
+    /// holding rule is. Everywhere the profile's own selection is in force, a child rule
+    /// tagged into a ruleset the profile does not name is absent exactly as a top-level
     /// one would be. An <c>Include</c>d validator's rules merge at the including validator's
     /// own level, since that is where its failures land. A collection whose only rules live in
     /// its elements is NOT listed itself — <c>Sessions[].Seats</c> without <c>Sessions</c> —
@@ -110,16 +124,6 @@ public interface IRuleInspectingValidator<in TModel>
     /// other child. A validator that includes itself, directly or through a cycle, is walked
     /// once, so the paths below the repeat are absent rather than generated to some arbitrary
     /// depth. And rules declared inside <c>DependentRules</c> are not read.
-    /// </para>
-    /// <para>
-    /// A fourth shape runs the OTHER way, and the guarantee above does not cover it.
-    /// <c>SetValidator(validator, ruleSets)</c> scopes the child's rules to those rulesets, and
-    /// that scoping is not applied here: the child is read whole under whatever profile reaches
-    /// the rule holding it. A rule inside such a child is therefore listed — and reported as a
-    /// demand by <see cref="GetFieldRequirement"/> — under a profile that does not enforce it,
-    /// which is an over-claim where the three above under-claim. Scoping a child by tagging its
-    /// own rules instead (a <c>RuleSet</c> block inside the child validator) is read exactly,
-    /// under every profile, because the selection is then applied where the walk can see it.
     /// </para>
     /// </remarks>
     /// <returns>

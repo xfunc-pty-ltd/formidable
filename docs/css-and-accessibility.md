@@ -466,7 +466,7 @@ as `<span class="formidable-required" aria-hidden="true">`, and the input beside
 label around it, so the mark can sit inside the `<label>` — where sighted readers expect it —
 without changing the input's name by a character. Style the mark through
 `formidable-required`; the library ships no styling, and
-[`RequiredIndicator`](options.md#requiredindicator) supplies the text inside it. Turning that
+[`RequiredIndicatorContent`](options.md#requiredindicatorcontent) supplies the text inside it. Turning that
 option off removes the mark and leaves `aria-required` in place, because whether a value is
 demanded is a fact about the input rather than a decoration.
 
