@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0: the
 `0.MINOR.PATCH` surface can still move).
 
-## [Unreleased]
+## [1.0.0] - 2026-09-22
 
 ### Added
 
@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0:
 - *(blazor)* Resolve the engine's TimeProvider from the container ([cf4fab3](https://github.com/xfunc-pty-ltd/formidable/commit/cf4fab3070f7d6e6fd9e4e216ba53d4d2bbe47c2))
 - *(sample)* The six-stage tutorial app ([491505d](https://github.com/xfunc-pty-ltd/formidable/commit/491505d5ae510e996756f2e86b8baef45dedb9f5))
 - *(blazor)* The form goes inert until interactivity arrives ([d7347f5](https://github.com/xfunc-pty-ltd/formidable/commit/d7347f5aaa4f050304c531cc28ac652307ce0eaf))
+- *(core)* Keep the overlap diagnostic in release builds ([d0d95cc](https://github.com/xfunc-pty-ltd/formidable/commit/d0d95cceeb16968255532cc87a3f88ec8f36713f))
 
 ### Fixed
 
@@ -53,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0:
 - *(blazor)* Harden disposal and sanitize every diagnosed path ([8338e26](https://github.com/xfunc-pty-ltd/formidable/commit/8338e2692ad21b897e61b30e929a0beeb90edc19))
 - *(aspnetcore)* Build the 400's errors without ModelState ([dd00385](https://github.com/xfunc-pty-ltd/formidable/commit/dd003859f01912fe80619a908738fa0d4fbb3eb2))
 - *(sample)* Place the silent indicator, and pin what Enter does ([f164c11](https://github.com/xfunc-pty-ltd/formidable/commit/f164c11c1e0ad2e801813ae8fe4495bbb1de0f1a))
+- *(sample)* Refuse a stored culture the platform does not know ([6c9c310](https://github.com/xfunc-pty-ltd/formidable/commit/6c9c31092f9401808cdb194df5c09f639b7ca9d3))
+- *(core)* Make reading the wire problem trim-safe ([5ed91c2](https://github.com/xfunc-pty-ltd/formidable/commit/5ed91c29e2878901578497d2b4fb470df6999c0e))
 
 ### Performance
 
@@ -84,5 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0:
 - Releases are the maintainer's; commits follow one shape ([e96118f](https://github.com/xfunc-pty-ltd/formidable/commit/e96118fe1813fa87a0eab3732633370065d7aca6))
 - Fold the commit shape into the existing conventions section ([63d5ff6](https://github.com/xfunc-pty-ltd/formidable/commit/63d5ff62f622ea27e711f4a69902af0f1d9606b5))
 - Explain the fork and pull request flow ([e3c8cb9](https://github.com/xfunc-pty-ltd/formidable/commit/e3c8cb96fde4920bc5a18796ed6973762c19d661))
+- Let the packages table's dependency cells wrap ([e278362](https://github.com/xfunc-pty-ltd/formidable/commit/e2783625afaff47fba38752cf79bf1623c9e24e5))
+- Break the longest dependency token across lines ([1440286](https://github.com/xfunc-pty-ltd/formidable/commit/1440286838c008d8bafb8b46e1f4e40471ca910e))
+- Show a mixed verdict in the hero captures ([7b042e5](https://github.com/xfunc-pty-ltd/formidable/commit/7b042e575a5f02d1e15047106b15645d6c059ae2))
+- Describe the release the way any maintainer runs it ([445c64e](https://github.com/xfunc-pty-ltd/formidable/commit/445c64ed81a94d74552b221eeb65c1248797dd1d))
+- State the key's source plainly and the username's shape ([4cc0fae](https://github.com/xfunc-pty-ltd/formidable/commit/4cc0fae142bca6160239a77debd270703ca1669c))
+- Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
+- Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
-[Unreleased]: https://github.com/xfunc-pty-ltd/formidable/commits/main
+[1.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.0
