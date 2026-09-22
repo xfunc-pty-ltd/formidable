@@ -144,7 +144,9 @@ idioms at both levels:
 
 ```razor
 <FormidableForm Model="_roster" OnValidSubmit="HandleValid" Options="_options">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
     <FormidableCollectionMessage For="() => _roster.Teams" />
 
     @* A collection rule fails against the list, not against any one input, so its summary entry

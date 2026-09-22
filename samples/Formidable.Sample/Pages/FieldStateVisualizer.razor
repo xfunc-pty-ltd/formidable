@@ -27,7 +27,9 @@
 </TeachingPanel>
 
 <FormidableForm @ref="_form" Model="_handle" Options="_options" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <FormidableField For="() => _handle.Username" Context="field">
         <div class="field">

@@ -166,7 +166,9 @@ flowchart TD
 
 The diagram traces the default cadence, where an edit's live pass starts on the keystroke itself.
 `FormidableOptions.LiveDebounce` puts a timer in front of that first step, described under
-[The live pass starts](#the-live-pass-starts); everything downstream of it is unchanged.
+[The live pass starts](#the-live-pass-starts) — which, once a submit has happened, reaches the
+refresh-arm step downstream of it too, and the refresh's own defer decision beyond that, both
+traced in the sections below.
 
 ### An edit commits
 
@@ -209,10 +211,13 @@ started-and-cancelled request per keystroke.
 A debounced live pass is a little more deferential than an immediate one: with a submit *or* a
 refresh already running, it re-arms its timer instead of starting, because the edit that would
 normally re-arm the refresh has already happened, and cancelling the refresh outright would leave
-its verdict stale with nothing left to fix it. What the option does not touch is the refresh's own
-cadence. After a submit, every keystroke still lands in the pending-refresh set and still arms the
-refresh on `RefreshDebounce`'s schedule, whatever `LiveDebounce` says — the two windows are
-independent, and the option reduces live passes, not refresh passes.
+its verdict stale with nothing left to fix it. The option reaches the refresh's own cadence too:
+once a submit has happened, the field change that arms the debounce window also arms the refresh,
+and the refresh's due time answers for this window as well as for `RefreshDebounce`. Any refresh
+that comes due while the window is still open with fields left in it defers to it too, not only
+the one this same edit armed — see
+[The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
+below for the mechanism and what it buys.
 
 ### A newer pass supersedes an older one
 
@@ -256,16 +261,20 @@ for. Since starting a pass cancels the one before it, a refresh that ran regardl
 away work someone asked for. The async rule that was 500 ms into a 600 ms check would have
 nothing to show for it.
 
-So it defers, to either one. If a submit or a live pass is in flight, the refresh re-arms its
-own timer rather than running, and comes back when the timer next quiets — as many times as it
-takes. Deferring to a submit is the higher-intent rule again. Deferring to a live pass earns its
-keep somewhere else: an edit whose async rule outlasts the debounce still gets the answer its
-own live pass was computing. Between live passes there is nothing to defer to, since a newer
-live pass supersedes the older one outright. The refresh's own path is different: it cancels
-neither the submit nor the live pass, it waits for them.
+So it defers, to any of three. If a submit or a live pass is in flight, or a debounced live
+window is still armed with fields left in it, the refresh re-arms its own timer rather than
+running, and comes back when the timer next quiets — as many times as it takes. Deferring to a
+submit is the higher-intent rule again. Deferring to a live pass earns its keep somewhere else:
+an edit whose async rule outlasts the debounce still gets the answer its own live pass was
+computing. Between two live passes that have already run there is nothing to defer to, since a
+newer live pass supersedes the older one outright — a live pass not yet started, only
+accumulating fields behind its own debounce timer, is the different case the third condition
+above answers for. The refresh's own path is different: it cancels neither the submit nor the
+live pass, it waits for them.
 
-With nothing in flight, the refresh pass validates the model — the whole `SubmitProfile`, or only
-the part of it the live pass has not already answered (see
+With nothing in flight and no debounced live window still armed with fields left in it, the
+refresh pass validates the model — the whole `SubmitProfile`, or only the part of it the live
+pass has not already answered (see
 [The refresh runs only what the live pass did not](#the-refresh-runs-only-what-the-live-pass-did-not)
 below). Either way it answers for the whole model in one pass; what the pending-refresh snapshot
 scopes is the pending indicator, covered in
@@ -336,19 +345,22 @@ surprises someone with. Where the two are disjoint there's nothing to subtract i
 place, so the refresh runs its own profile in full — the same fallback a broken precondition
 reaches everywhere else on this page.
 
-`FormidableOptions.LiveDebounce` reaches that same fallback from a different angle. Set it, and a
-keystroke starts no live pass at all — it only accumulates the field and arms the debounce timer,
-described under [The live pass starts](#the-live-pass-starts) — while the refresh's own timer, on
-`RefreshDebounce`'s independent schedule, keeps arming on every keystroke regardless. Set
-`LiveDebounce` above `RefreshDebounce`, as `/async` does, and the refresh's timer is the one that
-comes due first, before the live pass it would otherwise reuse has even started: it finds no
-report to subtract against and runs the whole `SubmitProfile` on its own, async draft rule
-included, and the debounced live pass that follows runs the whole `LiveProfile` after it,
-answering that same rule again. An async draft rule genuinely answers twice in this shape, not
-once: the cost the subtraction elsewhere on this page exists to avoid, present here because the
-live pass has not started by the time the refresh needs an answer to reuse.
-[Options](options.md#livedebounce) covers this same race from the verdict side — all three
-`LiveDebounce`/`RefreshDebounce` orderings agree on what ends up on screen; this is its cost side.
+`FormidableOptions.LiveDebounce` changes when a keystroke's own live pass starts: it accumulates
+the field and arms the debounce timer instead of starting immediately, described under
+[The live pass starts](#the-live-pass-starts). After a submit, that same edit's refresh reads the
+same window too — its due time is `RefreshDebounce`, or the live window plus a fixed 50&nbsp;ms
+margin, whichever is later. Set `LiveDebounce` above `RefreshDebounce` (400 ms against the 300 ms
+default, as `/async` does) and the refresh's own timer moves out to 450 ms rather than firing at
+the plain 300. The margin only guarantees the debounced live pass has *started* by then, not
+finished — what actually delivers the reuse is
+[the refresh deferring to whatever is running](#the-refresh-defers-to-whatever-is-running): it
+waits out the live pass rather than racing it, then subtracts against the report that pass leaves
+behind, exactly as it would with `LiveDebounce` unset. The async draft rule answers once for that
+edit, not twice — the margin keeps the refresh from starting before the live pass does, and the
+defer keeps it from running past one still in flight, or past a debounce window still armed with
+fields left to answer for. [Options](options.md#livedebounce) covers this same relationship from
+the verdict side — every `LiveDebounce`/`RefreshDebounce` combination for a post-submit edit
+agrees on what ends up on screen, and on what it costs to get there.
 
 One validator-wide setting breaks the subtraction's safety net rather than its availability:
 `ClassLevelCascadeMode.Stop` makes a validator give up after its first failing rule, and the

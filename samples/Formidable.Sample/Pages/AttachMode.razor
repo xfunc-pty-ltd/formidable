@@ -1,0 +1,62 @@
+@page "/attach"
+
+<PageTitle>Attaching to your own EditForm</PageTitle>
+<h1>Attaching to your own EditForm</h1>
+<p>This form's <code>EditForm</code> is the page's own, not one Formidable renders — the "Submitted by" field is a plain <code>InputText</code> it already had, sitting beside a Formidable-managed expense list. <code>FormidableValidator</code> attaches to the cascaded <code>EditContext</code>; removing a line from the list is all it takes for that line's own error to leave the page, with nothing extra asked of the code that removed it.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "ExpenseReport.cs", "AttachMode.razor", "AttachMode.razor.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Submitted by</strong> — required. A plain <code>InputText</code>, not a Formidable one, so it registers for nothing on its own; the <code>FormidableFieldAnchor</code> beside it is the one line an unmigrated input needs. Anchored, its error reaches the page through the compatibility bridge, Blazor's own <code>&lt;ValidationMessage&gt;</code>, rather than <code>FormidableFieldMessage</code>.</li>
+            <li><strong>Description</strong> (each expense line) — required. A Formidable input: it registers with the field set exactly as it would under <code>FormidableForm</code>, and unregistering — a row leaving the list — is what the rest of this page demonstrates.</li>
+            <li>The summary lists both a blank line's error and "Submitted by"'s: only fields Formidable itself registered count as revealed, and the anchor registers the plain input the same way a Formidable input registers itself. Row identity follows the object instance, not the index, the same <code>@@key</code> convention <a href="/collections">Nested collections</a> uses.</li>
+            <li>If the built-in signal ever needs a nudge — reading <code>Engine</code> synchronously right after a mutation, ahead of the automatic reconcile's own continuation — <code>FormidableValidator</code> exposes <code>NotifyFieldSetChanged()</code> as an on-demand override. This page never calls it: removing a line is enough on its own.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit as seeded — the second line is blank, so its message appears beside it and in the summary.</li>
+            <li>Remove that line — the message leaves both places; nothing else was asked of the page.</li>
+            <li>Add a line and submit without filling it — the new row gets the identical treatment; remove it the same way.</li>
+            <li>Clear "Submitted by" and submit — its own error shows through the native <code>&lt;ValidationMessage&gt;</code> beside it, and the summary above lists it too, the anchor's whole job. Fill it back in and submit once more — the status line confirms.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+<EditForm Model="_report" OnSubmit="HandleSubmit" id="@GateId" tabindex="-1">
+    @* Everything that needs the cascaded FormidableFormContext — FormidableSummary and the row's
+       own FormidableInputText/FormidableFieldMessage — has to be FormidableValidator's own
+       ChildContent, not its sibling: with no ChildContent, FormidableValidator renders nothing
+       at all, cascade included, rather than an empty wrapper. *@
+    <FormidableValidator TModel="ExpenseReport" @ref="_validator">
+        <div class="summary-slot">
+            <FormidableSummary />
+        </div>
+
+        <div class="field">
+            <label>Submitted by <InputText @bind-Value="_report.SubmitterName" /></label>
+            <ValidationMessage For="() => _report.SubmitterName" />
+            <FormidableFieldAnchor For="() => _report.SubmitterName" />
+        </div>
+
+        <ul class="member-list">
+            @foreach (var line in _report.Lines)
+            {
+                <li class="field" @key="line">
+                    <label>Description <FormidableInputText @bind-Value="line.Description" /></label>
+                    <FormidableFieldMessage For="() => line.Description" />
+                    <div class="actions">
+                        <button type="button" @onclick="() => RemoveLine(line)">Remove</button>
+                    </div>
+                </li>
+            }
+        </ul>
+
+        <div class="actions">
+            <button type="button" @onclick="AddLine">Add expense</button>
+            <button type="submit">Submit</button>
+        </div>
+    </FormidableValidator>
+</EditForm>
+
+<p role="status">@_status</p>

@@ -32,7 +32,9 @@
 </p>
 
 <FormidableForm @ref="_form" Model="_note" Options="_options">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
         <FormidableFieldMessage For="() => _note.Title" /></div>

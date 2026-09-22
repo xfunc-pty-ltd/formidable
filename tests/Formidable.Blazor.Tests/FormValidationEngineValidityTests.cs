@@ -197,6 +197,49 @@ public class FormValidationEngineValidityTests
     }
 
     [Fact]
+    public void An_all_departed_window_still_probes_form_validity()
+    {
+        var order = new EngineOrder { Description = "Valid", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            _time);
+
+        Assert.True(engine.IsFormValid); // the constructor's own probe already settled this
+
+        var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var registration = engine.Registry.Register(descriptionField);
+
+        // Breaks submit-validity, accumulating the field into the open window rather than
+        // probing yet.
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(descriptionField);
+        Assert.True(engine.IsFormValid); // window open: no probe has run yet
+
+        // The field the window opened for leaves the page before the window closes; its (now
+        // empty) value stays on the model — the shape a collapsed section leaves behind.
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        var everValidating = false;
+        engine.StateChanged += () =>
+            everValidating |= engine.IsValidating || engine.GetFieldState(descriptionField).IsValidating;
+
+        _time.Advance(TimeSpan.FromMilliseconds(400)); // window closes into an empty engine-pass snapshot
+
+        // No engine pass ran for the departed field — the pending indicator never lit — but the
+        // probe, which is not a pass, still validated the model as it now stands and caught the
+        // edit that survived on it.
+        Assert.False(everValidating);
+        Assert.False(engine.IsValidating);
+        Assert.False(engine.IsFormValid);
+    }
+
+    [Fact]
     public async Task Submit_adopts_IsFormValid_immediately_without_a_separate_probe()
     {
         // Make the model submit-valid, but go straight to submit without ever notifying a field

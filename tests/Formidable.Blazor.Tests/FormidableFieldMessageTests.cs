@@ -29,7 +29,7 @@ public class FormidableFieldMessageTests : BunitContext
     }
 
     [Fact]
-    public void Renders_nothing_when_clean_and_severity_classed_items_when_not()
+    public void The_messages_container_persists_when_empty()
     {
         var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
         var form = RenderWithMessage(order, inner =>
@@ -39,7 +39,74 @@ public class FormidableFieldMessageTests : BunitContext
             inner.CloseComponent();
         });
 
-        Assert.Empty(form.FindAll("ul"));
+        var list = form.Find("ul.formidable-messages");
+        Assert.Empty(list.Children);
+        Assert.Null(list.GetAttribute("role"));
+
+        var roleOrder = new EngineOrder { Description = "a-b" };
+        var withRole = RenderWithMessage(
+            roleOrder,
+            inner =>
+            {
+                inner.OpenComponent<FormidableFieldMessage<string>>(0);
+                inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => roleOrder.Description));
+                inner.CloseComponent();
+            },
+            new FormidableOptions { DisclosureOverride = _ => true, InlineMessageRole = "status" });
+
+        var roleList = withRole.Find("ul.formidable-messages");
+        Assert.Empty(roleList.Children);
+        Assert.Equal("status", roleList.GetAttribute("role"));
+    }
+
+    [Fact]
+    public void Messages_enter_and_leave_the_persistent_container()
+    {
+        var order = new EngineOrder(); // Description empty -> NotEmpty error on submit
+        var form = RenderWithMessage(order, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.CloseComponent();
+        });
+
+        form.InvokeAsync(() => form.Instance.SubmitAsync());
+        form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("li.formidable-message--error")));
+
+        // Captured once the container already holds an item, and polled directly (never
+        // re-queried via Find) for the rest of the test — reaching this point does not depend on
+        // the persistent-container contract at all, since a field with issues renders a list
+        // either way. What the assertions below can only pass under is the SAME live node staying
+        // current through a clear and a re-fail: a container recreated on clear would remove this
+        // exact node from the tree, and bUnit tracks that — the clear-side wait would throw
+        // ElementRemovedFromDomException on this reference rather than ever observe it empty.
+        var container = form.Find("ul.formidable-messages");
+        Assert.NotEmpty(container.Children);
+        Assert.NotNull(container.ParentElement);
+
+        order.Description = "ok";
+        form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() => Assert.Empty(container.Children));
+        Assert.NotNull(container.ParentElement);
+
+        order.Description = "";
+        form.InvokeAsync(() => form.Instance.SubmitAsync());
+
+        form.WaitForAssertion(() => Assert.NotEmpty(container.Children));
+        Assert.NotNull(container.ParentElement);
+    }
+
+    [Fact]
+    public void Renders_severity_classed_items_on_submit()
+    {
+        var order = new EngineOrder { Description = "a-b" }; // warning rule fails on submit; NotEmpty passes
+        var form = RenderWithMessage(order, inner =>
+        {
+            inner.OpenComponent<FormidableFieldMessage<string>>(0);
+            inner.AddComponentParameter(1, "For", (System.Linq.Expressions.Expression<Func<string>>)(() => order.Description));
+            inner.CloseComponent();
+        });
 
         form.InvokeAsync(() => form.Instance.SubmitAsync());
 

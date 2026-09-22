@@ -205,6 +205,61 @@ public class FormValidationEngineFieldSetChangeTests
     }
 
     [Fact]
+    public async Task A_reconciliation_armed_refresh_lights_no_pending_indicator()
+    {
+        // A field-set change is the one arm site that can start a refresh with NOTHING in
+        // _pendingRefreshFields - no edit ever put a field there. Held open on a gated draft
+        // rule (the refresh runs the whole submit profile, since nothing was retained to reuse),
+        // this pins that an empty accumulator reads as an empty scope: no field validating, ever,
+        // across the pass's whole lifetime.
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            time);
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        // Submit once, released, so the form has disclosed a verdict for a later refresh to
+        // reconcile - HasSubmitted is what lets a field-set change arm a refresh at all.
+        var submit = engine.ValidateForSubmitAsync();
+        validator.Gate.SetResult();
+        await submit;
+        validator.Reset();
+
+        // Subscribed before the refresh fires, so a transient flip mid-window cannot be missed by
+        // only sampling before and after.
+        var everValidating = false;
+        engine.StateChanged += () =>
+            everValidating |= engine.GetFieldState(name).IsValidating
+                || engine.GetFieldState(description).IsValidating;
+
+        // No field was ever edited - only the rendered field set moved.
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow)); // fires the refresh; held open on the gate
+
+        Assert.True(engine.IsValidating);                           // the refresh pass, in flight
+        Assert.False(engine.GetFieldState(name).IsValidating);       // no edit armed this refresh: empty scope
+        Assert.False(engine.GetFieldState(description).IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+
+        Assert.False(everValidating); // no field ever lit, across the whole window
+        Assert.False(engine.GetFieldState(name).IsValidating);
+        Assert.False(engine.GetFieldState(description).IsValidating);
+    }
+
+    [Fact]
     public void A_field_set_change_before_any_submit_schedules_no_refresh()
     {
         var customer = new EngineCustomer { Name = "far too long" };
@@ -261,6 +316,111 @@ public class FormValidationEngineFieldSetChangeTests
         time.Advance(TimeSpan.FromMilliseconds(PastRefreshWindow));
 
         Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+    }
+
+    [Fact]
+    public void A_field_departing_during_the_window_gets_no_live_issue()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext, validator, new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) }, time);
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        // Accumulates into the open debounce window rather than running anything yet.
+        editContext.NotifyFieldChanged(name);
+
+        // The field the window opened for leaves the page before the window closes.
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // window closes
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == RuleRunCountingValidator.DraftMessage);
+    }
+
+    [Fact]
+    public void An_all_departed_window_runs_no_pass()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = Build(
+            order, editContext, validator, new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) }, time);
+
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var registration = engine.Registry.Register(name);
+
+        editContext.NotifyFieldChanged(name);
+        Assert.Equal(0, validator.DraftRuleRuns);
+
+        // The only field the window accumulated leaves before it closes, so the snapshot the
+        // timer takes is empty.
+        registration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        // A pass with an empty scope still flips IsValidating for an instant before it ends, even
+        // though no field ever reads as validating under it — the transient flip is what a
+        // pass-that-should-never-have-started leaves behind, and a post-hoc read after the
+        // (synchronous) fire would already have missed it.
+        var everValidating = false;
+        engine.StateChanged += () => everValidating |= engine.IsValidating || engine.GetFieldState(name).IsValidating;
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // window closes into an empty snapshot
+
+        Assert.Equal(0, validator.DraftRuleRuns);
+        Assert.False(everValidating);
+        Assert.False(engine.IsValidating);
+    }
+
+    [Fact]
+    public async Task Survivors_keep_the_window()
+    {
+        var customer = new EngineCustomer { Name = "far too long" };
+        var order = new EngineOrder { Customer = customer, Items = [new EngineItem { Sku = "far too long" }] };
+        var validator = new SlowLiveRuleValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+
+        var customerNameField = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+        var skuField = new FieldIdentifier(order.Items[0], nameof(EngineItem.Sku));
+
+        var customerRegistration = engine.Registry.Register(customerNameField);
+        using var skuRegistration = engine.Registry.Register(skuField);
+
+        editContext.NotifyFieldChanged(customerNameField); // opens the window
+        editContext.NotifyFieldChanged(skuField); // accumulates into the same window
+
+        // The customer field departs before the window closes; the SKU field stays registered.
+        customerRegistration.Dispose();
+        engine.OnRenderedFieldsChanged();
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // window closes; held open on Description's gate
+
+        // The survivor is what the pass answers for; the departed field never entered its scope.
+        Assert.True(engine.GetFieldState(skuField).IsValidating);
+        Assert.False(engine.GetFieldState(customerNameField).IsValidating);
+
+        var quiescent = Quiescence(engine);
+        validator.Gate.SetResult();
+        await quiescent;
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == "Customer name is too long");
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == "SKU is too long");
     }
 
     private static FormValidationEngine<EngineOrder> Build(

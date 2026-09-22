@@ -48,7 +48,9 @@
 <p class="endpoint-caption"><small>POST <code>@_endpoint</code> on the API (port 5180)</small></p>
 
 <FormidableForm @ref="_form" Model="_order">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Description <FormidableInputText @bind-Value="_order.Description" /></label>
         <FormidableFieldMessage For="() => _order.Description" /></div>

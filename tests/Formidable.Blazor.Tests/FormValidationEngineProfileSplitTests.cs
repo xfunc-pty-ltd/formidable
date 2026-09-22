@@ -70,7 +70,123 @@ public class FormValidationEngineProfileSplitTests
     }
 
     [Fact]
-    public async Task A_stale_retained_report_forces_the_full_profile()
+    public async Task A_debounced_edit_does_not_refresh_before_the_live_pass()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                DisclosureOverride = _ => true,
+            },
+            time);
+
+        // The submit blocks on the empty description, which makes it an error site the refresh
+        // would keep current if it ran.
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        order.Description = "Quarterly refresh";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        // Past RefreshDebounce (300 ms) alone, but short of the debounced live pass's own window
+        // (400 ms): with LiveDebounce set, a refresh due this early could never reuse anything -
+        // the live pass has not even started - so nothing should have run at all yet.
+        time.Advance(TimeSpan.FromMilliseconds(320));
+
+        Assert.Equal(draftBefore, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+    }
+
+    [Fact]
+    public async Task A_debounced_edit_runs_each_common_rule_once()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                DisclosureOverride = _ => true,
+            },
+            time);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        order.Description = "Quarterly refresh";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        time.Advance(TimeSpan.FromMilliseconds(400)); // the debounced live pass fires
+        time.Advance(TimeSpan.FromMilliseconds(51));  // the refresh follows it and reuses its report
+
+        // One edit, one execution of each rule: the live pass ran the draft bucket and the
+        // refresh that followed it ran only what the live profile leaves out, reusing the live
+        // pass's report for the rest rather than paying for the whole submit profile again.
+        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+    }
+
+    [Fact]
+    public async Task A_small_live_debounce_leaves_the_refresh_timing_unchanged()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Customer = customer };
+        var validator = new RuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormValidationEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveDebounce = TimeSpan.FromMilliseconds(100),
+                RefreshDebounce = TimeSpan.FromMilliseconds(300),
+                DisclosureOverride = _ => true,
+            },
+            time);
+
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        order.Description = "Quarterly refresh";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        time.Advance(TimeSpan.FromMilliseconds(100)); // the debounced live pass fires
+
+        var submitBefore = validator.SubmitRuleRuns;
+
+        // Short of RefreshDebounce (300 ms since the edit). LiveDebounce (100 ms) is well under
+        // it, so the max in the arm-time expression must leave RefreshDebounce as the refresh's
+        // due time, exactly as it is when LiveDebounce is unset.
+        time.Advance(TimeSpan.FromMilliseconds(199));
+        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+
+        time.Advance(TimeSpan.FromMilliseconds(2)); // past RefreshDebounce - the refresh runs
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+    }
+
+    [Fact]
+    public async Task An_edit_during_an_in_flight_live_pass_is_re_checked_before_the_refresh_reuses_it()
     {
         var customer = new EngineCustomer { Name = "Bo" };
         var order = new EngineOrder { Customer = customer };
@@ -83,8 +199,6 @@ public class FormValidationEngineProfileSplitTests
             new ReflectionModelIntrospector(),
             new FormidableOptions
             {
-                // The refresh window is the shorter one, so the refresh staged below comes due
-                // before the live window the same edit re-armed.
                 LiveDebounce = TimeSpan.FromMilliseconds(100),
                 RefreshDebounce = TimeSpan.FromMilliseconds(50),
                 DisclosureOverride = _ => true,
@@ -105,26 +219,34 @@ public class FormValidationEngineProfileSplitTests
         // The live pass that window was holding starts, and blocks.
         time.Advance(TimeSpan.FromMilliseconds(100));
 
-        // A second edit lands while that pass is still in flight. It moves the model on, and
-        // because a live window only re-arms it starts no pass of its own.
+        // A second edit lands while that pass is still in flight. It moves the model on and
+        // re-arms both windows from itself — the live one, and the refresh, whose due time
+        // follows the live one rather than racing it.
         customer.Name = "far too long";
         editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
 
-        // The in-flight pass now finishes as the current pass, so it retains its report — a report
-        // taken for the model as it stood one edit ago, even though the edit standing when the
-        // verdict lands is the newer one.
+        // The in-flight pass finishes as the current pass and retains its report — one edit
+        // behind the model as it now stands.
         var settled = Quiescence(engine);
         validator.Gate.SetResult();
         await settled;
 
         var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
 
-        // The refresh comes due (at 150 ms) before the re-armed live window (at 200 ms), so
-        // nothing has re-validated the model since. The retained report is one edit behind, and a
-        // refresh that reused it would answer for the wrong model.
-        time.Advance(TimeSpan.FromMilliseconds(50));
-
+        // The second edit's own live window closes before its refresh can, so a fresh live pass
+        // answers for the second edit's model here — the retained report never has a chance to
+        // sit stale for a refresh to find it.
+        time.Advance(TimeSpan.FromMilliseconds(100));
         Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore, validator.SubmitRuleRuns);
+        Assert.False(engine.IsValidating);
+
+        // The refresh follows and reuses that now-current report rather than falling back to the
+        // full profile: the draft rule does not run again.
+        time.Advance(TimeSpan.FromMilliseconds(50));
+        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
     }
 
     [Fact]

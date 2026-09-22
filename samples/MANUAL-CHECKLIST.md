@@ -28,12 +28,16 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       sits highest visually, not the field whose rule was declared first in the validator — with
       no click needed (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is
       the one page that lets you turn it off)
+- [ ] A blocked submit's summary slides open over roughly 0.2 s as its issues appear, rather than
+      snapping into place; with the OS's reduce-motion setting on, it appears instantly instead
+- [ ] Hovering a summary row tints only the message text, a pill sized to hug it — never a
+      full-width bar across the row
 
 ## Navigation
 
 - [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields &
       collections, Async & server, Presentation, Model & data, Workout
-- [ ] All eighteen links route to a live page; the active link is highlighted
+- [ ] All nineteen links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
 - [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
       carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
@@ -48,6 +52,13 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Empty submit: ONE message per field ("Name is required" / "Email is required")
 - [ ] `not-an-email` + blur: message becomes "A valid email is required"
 - [ ] Summary click focuses; valid submit thanks by name
+- [ ] **Slide on submit:** submit the empty form and watch Name's message arrive — it slides
+      open over roughly 0.2 s and the Email field below it eases down with it, rather than
+      jumping straight into its new position; with the OS's reduce-motion setting on, it appears
+      instantly instead
+- [ ] **Slide on clear:** type a name and tab away — Name's message eases CLOSED over roughly
+      0.2 s and the Email field eases back up with it, the same motion in reverse rather than the
+      message snapping out of existence; with reduce-motion on, it disappears instantly instead
 
 ---
 
@@ -155,6 +166,22 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] While the Nickname error stands, inspect the input: `aria-invalid="true"` and an
       `aria-describedby` naming the `ValidationMessage` below it. Fill it and blur: both go
 
+### Attaching to your own EditForm
+
+- [ ] Submit as seeded: the second expense line's message reads "Description is required" and
+      the summary lists it; "Submitted by" carries no error yet
+- [ ] Remove that line: the message leaves the row AND the summary — no second submit, no click
+      beyond the row's own Remove button, and no more than a brief pause before the summary
+      entry goes
+- [ ] Add a line and submit it blank: the new row takes the identical red border and message
+      treatment as the seeded one, indistinguishable from an original row
+- [ ] Clear "Submitted by" and submit: its message appears through the native `ValidationMessage`
+      beside the input, styled identically to a Formidable message — and the summary above gains
+      an entry for it too, since the `FormidableFieldAnchor` beside the input registers it the
+      same way a Formidable-wrapped field registers itself
+- [ ] Both inputs — the native "Submitted by" box and a Formidable "Description" box — take the
+      same invalid-state border in both light and dark mode
+
 ---
 
 ## Async & server
@@ -175,7 +202,7 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 - [ ] Tick *Debounce live checks* and type `formidable` quickly: no "checking…" flash appears
       mid-keystroke — the indicator lights only once, after you pause typing
 - [ ] Untick it again and type the same word quickly: the indicator flashes on the very first
-      keystroke, back to today's default (immediate, no batching)
+      keystroke, back to the default (immediate, no batching)
 - [ ] **Message spacing:** type `admin` into Username and let the verdict land — its message
       sits tight under the Username box and leaves a full field-gap before the *Display name*
       label. It must never sit flush against that label, and the "checking…" line while a pass

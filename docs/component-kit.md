@@ -1030,8 +1030,14 @@ a rule such as `NotNull()` to judge.
 ## `FormidableFieldMessage<TValue>`
 
 Every field needs somewhere to show what's wrong with it. `FormidableFieldMessage` renders a
-field's current issues, any severity, as an accessible list, and nothing at all when the field
-has none. It shares one base (`FormidableMessageBase<TValue>`) with its collection-level sibling
+field's current issues, any severity, as an accessible list. The list element itself renders
+always — empty when the field has none — so a consumer's CSS can transition it open and closed the
+way the sample transitions [`FormidableSummary`](#formidablesummary) through its own persistent
+wrapper (`FormidableSummary` itself renders nothing at all when there are no visible issues,
+unlike this list element's always-rendered root), and so a configured `InlineMessageRole` sits on
+an element that persists across renders rather than one that enters alongside the text it
+announces (see [Options](options.md#inlinemessagerole)). It shares one base
+(`FormidableMessageBase<TValue>`) with its collection-level sibling
 for resolving `For`, subscribing to the engine's `StateChanged`, and rendering that same list.
 That base is public only because a public component cannot inherit a less accessible base; its
 constructor is not, so these two components are the only shapes it takes. Unlike
@@ -1057,9 +1063,9 @@ One base method decides whether rendering a message list also registers the fiel
 
 ```csharp
 /// <summary>
-/// Renders a field's current validation issues (any severity) as an accessible message list;
-/// renders nothing when the field has none. Does not register with the field registry — messages
-/// are not inputs, so pairing a message with a validated input (or a
+/// Renders a field's current validation issues (any severity) as an accessible message list; the
+/// list itself renders always, empty when the field has none. Does not register with the field
+/// registry — messages are not inputs, so pairing a message with a validated input (or a
 /// <see cref="FormidableFieldAnchor{TValue}"/>) elsewhere in the form is what keeps the field
 /// revealed.
 /// </summary>
@@ -1257,7 +1263,13 @@ an `ApplyServerIssues` here stays quiet where the form's moves focus. Both are t
 not rendering the `<form>` — see
 [Migration guide](migration-guide.md#what-to-check-after-migrating).
 
-One gap needs markup rather than a different call: `FormidableValidator` renders no
+`FormidableValidator` cascades its `FormidableFormContext` only to its own `ChildContent` — pass
+none and it renders nothing at all, cascade included, rather than an empty wrapper. Everything
+that needs the cascade, `FormidableSummary` and any `FormidableInputText`/`FormidableFieldMessage`
+pair among them, belongs nested inside `<FormidableValidator>...</FormidableValidator>`, not
+sitting beside it as a sibling.
+
+One further gap needs markup rather than a different call: `FormidableValidator` renders no
 `<form>` element of its own — it attaches to whatever `EditForm` the page already owns — so it has
 nowhere to put the model-level gate id automatically. A page in attach mode still wants the all-suppressed
 defensive gate's summary entry to land somewhere, so it renders that id itself, on the `EditForm`
@@ -1265,8 +1277,9 @@ it already has:
 
 ```razor
 <EditForm Model="_model" OnValidSubmit="HandleValid" id="@GateId" tabindex="-1">
-    <FormidableValidator TModel="Order" />
-    ...
+    <FormidableValidator TModel="Order">
+        ...
+    </FormidableValidator>
 </EditForm>
 ```
 
@@ -1277,7 +1290,16 @@ private string GateId => FormidableFieldId.For(new FieldIdentifier(_model, strin
 This is the same pattern every `FormidableForm`-rooted page rendered by hand before the form took
 it over; attach mode is the one place it still applies.
 
-What attach mode gives up nothing on is the server round trip. `FormidableValidator` exposes the
+Attach mode gives up nothing on noticing the page change. `FormidableValidator` reconciles
+the rendered field set the same way `FormidableForm` does: removing a row prunes its live issues,
+and a form that has already submitted gets a reconciling refresh, through a registry signal the
+component defers past the render batch that caused it — nothing asked of the code that removed the
+row. `NotifyFieldSetChanged()` overrides that timing for a case the built-in signal doesn't reach
+in time — for example, reading `Engine` synchronously right after a mutation, ahead of the
+automatic reconcile's own continuation. Ordinary use never calls it. See
+[`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) for the whole story live.
+
+Attach mode gives up nothing on the server round trip, either. `FormidableValidator` exposes the
 same `Engine` property, typed as `IFormValidationEngine`, and forwards both `ApplyServerIssues`
 overloads itself — the sequence of issues, and the deserialized `FormidableValidationProblem` an
 HTTP 400 arrives in:
@@ -1307,11 +1329,11 @@ own registration:
 ```csharp
 /// <summary>
 /// Renders a collection-level field's current validation issues (any severity) as an accessible
-/// message list — identical rendering to <see cref="FormidableFieldMessage{TValue}"/> — and
-/// additionally registers the field with the field registry, so a collection-level rule's issues
-/// are treated as revealed even though the collection itself (e.g. a <c>List&lt;T&gt;</c>
-/// property) has no validated input of its own to register it. Renders nothing when the field
-/// has no issues.
+/// message list — identical rendering to <see cref="FormidableFieldMessage{TValue}"/>, so the
+/// list itself renders always, empty when the field has no issues — and additionally registers
+/// the field with the field registry, so a collection-level rule's issues are treated as revealed
+/// even though the collection itself (e.g. a <c>List&lt;T&gt;</c> property) has no validated
+/// input of its own to register it.
 /// </summary>
 /// <typeparam name="TValue">The field's value type (inferred from <see cref="FormidableMessageBase{TValue}.For"/>).</typeparam>
 public sealed class FormidableCollectionMessage<TValue> : FormidableMessageBase<TValue>
@@ -1486,7 +1508,9 @@ cannot know how to, wrap itself:
 
 ```razor
 <FormidableForm Model="_order" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
@@ -1687,7 +1711,9 @@ render window is both kept disclosed and reachable by a summary click:
 
 ```razor
 <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
-    <FormidableSummary FocusFallback="ScrollToRowAsync" />
+    <div class="summary-slot">
+        <FormidableSummary FocusFallback="ScrollToRowAsync" />
+    </div>
 
     <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
@@ -1755,7 +1781,9 @@ form:
 
 ```razor
 <FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field">
         <label>Nickname (native InputText)

@@ -100,9 +100,9 @@ public class FormValidationEngineHardeningTests
     // dispatch can still be QUEUED — not yet run — when Dispose() tears the engine down. Without
     // an entry guard, the queued call reaches BeginPass and cancels a _passCts Dispose() already
     // cancelled and disposed, throwing ObjectDisposedException into a discarded task. LiveDebounce
-    // is set wider than the window advanced here so the live pass NotifyFieldChanged would
-    // otherwise start immediately stays merely armed, never run — isolating the refresh timer's
-    // own dispatch as the one this test intercepts.
+    // is left unset, so the field change below runs its live pass synchronously and fully - before
+    // interceptNext ever flips true - leaving the refresh timer's own dispatch as the only thing
+    // this test's dispatch override ever gets a chance to intercept.
     [Fact]
     public async Task Refresh_dispatch_still_queued_when_engine_is_disposed_does_not_throw()
     {
@@ -115,7 +115,7 @@ public class FormValidationEngineHardeningTests
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
-            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(500) },
+            new FormidableOptions(),
             time,
             renderDispatch: work =>
             {

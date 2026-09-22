@@ -70,7 +70,9 @@
 </TeachingPanel>
 
 <FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked">
-    <FormidableSummary FocusFallback="ScrollToSessionAsync" />
+    <div class="summary-slot">
+        <FormidableSummary FocusFallback="ScrollToSessionAsync" />
+    </div>
 
     <fieldset>
         <legend>Registration details</legend>

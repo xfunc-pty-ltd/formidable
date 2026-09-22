@@ -22,7 +22,9 @@
 </TeachingPanel>
 
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
         <FormidableFieldMessage For="() => _contact.Name" /></div>

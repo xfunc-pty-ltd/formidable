@@ -25,7 +25,8 @@ namespace Formidable.Blazor;
 /// pass clears it after writing its verdicts and when a rendered-field-set change drops the
 /// fields that have left the page from it; _pendingDebouncedLiveFields, when the live
 /// debounce timer fires and snapshots and clears it before starting the live pass those fields
-/// triggered; and _currentPass, which the pass that recorded it clears alongside IsValidating.
+/// triggered, and when a rendered-field-set change drops the fields that have left the page
+/// from it; and _currentPass, which the pass that recorded it clears alongside IsValidating.
 /// A third, independent mechanism covers IsFormValid: _formValidityStamp mutates synchronously
 /// on the caller's context when a probe starts, and IsFormValid itself mutates on the
 /// dispatcher, gated on that stamp still being the current one — the same last-write-wins shape
@@ -35,6 +36,12 @@ namespace Formidable.Blazor;
 /// caller's context as each field change arrives, and _retainedLiveReport mutates on the
 /// dispatcher from a live pass's verdict apply — so it is written only by a pass that is still
 /// the current one, exactly as the issue maps beside it are.
+/// A fifth covers whether a debounced live window is currently armed: _liveDebounceWindowArmed
+/// mutates synchronously on the caller's context when an edit first arms it, and on the
+/// dispatcher both when the window's own fire re-arms it (still in flight behind a submit or
+/// refresh) and when that fire instead closes the window outright — the same dispatcher
+/// <see cref="RunRefreshPassAsync"/> itself runs on, which is what lets its deferral check read
+/// the window's current arming without a race.
 /// </remarks>
 public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
     where TModel : class
@@ -65,8 +72,26 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// <summary>The result every issue read shares when a field has nothing to say.</summary>
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
+    // The margin HandleFieldChanged adds to a refresh's own arming so it lands after a debounced
+    // live pass's window closes rather than racing it - which is what lets that refresh reuse the
+    // live pass's report instead of paying for the full profile a second time. Racing it is not
+    // actually reachable even without the margin: RunRefreshPassAsync defers any refresh that
+    // still comes due against a window with fields left in it, regardless of which of the three
+    // arm sites scheduled it (see LiveDebounceWindowArmedWithScope). The margin exists so this
+    // one arming reaches the right due time directly, rather than by way of that defer-and-re-arm
+    // round trip.
+    private static readonly TimeSpan RefreshAfterLiveDebounceMargin = TimeSpan.FromMilliseconds(50);
+
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
+
+    // Whether the live-debounce timer is currently armed and has not fired since it was last
+    // armed or re-armed - the one thing an ITimer itself does not expose. RunRefreshPassAsync
+    // reads this alongside _pendingDebouncedLiveFields to tell an open window apart from an empty
+    // one: the timer alone says a window is open, not that anything is left in it, since
+    // OnRenderedFieldsChanged's own prune can empty the accumulator without touching the timer.
+    private bool _liveDebounceWindowArmed;
+
     private CancellationTokenSource? _passCts;
 
     // One token for the probe's whole fire-and-forget lifetime, not per-probe like _passCts:
@@ -542,7 +567,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// disclosed verdicts describe is not the page on screen.
     /// </summary>
     /// <remarks>
-    /// Four things follow, in that order. A live issue whose field is no longer rendered has no
+    /// Five things follow, in that order. A live issue whose field is no longer rendered has no
     /// site left to display it, so it goes — from the issue map and from the message store
     /// alike, since the store is what a native <c>ValidationMessage</c> renders and what
     /// <c>EditContext.GetValidationMessages</c> answers from, and a message for an element that
@@ -550,8 +575,11 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// which is what lets a virtualized row scroll out of view without losing its messages. A
     /// departed field also stops being one a live pass in flight will answer for, which is the
     /// same removal made one step earlier: without it the verdict that pass is about to write
-    /// would put the pruned entry straight back. The report a live pass left behind for a refresh
-    /// to reuse goes too: the counter that report is
+    /// would put the pruned entry straight back. A field waiting only on an open
+    /// <see cref="FormidableOptions.LiveDebounce"/> window — no pass in flight yet — leaves the same
+    /// accumulator emptied of it, so the window's own eventual fire finds nothing left to answer for
+    /// once every field it opened for has gone; a fire that finds nothing at all starts no pass. The
+    /// report a live pass left behind for a refresh to reuse goes too: the counter that report is
     /// checked against counts edits, a rendered-field-set move is not one, so a report taken
     /// before the move would pass that check while answering for a page — and, when a collection
     /// row was what left, a model — that no longer exists. Then a submitted form schedules a
@@ -621,6 +649,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         // than restore one.
         _pendingLiveFields.RemoveWhere(field => !IsRendered(field));
 
+        // One step earlier again: a field an open live-debounce window has only accumulated is
+        // not yet pending any pass's verdict, only the window's own fire. Left in, that fire would
+        // hand it to RunLivePassAsync and let it re-create the same entry the two prunes above
+        // just removed, for a field the window opened for that no longer has anywhere to answer.
+        _pendingDebouncedLiveFields.RemoveWhere(field => !IsRendered(field));
+
         InvalidateRetainedLiveReport();
 
         if (HasSubmitted)
@@ -639,7 +673,12 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         MarkTouched(e.FieldIdentifier);
 
-        if (_options.LiveDebounce is { } debounce)
+        // Read once and reused below for the refresh's own due time: options are mutated in place,
+        // so a single read here is what keeps the two armings answering for the same value rather
+        // than one that could change between them.
+        var liveDebounce = _options.LiveDebounce;
+
+        if (liveDebounce is { } debounce)
         {
             _pendingDebouncedLiveFields.Add(e.FieldIdentifier);
             ScheduleLiveDebounce(debounce);
@@ -657,7 +696,19 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
         if (HasSubmitted || SubmitInFlight)
         {
             _pendingRefreshFields.Add(e.FieldIdentifier);
-            ScheduleRefresh();
+
+            // A refresh armed by this same edit only ever has something to reuse once the
+            // debounced live pass it just armed (or accumulated into) has had a chance to run: the
+            // report it retains is what the reuse guard in RunRefreshPassAsync checks, and a
+            // refresh due before that pass has even started finds nothing there yet - it can only
+            // pay for the full profile, the exact duplicate work the split exists to avoid. Falling
+            // back to RefreshDebounce alone here (dueTime: null) would let the refresh race that
+            // pass instead of following it.
+            var refreshDueTime = liveDebounce is { } liveWindow
+                && liveWindow + RefreshAfterLiveDebounceMargin > _options.RefreshDebounce
+                    ? liveWindow + RefreshAfterLiveDebounceMargin
+                    : (TimeSpan?)null;
+            ScheduleRefresh(refreshDueTime);
         }
     }
 
@@ -685,6 +736,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// verdict from going permanently stale.
     /// </summary>
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
+
+    /// <summary>
+    /// Whether a debounced live window is still armed with something left for it to answer: the
+    /// live-debounce timer has not fired since it was last armed, and the accumulator it will
+    /// hand to the live pass it eventually starts is not empty. Read only where
+    /// <see cref="RunRefreshPassAsync"/> reads it, at the moment the refresh's own timer fires —
+    /// <see cref="OnRenderedFieldsChanged"/>'s prune of <c>_pendingDebouncedLiveFields</c> can land
+    /// at any point between when a window arms and when either timer comes due, so only a read
+    /// taken at the refresh's own fire time can answer for the window as it currently stands. An
+    /// armed window with nothing left in it must not hold a refresh back: nothing is coming to
+    /// answer for it, so waiting would only delay the very thing this exists to speed up.
+    /// </summary>
+    private bool LiveDebounceWindowArmedWithScope =>
+        _liveDebounceWindowArmed && _pendingDebouncedLiveFields.Count > 0;
 
     /// <summary>
     /// Cancels and disposes any in-flight pass's <see cref="CancellationTokenSource"/>, then starts a
@@ -1373,7 +1438,20 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     private Dictionary<FieldIdentifier, List<ValidationIssue>> ChannelFor(ValidationIssue issue) =>
         issue.Severity == ValidationSeverity.Error ? _submitIssues : _submitAdvisories;
 
-    private void ScheduleRefresh()
+    /// <summary>
+    /// Arms (or re-arms) the refresh timer. <paramref name="dueTime"/> defaults to
+    /// <see cref="FormidableOptions.RefreshDebounce"/> — the caller passes an explicit value only
+    /// where the arming needs to account for a debounced live pass it could reuse a report from
+    /// (see <see cref="HandleFieldChanged"/>); the field-set-change and in-flight-deferral callers
+    /// leave it at the default; the former has already invalidated whatever report there was to
+    /// reuse, and the latter is not answering for any particular edit. A refresh armed at the
+    /// default due time that comes due while a window is still open is not a correctness gap:
+    /// <see cref="RunRefreshPassAsync"/> defers any refresh that comes due against a window with
+    /// fields still in it, from whichever of the three callers armed it, and re-arms it in turn —
+    /// the explicit due time above only spares that one caller the extra defer-and-re-arm round
+    /// trip.
+    /// </summary>
+    private void ScheduleRefresh(TimeSpan? dueTime = null)
     {
         if (_disposed)
         {
@@ -1387,7 +1465,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             state: null,
             dueTime: Timeout.InfiniteTimeSpan,
             period: Timeout.InfiniteTimeSpan);
-        _refreshTimer.Change(_options.RefreshDebounce, Timeout.InfiniteTimeSpan);
+        _refreshTimer.Change(dueTime ?? _options.RefreshDebounce, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -1406,6 +1484,8 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
+        _liveDebounceWindowArmed = true;
+
         _liveTimer ??= _timeProvider.CreateTimer(
             _ => _ = _renderDispatch(RunDebouncedLivePassAsync),
             state: null,
@@ -1418,7 +1498,10 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// The live debounce timer's fire handler: defers first — mirroring
     /// <see cref="RunRefreshPassAsync"/>'s own defer-then-snapshot shape — and only once neither a
     /// submit nor a refresh is in flight does it snapshot and clear the fields accumulated since
-    /// the window opened and run one live pass scoped to all of them.
+    /// the window opened and run one live pass scoped to all of them. A snapshot left empty —
+    /// every accumulated field pruned by <see cref="OnRenderedFieldsChanged"/> before the window
+    /// closed — starts no live pass; the <see cref="FormidableOptions.TrackFormValidity"/> probe
+    /// still fires either way, since it answers for the model rather than for any particular field.
     /// </summary>
     private Task RunDebouncedLivePassAsync()
     {
@@ -1431,33 +1514,67 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
 
         if (SubmitInFlight || RefreshInFlight)
         {
-            // Re-arm and try again once the pass in flight finishes, touching neither the
-            // accumulator nor a pass. Snapshotting here regardless (the shape every other fire
-            // handler in this file uses) would still lose the fields: RunLivePassAsync's own
-            // SubmitInFlight guard bails without writing them anywhere, and starting a live pass
-            // against an in-flight refresh would cancel it via BeginPass without anything left to
-            // re-arm it — the edit that would normally do that (see RefreshInFlight's remarks)
-            // already happened when this window opened, so the refresh's own verdict would go
-            // stale with no edit left to fix it. LiveInFlight is deliberately not checked: one
-            // live pass superseding another is the existing, correct contract, and
-            // _pendingLiveFields already carries the superseded pass's fields into the winner's
-            // verdict.
-            ScheduleLiveDebounce(_options.LiveDebounce!.Value);
+            if (_options.LiveDebounce is { } liveDebounce)
+            {
+                // Re-arm and try again once the pass in flight finishes, touching neither the
+                // accumulator nor a pass. Snapshotting here regardless (the shape every other fire
+                // handler in this file uses) would still lose the fields: RunLivePassAsync's own
+                // SubmitInFlight guard bails without writing them anywhere, and starting a live pass
+                // against an in-flight refresh would cancel it via BeginPass without anything left to
+                // re-arm it — the edit that would normally do that (see RefreshInFlight's remarks)
+                // already happened when this window opened, so the refresh's own verdict would go
+                // stale with no edit left to fix it. LiveInFlight is deliberately not checked: one
+                // live pass superseding another is the existing, correct contract, and
+                // _pendingLiveFields already carries the superseded pass's fields into the winner's
+                // verdict.
+                ScheduleLiveDebounce(liveDebounce);
+                return Task.CompletedTask;
+            }
+
+            // Options mutate in place, and this fire can land after a consumer has since cleared
+            // LiveDebounce out from under an already-open window. There is no duration left to
+            // re-arm with, and holding the window open regardless is what starves every refresh
+            // behind LiveDebounceWindowArmedWithScope forever, since nothing but this same timer
+            // would ever close it again. The accumulator empties with the window: a field only
+            // ever accumulated here, never yet handed to a pass, is the same speculative entry the
+            // departed-field prune in OnRenderedFieldsChanged discards on identical reasoning — its
+            // next edit, or a submit, revalidates it fresh, so nothing here needs to survive the
+            // debounce feature being turned off while it was mid-window.
+            _pendingDebouncedLiveFields.Clear();
+            _liveDebounceWindowArmed = false;
             return Task.CompletedTask;
         }
 
         var fields = new HashSet<FieldIdentifier>(_pendingDebouncedLiveFields);
         _pendingDebouncedLiveFields.Clear();
-        var live = RunLivePassAsync(fields);
+
+        // The window closes here, whether or not anything survived the snapshot: a refresh
+        // reading _liveDebounceWindowArmed after this point must find no window in its way, the
+        // same as if none had ever opened.
+        _liveDebounceWindowArmed = false;
 
         if (_options.TrackFormValidity)
         {
-            // Rides the same debounced cadence as the live pass it fires alongside here, rather
-            // than the raw per-keystroke field-changed event this window exists to collapse.
+            // Rides the same debounced cadence as the live pass below rather than the raw
+            // per-keystroke field-changed event this window exists to collapse — but it is not
+            // itself an engine pass (see ProbeFormValidityAsync's own remarks: no BeginPass, no
+            // pending indicator, no field scope), so it runs ahead of the empty-scope guard below
+            // rather than under it. An edit that accumulated a now-departed field still moved the
+            // model before that field left, and this is what keeps IsFormValid answering for it.
             _ = ProbeFormValidityAsync();
         }
 
-        return live;
+        if (fields.Count == 0)
+        {
+            // Every field the window accumulated has since left the page —
+            // OnRenderedFieldsChanged already pruned them out, leaving nothing here for an engine
+            // pass to answer for. Starting one anyway would still validate the whole model under
+            // the live profile for no field's sake, and would still flip IsValidating on for an
+            // instant with an empty scope behind it.
+            return Task.CompletedTask;
+        }
+
+        return RunLivePassAsync(fields);
     }
 
     /// <summary>
@@ -1506,16 +1623,24 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
             return;
         }
 
-        if (SubmitInFlight || LiveInFlight)
+        if (SubmitInFlight || LiveInFlight || LiveDebounceWindowArmedWithScope)
         {
             // Defer and re-arm — the edit must still be revalidated once the pass in flight
-            // finishes. Submit is the higher-intent operation and is never superseded; a live pass
-            // is waited out for a different reason: starting here would cancel it (see BeginPass)
-            // and this pass would then discard its own verdict for any field that was not an error
-            // site at the last submit, so a single edit's answer would be lost on both channels at
-            // once. Waiting can in principle be starved by passes that never quiesce — the same
-            // exposure the submit case has always carried, and a form whose passes never settle
-            // has no moment at which a refresh would be meaningful anyway.
+            // finishes, or the open window closes. Submit is the higher-intent operation and is
+            // never superseded; a live pass is waited out for a different reason: starting here
+            // would cancel it (see BeginPass) and this pass would then discard its own verdict for
+            // any field that was not an error site at the last submit, so a single edit's answer
+            // would be lost on both channels at once. A live pass not yet started is waited out
+            // for the reason the whole profile split exists: this refresh has nothing retained to
+            // reuse until that pass answers, so running now would only pay for the full submit
+            // profile and then repeat every rule the two profiles share once the live pass follows
+            // moments later. One of the three arm sites already schedules the refresh's own due
+            // time to fall after such a window closes; the field-set-change and in-flight-deferral
+            // re-arms do not — they always use plain RefreshDebounce — which is what lets a re-arm
+            // land inside a window this check is the only thing standing between it and that
+            // duplicate work. Waiting can in principle be starved by passes or windows that never
+            // quiesce — the same exposure the submit case has always carried, and a form whose
+            // passes never settle has no moment at which a refresh would be meaningful anyway.
             ScheduleRefresh();
             return;
         }
@@ -1589,14 +1714,15 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
                 // another's scope pre-submit — this is the same "post-submit editing reads like
                 // pre-submit editing" symmetry, not a gap.
 
-                // The empty case is reachable, not a bug: a re-armed timer (see the deferral
-                // above) can fire after an earlier refresh pass already snapshotted the union,
-                // leaving nothing new accumulated. The ternary's null branch then falls back to
-                // form-wide validating for this redundant pass — a brief conservative flash, the
-                // pre-scoping behaviour, never a stuck flag.
-                var edited = _pendingRefreshFields.Count > 0
-                    ? new HashSet<FieldIdentifier>(_pendingRefreshFields)
-                    : null;
+                // The empty case is reachable, and answers silently: a rendered-field-set change
+                // (a virtualized panel scrolling rows into registration, a row departing) arms a
+                // refresh with no field ever having been edited, and a re-armed timer can also
+                // fire after an earlier refresh already snapshotted the union, leaving nothing
+                // new accumulated. Either way the indicator's contract is "the fields edited
+                // within this window" — an empty accumulator IS that answer, not a signal to fall
+                // back to form-wide. The pass still validates the whole model under the submit
+                // profile; only which fields the indicator lights narrows.
+                var edited = new HashSet<FieldIdentifier>(_pendingRefreshFields);
                 _pendingRefreshFields.Clear();
                 return edited;
             },

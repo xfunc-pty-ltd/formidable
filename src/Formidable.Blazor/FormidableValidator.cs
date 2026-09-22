@@ -17,6 +17,21 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     private FormidableOptions? _boundOptions;
     private FormidableFormContext? _context;
 
+    // Latches the Registry.Version last actually reconciled, mirroring FormidableForm's own
+    // _renderedFieldSetVersion — reset to -1 whenever the engine is (re)built, so the first
+    // signal after a fresh registry always finds something to do. Read and written only from the
+    // renderer's synchronization context: the automatic path reaches it via a posted
+    // continuation captured on that same context, and NotifyFieldSetChanged is documented to be
+    // called from one of a consumer's own event handlers, never from a background thread.
+    private int _lastReconciledFieldSetVersion = -1;
+
+    // How many times ReconcileIfChanged has actually run the reconcile (as opposed to skipping
+    // on the version gate) since the engine was built. Internal rather than removed once the
+    // signal exists, because it is the only way a test can tell a batch of N registry changes
+    // that coalesced into one reconcile apart from one that ran the reconcile N times and merely
+    // produced the same final state either way.
+    internal int ReconcileCount { get; private set; }
+
     [CascadingParameter]
     private EditContext? CascadedEditContext { get; set; }
 
@@ -55,6 +70,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
         if (_engine is not null && !ReferenceEquals(_engine.EditContext, CascadedEditContext))
         {
+            _engine.Registry.Changed -= OnFieldRegistryChanged;
             _engine.Dispose();
             _engine = null;
         }
@@ -73,6 +89,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 Options,
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine);
+            _lastReconciledFieldSetVersion = -1;
+            _engine.Registry.Changed += OnFieldRegistryChanged;
         }
         else
         {
@@ -114,6 +132,102 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>
+    /// Reconciles the engine's view of which fields are still on the page against the registry,
+    /// pruning verdicts for fields that have since unregistered — the attach-mode counterpart of
+    /// what <c>FormidableForm</c> does for itself every render by polling
+    /// <c>Registry.Version</c>. Not required for ordinary use: this component already notices a
+    /// rendered-field-set change on its own (see <see cref="OnFieldRegistryChanged"/>) and calls
+    /// this same reconcile shortly after the render that caused it, with no consumer action
+    /// needed. It is exposed as an override for a use case where that built-in signal proves
+    /// insufficient — for example, reading <see cref="Engine"/> synchronously right after a
+    /// mutation that also unregisters a field, rather than waiting for the automatic reconcile's
+    /// posted continuation to run. Call it from the renderer's synchronization context (a Blazor
+    /// event handler or <c>InvokeAsync</c>), the same as any other call that touches the engine.
+    /// </summary>
+    public void NotifyFieldSetChanged() => ReconcileIfChanged();
+
+    /// <summary>
+    /// <see cref="FieldRegistry.Changed"/>'s subscriber. Fires synchronously from inside whatever
+    /// render batch changed a registration — reacting inline here, or through this component's
+    /// own <c>InvokeAsync</c>, would observe that batch's transient, still-settling state (see
+    /// <see cref="FieldRegistry.Changed"/>'s own remarks): <c>InvokeAsync</c> runs synchronously,
+    /// inline, whenever the caller is already on the dispatcher, which is exactly this call site.
+    /// Two genuinely deferring paths follow, each the standard one on a different host rather
+    /// than one being a fallback for the other: on Blazor Server (and in bUnit, which resolves
+    /// the same dispatcher shape), a real <see cref="SynchronizationContext"/> is always current
+    /// here, and capturing it and posting to it directly is what defers — the continuation runs
+    /// only once every registration change in the batch has landed. On Blazor WebAssembly's
+    /// default single-threaded runtime, no <see cref="SynchronizationContext"/> is ever installed
+    /// at all, on any thread, at any time — that branch is not a rare edge case there, it is the
+    /// only branch this method ever takes, every single time. <see cref="DeferReconcileAsync"/>
+    /// is what defers on that host instead. Either way, the version gate in
+    /// <see cref="ReconcileIfChanged"/> collapses however many of these fire in one batch to a
+    /// single reconcile.
+    /// </summary>
+    private void OnFieldRegistryChanged()
+    {
+        var context = SynchronizationContext.Current;
+        if (context is null)
+        {
+            _ = DeferReconcileAsync();
+            return;
+        }
+
+        context.Post(_ => ReconcileIfChanged(), null);
+    }
+
+    /// <summary>
+    /// Defers <see cref="ReconcileIfChanged"/> past the current synchronous call stack when there
+    /// is no <see cref="SynchronizationContext"/> to <c>Post</c> through — Blazor WebAssembly's
+    /// default single-threaded runtime never installs one, on any thread, so this is that host's
+    /// only way to defer past a render batch rather than observe it mid-diff. <c>Task.Yield()</c>
+    /// queues the rest of this method through the thread pool; on a single-threaded host that
+    /// still means the continuation only runs once the call stack that queued it has unwound all
+    /// the way back to the browser's own event loop, which restores the same "after the batch"
+    /// guarantee the <c>Post</c> branch gives on a host that has a context to post through.
+    /// Fire-and-forget by design: <see cref="ReconcileIfChanged"/> invokes nothing that runs a
+    /// consumer's own code — no validator, no user delegate, only this registry's and the
+    /// engine's own internal bookkeeping — so nothing reachable from here is expected to throw,
+    /// the same premise the <c>Post</c> branch's own equally unguarded call to the same method
+    /// already relies on; a genuine defect surfaces as an unobserved task exception rather than
+    /// being caught and silently discarded.
+    /// </summary>
+    private async Task DeferReconcileAsync()
+    {
+        await Task.Yield();
+        ReconcileIfChanged();
+    }
+
+    /// <summary>
+    /// The version-gated reconcile both deferred paths above and <see cref="NotifyFieldSetChanged"/>
+    /// run. Comparing against <see cref="_lastReconciledFieldSetVersion"/> before latching and
+    /// calling <see cref="FormValidationEngine{TModel}.OnRenderedFieldsChanged"/> is what lets
+    /// several registry changes in one batch — each deferring its own continuation — coalesce to
+    /// one reconcile: whichever continuation runs first finds the version has moved and does the
+    /// work, and every later one for the same settled state finds nothing new and skips. Guards
+    /// first on <see cref="_engine"/> being null, which is also what keeps a continuation that
+    /// was still pending when <see cref="Dispose"/> ran from reconciling against the engine
+    /// Dispose already tore down — Dispose nulls the field for exactly this reason.
+    /// </summary>
+    private void ReconcileIfChanged()
+    {
+        if (_engine is null)
+        {
+            return;
+        }
+
+        var version = _engine.Registry.Version;
+        if (version == _lastReconciledFieldSetVersion)
+        {
+            return;
+        }
+
+        _lastReconciledFieldSetVersion = version;
+        ReconcileCount++;
+        _engine.OnRenderedFieldsChanged();
+    }
+
+    /// <summary>
     /// The engine, or the reason there is not one yet. It is built on binding to the cascaded
     /// <c>EditContext</c>, so every entry point that runs the pipeline has to answer for a call
     /// that beats the first render rather than let it surface from inside the component as a null
@@ -149,5 +263,13 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _engine?.Dispose();
+    public void Dispose()
+    {
+        if (_engine is not null)
+        {
+            _engine.Registry.Changed -= OnFieldRegistryChanged;
+            _engine.Dispose();
+            _engine = null;
+        }
+    }
 }

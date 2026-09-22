@@ -28,7 +28,9 @@
 </p>
 
 <FormidableForm Model="_roster" OnValidSubmit="HandleValid" FocusFirstErrorOnInvalidSubmit="@_focusFirstError">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
     <FormidableCollectionMessage For="() => _roster.Teams" />
 
     @foreach (var team in _roster.Teams)

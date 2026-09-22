@@ -27,7 +27,9 @@
 </TeachingPanel>
 
 <FormidableForm @ref="_form" Model="_brief" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_brief.Title" /></label>
         <FormidableFieldMessage For="() => _brief.Title" /></div>

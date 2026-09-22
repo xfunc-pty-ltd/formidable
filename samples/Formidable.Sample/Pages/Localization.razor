@@ -35,7 +35,9 @@
 </fieldset>
 
 <FormidableForm Model="_profile" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Full Name <FormidableInputText @bind-Value="_profile.FullName" /></label>
         <FormidableFieldMessage For="() => _profile.FullName" /></div>

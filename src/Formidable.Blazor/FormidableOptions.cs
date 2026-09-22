@@ -16,7 +16,7 @@ public sealed class FormidableOptions
 
     /// <summary>
     /// Debounce for the live pass a field change triggers. Defaults to <see langword="null"/>,
-    /// which runs the live pass immediately on every field change — today's behavior, unchanged.
+    /// which runs the live pass immediately on every field change.
     /// When set, a field change arms a single timer instead of running the pass immediately; a
     /// further change within the window re-arms it rather than starting a second timer, and the
     /// pass runs once the window elapses with no further edit, scoped to every field changed
@@ -117,8 +117,8 @@ public sealed class FormidableOptions
     /// <summary>
     /// Role attribute applied to every field- and collection-level message list
     /// (<c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>). Defaults to
-    /// <see langword="null"/>, which renders no <c>role</c> attribute at all — today's behavior,
-    /// unchanged. Set to <c>"status"</c> to make each list its own polite live region, announced
+    /// <see langword="null"/>, which renders no <c>role</c> attribute at all. Set to
+    /// <c>"status"</c> to make each list its own polite live region, announced
     /// to assistive technology as its content changes; recommended on forms that render no
     /// <see cref="FormidableSummary"/>, which already announces on its own.
     /// </summary>
@@ -126,8 +126,7 @@ public sealed class FormidableOptions
 
     /// <summary>
     /// Re-sorts the order visible issues are reported in. Defaults to <see langword="null"/>,
-    /// which reports them in the document order of the rendered fields — today's behavior,
-    /// unchanged, and what most forms want.
+    /// which reports them in the document order of the rendered fields — what most forms want.
     /// </summary>
     /// <remarks>
     /// A pipeline stage rather than a replacement for

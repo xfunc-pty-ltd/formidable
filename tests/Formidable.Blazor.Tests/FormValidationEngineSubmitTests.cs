@@ -66,6 +66,30 @@ public class FormValidationEngineSubmitTests
     }
 
     [Fact]
+    public async Task The_store_carries_errors_for_unrendered_fields()
+    {
+        using var descReg = _engine.Registry.Register(Field(_order, nameof(EngineOrder.Description)));
+
+        var outcome = await _engine.ValidateForSubmitAsync();
+        Assert.False(outcome.CanProceed);
+
+        // Description answers for this submit and then leaves the page, but nothing tells the
+        // engine so - no OnRenderedFieldsChanged, no further pass. RebuildStore's copy loops
+        // re-play whatever the buckets already hold without re-checking current registration, so
+        // a departed field's error persists in the store exactly as it arrived.
+        descReg.Dispose();
+
+        // Customer is required but was never registered at all, so its client submit error never
+        // entered the bucket in the first place (suppressed by the registration gate at write
+        // time). A server-declared error bypasses that gate outright - the one path through which
+        // an unrendered field's blocking verdict still reaches the native store.
+        _engine.ApplyServerIssues([new ValidationIssue(nameof(EngineOrder.Customer), "Customer is required")]);
+
+        Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
+        Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Customer))));
+    }
+
+    [Fact]
     public async Task Successful_submit_clears_all_messages_and_visible_state()
     {
         _order.Description = new string('x', 11);

@@ -29,7 +29,9 @@
 
 <div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
     <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
-        <FormidableSummary />
+        <div class="summary-slot">
+            <FormidableSummary />
+        </div>
 
         <div class="mb-3"><label class="form-label">Name <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
             <FormidableFieldMessage For="() => _contact.Name" /></div>

@@ -255,13 +255,14 @@ main {
     margin-bottom: .1rem;
 }
 
-/* Padding does not margin-collapse the way the field's own bottom margin does, so a
-   field showing messages keeps this room on top of its normal trailing margin. The
-   4.8px gap above the messages (.formidable-messages' margin-top) already groups them
-   with their input correctly; without this, a field with messages ended in the same
-   trailing gap as a clean field, so on a long blocked form the messages read as
-   floating above the next label rather than owned by the field above them. */
-.field:has(.formidable-messages) {
+/* Padding does not margin-collapse the way the field's own bottom margin does, so a field
+   showing a message keeps this room on top of its normal trailing margin. The 4.8px gap above
+   the message (.formidable-messages' own margin-top) already groups it with its input; this is
+   the field's own share of that same grouping, keeping the message reading as owned by the
+   field above it rather than floating up against the next label. The list itself renders
+   always (empty when the field has none), so this keys on an actual message rather than the
+   list's own presence — an empty list must not claim the padding. */
+.field:has(.formidable-message) {
     padding-bottom: .35rem;
 }
 
@@ -271,26 +272,30 @@ main {
    the message while the list's own zero bottom margin leaves it flush against the next label,
    so the message reads as a heading for the field below rather than a verdict on the one
    above. These two restore the nested shape's proportions - the field snugs down to the same
-   grouping gap the list's own top margin gives it inside a field, and the list takes over the
-   trailing room the field's margin used to provide - sized to 1.35rem (1rem + the nested
-   shape's .35rem padding-bottom) so the two shapes end in exactly the same trailing gap. */
-.field:has(+ .formidable-messages) {
+   grouping gap the list's own top margin gives it inside a field, and the list carries the
+   trailing room the field's own margin supplies in the nested shape - sized to 1.35rem (1rem +
+   the nested shape's own .35rem trailing padding) so the two shapes end in exactly the same
+   trailing gap. Both key on an actual message for the same reason as above — the sibling list
+   is always there too, and an empty one must fall through to the plain field/list defaults. */
+.field:has(+ .formidable-messages .formidable-message) {
     margin-bottom: .3rem;
 }
 
-.field + .formidable-messages {
+.field + .formidable-messages:has(.formidable-message) {
     margin: 0 0 1.35rem;
 }
 
 /* One sibling message list must keep the default proportions: a collection's messages
    introduce the item list below them, and on the roster pages that list follows a team's name
    field, so the pair above would glue a team-level message to the name field it does not
-   belong to. Matching on the item list that follows restores both defaults for that shape. */
-.field:has(+ .formidable-messages + .member-list) {
+   belong to. Matching on the item list that follows restores both defaults for that shape.
+   Two separate :has() clauses (rather than nesting one inside the other, which the selector
+   grammar forbids) express the same "has a message AND is followed by the roster" condition. */
+.field:has(+ .formidable-messages .formidable-message):has(+ .formidable-messages + .member-list) {
     margin-bottom: 1rem;
 }
 
-.field + .formidable-messages:has(+ .member-list) {
+.field + .formidable-messages:has(.formidable-message):has(+ .member-list) {
     margin: .3rem 0 0;
 }
 
@@ -409,14 +414,47 @@ form .formidable-pending {
 
 /* ---------- messages ---------- */
 
+/* The list itself renders always - empty when the field has no issues - so it is a persistent
+   element the same way .summary-slot's wrapper is, and the same technique applies directly: no
+   @starting-style is needed because there is no insertion to supply a pre-insertion frame for,
+   just an ordinary property change on an element that was already there. :has() keys the open
+   row off an actual message (the ITEM, not the list) so the grid-row track grows from zero
+   without knowing the content's height up front and, because the list never leaves the DOM,
+   collapses back to zero the same way on the way out. */
 .formidable-messages {
+    display: grid;
+    grid-template-rows: 0fr;
     list-style: none;
-    margin: .3rem 0 0;
+    margin: 0;
     padding: 0;
+    transition: grid-template-rows .22s ease, margin-top .22s ease;
+}
+
+.formidable-messages:has(.formidable-message) {
+    grid-template-rows: 1fr;
+    margin-top: .3rem;
+}
+
+.formidable-messages > li {
+    overflow: hidden;
+    min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .formidable-messages {
+        transition: none;
+    }
 }
 
 .formidable-message {
     font-size: .85rem;
+}
+
+/* Only the gap BETWEEN messages needs its own margin - the list's own margin-top above already
+   groups the first message with its field, and a grid item's margin never collapses into its
+   container's the way a plain block child's would, so giving every message the same top margin
+   would double that opening gap on the first one. */
+.formidable-message + .formidable-message {
     margin-top: .15rem;
 }
 
@@ -480,6 +518,31 @@ button:focus-visible {
 
 /* ---------- summary (links excluded from the secondary-button rules above) ---------- */
 
+/* The slide: FormidableSummary renders nothing at all when there are no visible issues, so
+   :has() toggles the open row directly off the summary's own presence — no separate open/closed
+   class to keep in sync. overflow: hidden and min-height: 0 on the summary keep it from resisting
+   the collapsed 0fr row before that happens. */
+.summary-slot {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows .22s ease;
+}
+
+.summary-slot > .formidable-summary {
+    overflow: hidden;
+    min-height: 0;
+}
+
+.summary-slot:has(.formidable-summary) {
+    grid-template-rows: 1fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .summary-slot {
+        transition: none;
+    }
+}
+
 /* Neutral: FormidableSummary.Show can render a summary carrying only one severity band, so no
    single colour lives on the outer region — each band below carries its own. The bands are
    peers, not a card-in-a-card: no outer background, border or padding here, just the stack. */
@@ -494,7 +557,7 @@ button:focus-visible {
    every band starts at the same left edge regardless of severity. */
 .formidable-summary__band {
     border-radius: var(--radius-card);
-    padding: .45rem .7rem .45rem .65rem;
+    padding: .55rem 1rem;
 }
 
 .formidable-summary__band--error {
@@ -540,19 +603,20 @@ button:focus-visible {
     margin: .15rem 0;
 }
 
-/* display: block + width: 100% makes the whole row the hit target, not just the message text;
-   the hover/focus-visible tint below is what carries the "this is clickable" affordance. The
+/* width: fit-content hugs the pill to the message text - the hit target is the text itself,
+   not the full row; the hover/focus-visible tint below is what carries the "this is clickable"
+   affordance, and the focus ring (drawn from the button's own box) hugs the same shape. The
    negative left margin plus a matching left padding extends that tint past the text's left edge
    without moving the text itself, mirroring the existing right-side padding so the tint reads as
    symmetric around the flush-aligned message. */
 button.formidable-summary__link {
     display: block;
-    width: 100%;
+    width: fit-content;
     background: none;
     border: none;
     border-radius: var(--radius-button);
     margin: 0 0 0 -.55rem;
-    padding: .35rem .55rem .35rem .55rem;
+    padding: .35rem .55rem;
     font: inherit;
     font-size: .9rem;
     font-weight: 500;

@@ -24,7 +24,9 @@
 </TeachingPanel>
 
 <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid">
-    <FormidableSummary FocusFallback="ScrollToRowAsync" />
+    <div class="summary-slot">
+        <FormidableSummary FocusFallback="ScrollToRowAsync" />
+    </div>
 
     <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">

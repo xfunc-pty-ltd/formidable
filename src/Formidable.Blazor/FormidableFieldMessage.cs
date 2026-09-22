@@ -9,9 +9,13 @@ namespace Formidable.Blazor;
 /// Shared lifecycle and rendering for field-level and collection-level message components:
 /// resolves <see cref="For"/> to a <see cref="FieldIdentifier"/>, subscribes to the cascaded
 /// engine's <see cref="IFormValidationEngine.StateChanged"/> so a validation pass re-renders the
-/// list, and renders an accessible message list from <see cref="IFormValidationEngine.GetIssues"/>
-/// — nothing when the field currently has no issues. This type is public only because a public
-/// component cannot inherit a less accessible base; it is not an extension point, and unlike
+/// list, and renders an accessible message list from <see cref="IFormValidationEngine.GetIssues"/>.
+/// The list element renders always — empty when the field currently has no issues — so a
+/// consumer's CSS can transition its opening and closing, and so a configured
+/// <see cref="FormidableOptions.InlineMessageRole"/> sits on an element that persists across
+/// renders rather than one that enters alongside the text it announces. This type is public only
+/// because a public component cannot inherit a less accessible base; it is not an extension
+/// point, and unlike
 /// <see cref="FormidableInputBase{TValue}"/> it is not meant to be one. The constructor is not
 /// accessible outside this assembly, so <see cref="FormidableFieldMessage{TValue}"/> and
 /// <see cref="FormidableCollectionMessage{TValue}"/> are the only two shapes; whether the field
@@ -78,11 +82,6 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
         }
 
         var issues = Context.Engine.GetIssues(_field);
-        if (issues.Count == 0)
-        {
-            return;
-        }
-
         var role = (Context.Engine as IValidatingFieldReader)?.InlineMessageRole;
 
         var sequence = 0;
@@ -110,9 +109,9 @@ public abstract class FormidableMessageBase<TValue> : FormidableComponentBase
 }
 
 /// <summary>
-/// Renders a field's current validation issues (any severity) as an accessible message list;
-/// renders nothing when the field has none. Does not register with the field registry — messages
-/// are not inputs, so pairing a message with a validated input (or a
+/// Renders a field's current validation issues (any severity) as an accessible message list; the
+/// list itself renders always, empty when the field has none. Does not register with the field
+/// registry — messages are not inputs, so pairing a message with a validated input (or a
 /// <see cref="FormidableFieldAnchor{TValue}"/>) elsewhere in the form is what keeps the field
 /// revealed.
 /// </summary>

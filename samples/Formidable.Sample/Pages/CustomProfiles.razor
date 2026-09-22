@@ -34,7 +34,9 @@
 </fieldset>
 
 <FormidableForm @ref="_form" Model="_post" Options="_options">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_post.Title" /></label>
         <FormidableFieldMessage For="() => _post.Title" /></div>

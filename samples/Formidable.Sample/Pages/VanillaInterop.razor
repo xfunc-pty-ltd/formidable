@@ -24,7 +24,9 @@
 </TeachingPanel>
 
 <FormidableForm Model="_order" OnValidSubmit="HandleValid" @ref="_form">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field">
         <label>Nickname (native InputText)

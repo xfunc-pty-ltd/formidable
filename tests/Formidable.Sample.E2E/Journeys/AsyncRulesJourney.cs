@@ -186,4 +186,75 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
             $"expected exactly one real checking window, found {realChecks} of {windows.Length} " +
             $"total window(s): [{string.Join(", ", windows.Select(w => $"{w[1] - w[0]:F0}ms"))}]");
     }
+
+    // Property: with LiveDebounce ticked, editing after a submit still produces exactly one REAL
+    // checking window, not two — the debounced live pass answers first, retains its report, and
+    // the refresh that follows reuses it instead of running its own round trip, the same outcome
+    // A_post_submit_edit_checks_once pins above without LiveDebounce set at all.
+    //
+    // Reverting FormValidationEngine's refresh arm-time change (the max in HandleFieldChanged,
+    // back to plain RefreshDebounce regardless of LiveDebounce) does NOT turn this red on its
+    // own, for the same reason A_post_submit_edit_checks_once's own mutation does not:
+    // MemoizedHandleValidator's memo backstops it. With the max reverted, the refresh comes due
+    // first, at 300 ms — before the debounced live pass has even started — finds no report
+    // retained, and pays for the whole SubmitProfile itself, memoizing "adam" as it goes. The
+    // debounced live pass keeps deferring while that refresh is in flight
+    // (RunDebouncedLivePassAsync's own RefreshInFlight guard) and only proceeds once it clears,
+    // by which point "adam" is already in the memo, so it answers from that entry instead of
+    // paying for its own round trip. What changes is WHICH pass pays, not whether a second one
+    // does — so the wall-clock cost stays flat and this test cannot see the regression.
+    // FormValidationEngineProfileSplitTests.A_debounced_edit_runs_each_common_rule_once pins the
+    // exact mutation directly, counting rule invocations on a validator with no memo to hide
+    // behind; this test proves the weaker, end-to-end, user-visible claim that holds given the
+    // memo the shipped sample actually has — the same relationship
+    // A_post_submit_edit_checks_once has with its own engine-level pin.
+    [E2EFact]
+    public async Task A_debounced_post_submit_edit_checks_once()
+    {
+        await using var session = await app.NewPageAsync("/async");
+        var page = session.Page;
+
+        // High enough that a genuine second round trip cannot be confused with the refresh's own
+        // instantaneous indicator flash (see InstallCheckWindowProbe), yet low enough to keep the
+        // test's own wait reasonable.
+        const int delayMs = 900;
+        await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
+        await page.GetByLabel("Debounce live checks (batch fast typing into one pass)", new() { Exact = true })
+            .CheckAsync();
+
+        // An available username, checked through the debounced live path and settled once, then
+        // submitted — the ordinary path to a submitted form, not yet the edit under test. Typing
+        // finishes well inside the still-open 400 ms window, so nothing shows yet; waiting for the
+        // indicator to open before waiting for it to close is what makes this a genuine
+        // debounced-live-path check rather than a count(0) that was already true before the window
+        // ever closed — without it, Submit lands mid-window and the submit pass itself, not the
+        // live path, ends up being what answers "ada".
+        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
+        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
+        await Expect(page.Locator("em[role='status']")).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
+        await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync("Submitted — username checks passed.", new() { Timeout = AsyncTimeoutMs });
+
+        // Armed only after the form is submitted: everything above (the debounced live pass on
+        // "ada", the submit's own pass) is setup, not the edit under test.
+        await page.EvaluateAsync(InstallCheckWindowProbe);
+
+        await page.GetByLabel("Username", new() { Exact = true }).FillAsync("adam");
+
+        // Waits out the debounce window, the edit's own live pass, the refresh's defer-and-recheck
+        // cycle, and — were the double check to return — a second full round trip, by polling
+        // rather than guessing a fixed duration (see SettledAfterLastClose).
+        await page.WaitForFunctionAsync(
+            SettledAfterLastClose,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
+
+        var windows = await page.EvaluateAsync<double[][]>("() => window.__checkWindows");
+
+        var realChecks = windows.Count(w => w[1] - w[0] >= delayMs / 2.0);
+        Assert.True(
+            realChecks == 1,
+            $"expected exactly one real checking window, found {realChecks} of {windows.Length} " +
+            $"total window(s): [{string.Join(", ", windows.Select(w => $"{w[1] - w[0]:F0}ms"))}]");
+    }
 }

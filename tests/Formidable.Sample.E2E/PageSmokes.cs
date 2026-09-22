@@ -138,4 +138,11 @@ public sealed class PageSmokes(SampleAppFixture app)
         await using var session = await app.NewPageAsync("/workout");
         await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Full workout");
     }
+
+    [E2EFact]
+    public async Task Smoke_attach()
+    {
+        await using var session = await app.NewPageAsync("/attach");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Attaching to your own EditForm");
+    }
 }

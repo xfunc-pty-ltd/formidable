@@ -23,6 +23,7 @@ how results reach the UI.
 | `<ValidationMessage For="...">` | `<FormidableFieldMessage For="...">` — severity-aware (renders warnings and infos, not just errors) and resolves paths `ValidationMessage` can't, including indexed collection items and nested-nullable properties. See [Collections and row identity](collections-and-row-identity.md) |
 | Manually creating and rebuilding the `EditContext` when the model changes (draft load, reset) | `FormidableForm` owns that lifecycle — swapping its `Model` parameter rebuilds the `EditContext` and re-initializes validation state for you; `FormidableValidator` has no `Model` parameter and instead follows whatever `EditContext` is cascaded to it. See [Component kit](component-kit.md) |
 | A hand-written per-form class deciding which fields' errors are currently allowed to show | Render-registration disclosure — a field's visibility is a side effect of whether something registered it while mounted, not code you write per form. See [Disclosure](disclosure.md) |
+| A hand-written call to re-validate, or to manually clear stale messages, after removing a row from a collection | Neither root needs it. The engine notices the rendered field set changing on its own — `FormidableForm` on every render, `FormidableValidator` through a registry signal it reconciles just after the render that caused it — and prunes the departed row's live issues, then schedules a reconciling refresh if the form has already submitted. `NotifyFieldSetChanged()` exists as an override for a call site that can't wait for that automatic pass; ordinary use needs nothing beyond removing the row. See [Fields and collections](fields-and-collections.md) and [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) |
 | A second, hand-maintained message store layered on top of the library's own, plus the bookkeeping to keep the two in sync | One single-writer `ValidationMessageStore`, owned by the engine — there's no second store to keep synchronized. See [Component kit](component-kit.md)'s `FormidableForm` section |
 | Hand-written plumbing to get a server's rejection back onto the fields it names, or to ask whether a pass is currently running | `<FormidableValidator>` exposes the engine as `Engine` and forwards both `ApplyServerIssues` overloads itself, so an `EditForm`-hosted form reaches the same pipeline `FormidableForm` does, in the same one line. See [Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) and [Server integration](server-integration.md) |
 
@@ -79,4 +80,7 @@ relying on the old one implicitly:
 There's no single "migration" sample page — every page under `samples/Formidable.Sample/Pages/`
 is a small, complete form built the Formidable way, so any one of them is a working reference
 for what a form on the other side of this mapping looks like end to end. `/` (Quickstart) is the
-shortest.
+shortest. [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) is the one built for
+this page specifically: a consumer's own `EditForm` wearing `FormidableValidator`, a plain
+`InputText` left unmigrated beside a Formidable-managed expense list, and a row whose removal
+needs nothing extra to leave the page along with it.

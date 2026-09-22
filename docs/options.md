@@ -74,26 +74,28 @@ the same shape `RefreshDebounce` already has.
 Reach for it when live rules are expensive enough that one per keystroke is the wrong trade — an
 async availability check being the obvious case. It changes how often live passes run — and, when
 `TrackFormValidity` is also on, how often its validity probe runs too, since the probe rides this
-same window rather than firing on a schedule of its own (see below). After a submit, each keystroke
-still arms the post-submit refresh on `RefreshDebounce`'s own schedule regardless, so that window
-stays independent of this one.
+same window rather than firing on a schedule of its own (see below). After a submit, the same edit
+that arms this window also arms the post-submit refresh, and that refresh's own due time reads
+this window too.
 
-Independent, but not unrelated: an edit after a submit arms both, and the shorter window comes due
-first. At the default, with no live debounce at all, the live pass runs on the edit itself and the
-refresh follows it 300 ms later. Set this above `RefreshDebounce` — 400 ms against the 300 ms
-default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) does — and the order
-inverts, the refresh landing first with the live pass behind it. Set it to exactly
-`RefreshDebounce` and there is no first at all: both windows come due in the same tick, and which
-of the two passes runs before the other is the runtime's to decide. All three are legal, all
-three are pinned, and all three reach the same verdicts: the live pass owns the live channel, the
-refresh owns what the submit disclosed, and neither writes the other's. Live before refresh is
-the natural reading of the two, the pass judging the value on screen arriving ahead of the one
-re-checking what submit already said, and it is what the defaults give you.
+An edit after a submit arms both, and the live pass always answers first: the refresh's own due
+time is `RefreshDebounce`, or this window plus a fixed 50 ms margin, whichever is later — and a
+refresh that comes due while an open window still holds fields defers to it rather than run
+early. At the default, with no live debounce at all, the live pass runs on the edit itself and
+the refresh follows it 300 ms later. Set this above `RefreshDebounce` (400 ms against the 300 ms
+default, as [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) does) and the
+refresh's own timer moves out to match, arming at 450 ms instead of the plain 300, so the live
+pass this edit armed still gets there first. The live pass owns the live channel, the refresh
+owns what the submit disclosed, and neither writes the other's — live before refresh is the
+natural reading of the two, the pass judging the value on screen arriving ahead of the one
+re-checking what submit already said, and it is what every `LiveDebounce` setting gives any
+refresh armed after a submit.
 
-Same verdicts, not the same cost. Refresh-before-live is also the shape where a post-submit edit's
-retained-report reuse doesn't apply, so an async draft rule can answer twice instead of once — see
-[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) for that
-side of the race.
+Same verdicts, same cost. The retained-report reuse a post-submit edit gets without `LiveDebounce`
+set applies here too, since the live pass this edit armed always has a head start on the refresh
+that wants to reuse its report — see
+[Async validation](async-validation.md#the-refresh-runs-only-what-the-live-pass-did-not) for the
+mechanism.
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps
 between the immediate default and a 400 ms window, with the "checking…" indicator showing the
@@ -226,9 +228,13 @@ own point.
 
 `string?`, defaults to `null`, which renders no `role` attribute at all. Set it to `"status"` and
 every field- and collection-level message list becomes its own polite live region, announced as its
-content changes. Recommended on forms that render no `FormidableSummary` — the summary already
-announces on its own, and two live regions saying the same thing is worse than one. See
-[CSS and accessibility](css-and-accessibility.md) for how the summary's own role is chosen.
+content changes. The list element renders always, so the role sits on a container that persists
+across renders rather than one that enters alongside its own text — the reliable shape for a live
+region, since assistive technology is inconsistent about announcing a role that arrives together
+with the content it describes. Recommended on forms that render no `FormidableSummary` — the
+summary already announces on its own, and two live regions saying the same thing is worse than
+one. See [CSS and accessibility](css-and-accessibility.md) for how the summary's own role is
+chosen.
 
 ### `OrderIssues`
 

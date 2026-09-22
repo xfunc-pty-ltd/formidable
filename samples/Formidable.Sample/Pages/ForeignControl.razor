@@ -22,7 +22,9 @@
 </TeachingPanel>
 
 <FormidableForm Model="_order" OnValidSubmit="HandleValid">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">

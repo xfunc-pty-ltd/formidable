@@ -28,7 +28,9 @@
 
 <FormidableForm Model="_request" Options="_options" OnValidSubmit="HandleValid"
                 @ref="_form">
-    <FormidableSummary />
+    <div class="summary-slot">
+        <FormidableSummary />
+    </div>
 
     <div class="field"><label>Destination <FormidableInputText @bind-Value="_request.Destination" /></label>
         <FormidableFieldMessage For="() => _request.Destination" /></div>

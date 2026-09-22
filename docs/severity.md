@@ -128,8 +128,12 @@ So a model that's all warnings and infos, with no errors, submits successfully:
 
 ```razor
 <FormidableForm @ref="_form" Model="_listing">
-    <FormidableSummary Show="SummaryFilter.Errors" ErrorsHeading="Errors" />
-    <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Info" />
+    <div class="summary-slot">
+        <FormidableSummary Show="SummaryFilter.Errors" ErrorsHeading="Errors" />
+    </div>
+    <div class="summary-slot">
+        <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Info" />
+    </div>
 
     <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" /></label>
         <FormidableFieldMessage For="() => _listing.Title" /></div>

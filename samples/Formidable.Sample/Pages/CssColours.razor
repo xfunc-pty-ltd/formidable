@@ -35,7 +35,9 @@
    hex, which is what <input type="color"> always produces. *@
 <div style="@WrapperStyle">
     <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
-        <FormidableSummary />
+        <div class="summary-slot">
+            <FormidableSummary />
+        </div>
 
         @* OnInput commits each keystroke, so a message can never appear at blur — where it
            would push the Submit button out from under a pointer already on its way down. *@
