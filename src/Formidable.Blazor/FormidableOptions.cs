@@ -143,7 +143,7 @@ public sealed class FormidableOptions
     /// <summary>
     /// Opt-in whole-form validity probe for disable-submit scenarios. Defaults to
     /// <see langword="false"/> — off, never default-on: only a form with something reading
-    /// <see cref="IFormValidationEngine.IsFormValid"/> gets anything for it. Two shapes make that
+    /// <see cref="IFormidableEngine.IsFormValid"/> gets anything for it. Two shapes make that
     /// work permanent rather than shared: a validator that cannot execute rule by rule, and one
     /// whose <see cref="LiveProfile"/> narrows what the live pass beside it answers. On either,
     /// the extra evaluation is paid on every change for the whole life of the form. Those are the
@@ -173,7 +173,7 @@ public sealed class FormidableOptions
     /// rules among the difference.
     /// The construction-time probe is the one read of this property a mutation cannot reach, and
     /// enabling tracking mid-form computes nothing by itself:
-    /// <see cref="IFormValidationEngine.IsFormValid"/> keeps whatever it holds —
+    /// <see cref="IFormidableEngine.IsFormValid"/> keeps whatever it holds —
     /// <see langword="false"/>, on a form tracking has never answered — until the next field
     /// change or whole-model pass answers it.
     /// </summary>
@@ -397,8 +397,8 @@ public sealed class FormidableOptions
     /// </summary>
     /// <remarks>
     /// Read wherever a surface asks the submit channel what it holds, so
-    /// <see cref="IFormValidationEngine.GetIssues"/>,
-    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> and the components reading them answer
+    /// <see cref="IFormidableEngine.GetIssues"/>,
+    /// <see cref="IFormidableEngine.GetVisibleIssues"/> and the components reading them answer
     /// with a change from the next read after it is made; the <c>EditContext</c>'s
     /// <c>ValidationMessageStore</c> is a materialized projection of those same reads rather than a
     /// read of them, so it carries the change from its next rebuild. The engine files no gate
@@ -444,11 +444,11 @@ public sealed class FormidableOptions
     /// when it was filed. Contrast <see cref="DefensiveGateMessage"/>, whose explanation is built
     /// at each read because the gate files nothing. The stored issue is cleared from two places
     /// rather than one: a pass that completes without faulting, and
-    /// <see cref="IFormValidationEngine.ApplyServerIssues"/>, which clears it with no pass
+    /// <see cref="IFormidableEngine.ApplyServerIssues"/>, which clears it with no pass
     /// involved — so a server round trip after a client-side fault ends it exactly as a recovered
     /// pass does, and a form does not carry a fault it is no longer subject to.
     /// It says nothing about what threw, deliberately: the exception is delivered to
-    /// <see cref="IFormValidationEngine.ValidationFaulted"/>, which is where a host logs it and
+    /// <see cref="IFormidableEngine.ValidationFaulted"/>, which is where a host logs it and
     /// where anything diagnostic belongs. This is the half the person filling the form reads.
     /// </remarks>
     public string ValidationFaultMessage { get; set; } =
@@ -465,7 +465,7 @@ public sealed class FormidableOptions
     /// and returns them re-sorted, so a consumer who only wants to move one group ahead of another
     /// can do that without describing the whole form. It runs once per order resolution — the same
     /// cadence as the service, behind the same registry-version guard — not per render and not per
-    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> call: its result is baked into the
+    /// <see cref="IFormidableEngine.GetVisibleIssues"/> call: its result is baked into the
     /// ordinal map, which every read of the issues then sorts by, a lookup per issue rather than
     /// another run of the delegate.
     /// The fields handed over include the model-level one — a <see cref="FieldIdentifier"/> with an

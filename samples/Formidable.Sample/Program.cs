@@ -42,6 +42,8 @@ var host = builder.Build();
 // downloads the satellite resource assemblies for it. Setting it any later leaves the app
 // on the culture it booted with, which is why the localization page reloads on a switch.
 var js = host.Services.GetRequiredService<IJSRuntime>();
-await FormidableCultureBootstrap.ApplyStoredCultureAsync(js, fallback: CultureInfo.GetCultureInfo("en-AU"));
+await CultureBootstrap.ApplyStoredCultureAsync(
+    () => js.InvokeAsync<string?>("formidableSample.getCulture").AsTask(),
+    CultureInfo.GetCultureInfo("en-AU"));
 
 await host.RunAsync();

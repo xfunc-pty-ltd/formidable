@@ -7,7 +7,7 @@ namespace Formidable.Blazor;
 /// Shared lifecycle for the kit's context-bound components: it holds the cascaded
 /// <see cref="FormidableFormContext"/>, binds to it when parameters are set — registering whatever
 /// the component speaks for with the form's <see cref="FieldRegistry"/> and subscribing to the
-/// engine's <see cref="IFormValidationEngine.StateChanged"/> — rebinds when a host such as
+/// engine's <see cref="IFormidableEngine.StateChanged"/> — rebinds when a host such as
 /// <c>FormidableForm</c>/<c>FormidableValidator</c> swaps its model and rebuilds its engine and
 /// registry, and releases both on disposal. That rebind is the reason this lives in one place:
 /// without it a surviving component keeps a dead subscription to the disposed engine and an
@@ -47,7 +47,7 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
 
     /// <summary>
     /// Whether the component re-renders when the engine raises
-    /// <see cref="IFormValidationEngine.StateChanged"/> — true for anything that renders a
+    /// <see cref="IFormidableEngine.StateChanged"/> — true for anything that renders a
     /// verdict, and so the default. A component that renders no markup of its own has nothing to
     /// re-render: overriding this to false leaves it unsubscribed altogether rather than
     /// subscribing a handler with no work to do. Turning it off in a component that does render a
@@ -157,7 +157,7 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     protected abstract FieldRegistration? Register(FormidableFormContext context);
 
     /// <summary>
-    /// Called when the engine raises <see cref="IFormValidationEngine.StateChanged"/> — a
+    /// Called when the engine raises <see cref="IFormidableEngine.StateChanged"/> — a
     /// validation pass landing, a refresh, a server-applied issue — and re-renders the
     /// component on the renderer's synchronization context. An override that still wants
     /// the re-render must call base. It has the event's own handler shape, so an override

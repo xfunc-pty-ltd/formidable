@@ -489,7 +489,7 @@ public class FormidableFormComponentTests : BunitContext
 
     // A submit awaiting the engine's pipeline can still be in flight when ResetAsync disposes
     // that very engine out from under it. Cancelling the abandoned pass's token is what usually
-    // ends it early (see FormValidationEngine's own "superseded, not cancelled by the caller"
+    // ends it early (see FormidableEngine's own "superseded, not cancelled by the caller"
     // handling), but this validator does not observe its token at all — the pass runs to
     // completion and would pass, proving that what blocks this outcome is FormidableForm's own
     // dead-engine guard, not supersession inside the engine. Its verdict belongs to an abandoned
@@ -993,7 +993,11 @@ public class FormidableFormComponentTests : BunitContext
     private BunitJSModuleInterop SetUpClickRecoveryModule()
     {
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
-        module.SetupVoid("registerClickRecovery", _ => true).SetVoidResult();
+        // The script answers whether it found an element to scope the guard to. This root never
+        // reads that answer — it renders the <form> the script takes as a root whatever that form
+        // currently holds — but it goes through the same one call shape as attach mode, whose
+        // page CAN come up empty and has to be told.
+        module.Setup<bool>("registerClickRecovery", _ => true).SetResult(true);
         module.SetupVoid("releaseClickRecovery", _ => true).SetVoidResult();
         return module;
     }

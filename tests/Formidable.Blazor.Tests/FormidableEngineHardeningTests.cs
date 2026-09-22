@@ -5,7 +5,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineHardeningTests
+public class FormidableEngineHardeningTests
 {
     [Fact]
     public async Task Edit_during_first_submit_gets_revalidated_after_submit_completes()
@@ -14,7 +14,7 @@ public class FormValidationEngineHardeningTests
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -44,7 +44,7 @@ public class FormValidationEngineHardeningTests
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -76,7 +76,7 @@ public class FormValidationEngineHardeningTests
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -111,7 +111,7 @@ public class FormValidationEngineHardeningTests
         var time = new FakeTimeProvider();
         var interceptNext = false;
         Func<Task>? queued = null;
-        var engine = new FormValidationEngine<EngineOrder>(
+        var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -147,7 +147,7 @@ public class FormValidationEngineHardeningTests
         var order = new EngineOrder();
         var validator = new ThrowingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -172,7 +172,7 @@ public class FormValidationEngineHardeningTests
         var order = new EngineOrder();
         var suppressed = new List<ValidationIssue>();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -190,7 +190,7 @@ public class FormValidationEngineHardeningTests
     {
         var order = new EngineOrder();
         var suppressed = new List<ValidationIssue>();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),

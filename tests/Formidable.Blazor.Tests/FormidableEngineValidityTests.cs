@@ -5,17 +5,17 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineValidityTests
+public class FormidableEngineValidityTests
 {
     private readonly EngineOrder _order = new();
     private readonly EditContext _editContext;
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
     private readonly FakeTimeProvider _time = new();
 
-    public FormValidationEngineValidityTests()
+    public FormidableEngineValidityTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order,
             _editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -157,7 +157,7 @@ public class FormValidationEngineValidityTests
         var options = new FormidableOptions(); // TrackFormValidity defaults to false
         var counting = new CountingValidator<EngineOrder>(
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             counting,
@@ -181,7 +181,7 @@ public class FormValidationEngineValidityTests
     {
         var order = new EngineOrder { Description = "Valid", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -210,7 +210,7 @@ public class FormValidationEngineValidityTests
     {
         var order = new EngineOrder { Description = "Valid", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -278,7 +278,7 @@ public class FormValidationEngineValidityTests
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
         var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -318,7 +318,7 @@ public class FormValidationEngineValidityTests
         var order = new EngineOrder();
         var validator = new ThrowingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -362,7 +362,7 @@ public class FormValidationEngineValidityTests
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
         var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),

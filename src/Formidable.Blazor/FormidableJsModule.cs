@@ -22,6 +22,24 @@ internal sealed class FormidableJsModule
 
     public FormidableJsModule(IJSRuntime jsRuntime) => _jsRuntime = jsRuntime;
 
+    /// <summary>
+    /// Whether an exception is the interop boundary failing rather than the code behind it: the
+    /// JS side throwing or the runtime being unreachable (<see cref="JSException"/>,
+    /// <see cref="JSDisconnectedException"/>), the runtime already disposed, or the call cancelled
+    /// — an interop timeout on a server circuit arrives as the last of those.
+    /// </summary>
+    /// <remarks>
+    /// Stated once, because every caller that catches on it is drawing the same line: a boundary
+    /// that is gone, disconnected or never loaded costs the page whatever that call would have
+    /// bought and nothing else, where an implementation failing on its own terms is a bug for
+    /// someone to see rather than one to swallow.
+    /// </remarks>
+    /// <param name="exception">The exception to judge.</param>
+    /// <returns><see langword="true"/> when the boundary itself is what failed.</returns>
+    internal static bool IsInteropFailure(Exception exception) =>
+        exception is JSException or JSDisconnectedException or ObjectDisposedException
+            or OperationCanceledException;
+
     /// <summary>Invokes <paramref name="identifier"/> on the module and returns its result.</summary>
     public async ValueTask<T> InvokeAsync<
         [DynamicallyAccessedMembers(

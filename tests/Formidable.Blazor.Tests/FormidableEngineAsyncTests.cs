@@ -5,7 +5,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineAsyncTests
+public class FormidableEngineAsyncTests
 {
     [Fact]
     public async Task Newer_submit_supersedes_and_cancels_older_pass()
@@ -13,7 +13,7 @@ public class FormValidationEngineAsyncTests
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -44,7 +44,7 @@ public class FormValidationEngineAsyncTests
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -64,7 +64,7 @@ public class FormValidationEngineAsyncTests
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -90,7 +90,7 @@ public class FormValidationEngineAsyncTests
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -117,7 +117,7 @@ public class FormValidationEngineAsyncTests
         var order = new EngineOrder();
         var validator = new ThrowingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -152,7 +152,7 @@ public class FormValidationEngineAsyncTests
         var order = new EngineOrder();
         var validator = new ThrowingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),

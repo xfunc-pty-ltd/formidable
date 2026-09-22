@@ -20,12 +20,12 @@ namespace Formidable.Blazor.Tests;
 /// <c>GetFieldState</c> for a kit input — and assert them equal, because this is one decision
 /// both seams share rather than two that happen to agree.
 /// </remarks>
-public class FormValidationEngineDraftLoadTests
+public class FormidableEngineDraftLoadTests
 {
     private const string SavedTitle = "Quarterly plan";
     private const string SavedBadEmail = "ada.lovelace";
 
-    private static FormValidationEngine<LoadedDraft> Engine(
+    private static FormidableEngine<LoadedDraft> Engine(
         LoadedDraft draft,
         EditContext editContext,
         IModelValidator<LoadedDraft>? validator = null) =>
@@ -37,7 +37,7 @@ public class FormValidationEngineDraftLoadTests
             new FormidableOptions(),
             new FakeTimeProvider());
 
-    private static string KitClass<TModel>(FormValidationEngine<TModel> engine, FieldIdentifier field)
+    private static string KitClass<TModel>(FormidableEngine<TModel> engine, FieldIdentifier field)
         where TModel : class =>
         FormidableCss.Compute(engine.GetFieldState(field), engine.Options.CssClasses);
 
@@ -46,7 +46,7 @@ public class FormValidationEngineDraftLoadTests
     /// they agree on.
     /// </summary>
     private static string BothSeams<TModel>(
-        FormValidationEngine<TModel> engine, EditContext editContext, FieldIdentifier field)
+        FormidableEngine<TModel> engine, EditContext editContext, FieldIdentifier field)
         where TModel : class
     {
         var native = editContext.FieldCssClass(field);
@@ -170,7 +170,7 @@ public class FormValidationEngineDraftLoadTests
             Items = { new EngineItem { Sku = string.Empty } },
         };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -191,7 +191,7 @@ public class FormValidationEngineDraftLoadTests
         Assert.Equal("formidable-valid", BothSeams(engine, editContext, description));
     }
 
-    private static FormValidationEngine<LoadedRoster> RosterEngine(LoadedRoster roster, EditContext editContext) =>
+    private static FormidableEngine<LoadedRoster> RosterEngine(LoadedRoster roster, EditContext editContext) =>
         new(
             roster,
             editContext,
@@ -364,7 +364,7 @@ public class FormValidationEngineDraftLoadTests
     {
         var draft = new TypedDraft { Quantity = 0, Adjustment = 0, Accepted = false, Subscribed = false };
         var editContext = new EditContext(draft);
-        using var engine = new FormValidationEngine<TypedDraft>(
+        using var engine = new FormidableEngine<TypedDraft>(
             draft,
             editContext,
             new FluentValidationModelValidator<TypedDraft>(new TypedDraftValidator()),
@@ -433,7 +433,7 @@ public class FormValidationEngineDraftLoadTests
         var draft = new LoadedDraft();
         var editContext = new EditContext(draft);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<LoadedDraft>(
+        using var engine = new FormidableEngine<LoadedDraft>(
             draft,
             editContext,
             new FluentValidationModelValidator<LoadedDraft>(new LoadedDraftValidator()),
@@ -565,7 +565,7 @@ public class FormValidationEngineDraftLoadTests
         var draft = SavedDraft();
         var editContext = new EditContext(draft);
         var dispatch = new NestingDispatch();
-        using var engine = new FormValidationEngine<LoadedDraft>(
+        using var engine = new FormidableEngine<LoadedDraft>(
             draft,
             editContext,
             new FluentValidationModelValidator<LoadedDraft>(new LoadedDraftValidator()),

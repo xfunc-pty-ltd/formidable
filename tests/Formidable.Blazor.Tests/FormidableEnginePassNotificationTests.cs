@@ -18,9 +18,9 @@ namespace Formidable.Blazor.Tests;
 /// batches depending on where the scheduler resumes an async pass, so a render count would pin the
 /// host rather than the engine.
 /// </remarks>
-public class FormValidationEnginePassNotificationTests : BunitContext
+public class FormidableEnginePassNotificationTests : BunitContext
 {
-    public FormValidationEnginePassNotificationTests() => Services.AddFormidable();
+    public FormidableEnginePassNotificationTests() => Services.AddFormidable();
 
     [Fact]
     public async Task An_async_live_pass_costs_the_form_two_notification_rounds()

@@ -187,7 +187,7 @@ on your end. A localized message from FluentValidation's own resource pipeline t
 route.
 
 **Test:** `Submit_shows_only_revealed_fields_and_reports_their_display_names`
-(`tests/Formidable.Blazor.Tests/FormValidationEngineSubmitTests.cs`) pins a rule with
+(`tests/Formidable.Blazor.Tests/FormidableEngineSubmitTests.cs`) pins a rule with
 `WithName("Order description")` surfacing that exact display name in
 `SubmitOutcome.VisibleErrorSummary`.
 

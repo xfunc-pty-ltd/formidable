@@ -9,10 +9,10 @@ namespace Formidable.Blazor;
 /// </summary>
 public sealed class FormidableFieldContext
 {
-    private readonly IFormValidationEngine _engine;
+    private readonly IFormidableEngine _engine;
 
     internal FormidableFieldContext(
-        IFormValidationEngine engine,
+        IFormidableEngine engine,
         FieldIdentifier field,
         string elementId,
         FieldState state,
@@ -82,7 +82,7 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// How firmly the submit profile's rules demand that the field carry a value — see
-    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
+    /// <see cref="IFormidableEngine.GetFieldRequirement"/> for where the answer comes from
     /// and what it cannot see. <see cref="FieldRequirement.Required"/> is what
     /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
     /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values

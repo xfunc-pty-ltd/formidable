@@ -1,7 +1,7 @@
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Arguments for <see cref="IFormValidationEngine.ValidationFaulted"/>: the exception the pass
+/// Arguments for <see cref="IFormidableEngine.ValidationFaulted"/>: the exception the pass
 /// failed with. Anything the event learns to say beyond it — which pass faulted, what scope it
 /// covered — is added here as init-only properties, which a handler written before the addition
 /// keeps compiling against and simply does not read; the event's delegate shape never changes

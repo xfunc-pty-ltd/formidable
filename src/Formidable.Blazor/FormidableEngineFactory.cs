@@ -18,7 +18,7 @@ internal static class FormidableEngineFactory
     /// Builds an engine for one model and edit-context pair, resolving from
     /// <paramref name="services"/> whatever the host was not handed as a parameter.
     /// </summary>
-    internal static FormValidationEngine<TModel> Create<TModel>(
+    internal static FormidableEngine<TModel> Create<TModel>(
         TModel model,
         EditContext editContext,
         IServiceProvider services,
@@ -99,7 +99,7 @@ internal static class FormidableEngineFactory
         (FormidableOptions?)services.GetService(typeof(FormidableOptions)) ?? new FormidableOptions();
 
     /// <summary>
-    /// Optional, unlike every other resolution above: a direct <see cref="FormValidationEngine{TModel}"/>
+    /// Optional, unlike every other resolution above: a direct <see cref="FormidableEngine{TModel}"/>
     /// construction (no container involved) must stay possible with no logging at all, and a
     /// consumer who never registered <see cref="ILoggerFactory"/> gets the engine's pre-existing
     /// diagnostics (Trace, the callback) exactly as before — logging is additive, never required.

@@ -5,18 +5,18 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineSubmitTests
+public class FormidableEngineSubmitTests
 {
     private readonly EngineOrder _order = new();
     private readonly EditContext _editContext;
     private readonly FakeTimeProvider _time = new();
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
     private readonly FormidableOptions _options = new();
 
-    public FormValidationEngineSubmitTests()
+    public FormidableEngineSubmitTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order, _editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(), _options, _time);
@@ -284,7 +284,7 @@ public class FormValidationEngineSubmitTests
     {
         var model = new NormalizableOrder { Description = "  ok  " }; // 6 chars raw, 2 trimmed
         var editContext = new EditContext(model);
-        using var engine = new FormValidationEngine<NormalizableOrder>(
+        using var engine = new FormidableEngine<NormalizableOrder>(
             model, editContext,
             new FluentValidationModelValidator<NormalizableOrder>(new NormalizableOrderValidator()),
             new ReflectionModelIntrospector(), new FormidableOptions { NormalizeOnSubmit = true }, _time);
@@ -300,7 +300,7 @@ public class FormValidationEngineSubmitTests
     {
         var model = new NormalizableOrder { Description = "  ok  " };
         var editContext = new EditContext(model);
-        using var engine = new FormValidationEngine<NormalizableOrder>(
+        using var engine = new FormidableEngine<NormalizableOrder>(
             model, editContext,
             new FluentValidationModelValidator<NormalizableOrder>(new NormalizableOrderValidator()),
             new ReflectionModelIntrospector(), new FormidableOptions(), _time);

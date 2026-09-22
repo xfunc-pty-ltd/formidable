@@ -1,7 +1,7 @@
 namespace Formidable.Blazor;
 
 /// <summary>
-/// Arguments for <see cref="IFormValidationEngine.StateChanged"/>. The class carries no detail:
+/// Arguments for <see cref="IFormidableEngine.StateChanged"/>. The class carries no detail:
 /// it exists so the event's delegate shape never has to change — anything the event learns to
 /// say about WHAT changed is added here as init-only properties, which a handler written before
 /// the addition keeps compiling against and simply does not read. Blazor's own

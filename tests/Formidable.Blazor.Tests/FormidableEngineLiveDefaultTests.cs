@@ -14,7 +14,7 @@ namespace Formidable.Blazor.Tests;
 /// <see cref="FormidableOptions.SubmitProfile"/> by reference rather than by name, which is what
 /// keeps the verdict store's freshness check and the coverage cache serving.
 /// </summary>
-public class FormValidationEngineLiveDefaultTests
+public class FormidableEngineLiveDefaultTests
 {
     private sealed class LiveDefaultAttendee
     {
@@ -50,7 +50,7 @@ public class FormValidationEngineLiveDefaultTests
         }
     }
 
-    private static FormValidationEngine<LiveDefaultModel> CreateEngine(
+    private static FormidableEngine<LiveDefaultModel> CreateEngine(
         LiveDefaultModel model, EditContext editContext, FormidableOptions options, TimeProvider time) =>
         new(
             model,
@@ -161,7 +161,7 @@ public class FormValidationEngineLiveDefaultTests
         var model = new LiveDefaultModel();
         model.Attendees.Add(new LiveDefaultAttendee());
         var editContext = new EditContext(model);
-        using var engine = new FormValidationEngine<LiveDefaultModel>(
+        using var engine = new FormidableEngine<LiveDefaultModel>(
             model,
             editContext,
             new FluentValidationModelValidator<LiveDefaultModel>(validator),
@@ -307,7 +307,7 @@ public class FormValidationEngineLiveDefaultTests
         var editContext = new EditContext(model);
         var recording = new ProfileRecordingValidator<LiveDefaultModel>(
             new FluentValidationModelValidator<LiveDefaultModel>(validator));
-        using var engine = new FormValidationEngine<LiveDefaultModel>(
+        using var engine = new FormidableEngine<LiveDefaultModel>(
             model,
             editContext,
             recording,
@@ -411,7 +411,7 @@ public class FormValidationEngineLiveDefaultTests
         model.Slots.Add(new ScopedVerdictSlot { Name = "Morning" });
         var validator = new ScopedVerdictValidator();
         var editContext = new EditContext(model);
-        using var engine = new FormValidationEngine<ScopedVerdictModel>(
+        using var engine = new FormidableEngine<ScopedVerdictModel>(
             model,
             editContext,
             new FluentValidationModelValidator<ScopedVerdictModel>(validator),

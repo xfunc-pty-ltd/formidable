@@ -25,12 +25,12 @@ namespace Formidable.Blazor.Tests;
 /// <c>GetFieldState</c> for a kit input — and assert them equal, because the honest-valid rule
 /// is one decision both seams share, not two that happen to agree.
 /// </remarks>
-public class FormValidationEngineSubmitCoverageTests
+public class FormidableEngineSubmitCoverageTests
 {
     private static FieldIdentifier Description(EngineOrder order) =>
         new(order, nameof(EngineOrder.Description));
 
-    private static string KitClass(FormValidationEngine<EngineOrder> engine, FieldIdentifier field) =>
+    private static string KitClass(FormidableEngine<EngineOrder> engine, FieldIdentifier field) =>
         FormidableCss.Compute(engine.GetFieldState(field), engine.Options.CssClasses);
 
     /// <summary>
@@ -83,7 +83,7 @@ public class FormValidationEngineSubmitCoverageTests
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -116,7 +116,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -148,7 +148,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -198,7 +198,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
         var dispatches = new DispatchCounter();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -263,7 +263,7 @@ public class FormValidationEngineSubmitCoverageTests
         var options = new FormidableOptions { TrackFormValidity = true };
         var counting = new CountingValidator<EngineOrder>(
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             counting,
@@ -297,7 +297,7 @@ public class FormValidationEngineSubmitCoverageTests
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -329,7 +329,7 @@ public class FormValidationEngineSubmitCoverageTests
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -357,7 +357,7 @@ public class FormValidationEngineSubmitCoverageTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -397,7 +397,7 @@ public class FormValidationEngineSubmitCoverageTests
     {
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -427,7 +427,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -473,7 +473,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -524,7 +524,7 @@ public class FormValidationEngineSubmitCoverageTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -575,7 +575,7 @@ public class FormValidationEngineSubmitCoverageTests
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -617,7 +617,7 @@ public class FormValidationEngineSubmitCoverageTests
     {
         var order = new EngineOrder { Description = "x" };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new CapabilityHidingModelValidator<EngineOrder>(

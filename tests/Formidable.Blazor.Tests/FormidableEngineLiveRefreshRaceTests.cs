@@ -11,7 +11,7 @@ namespace Formidable.Blazor.Tests;
 /// the debounced refresh. These pin that the two cannot eat each other's answer — neither across
 /// that pair, nor between two live passes in quick succession.
 /// </summary>
-public class FormValidationEngineLiveRefreshRaceTests
+public class FormidableEngineLiveRefreshRaceTests
 {
     [Fact]
     public async Task Live_verdict_survives_a_refresh_armed_by_the_same_edit()
@@ -21,7 +21,7 @@ public class FormValidationEngineLiveRefreshRaceTests
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -60,7 +60,7 @@ public class FormValidationEngineLiveRefreshRaceTests
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -112,7 +112,7 @@ public class FormValidationEngineLiveRefreshRaceTests
         var order = new EngineOrder { Customer = customer, Items = [item] };
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),

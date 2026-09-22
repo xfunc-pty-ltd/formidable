@@ -4,16 +4,16 @@ namespace Formidable.Blazor;
 
 /// <summary>
 /// Internal fast-path reads engine-adjacent components need without growing the public
-/// <see cref="IFormValidationEngine"/> contract for what only they want:
+/// <see cref="IFormidableEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
 /// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
 /// <see cref="WouldPassSubmit"/> to build the same
-/// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
+/// <see cref="FieldState"/> bits <see cref="IFormidableEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
 /// directly; any component that renders a message list reads <see cref="InlineMessageLive"/> and
 /// passes it to the shared list renderer, which adds the <c>aria-live</c> attribute when the value
-/// is not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
-/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
+/// is not null. <see cref="FormidableEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormidableEngine"/> (a test double, say) does not, so each reader falls back
 /// to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
@@ -52,7 +52,7 @@ internal interface IValidatingFieldReader
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly IFormValidationEngine _engine;
+    private readonly IFormidableEngine _engine;
     private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
@@ -67,9 +67,9 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// different set: a form whose native inputs answered with names its kit inputs did not
     /// would be reporting the same field state two ways. A consumer who genuinely wants a
     /// different map has the whole rule in public API — <see cref="FormidableCss.Compute"/> over
-    /// <see cref="IFormValidationEngine.GetFieldState"/> — and writes their own provider.
+    /// <see cref="IFormidableEngine.GetFieldState"/> — and writes their own provider.
     /// </remarks>
-    public FormidableFieldCssClassProvider(IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(IFormidableEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
         _engine = engine;

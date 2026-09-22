@@ -13,7 +13,7 @@ namespace Formidable.Blazor.Tests;
 /// and the live channel discloses an engaged field's verdict on every surface with no
 /// registration filtering — the bridge default, stated as contract.
 /// </summary>
-public class FormValidationEngineViewTests
+public class FormidableEngineViewTests
 {
     private const string GateText = "not currently displayed";
 
@@ -561,7 +561,7 @@ public class FormValidationEngineViewTests
         var suppressed = new List<ValidationIssue>();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new DeclarationOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -648,7 +648,7 @@ public class FormValidationEngineViewTests
         // fixing the name it depends on is the only committed change this test ever makes.
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
             new ReflectionModelIntrospector(),
@@ -669,7 +669,7 @@ public class FormValidationEngineViewTests
         Assert.Empty(editContext.GetValidationMessages(description));
     }
 
-    private static FormValidationEngine<EngineOrder> Build(
+    private static FormidableEngine<EngineOrder> Build(
         EngineOrder order,
         EditContext editContext,
         FormidableOptions options,

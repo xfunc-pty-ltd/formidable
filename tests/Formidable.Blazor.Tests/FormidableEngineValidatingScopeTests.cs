@@ -6,7 +6,7 @@ using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineValidatingScopeTests
+public class FormidableEngineValidatingScopeTests
 {
     [Fact]
     public async Task Live_pass_scopes_the_pending_flag_to_the_triggering_field()
@@ -14,7 +14,7 @@ public class FormValidationEngineValidatingScopeTests
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -62,7 +62,7 @@ public class FormValidationEngineValidatingScopeTests
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -102,7 +102,7 @@ public class FormValidationEngineValidatingScopeTests
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -135,7 +135,7 @@ public class FormValidationEngineValidatingScopeTests
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -171,7 +171,7 @@ public class FormValidationEngineValidatingScopeTests
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -219,7 +219,7 @@ public class FormValidationEngineValidatingScopeTests
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -279,7 +279,7 @@ public class FormValidationEngineValidatingScopeTests
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -354,7 +354,7 @@ public class FormValidationEngineValidatingScopeTests
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -406,7 +406,7 @@ public class FormValidationEngineValidatingScopeTests
         var validator = new GatedChannelSeparatingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -495,7 +495,7 @@ public class FormValidationEngineValidatingScopeTests
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -545,7 +545,7 @@ public class FormValidationEngineValidatingScopeTests
         var order = new EngineOrder();
         var validator = new GatedValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),

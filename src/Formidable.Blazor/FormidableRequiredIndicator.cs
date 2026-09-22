@@ -9,7 +9,7 @@ namespace Formidable.Blazor;
 /// Marks a field the submit profile demands a value for. Renders
 /// <c>&lt;span class="formidable-required" aria-hidden="true"&gt;</c> around
 /// <see cref="FormidableOptions.RequiredIndicatorContent"/> while
-/// <see cref="IFormValidationEngine.GetFieldRequirement"/> answers
+/// <see cref="IFormidableEngine.GetFieldRequirement"/> answers
 /// <see cref="FieldRequirement.Required"/> for <see cref="For"/>, and nothing at all otherwise.
 /// While <see cref="FormidableOptions.ShowRequiredIndicators"/> is off, the component renders
 /// nothing for any field, whatever the rules demand.

@@ -23,7 +23,7 @@ namespace Formidable.Blazor.Tests;
 /// error; <c>DisclosureOverride</c> forces it open where a submit channel is read. The live
 /// channel is never filtered by registration at all.
 /// </remarks>
-public class FormValidationEngineRuleReuseTests
+public class FormidableEngineRuleReuseTests
 {
     // A narrowed live profile selecting one ruleset of its own, plus the default rules — the
     // shape FormidableOptions.LiveProfile takes when a form opts out of following its submit
@@ -105,7 +105,7 @@ public class FormValidationEngineRuleReuseTests
         }
     }
 
-    private static FormValidationEngine<ReuseModel> CreateSharedRuleEngine(
+    private static FormidableEngine<ReuseModel> CreateSharedRuleEngine(
         ReuseModel model,
         ReuseCountingValidator validator,
         EditContext editContext,
@@ -238,7 +238,7 @@ public class FormValidationEngineRuleReuseTests
         var validator = new GatedRuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -296,7 +296,7 @@ public class FormValidationEngineRuleReuseTests
             RefreshDebounce = TimeSpan.FromMilliseconds(300),
             DisclosureOverride = _ => true,
         };
-        using var engine = new FormValidationEngine<ReuseModel>(
+        using var engine = new FormidableEngine<ReuseModel>(
             model, editContext,
             new FluentValidationModelValidator<ReuseModel>(validator),
             new ReflectionModelIntrospector(),
@@ -420,7 +420,7 @@ public class FormValidationEngineRuleReuseTests
             RefreshDebounce = TimeSpan.FromMilliseconds(300),
             DisclosureOverride = _ => true,
         };
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -541,7 +541,7 @@ public class FormValidationEngineRuleReuseTests
         var validator = new ProfileScopedValidator();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<ScopedModel>(
+        using var engine = new FormidableEngine<ScopedModel>(
             model, editContext,
             new FluentValidationModelValidator<ScopedModel>(validator),
             new ReflectionModelIntrospector(),
@@ -632,7 +632,7 @@ public class FormValidationEngineRuleReuseTests
         var time = new FakeTimeProvider();
         var counting = new SetCallCountingValidator<SetCallModel>(
             new FluentValidationModelValidator<SetCallModel>(validator));
-        using var engine = new FormValidationEngine<SetCallModel>(
+        using var engine = new FormidableEngine<SetCallModel>(
             model, editContext,
             counting,
             new ReflectionModelIntrospector(),
@@ -674,7 +674,7 @@ public class FormValidationEngineRuleReuseTests
         var model = new SetCallModel();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<SetCallModel>(
+        using var engine = new FormidableEngine<SetCallModel>(
             model, editContext, adapter, new ReflectionModelIntrospector(),
             new FormidableOptions { DisclosureOverride = _ => true }, time);
 
@@ -694,7 +694,7 @@ public class FormValidationEngineRuleReuseTests
         var model = new SetCallModel();
         var editContext = new EditContext(model);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<SetCallModel>(
+        using var engine = new FormidableEngine<SetCallModel>(
             model, editContext, adapter, new ReflectionModelIntrospector(),
             new FormidableOptions { DisclosureOverride = _ => true }, time);
 

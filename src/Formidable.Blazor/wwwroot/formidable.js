@@ -55,10 +55,6 @@ export function orderFields(ids) {
     return found.map(entry => entry.id);
 }
 
-export function getStoredCulture(key) {
-    return window.localStorage.getItem(key);
-}
-
 // One entry per observed form, keyed by the form element's id: the id is what the caller holds
 // and what survives the element itself being torn down, so a form that has already left the page
 // can still be forgotten.
@@ -282,6 +278,18 @@ function onClickRecoveryClick(event) {
         rect.width === press.width && rect.height === press.height) {
         return;
     }
+
+    // The mis-delivered click stops here, so one press stays one click at every level. These
+    // listeners sit at document capture, so leaving it to run would let the re-delivered click
+    // finish its whole path and then send the original down to its own target and back up:
+    // everything above the button would see two. A consumer's delegated click handler, an
+    // analytics listener, a click-outside-to-close guard would each fire twice for one press.
+    // Nobody loses a click by this. The retarget condition above already established that the
+    // click's target CONTAINS the button, so the re-delivered click bubbles through that very
+    // element and every ancestor of it — the intended click arrives exactly where the misdirected
+    // one would have, and replaces it. stopPropagation rather than stopImmediatePropagation:
+    // other listeners on the document itself are not this guard's business.
+    event.stopPropagation();
 
     // click() rather than requestSubmit(): it also reaches a button that submits nothing at all —
     // an ordinary handler on a form the library only attached to — and it bubbles, which the

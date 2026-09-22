@@ -244,16 +244,16 @@ namespace Formidable.Blazor;
 
 /// <summary>
 /// Internal fast-path reads engine-adjacent components need without growing the public
-/// <see cref="IFormValidationEngine"/> contract for what only they want:
+/// <see cref="IFormidableEngine"/> contract for what only they want:
 /// <see cref="FormidableFieldCssClassProvider"/> reads <see cref="IsFieldValidating"/>,
 /// <see cref="IsFieldTouched"/>, <see cref="FieldAdvisories"/>, and
 /// <see cref="WouldPassSubmit"/> to build the same
-/// <see cref="FieldState"/> bits <see cref="IFormValidationEngine.GetFieldState"/> would, without
+/// <see cref="FieldState"/> bits <see cref="IFormidableEngine.GetFieldState"/> would, without
 /// paying for <c>IsModified</c> or the error scan it already gets from the <c>EditContext</c>
 /// directly; any component that renders a message list reads <see cref="InlineMessageLive"/> and
 /// passes it to the shared list renderer, which adds the <c>aria-live</c> attribute when the value
-/// is not null. <see cref="FormValidationEngine{TModel}"/> implements this explicitly; any other
-/// <see cref="IFormValidationEngine"/> (a test double, say) does not, so each reader falls back
+/// is not null. <see cref="FormidableEngine{TModel}"/> implements this explicitly; any other
+/// <see cref="IFormidableEngine"/> (a test double, say) does not, so each reader falls back
 /// to its own default for whichever member it needs.
 /// </summary>
 internal interface IValidatingFieldReader
@@ -292,7 +292,7 @@ internal interface IValidatingFieldReader
 /// </summary>
 public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
 {
-    private readonly IFormValidationEngine _engine;
+    private readonly IFormidableEngine _engine;
     private readonly IValidatingFieldReader? _reader;
 
     /// <summary>
@@ -307,9 +307,9 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
     /// different set: a form whose native inputs answered with names its kit inputs did not
     /// would be reporting the same field state two ways. A consumer who genuinely wants a
     /// different map has the whole rule in public API — <see cref="FormidableCss.Compute"/> over
-    /// <see cref="IFormValidationEngine.GetFieldState"/> — and writes their own provider.
+    /// <see cref="IFormidableEngine.GetFieldState"/> — and writes their own provider.
     /// </remarks>
-    public FormidableFieldCssClassProvider(IFormValidationEngine engine)
+    public FormidableFieldCssClassProvider(IFormidableEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
         _engine = engine;
@@ -363,7 +363,7 @@ public sealed class FormidableFieldCssClassProvider : FieldCssClassProvider
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
-*Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
+*Source: `src/Formidable.Blazor/FormidableEngine.cs`*
 
 This is the same class names as `FormidableCss.Compute`, and genuinely the same rule: the provider
 builds its own `FieldState` — `IsModified` and `HasErrors` read straight off the `EditContext`,
@@ -375,9 +375,9 @@ path on exactly the terms a Formidable input reaches it on, `WouldPassSubmit` in
 before the `EditContext` has ever seen `NotifyFieldChanged` for it — `FormidableCss.Compute`'s
 `IsTouched || IsModified` branch (see above) is the one decision both paths share, not two
 decisions that happen to agree. The provider probes the engine for `IValidatingFieldReader`, an
-internal fast path `FormValidationEngine<TModel>` implements for every one of those engine-sourced
+internal fast path `FormidableEngine<TModel>` implements for every one of those engine-sourced
 reads, and falls back to `GetFieldState(fieldIdentifier)` for all of them at once when an
-`IFormValidationEngine` doesn't implement it (a test double, say) — the probe is a single `as`
+`IFormidableEngine` doesn't implement it (a test double, say) — the probe is a single `as`
 check, not a per-member one, so there's no in-between case where some reads have the fast path and
 others don't. A `FieldState` built without an engine defaults `WouldPassSubmit` to `true`, so a
 hand-rolled provider or a test double keeps the `Valid` tier reachable rather than losing it to a
@@ -394,7 +394,7 @@ way back is `new FormidableFieldCssClassProvider(engine)` with the engine read f
 Formidable's and append classes of its own to what it returns. It takes the engine and nothing
 else, so the names it applies are always the ones the form's own kit inputs apply; a provider
 that should answer with a different map is a provider of your own, built out of the same two
-public pieces this one uses — `FormidableCss.Compute` over `IFormValidationEngine.GetFieldState`. One lifetime note for
+public pieces this one uses — `FormidableCss.Compute` over `IFormidableEngine.GetFieldState`. One lifetime note for
 `FormidableValidator`, which attaches to an `EditContext` it doesn't own: disposing the validator
 leaves Formidable's provider installed on that `EditContext`, still pointing at the disposed
 engine, so a page that keeps using the `EditContext` afterwards should install whichever provider
@@ -540,7 +540,7 @@ the hint's id and `field.AriaDescribedBy` into the attribute in that order by ha
 `aria-required="true"` follows a different question from the other two. `aria-invalid` and
 `aria-describedby` describe what the field's values are currently doing; `aria-required` describes
 what the submit profile's rules demand of it, so it appears while
-`IFormValidationEngine.GetFieldRequirement` reports `FieldRequirement.Required` and is not touched
+`IFormidableEngine.GetFieldRequirement` reports `FieldRequirement.Required` and is not touched
 by any validation pass. That is why it is asked separately from the single state-and-issues read
 the rest of `AddCommonAttributes` works from: the derived answer is reused, so asking per field per
 render is a lookup. [`RequiredOverride`](options.md#requiredoverride) is the part that can change

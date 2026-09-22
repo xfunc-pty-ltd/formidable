@@ -108,7 +108,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // The row's rule is already failing (a blank Name), but nothing has engaged it yet: a
         // live verdict lands only on the engaged set — the fields a committed change has named —
         // and a field no notification has ever named is not in it, whatever bucket its rule sits
-        // in. Same property FormValidationEngineLiveDefaultTests.
+        // in. Same property FormidableEngineLiveDefaultTests.
         // A_never_notified_row_field_gets_no_live_verdict pins at the engine level.
         await Expect(MessagesFor(row, "name")).ToHaveCountAsync(0);
         await Expect(SummaryEntry(page, AttendeeNameRequired)).ToHaveCountAsync(0);
@@ -126,7 +126,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // submit anywhere since the row was added — the live channel evaluates whatever would
         // block a submit, and this row is in the engaged set. Restoring ValidationProfile.Draft
         // as the live channel's default would leave it silent until the next submit — the same
-        // mutation FormValidationEngineLiveDefaultTests.
+        // mutation FormidableEngineLiveDefaultTests.
         // An_engaged_then_emptied_required_field_discloses_with_no_submit exercises against the
         // bare engine.
         await Expect(MessagesFor(row, "name"))
@@ -167,7 +167,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // that must break this: scoping the verdict apply to the fields the pass was told
         // changed — the fixing pass then writes only the event date's entry and the deadline
         // keeps reporting an error a direct validate of the model disproves. Same property
-        // FormValidationEngineEngagedSetTests.Fixing_a_cross_field_error_from_the_other_field_clears_it_live
+        // FormidableEngineEngagedSetTests.Fixing_a_cross_field_error_from_the_other_field_clears_it_live
         // pins at the engine level.
         await Field(page, "eventdate").FillAsync("2027-09-01");
         await Field(page, "description").ClickAsync();
@@ -183,7 +183,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         var page = session.Page;
 
         // A submit, not a bare edit, is what reveals the deadline here — the same channel the
-        // unit-level pin FormValidationEngineViewTests.A_field_revealed_at_submit_clears_when_only_the_field_it_depends_on_is_engaged
+        // unit-level pin FormidableEngineViewTests.A_field_revealed_at_submit_clears_when_only_the_field_it_depends_on_is_engaged
         // exercises, which cannot see this page's summary region at all. FillValidRegistrationAsync
         // already leaves the event date at 2027-05-01, so a deadline after it is the one thing
         // left to block the submit.
@@ -350,7 +350,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // have run — and the gate entry must stand on the far side, because the gate is a
         // predicate over the submit's own answer, not a stored entry a refresh rebuild can drop.
         // Same property
-        // FormValidationEngineViewTests.The_gate_survives_a_post_submit_refresh_while_the_form_stays_blocked
+        // FormidableEngineViewTests.The_gate_survives_a_post_submit_refresh_while_the_form_stays_blocked
         // pins at the engine level.
         await Field(page, "contactemail").FillAsync("workout-e2e-gate-edit@example.com");
         await Expect(Field(page, "contactemail")).ToHaveClassAsync(
@@ -386,7 +386,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // but the summary keeps the entry, and another submit keeps it listed rather than
         // trading it back for the gate — a field a submit has disclosed stays watched until
         // the form passes or resets. Same property
-        // FormValidationEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
+        // FormidableEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
         // pins at the engine level.
         await Field(page, "includecatering").UncheckAsync();
         await Expect(MessagesFor(page, "dietarynotes")).ToHaveCountAsync(0);

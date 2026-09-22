@@ -1,12 +1,13 @@
 using System.Globalization;
+using Formidable.Sample.Shared;
 
-namespace Formidable.Blazor.Tests;
+namespace Formidable.Tests;
 
 // CultureInfo.DefaultThreadCurrentCulture/UICulture are process-wide statics, so every test here
 // saves and restores both in a finally block regardless of outcome. xunit runs the [Fact]s within
 // this single class sequentially (only cross-class parallelism needs a shared [Collection]), so no
 // other coordination is needed to keep these mutations from interleaving with one another.
-public class FormidableCultureBootstrapTests
+public class CultureBootstrapTests
 {
     [Fact]
     public async Task Valid_stored_culture_sets_both_default_thread_cultures()
@@ -16,7 +17,7 @@ public class FormidableCultureBootstrapTests
 
         try
         {
-            await FormidableCultureBootstrap.ApplyStoredCultureAsync(() => Task.FromResult<string?>("de-DE"));
+            await CultureBootstrap.ApplyStoredCultureAsync(() => Task.FromResult<string?>("de-DE"));
 
             Assert.Equal("de-DE", CultureInfo.DefaultThreadCurrentCulture?.Name);
             Assert.Equal("de-DE", CultureInfo.DefaultThreadCurrentUICulture?.Name);
@@ -36,7 +37,7 @@ public class FormidableCultureBootstrapTests
 
         try
         {
-            await FormidableCultureBootstrap.ApplyStoredCultureAsync(
+            await CultureBootstrap.ApplyStoredCultureAsync(
                 () => Task.FromResult<string?>("zz-notaculture"),
                 fallback: CultureInfo.GetCultureInfo("en-AU"));
 
@@ -58,7 +59,7 @@ public class FormidableCultureBootstrapTests
 
         try
         {
-            await FormidableCultureBootstrap.ApplyStoredCultureAsync(() => Task.FromResult<string?>(null));
+            await CultureBootstrap.ApplyStoredCultureAsync(() => Task.FromResult<string?>(null));
 
             Assert.Equal(originalCulture, CultureInfo.DefaultThreadCurrentCulture);
             Assert.Equal(originalUiCulture, CultureInfo.DefaultThreadCurrentUICulture);

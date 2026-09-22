@@ -925,7 +925,7 @@ public static class EngineTestSync
     /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
     /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
     /// </summary>
-    public static Task Quiescence(FormValidationEngine<EngineOrder> engine)
+    public static Task Quiescence(FormidableEngine<EngineOrder> engine)
     {
         var quiescent = new TaskCompletionSource();
         engine.StateChanged += (_, _) =>

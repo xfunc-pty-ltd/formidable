@@ -16,7 +16,7 @@ namespace Formidable.Blazor;
 public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     where TModel : class
 {
-    private FormValidationEngine<TModel>? _engine;
+    private FormidableEngine<TModel>? _engine;
     private FormidableOptions? _boundOptions;
     private FormidableFormContext? _context;
 
@@ -37,11 +37,14 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
     // The displaced-click guard's half. The module is this component's own, on the same terms
     // FormidableForm holds one: whoever holds a FormidableJsModule disposes it, and this is the
-    // only thing that knows when the root it registered stops being the current one. The context
-    // is what an EditContext swap replaces, and the id is the key the guard was registered under.
+    // only thing that knows when the root it registered stops being the current one. What the
+    // guard itself holds is ClickRecoveryGuard's, shared with the other root.
     private FormidableJsModule? _jsModule;
-    private FormidableFormContext? _clickRecoveryContext;
-    private string _clickRecoveryRootId = string.Empty;
+    private readonly ClickRecoveryGuard _clickRecovery = new();
+
+    // The element the guard is scoped to, cached alongside the engine it is derived from rather
+    // than recomputed on every render — the same idea FormidableForm applies to its own copy.
+    private string _modelLevelFieldId = string.Empty;
 
     // Set the moment Dispose begins, so the guard's own establish can tell a component on its way
     // out from one merely between renders. Nothing else here needs it: every other path already
@@ -51,37 +54,26 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [CascadingParameter]
     private EditContext? CascadedEditContext { get; set; }
 
-    /// <summary>Engine options; defaults apply when omitted.</summary>
+    /// <inheritdoc cref="FormidableForm{TModel}.Options"/>
     [Parameter]
     public FormidableOptions? Options { get; set; }
 
-    /// <summary>Validator override; resolved from DI when omitted.</summary>
-    /// <remarks>
-    /// What is passed here is what the form validates through, whole: a capability the passed
-    /// validator does not present is one the form does not have, and that is easy to lose by
-    /// accident. Required markers, <c>aria-required</c>, the confirming half of
-    /// <see cref="DiscloseLoadedValuesAsync"/> and the per-rule verdict sharing all rest on two
-    /// capabilities that are optional interfaces beside <see cref="IModelValidator{TModel}"/> —
-    /// <see cref="IRuleInspectingValidator{TModel}"/> and <see cref="IRuleLevelValidator{TModel}"/>
-    /// — which <see cref="FluentValidationModelValidator{TModel}"/> implements and a wrapper
-    /// written against <see cref="IModelValidator{TModel}"/> alone does not. Such a wrapper
-    /// compiles and validates correctly, and the capability test that goes looking reads the same
-    /// for it as for a validator that never had them, so nothing reports the loss. Derive a
-    /// wrapper from <see cref="DelegatingModelValidator{TModel}"/> instead: it forwards all three
-    /// interfaces, leaving only the members whose behaviour changes to write.
-    /// </remarks>
+    /// <inheritdoc cref="FormidableForm{TModel}.Validator"/>
     [Parameter]
     public IModelValidator<TModel>? Validator { get; set; }
 
     /// <summary>
     /// Optional content that receives the cascaded form context — the same
     /// <see cref="FormidableFormContext"/> instance the cascade carries, so markup can reach the
-    /// engine inline without capturing this component with <c>@ref</c>. An inline READ of engine
-    /// state refreshes when this component re-renders, not on every validation pass: ongoing
-    /// state travels through <see cref="IFormValidationEngine.StateChanged"/>, which observing
-    /// components subscribe to individually, so a live indicator still needs its own
-    /// subscription to that event. One consequence of the typed fragment is structural: this
-    /// component always sits inside an <c>EditForm</c>, whose own child content also declares
+    /// engine inline without capturing this component with <c>@ref</c>. Beside the engine it
+    /// carries one move of this component's own,
+    /// <see cref="FormidableFormContext.FocusFirstErrorAsync"/>, so a component nested inside
+    /// the form can ask for the first-error move without a reference to reach it by. An inline
+    /// READ of engine state refreshes when this component re-renders, not on every validation
+    /// pass: ongoing state travels through <see cref="IFormidableEngine.StateChanged"/>,
+    /// which observing components subscribe to individually, so a live indicator still needs
+    /// its own subscription to that event. One consequence of the typed fragment is structural:
+    /// this component always sits inside an <c>EditForm</c>, whose own child content also declares
     /// the implicit <c>context</c> name, so the Razor compiler asks for a <c>Context="..."</c>
     /// on one of the two, whether or not either body ever reads the parameter — the attach-mode
     /// sample puts the rename on this component.
@@ -172,8 +164,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
-    /// <summary>The engine view (also cascaded via the form context).</summary>
-    public IFormValidationEngine? Engine => _engine;
+    /// <inheritdoc cref="FormidableForm{TModel}.Engine"/>
+    public IFormidableEngine? Engine => _engine;
 
     /// <inheritdoc />
     protected override void OnParametersSet()
@@ -210,7 +202,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 Validator,
                 Options,
                 renderDispatch: work => InvokeAsync(work));
-            _context = new FormidableFormContext(_engine);
+            _context = new FormidableFormContext(_engine, FocusFirstErrorAsync);
+            _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
             _lastReconciledFieldSetVersion = -1;
             _engine.Registry.Changed += OnFieldRegistryChanged;
         }
@@ -232,95 +225,50 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <c>FormidableForm</c> strikes, and for the same reason.
     /// </summary>
     /// <remarks>
-    /// This is the one place the guard has to hunt for a root. A component that renders no element
-    /// of its own has none to register, so two candidates are offered in order: the element
-    /// carrying the model-level gate id, which a page rendering the all-suppressed gate's landing
-    /// spot already has (see <see cref="FormidableFieldId"/>), and failing that the nearest
-    /// <c>&lt;form&gt;</c> ancestor of a registered field — the same boundary
-    /// <c>FormidableForm</c> would have rendered. A page offering neither gets no guard and a
-    /// diagnostic saying so, rather than silence: attach mode is the migration path, and a
-    /// consumer who has to name a root by hand to keep a working submit would simply keep the
-    /// defect instead.
+    /// This is the one place the guard has to hunt for a root, and so the one place its answer is
+    /// worth reading. A component that renders no element of its own has none to register, so two
+    /// candidates are offered in order: the element carrying the model-level gate id, which a page
+    /// rendering the all-suppressed gate's landing spot already has (see
+    /// <see cref="FormidableFieldId"/>), and failing that the nearest <c>&lt;form&gt;</c> ancestor
+    /// of a registered field — the same boundary <c>FormidableForm</c> would have rendered. A page
+    /// offering neither gets no guard and a diagnostic saying so, rather than silence: attach mode
+    /// is the migration path, and a consumer who has to name a root by hand to keep a working
+    /// submit would simply keep the defect instead. <see cref="ClickRecoveryGuard"/> owns
+    /// everything up to that answer, on the same terms for both roots.
     /// </remarks>
     /// <param name="firstRender">Not consulted. The context's own identity is the gate instead, so
     /// a cascaded <see cref="EditContext"/> swap re-registers the guard on the render that follows
     /// it rather than the guard belonging to the component's very first render alone.</param>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_engine is null || ReferenceEquals(_clickRecoveryContext, _context))
+        if (_engine is null)
         {
             return;
         }
 
-        _clickRecoveryContext = _context;
+        var registered = await _clickRecovery.EstablishAsync(
+            _context,
+            _modelLevelFieldId,
+            _engine.Options,
+            _engine.Registry,
+            ResolveJsModule,
+            () => _disposed);
 
-        // Read before anything is awaited: the gate id is derived from the model, and a cascaded
-        // EditContext swap rebuilds the engine over a different one, so the guard the previous
-        // context installed has to be released by the key it was registered under rather than by
-        // the one about to replace it.
-        var releasing = _clickRecoveryRootId;
-        _clickRecoveryRootId = string.Empty;
-
-        var jsRuntime = Services.GetService<IJSRuntime>();
-        if (jsRuntime is null)
-        {
-            return;
-        }
-
-        _jsModule ??= new FormidableJsModule(jsRuntime);
-
-        var gateId = FormidableFieldId.For(_engine.ModelLevelField);
-
-        bool registered;
-        try
-        {
-            if (releasing.Length > 0)
-            {
-                await _jsModule.InvokeVoidAsync("releaseClickRecovery", releasing);
-            }
-
-            if (_engine.Options.ClickRecovery != DisplacedClickRecovery.Buttons)
-            {
-                return;
-            }
-
-            // Mirrors FormidableForm's own guard, for the same reason: this component's release
-            // has already run and found the key below still empty, so anything registered after
-            // it is an entry nothing will ever take back.
-            if (_disposed)
-            {
-                return;
-            }
-
-            // The fallback candidates, built only once the option has asked for a guard: every
-            // field something has registered, for the script to walk up from to a <form>.
-            var fieldIds = _engine.Registry.RegisteredFields.Select(FormidableFieldId.For).ToArray();
-            registered = await _jsModule.InvokeAsync<bool>("registerClickRecovery", gateId, fieldIds);
-        }
-        catch
-        {
-            // No script, no guard — the same wide-open catch FormidableForm's own establish uses,
-            // and for the same reason: behind this call is the library's own script reached
-            // through the library's own module, with no consumer code in it to preserve a bug for.
-            return;
-        }
-
-        if (_disposed)
-        {
-            // Torn down while the round trip above was in flight. Neither half of what follows is
-            // worth doing: there is nothing left to undo the registration with, and a diagnostic
-            // about a component already off the page names a problem nobody can act on.
-            return;
-        }
-
-        if (!registered)
+        if (registered is false)
         {
             ReportNoClickRecoveryRoot();
-            return;
         }
-
-        _clickRecoveryRootId = gateId;
     }
+
+    /// <summary>
+    /// This component's own script module, created on first use and released with it. Null when
+    /// the host resolves no <see cref="IJSRuntime"/> at all, which is what the guard treats as
+    /// "there is no browser to ask".
+    /// </summary>
+    private FormidableJsModule? ResolveJsModule() =>
+        Services.GetService<IJSRuntime>() is { } jsRuntime
+            ? _jsModule ??= new FormidableJsModule(jsRuntime)
+            : null;
 
     /// <summary>
     /// The one report a page offering the guard nothing to scope itself to gets: a Trace line for
@@ -346,21 +294,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// </summary>
     /// <remarks>
     /// Worth doing on its own account, exactly as disconnecting the layout observer is under
-    /// <c>FormidableForm</c>: the script module outlives this component — a module is loaded once
-    /// per document and stays — so an entry left behind would scope the guard to an element that
-    /// is no longer in the document, and the document-level listeners it refcounts would stay
-    /// installed over a page with nothing left to guard. Disposal here is synchronous and the
-    /// release is not, so it rides a discarded task; an interop boundary that is already gone has
-    /// taken the guard with it anyway.
+    /// <c>FormidableForm</c> — see <see cref="ClickRecoveryGuard.ReleaseAsync"/> for what an entry
+    /// left behind costs a page. Disposal here is synchronous and the release is not, so it rides
+    /// a discarded task; an interop boundary that is already gone has taken the guard with it
+    /// anyway.
     /// </remarks>
     private void ReleaseClickRecovery()
     {
         var module = _jsModule;
-        var releasing = _clickRecoveryRootId;
+        var releasing = _clickRecovery.Take();
 
         _jsModule = null;
-        _clickRecoveryRootId = string.Empty;
-        _clickRecoveryContext = null;
 
         if (module is null)
         {
@@ -374,16 +318,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     {
         try
         {
-            if (releasing.Length > 0)
-            {
-                await module.InvokeVoidAsync("releaseClickRecovery", releasing);
-            }
-
+            await ClickRecoveryGuard.ReleaseAsync(module, releasing);
             await module.DisposeAsync();
         }
-        catch (Exception exception) when (
-            exception is JSException or JSDisconnectedException or ObjectDisposedException
-                or OperationCanceledException)
+        catch (Exception exception) when (FormidableJsModule.IsInteropFailure(exception))
         {
             // A boundary that is gone, disconnected or never loaded has nothing left holding the
             // guard, and a component being torn down is no place to raise that as a failure.
@@ -421,17 +359,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <returns>The engine's verdict for this submit, unchanged.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync()
     {
-        var engine = RequireEngine();
-        var outcome = await engine.ValidateForSubmitAsync();
-
-        if (!ReferenceEquals(_engine, engine))
+        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
+        if (outcome is null)
         {
-            // The engine this pass ran against has been replaced or disposed — a cascaded
-            // EditContext swap, or this component leaving the page. Its verdict, even a passing
-            // one if its validator outran cancellation, belongs to a submit that is no longer the
-            // current one, and moving focus from it would take the visitor to a field on a model
-            // nothing is editing any more. Mirrors FormidableForm.SubmitAsync's identical guard.
-            return new SubmitOutcome(false, ValidationReport.Empty, []);
+            return RootSubmit.Superseded;
         }
 
         if (!outcome.CanProceed && FocusFirstErrorOnInvalidSubmit)
@@ -460,7 +391,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// it suits — once the dialog the page opened instead has closed, say — and that is the
     /// whole sequence. What it adds over reaching through <see cref="Engine"/> for an issue and
     /// focusing it by hand is <see cref="PrepareFocus"/> and <see cref="FocusFallback"/> threaded
-    /// in.
+    /// in. A dialog component that lives inside <see cref="ChildContent"/> rather than beside
+    /// this one has no <c>@ref</c> to reach this by and does not need one:
+    /// <see cref="FormidableFormContext.FocusFirstErrorAsync"/> on the cascaded context calls
+    /// this method.
     /// <para>
     /// "First error" resolves exactly as the automatic move resolves it, which includes the case
     /// where there is no error: a form showing nothing worse than advisories lands on the first of
@@ -478,7 +412,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// again. It reports the move, not the form: a form with no issue on screen and a form
     /// whose one error is out of reach both answer <see langword="false"/>, and a caller that
     /// needs to tell those apart reads
-    /// <see cref="IFormValidationEngine.GetVisibleIssues"/> through <see cref="Engine"/>. A
+    /// <see cref="IFormidableEngine.GetVisibleIssues"/> through <see cref="Engine"/>. A
     /// false answer means this call moved nothing, so a page with nowhere else to send the
     /// visitor can ignore it.
     /// </returns>
@@ -491,10 +425,10 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
     /// <summary>
     /// Applies a server response's issues to this form's engine, forwarding
-    /// <see cref="IFormValidationEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
+    /// <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> and its
     /// contract whole: the payload is the server's current verdict and replaces what the previous
     /// call applied, each issue lands at the severity it carries, and applying any also sets
-    /// <see cref="IFormValidationEngine.HasSubmitted"/>, since the payload is treated as a submit
+    /// <see cref="IFormidableEngine.HasSubmitted"/>, since the payload is treated as a submit
     /// result. A page holding the form with <c>@ref</c> has everything the round trip needs here,
     /// without reaching through <see cref="Engine"/> for it. Call from the renderer's
     /// synchronization context (a Blazor event handler or <c>InvokeAsync</c>) — it mutates
@@ -508,7 +442,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// Applies a deserialized validation ProblemDetails body — the shape an HTTP 400 from
     /// Formidable.AspNetCore arrives in — by flattening it with
     /// <see cref="FormidableValidationProblem.ToIssues"/>. Equivalent to the sequence overload in
-    /// every respect, including the <see cref="IFormValidationEngine.HasSubmitted"/> side effect;
+    /// every respect, including the <see cref="IFormidableEngine.HasSubmitted"/> side effect;
     /// this is the whole client half of the round trip in one call.
     /// </summary>
     /// <param name="problem">The deserialized response body.</param>
@@ -520,7 +454,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
 
     /// <summary>
     /// Says what the values already in the model have earned, forwarding
-    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> and its contract whole: a
+    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> and its contract whole: a
     /// whole-model <see cref="FormidableOptions.SubmitProfile"/> pass, after which each field
     /// the rules pass is confirmed, each field failing something other than a presence rule
     /// discloses that failure, and each field that is merely unfilled stays silent. Call it once
@@ -532,7 +466,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// </summary>
     /// <param name="cancellationToken">
     /// Cancels the pass under the engine's contract — a cancelled call throws and adopts
-    /// nothing, detailed on <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/>'s own
+    /// nothing, detailed on <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/>'s own
     /// parameter. The submit methods take no token deliberately: a submit is UI-event-driven,
     /// and its event handler holds none to pass. This call is data-driven — the caller that
     /// filled the model typically holds the <see cref="CancellationTokenSource"/> it minted for
@@ -612,7 +546,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <summary>
     /// The version-gated reconcile both deferred paths above and <see cref="NotifyFieldSetChanged"/>
     /// run. Comparing against <see cref="_lastReconciledFieldSetVersion"/> before latching and
-    /// calling <see cref="FormValidationEngine{TModel}.OnRenderedFieldsChanged"/> is what lets
+    /// calling <see cref="FormidableEngine{TModel}.OnRenderedFieldsChanged"/> is what lets
     /// several registry changes in one batch — each deferring its own continuation — coalesce to
     /// one reconcile: whichever continuation runs first finds the version has moved and does the
     /// work, and every later one for the same settled state finds nothing new and skips. Guards
@@ -644,7 +578,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// that beats the first render rather than let it surface from inside the component as a null
     /// reference.
     /// </summary>
-    private FormValidationEngine<TModel> RequireEngine() =>
+    private FormidableEngine<TModel> RequireEngine() =>
         _engine ?? throw new InvalidOperationException(
             $"{nameof(FormidableValidator<TModel>)} has no engine yet — one is built when it first " +
             "binds to its cascaded EditContext, and this call arrived before that. Capture it with " +

@@ -64,7 +64,9 @@ public class FocusSequenceTests : BunitContext
         bool focusFirstErrorOnInvalidSubmit = true,
         Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null,
         bool withFocusService = true,
-        Func<FormidableInvalidSubmitContext, Task>? onInvalidSubmitAsync = null)
+        Func<FormidableInvalidSubmitContext, Task>? onInvalidSubmitAsync = null,
+        Func<FieldIdentifier, ValueTask>? prepareFocus = null,
+        Action<FormidableFormContext>? captureContext = null)
     {
         RegisterServices(withFocusService);
         var container = Render(builder =>
@@ -100,18 +102,31 @@ public class FocusSequenceTests : BunitContext
                     5, nameof(FormidableForm<EngineOrder>.FocusFallback), focusFallback);
             }
 
+            if (prepareFocus is not null)
+            {
+                builder.AddComponentParameter(
+                    7, nameof(FormidableForm<EngineOrder>.PrepareFocus), prepareFocus);
+            }
+
             builder.AddComponentParameter(
                 6,
                 nameof(FormidableForm<EngineOrder>.ChildContent),
-                (RenderFragment<FormidableFormContext>)(_ => inner =>
-                    inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>")));
+                (RenderFragment<FormidableFormContext>)(context => inner =>
+                {
+                    captureContext?.Invoke(context);
+                    inner.AddMarkupContent(0, "<button type=\"submit\">Go</button>");
+                }));
             builder.CloseComponent();
         });
 
         return container.FindComponent<FormidableForm<EngineOrder>>();
     }
 
-    private IRenderedComponent<FormidableValidator<EngineOrder>> RenderAttached(EngineOrder order)
+    private IRenderedComponent<FormidableValidator<EngineOrder>> RenderAttached(
+        EngineOrder order,
+        Func<FieldIdentifier, ValueTask<bool>>? focusFallback = null,
+        Func<FieldIdentifier, ValueTask>? prepareFocus = null,
+        Action<FormidableFormContext>? captureContext = null)
     {
         RegisterServices(withFocusService: true);
         var container = Render(builder =>
@@ -132,6 +147,32 @@ public class FocusSequenceTests : BunitContext
                         2,
                         nameof(FormidableValidator<EngineOrder>.FocusFirstErrorOnInvalidSubmit),
                         false);
+                    if (focusFallback is not null)
+                    {
+                        inner.AddComponentParameter(
+                            3,
+                            nameof(FormidableValidator<EngineOrder>.FocusFallback),
+                            focusFallback);
+                    }
+
+                    if (prepareFocus is not null)
+                    {
+                        inner.AddComponentParameter(
+                            4,
+                            nameof(FormidableValidator<EngineOrder>.PrepareFocus),
+                            prepareFocus);
+                    }
+
+                    // The cascade wraps this component's own content only, so a context is
+                    // reachable at all only when there is content to cascade to.
+                    inner.AddComponentParameter(
+                        5,
+                        nameof(FormidableValidator<EngineOrder>.ChildContent),
+                        (RenderFragment<FormidableFormContext>)(context => nested =>
+                        {
+                            captureContext?.Invoke(context);
+                            nested.AddMarkupContent(0, "<span></span>");
+                        }));
                     inner.CloseComponent();
                 }));
             builder.CloseComponent();
@@ -360,6 +401,108 @@ public class FocusSequenceTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
 
         Assert.Empty(_focus.Requests);
+
+        await Services.DisposeAsync();
+    }
+
+    // The move a component inside the form asks for, which is the case a page's @ref cannot
+    // reach: a shared dialog reads the cascade and has no reference to the root. Asserted as the
+    // whole move rather than as a call count — the same field the automatic move lands on, the
+    // root's PrepareFocus awaited ahead of the attempt, the root's FocusFallback consulted on the
+    // miss, and its one retry — because a context that reached the shared helper directly would
+    // still focus the right field while quietly dropping both of the root's own seams.
+    [Fact]
+    public async Task The_move_the_cascaded_context_asks_for_is_the_forms_own_move()
+    {
+        var order = OrderFailingOnTwoFields();
+        _focus.Lands = false;
+        var prepared = new List<FieldIdentifier>();
+        var fellBackFor = new List<FieldIdentifier>();
+        FormidableFormContext? context = null;
+        var cut = RenderForm(
+            order,
+            focusFirstErrorOnInvalidSubmit: false,
+            focusFallback: field =>
+            {
+                fellBackFor.Add(field);
+                return ValueTask.FromResult(true);
+            },
+            prepareFocus: field =>
+            {
+                prepared.Add(field);
+                return ValueTask.CompletedTask;
+            },
+            captureContext: captured => context = captured);
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+        Assert.Empty(_focus.Requests);
+
+        var landed = await cut.InvokeAsync(() => context!.FocusFirstErrorAsync());
+
+        Assert.False(landed); // the retry missed too, which is what Lands = false says
+        Assert.Equal(FirstError(order), Assert.Single(prepared));
+        Assert.Equal(FirstError(order), Assert.Single(fellBackFor));
+        Assert.Equal(2, _focus.Requests.Count);
+        Assert.All(_focus.Requests, field => Assert.Equal(FirstError(order), field));
+
+        await Services.DisposeAsync();
+    }
+
+    // The same claim under the root that owns no form element. Attach mode is where a shared
+    // dialog is likeliest to sit, since the page already owns its EditForm and its submit.
+    [Fact]
+    public async Task The_move_the_cascaded_context_asks_for_is_the_attached_components_own_move()
+    {
+        var order = OrderFailingOnTwoFields();
+        _focus.Lands = false;
+        var prepared = new List<FieldIdentifier>();
+        var fellBackFor = new List<FieldIdentifier>();
+        FormidableFormContext? context = null;
+        var cut = RenderAttached(
+            order,
+            focusFallback: field =>
+            {
+                fellBackFor.Add(field);
+                return ValueTask.FromResult(true);
+            },
+            prepareFocus: field =>
+            {
+                prepared.Add(field);
+                return ValueTask.CompletedTask;
+            },
+            captureContext: captured => context = captured);
+
+        await cut.InvokeAsync(() => cut.Instance.ValidateForSubmitAsync());
+        Assert.Empty(_focus.Requests);
+
+        var landed = await cut.InvokeAsync(() => context!.FocusFirstErrorAsync());
+
+        Assert.False(landed);
+        Assert.Equal(FirstError(order), Assert.Single(prepared));
+        Assert.Equal(FirstError(order), Assert.Single(fellBackFor));
+        Assert.Equal(2, _focus.Requests.Count);
+
+        await Services.DisposeAsync();
+    }
+
+    // The public constructor stays supported for tests that cascade a context around an engine or
+    // a double, and it carries no root — so there is no move to make. The engine handed over is
+    // the form's own, holding real disclosed errors, so the false below is the missing root and
+    // not a form with nothing to focus: the last line asks the form itself and it lands.
+    [Fact]
+    public async Task A_hand_built_context_reports_that_nothing_was_focused()
+    {
+        var order = OrderFailingOnTwoFields();
+        var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+
+        var handBuilt = new FormidableFormContext(cut.Instance.Engine!);
+
+        Assert.False(await cut.InvokeAsync(() => handBuilt.FocusFirstErrorAsync()));
+        Assert.Empty(_focus.Requests);
+
+        Assert.True(await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync()));
+        Assert.Equal(FirstError(order), Assert.Single(_focus.Requests));
 
         await Services.DisposeAsync();
     }

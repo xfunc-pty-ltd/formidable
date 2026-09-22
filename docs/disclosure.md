@@ -163,7 +163,7 @@ moment a field-changed notification names it — a kit input committing a value 
 notifies), a native input's own change, or an explicit `FormidableFieldContext.NotifyChanged()`.
 A notification is not the only way in: a page that fills the model itself — from a saved draft,
 or a record opened for editing — engages those fields by calling
-`IFormValidationEngine.DiscloseLoadedValuesAsync()`, since writing model properties notifies
+`IFormidableEngine.DiscloseLoadedValuesAsync()`, since writing model properties notifies
 nothing on its own.
 A live pass validates the whole model on every change, the same as any other pass, and its
 verdict answers every engaged field: the report's issues where it has them, an empty verdict
@@ -182,7 +182,7 @@ Where that line sits is deliberate. Focusing a field and tabbing back out again 
 engagement: the visitor may only have been passing through, and a message that appears anyway is
 how people learn to stop reading a form's messages at all. Engagement is a committed value
 change, which is to say typing something or clearing something that was there — or a page saying,
-through `IFormValidationEngine.DiscloseLoadedValuesAsync()`, that values it loaded stand in for
+through `IFormidableEngine.DiscloseLoadedValuesAsync()`, that values it loaded stand in for
 one. It ends the way a live issue does: a field pruned from the rendered set leaves the engaged
 set with it, one committed change away from re-engaging.
 [The live/refresh asymmetry](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)

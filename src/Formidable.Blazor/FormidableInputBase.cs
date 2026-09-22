@@ -192,7 +192,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <c>aria-describedby</c> while it has issues of any severity — any consumer-splatted
     /// <c>aria-describedby</c> first, then <see cref="MessagesElementId"/> appended, the same
     /// merge the <c>class</c> gets — and <c>aria-required="true"</c> while
-    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> reports the submit profile
+    /// <see cref="IFormidableEngine.GetFieldRequirement"/> reports the submit profile
     /// demands a value for it. Because the computed
     /// values enter the render tree after the splat, they win the duplicate-attribute race (Blazor
     /// applies last-write-wins): a consumer's <c>class</c> and <c>aria-describedby</c> merge with

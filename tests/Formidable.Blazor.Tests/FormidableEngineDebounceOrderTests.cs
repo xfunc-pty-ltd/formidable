@@ -28,7 +28,7 @@ namespace Formidable.Blazor.Tests;
 /// the submit profile's own rules otherwise, and a message either pass could have produced names
 /// neither.
 /// </remarks>
-public class FormValidationEngineDebounceOrderTests
+public class FormidableEngineDebounceOrderTests
 {
     private const string DraftMessage = "Customer name must be four characters or fewer";
     private const string SubmitMessage = "Description needs a named customer";
@@ -42,7 +42,7 @@ public class FormValidationEngineDebounceOrderTests
         var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
             new ReflectionModelIntrospector(),
@@ -83,7 +83,7 @@ public class FormValidationEngineDebounceOrderTests
         var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new ChannelSeparatingValidator()),
             new ReflectionModelIntrospector(),
@@ -133,7 +133,7 @@ public class FormValidationEngineDebounceOrderTests
         var validator = new GatedChannelSeparatingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -194,7 +194,7 @@ public class FormValidationEngineDebounceOrderTests
         var validator = new GatedChannelSeparatingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -248,7 +248,7 @@ public class FormValidationEngineDebounceOrderTests
     /// refresh can take the submit rule's verdict off the description.
     /// </summary>
     private static void AssertBothChannelsCurrent(
-        FormValidationEngine<EngineOrder> engine,
+        FormidableEngine<EngineOrder> engine,
         FieldIdentifier customerName,
         FieldIdentifier description)
     {

@@ -14,7 +14,7 @@ namespace Formidable.Blazor.Tests;
 /// independently: a live pass's fault reports through the engine's fault policy, while the
 /// validity probe's raises alone.
 /// </summary>
-public class FormValidationEngineEventPayloadTests
+public class FormidableEngineEventPayloadTests
 {
     [Fact]
     public void StateChanged_hands_the_engine_as_sender_with_non_null_args()
@@ -47,7 +47,7 @@ public class FormValidationEngineEventPayloadTests
         var order = new EngineOrder();
         var validator = new CapturedThrowValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -76,7 +76,7 @@ public class FormValidationEngineEventPayloadTests
         var order = new EngineOrder();
         var validator = new CapturedThrowValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -112,7 +112,7 @@ public class FormValidationEngineEventPayloadTests
         Assert.Same(validator.Boom, args.Exception);
     }
 
-    private static FormValidationEngine<EngineOrder> CreateEngine(
+    private static FormidableEngine<EngineOrder> CreateEngine(
         EngineOrder order,
         FluentValidation.IValidator<EngineOrder> validator,
         FormidableOptions options) =>

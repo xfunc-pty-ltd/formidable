@@ -22,7 +22,7 @@ public readonly record struct FieldState
 
     /// <summary>
     /// The field has been interacted with: marked by a field component on a blur or a commit, or by
-    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> for a field whose loaded value it
+    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> for a field whose loaded value it
     /// decided for.
     /// </summary>
     public bool IsTouched { get; init; }
@@ -34,8 +34,8 @@ public readonly record struct FieldState
     /// A validation pass involving this field is in flight — scoped to the changed field for live
     /// passes, scoped to whichever fields were edited within its debounce window for refresh
     /// passes, and form-wide for a submit, the pass the visitor asked for. The pass
-    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> runs covers no field at all: it
-    /// answers for the whole model, so <see cref="IFormValidationEngine.IsValidating"/> reports it for
+    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> runs covers no field at all: it
+    /// answers for the whole model, so <see cref="IFormidableEngine.IsValidating"/> reports it for
     /// a page-level spinner, but nobody asked for it and no field is waiting on it.
     /// </summary>
     public bool IsValidating { get; init; }

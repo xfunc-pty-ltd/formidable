@@ -8,7 +8,7 @@ public partial class FieldStateVisualizer : IDisposable
     private readonly Handle _handle = new();
     private readonly FormidableOptions _options = new() { TrackFormValidity = true };
     private FormidableForm<Handle>? _form;
-    private IFormValidationEngine? _subscribedEngine;
+    private IFormidableEngine? _subscribedEngine;
     private string _status = string.Empty;
 
     private void HandleValid() => _status = "Submitted — state flags above tell the story.";

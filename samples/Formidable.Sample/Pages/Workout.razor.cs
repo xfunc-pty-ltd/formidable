@@ -49,7 +49,7 @@ public partial class Workout : IDisposable
     private FormidableForm<EventRegistration>? _form;
     private string _status = string.Empty;
 
-    private IFormValidationEngine? _subscribedEngine;
+    private IFormidableEngine? _subscribedEngine;
 
     private FieldIdentifier VenueRegionField => new(_registration, nameof(EventRegistration.VenueRegion));
 

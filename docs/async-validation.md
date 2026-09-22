@@ -573,7 +573,7 @@ uniqueness check and nobody can tell which answer they're waiting on; light noth
 the input simply looks idle for half a second.
 
 Two flags answer "is something still checking?", at different scopes. The engine-level
-`IsValidating` (`IFormValidationEngine.IsValidating`) is true whenever *any* pass is in flight,
+`IsValidating` (`IFormidableEngine.IsValidating`) is true whenever *any* pass is in flight,
 regardless of which field triggered it — the right one for a form-wide spinner.
 `GetFieldState(field).IsValidating` is narrower, scoped to the fields the pass actually
 concerns:

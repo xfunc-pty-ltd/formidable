@@ -5,17 +5,17 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineServerIssueTests
+public class FormidableEngineServerIssueTests
 {
     private readonly EngineOrder _order = new() { Description = "ok", Customer = new EngineCustomer() };
     private readonly EditContext _editContext;
     private readonly FakeTimeProvider _time = new();
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
 
-    public FormValidationEngineServerIssueTests()
+    public FormidableEngineServerIssueTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order, _editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(), new FormidableOptions(), _time);
@@ -88,7 +88,7 @@ public class FormValidationEngineServerIssueTests
     [Fact]
     public void Disclosure_override_false_suppresses_server_issue()
     {
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             _order, new EditContext(_order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -102,7 +102,7 @@ public class FormValidationEngineServerIssueTests
     [Fact]
     public void Disclosure_override_true_keeps_server_issue()
     {
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             _order, new EditContext(_order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -253,7 +253,7 @@ public class FormValidationEngineServerIssueTests
     {
         var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -284,7 +284,7 @@ public class FormValidationEngineServerIssueTests
         // second (empty) apply delete it - exactly the regression this pin guards against.
         var order = new EngineOrder { Description = string.Empty, Customer = new EngineCustomer() };
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -478,7 +478,7 @@ public class FormValidationEngineServerIssueTests
     {
         var suppressed = new List<ValidationIssue>();
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -499,11 +499,11 @@ public class FormValidationEngineServerIssueTests
     /// An engine over its own model whose disclosure override forces every issue visible — the
     /// engine-level stand-in for a page that renders, and so registers, each field under test.
     /// </summary>
-    private FormValidationEngine<EngineOrder> DisclosedEngine(out EditContext editContext, out EngineOrder order)
+    private FormidableEngine<EngineOrder> DisclosedEngine(out EditContext editContext, out EngineOrder order)
     {
         order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         editContext = new EditContext(order);
-        return new FormValidationEngine<EngineOrder>(
+        return new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),

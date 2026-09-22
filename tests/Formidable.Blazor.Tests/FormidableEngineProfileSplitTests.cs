@@ -23,7 +23,7 @@ namespace Formidable.Blazor.Tests;
 /// asserted against the whole-profile fallback's own verdict for the same sequence, so the two
 /// have to agree about issues rather than merely about how many there are.
 /// </remarks>
-public class FormValidationEngineProfileSplitTests
+public class FormidableEngineProfileSplitTests
 {
     [Fact]
     public async Task A_post_submit_edit_runs_each_draft_rule_once()
@@ -33,7 +33,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -80,7 +80,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -124,7 +124,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new GatedRuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -195,7 +195,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             // The wrapper hides the rule-level capability, so every pass validates its whole
             // profile in one call — no store, no per-rule accounting.
@@ -237,7 +237,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -285,7 +285,7 @@ public class FormValidationEngineProfileSplitTests
             LiveProfile = ValidationProfile.Draft,
             DisclosureOverride = _ => true,
         };
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -324,7 +324,7 @@ public class FormValidationEngineProfileSplitTests
         var validator = new RuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
@@ -374,7 +374,7 @@ public class FormValidationEngineProfileSplitTests
     /// subscription lasts only as long as the call, so a caller can bracket one pass at a time.
     /// </summary>
     private static List<(bool First, bool Second)> RecordScopeWhileValidating(
-        FormValidationEngine<EngineOrder> engine,
+        FormidableEngine<EngineOrder> engine,
         FieldIdentifier first,
         FieldIdentifier second,
         Action act)
@@ -426,7 +426,7 @@ public class FormValidationEngineProfileSplitTests
             modelValidator = new CapabilityHidingModelValidator<EngineOrder>(modelValidator);
         }
 
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             modelValidator,
             new ReflectionModelIntrospector(),

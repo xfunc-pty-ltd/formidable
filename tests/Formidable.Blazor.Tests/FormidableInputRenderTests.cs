@@ -85,7 +85,7 @@ public class FormidableInputRenderTests : BunitContext
         Assert.Equal(input.RenderCount, engine.RequirementReads);
     }
 
-    private IRenderedComponent<CascadedContextHost> RenderCascaded(EngineOrder order, IFormValidationEngine engine)
+    private IRenderedComponent<CascadedContextHost> RenderCascaded(EngineOrder order, IFormidableEngine engine)
     {
         RenderFragment inputFragment = inner =>
         {
@@ -108,7 +108,7 @@ public class FormidableInputRenderTests : BunitContext
         return cut.FindComponent<CascadedContextHost>();
     }
 
-    private static FormValidationEngine<EngineOrder> CreateEngine(EngineOrder order) =>
+    private static FormidableEngine<EngineOrder> CreateEngine(EngineOrder order) =>
         new(order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new Formidable.Introspection.ReflectionModelIntrospector(),
@@ -138,7 +138,7 @@ public class FormidableInputRenderTests : BunitContext
     /// sees — state, issues, notifications — is the real engine's, so the counts describe the
     /// component's own behaviour and nothing else.
     /// </summary>
-    private sealed class CountingEngine(IFormValidationEngine inner) : IFormValidationEngine
+    private sealed class CountingEngine(IFormidableEngine inner) : IFormidableEngine
     {
         public int FieldStateReads { get; private set; }
 

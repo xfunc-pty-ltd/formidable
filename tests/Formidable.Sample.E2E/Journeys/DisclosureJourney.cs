@@ -82,7 +82,7 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         // markup, but the summary keeps the entry, and another submit keeps it listed rather
         // than trading it back for the gate — a field a submit has disclosed stays watched
         // until the form passes or resets. Same property
-        // FormValidationEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
+        // FormidableEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
         // pins at the engine level. On their own the two persistence asserts would hold
         // against the pre-submit DOM just as well, so the submit is given a flip only its own
         // landing can produce: switching the accommodation type to Accessible first renders

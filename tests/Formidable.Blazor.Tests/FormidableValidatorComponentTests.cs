@@ -395,7 +395,7 @@ public class FormidableValidatorComponentTests : BunitContext
 
         var attached = RenderForm(order, new FormidableOptions { DisclosureOverride = _ => true });
         var validator = attached.FindComponent<FormidableValidator<EngineOrder>>();
-        ((FormValidationEngine<EngineOrder>)validator.Instance.Engine!).SetFieldOrder(
+        ((FormidableEngine<EngineOrder>)validator.Instance.Engine!).SetFieldOrder(
             new Dictionary<FieldIdentifier, int> { [description] = 0, [customerName] = 1 });
 
         await attached.InvokeAsync(() => validator.Instance.ValidateForSubmitAsync());

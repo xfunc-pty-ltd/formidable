@@ -233,7 +233,7 @@ public class ReflectionModelIntrospectorTests
     public void Path_cache_refuses_new_entries_past_a_total_cap_but_keeps_serving_earlier_hits()
     {
         // PropertyPath.TryParse is syntax-only, so a successful parse is no more bounded than
-        // a failed one — FormValidationEngine.Resolve feeds this cache issue paths straight off
+        // a failed one — FormidableEngine.Resolve feeds this cache issue paths straight off
         // a server response, so a flood of distinct NEW paths (parseable or not) must not grow
         // the cache without bound, while entries already cached keep serving hits.
         var order = new TestOrder { Customer = new TestCustomer { Address = new TestAddress() } };
@@ -472,7 +472,7 @@ public class ReflectionModelIntrospectorTests
     [Fact]
     public void Member_resolution_reaches_public_instance_members_only()
     {
-        // Every path this walks can arrive from outside the app -- FormValidationEngine.Resolve
+        // Every path this walks can arrive from outside the app -- FormidableEngine.Resolve
         // hands it a server response's issue paths verbatim -- so the members it will read are
         // deliberately the ones a model declares as its public shape. A non-public or static
         // member is answered exactly as a member that does not exist: unreadable, and

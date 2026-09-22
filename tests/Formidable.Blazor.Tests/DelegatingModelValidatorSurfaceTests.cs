@@ -102,7 +102,7 @@ public class DelegatingModelValidatorSurfaceTests : BunitContext
     /// A draft carrying one good saved value and one wrong one, loaded through an engine over the
     /// wrapper <paramref name="wrap"/> builds.
     /// </summary>
-    private static async Task<(FormValidationEngine<LoadedDraft> Engine, EditContext Context, LoadedDraft Draft)>
+    private static async Task<(FormidableEngine<LoadedDraft> Engine, EditContext Context, LoadedDraft Draft)>
         LoadAsync(Func<IModelValidator<LoadedDraft>, IModelValidator<LoadedDraft>> wrap)
     {
         var draft = new LoadedDraft
@@ -112,7 +112,7 @@ public class DelegatingModelValidatorSurfaceTests : BunitContext
             ContactEmail = "ada.lovelace",
         };
         var editContext = new EditContext(draft);
-        var engine = new FormValidationEngine<LoadedDraft>(
+        var engine = new FormidableEngine<LoadedDraft>(
             draft, editContext, wrap(DraftAdapter()), new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
 
@@ -129,7 +129,7 @@ public class DelegatingModelValidatorSurfaceTests : BunitContext
     {
         var draft = new LoadedDraft();
         var editContext = new EditContext(draft);
-        using var engine = new FormValidationEngine<LoadedDraft>(
+        using var engine = new FormidableEngine<LoadedDraft>(
             draft, editContext, wrap(DraftAdapter()), new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
 
@@ -145,7 +145,7 @@ public class DelegatingModelValidatorSurfaceTests : BunitContext
         return native;
     }
 
-    private static async Task WaitForQuietAsync(IFormValidationEngine engine)
+    private static async Task WaitForQuietAsync(IFormidableEngine engine)
     {
         for (var attempt = 0; attempt < 100 && engine.IsValidating; attempt++)
         {

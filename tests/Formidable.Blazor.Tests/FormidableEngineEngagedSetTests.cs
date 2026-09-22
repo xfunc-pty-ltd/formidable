@@ -13,7 +13,7 @@ namespace Formidable.Blazor.Tests;
 /// pass selects under any profile here — the submit bucket is empty, so nothing turns on which
 /// one the live channel runs.
 /// </summary>
-public class FormValidationEngineEngagedSetTests
+public class FormidableEngineEngagedSetTests
 {
     private const string DeadlineMessage = "The deadline must not fall after the event day";
 
@@ -210,7 +210,7 @@ public class FormValidationEngineEngagedSetTests
     /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
     /// IsValidating true (MarkTouched does), which would resolve quiescence prematurely.
     /// </summary>
-    private static Task Quiescence(FormValidationEngine<CrossFieldSchedule> engine)
+    private static Task Quiescence(FormidableEngine<CrossFieldSchedule> engine)
     {
         var quiescent = new TaskCompletionSource();
         engine.StateChanged += (_, _) =>
@@ -223,7 +223,7 @@ public class FormValidationEngineEngagedSetTests
         return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    private static FormValidationEngine<CrossFieldSchedule> Build(
+    private static FormidableEngine<CrossFieldSchedule> Build(
         CrossFieldSchedule model,
         EditContext editContext,
         IValidator<CrossFieldSchedule> validator,

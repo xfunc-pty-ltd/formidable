@@ -6,17 +6,17 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineIssueAccessTests
+public class FormidableEngineIssueAccessTests
 {
     private readonly EngineOrder _order = new();
     private readonly EditContext _editContext;
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
     private readonly FormidableOptions _options = new() { DisclosureOverride = _ => true };
 
-    public FormValidationEngineIssueAccessTests()
+    public FormidableEngineIssueAccessTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order, _editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(), _options, new FakeTimeProvider());
@@ -102,7 +102,7 @@ public class FormValidationEngineIssueAccessTests
     {
         var order = new EngineOrder();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new RepeatedMessageValidator()),
             new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider());

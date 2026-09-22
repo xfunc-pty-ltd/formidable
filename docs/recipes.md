@@ -219,7 +219,7 @@ ruleset list is just `["Submit"]`, with `"Live"` nowhere in it — but the engin
 *rule*, and a `Profile("Submit,Live", ...)` rule is one declared rule however many names reach it.
 A post-submit edit runs each shared rule once across its live pass and the refresh that follows:
 whichever lands first executes it, and the other serves the stored verdict.
-`FormValidationEngineRuleReuseTests.One_post_submit_edit_runs_each_selected_rule_at_most_once_across_both_passes`
+`FormidableEngineRuleReuseTests.One_post_submit_edit_runs_each_selected_rule_at_most_once_across_both_passes`
 pins exactly this, on this exact shape. Where the seam is absent, every pass validates its whole
 profile instead, so the shared rule does run in both — correct, and priced exactly as it reads.
 
@@ -265,7 +265,7 @@ protected override void ConfigureDraftRules() =>
 ```
 
 Add `UpdateOn="InputUpdateMode.OnInput"` for a check that answers as the user types.
-`IFormValidationEngine.IsValidating` is the form-wide flag; the per-field one is scoped — to the
+`IFormidableEngine.IsValidating` is the form-wide flag; the per-field one is scoped — to the
 field that changed during a live pass, to the fields edited in the debounce window during a
 refresh, and form-wide during a submit. A draft load is the one pass it reports for no field at
 all: that pass answers for the whole model, so the form-wide flag is true and a page-level spinner
@@ -555,7 +555,11 @@ want the move.
 without the `FocusFirstErrorAsync()` above, focus goes wherever the dialog returns it and the
 visitor is left to find the first problem by eye. It is the same move the submit would have made,
 so a visitor who closes the dialog without choosing lands where the form would have put them had
-the dialog never opened.
+the dialog never opened. The `@ref` above is the page's route to it. A dialog component that lives
+*inside* the form has a second one and needs no wiring from the page at all: take the cascaded
+`FormidableFormContext` and call `Context.FocusFirstErrorAsync()` from its own close path. Same
+move, same `PrepareFocus` and `FocusFallback`, no callback passed down — which is what makes a
+shared dialog shareable.
 
 **The dismissal has to finish before it reports back.** `PrepareFocus` is awaited, so what it
 completes on decides what the focus move lands in. A dialog does not disappear on the state change
@@ -700,7 +704,7 @@ public partial class MissingFieldList : ComponentBase, IDisposable
     [Inject]
     private IFormidableFocusService Focus { get; set; } = default!;
 
-    private IFormValidationEngine? _subscribed;
+    private IFormidableEngine? _subscribed;
 
     private List<(string Name, FieldIdentifier Field)> Entries =>
         Context.Engine.GetVisibleIssues()

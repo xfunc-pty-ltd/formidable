@@ -9,7 +9,7 @@ namespace Formidable.Blazor;
 /// rather than to any field — as the same persistent, accessible message list
 /// <see cref="FormidableFieldMessage{TValue}"/> renders per field: the all-suppressed defensive
 /// gate's explanation, model-level server-applied issues, and the incomplete-validation fault
-/// issue, which <see cref="IFormValidationEngine.GetIssues"/> orders last. Parameterless, because
+/// issue, which <see cref="IFormidableEngine.GetIssues"/> orders last. Parameterless, because
 /// the field it speaks for is fixed: the model-level field (an empty
 /// <see cref="FieldIdentifier.FieldName"/>), which no accessor expression can name. The list
 /// element renders always — empty while the form has nothing to say — with the model-level

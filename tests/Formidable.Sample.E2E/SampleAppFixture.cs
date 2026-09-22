@@ -55,6 +55,17 @@ public sealed class SampleAppFixture : IAsyncLifetime
     /// a mouse cannot produce. Everything else about the session is identical.</summary>
     public async Task<SampleSession> NewPageAsync(string path, BrowserNewContextOptions? options)
     {
+        // Every context asks for reduced motion, which is a visitor preference the sample answers
+        // rather than a setting imposed on it: app.css turns its smooth scrolling off under the
+        // same guard a real visitor's preference trips. Animated scrolling makes a gesture's own
+        // measurements and a test's timing budget depend on how fast the machine is — a pointer
+        // aimed at an element still travelling, a marker that drains while a click waits for a
+        // scroll — and nothing in this suite asserts motion, so there is nothing to lose by
+        // asking for none. It gives that guard its only coverage besides. A caller wanting a
+        // different answer sets it and keeps it.
+        options ??= new BrowserNewContextOptions();
+        options.ReducedMotion ??= ReducedMotion.Reduce;
+
         var context = await Browser.NewContextAsync(options);
         var page = await context.NewPageAsync();
         await page.GotoAsync(SampleOrigin + path);

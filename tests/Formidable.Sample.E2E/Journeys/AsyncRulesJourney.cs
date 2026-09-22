@@ -122,13 +122,13 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
 
     // Property: after a submit, editing the username produces exactly one REAL checking window
     // (one lasting a healthy fraction of the simulated delay), not two. A window count alone
-    // cannot establish this: FormValidationEngine's RunPassAsync wraps every pass, including a
+    // cannot establish this: FormidableEngine's RunPassAsync wraps every pass, including a
     // refresh that validates nothing async at all, in the same SetValidating(true)/(false) pair
     // — the refresh's own indicator is deliberately never suppressed — so even correct code
     // shows a second, instantaneous open/close here. Duration is what discriminates a genuine
     // round trip from that harmless flash; see InstallCheckWindowProbe below.
     //
-    // What must break this test is reverting FormValidationEngine's per-rule verdict store —
+    // What must break this test is reverting FormidableEngine's per-rule verdict store —
     // whole-profile refresh execution, every Submit rule re-run instead of only the rules still
     // owed an answer at the edit's stamp. That revert ALONE does not turn this red, though:
     // MemoizedHandleValidator's memo backstops it, since the refresh's redundant re-check is for
@@ -137,7 +137,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // the memo together produces the symptom: two real, roughly 900 ms windows instead of one.
     // The engine-level mechanism (does the refresh execute only the rules without a fresh
     // verdict) is independently pinned by
-    // FormValidationEngineProfileSplitTests.A_post_submit_edit_runs_each_draft_rule_once, which
+    // FormidableEngineProfileSplitTests.A_post_submit_edit_runs_each_draft_rule_once, which
     // counts rule invocations directly and does not depend on the sample or its memo; this test
     // proves the end-to-end, user-visible contract instead, and is a weaker (but real) guard on
     // the engine mechanism specifically because the memo can and does cover for it here.
@@ -205,7 +205,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
     // the wall-clock cost stays flat — this test cannot see the regression. In correct code the
     // memo sits idle here (the store leaves the live pass nothing to execute); its designed job
     // on this page is the submit-side skip, a Submit pressed shortly after a live pass.
-    // FormValidationEngineProfileSplitTests.A_debounced_edit_runs_each_common_rule_once pins the
+    // FormidableEngineProfileSplitTests.A_debounced_edit_runs_each_common_rule_once pins the
     // exact mutation directly, counting rule invocations on a validator with no memo to hide
     // behind; this test proves the weaker, end-to-end, user-visible claim that holds given the
     // memo the shipped sample actually has — the same relationship

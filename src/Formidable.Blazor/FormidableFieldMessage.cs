@@ -8,8 +8,8 @@ namespace Formidable.Blazor;
 /// <summary>
 /// Shared lifecycle and rendering for field-level and collection-level message components:
 /// resolves <see cref="For"/> to a <see cref="FieldIdentifier"/>, subscribes to the cascaded
-/// engine's <see cref="IFormValidationEngine.StateChanged"/> so a validation pass re-renders the
-/// list, and renders an accessible message list from <see cref="IFormValidationEngine.GetIssues"/>.
+/// engine's <see cref="IFormidableEngine.StateChanged"/> so a validation pass re-renders the
+/// list, and renders an accessible message list from <see cref="IFormidableEngine.GetIssues"/>.
 /// The list element renders always — empty when the field currently has no issues — so a
 /// consumer's CSS can transition its opening and closing, and so a configured
 /// <see cref="FormidableOptions.InlineMessageLive"/> sits on an element that persists across

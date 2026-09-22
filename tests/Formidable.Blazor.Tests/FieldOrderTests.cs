@@ -19,13 +19,13 @@ public class FieldOrderTests : BunitContext
 {
     private readonly EngineOrder _order = new() { Customer = new EngineCustomer() };
     private readonly EditContext _editContext;
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
     private readonly FakeTimeProvider _time = new();
 
     public FieldOrderTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order,
             _editContext,
             new FluentValidationModelValidator<EngineOrder>(new DeclarationOrderValidator()),
@@ -196,7 +196,7 @@ public class FieldOrderTests : BunitContext
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var validator = new FaultAndFieldErrorValidator();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -542,7 +542,7 @@ public class FieldOrderTests : BunitContext
         var customerName = CustomerNameField(order);
         var fieldOrder = new RecordingFieldOrderService { Result = [customerName, description] };
         WireHost(fieldOrder);
-        SetUpJsModule();
+        var module = SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
@@ -553,7 +553,12 @@ public class FieldOrderTests : BunitContext
         // The page moves its fields. Nothing registers or unregisters, so the registry's version is
         // exactly the one the order above was resolved against.
         fieldOrder.Result = [description, customerName];
-        await cut.InvokeAsync(() => cut.Instance.NotifyLayoutMoved());
+        // Driven through the very reference observeLayout was handed, rather than through a method
+        // on the component: that reference is all the browser holds, so this also says the object
+        // the script reports to is one whose callback actually runs.
+        var receiver = (DotNetObjectReference<LayoutObserverReceiver>)
+            module.Invocations["observeLayout"].Single().Arguments[1]!;
+        await cut.InvokeAsync(() => receiver.Value.NotifyLayoutMoved());
 
         cut.WaitForAssertion(() => Assert.True(
             fieldOrder.Requests.Count > resolvesBeforeTheMove,

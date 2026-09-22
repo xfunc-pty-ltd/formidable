@@ -212,6 +212,75 @@ public sealed class QuickstartJourney(SampleAppFixture app)
         await Expect(page.Locator("p[role='status']")).ToHaveTextAsync("Submitted — thanks, Ada Lovelace!");
     }
 
+    // What the ancestors between the button and the document see, which is the half of recovery
+    // nothing on the page can tell you. The guard listens at document CAPTURE, so the click it
+    // re-delivers completes its whole path before the browser's own dispatch resumes — and the
+    // mis-delivered click would then descend to its own target and bubble back, giving every
+    // element above the button two clicks for one press. A delegated handler, an analytics
+    // listener, a click-outside-to-close guard: each would fire twice. Suppressing the original
+    // costs nobody a click, because the guard only acts when the click was retargeted to an
+    // ancestor that CONTAINS the button, and the re-delivered click bubbles through that very
+    // element. The intended click replaces the misdirected one at every level.
+    [E2EFact]
+    public async Task A_recovered_click_reaches_each_ancestor_exactly_once()
+    {
+        await using var session = await app.NewPageAsync("/");
+        var page = session.Page;
+
+        // Built outside #app, so none of it is Blazor's to diff. The shim grows on the press,
+        // which moves the button down past the still pointer and puts what the release lands on
+        // inside the form — so the browser dispatches the click on their nearest common ancestor,
+        // #relay-outer, which is where the double delivery is visible.
+        await page.EvaluateAsync(@"() => {
+            document.body.insertAdjacentHTML('afterbegin',
+                `<form id='relay-form'>
+                    <div id='relay-outer'>
+                        <div id='relay-shim'></div>
+                        <div id='relay-inner'><button type='button' id='relay-button'>Go</button></div>
+                    </div>
+                    <input id='relay-field'>
+                 </form>`);
+
+            window.__relay = { button: 0, inner: 0, outer: 0, form: 0, trusted: [] };
+            for (const [id, key] of [['relay-button', 'button'], ['relay-inner', 'inner'],
+                                     ['relay-outer', 'outer'], ['relay-form', 'form']]) {
+                document.getElementById(id).addEventListener('click', event => {
+                    window.__relay[key]++;
+                    window.__relay.trusted.push(key + ':' + event.isTrusted);
+                });
+            }
+
+            document.getElementById('relay-button').addEventListener('pointerdown', () => {
+                document.getElementById('relay-shim').style.height = '120px';
+            });
+        }");
+
+        var registered = await page.EvaluateAsync<bool>(
+            "async () => (await import('/_content/Formidable.Blazor/formidable.js'))" +
+            ".registerClickRecovery('relay-form', ['relay-field'])");
+        Assert.True(registered);
+
+        await PressHoldReleaseAsync(page, page.Locator("#relay-button"), 120);
+        await page.WaitForTimeoutAsync(300);
+
+        // The button and the element right above it sit BELOW the retarget, so they only ever see
+        // the recovery: they count one whether or not the original is suppressed, and are the
+        // control that the recovery happened at all.
+        Assert.Equal(1, await page.EvaluateAsync<int>("() => window.__relay.button"));
+        Assert.Equal(1, await page.EvaluateAsync<int>("() => window.__relay.inner"));
+
+        // These two are the assertion. #relay-outer is where the browser delivered the click, and
+        // the form is above it: both are on the re-delivered click's bubble path as well.
+        Assert.Equal(1, await page.EvaluateAsync<int>("() => window.__relay.outer"));
+        Assert.Equal(1, await page.EvaluateAsync<int>("() => window.__relay.form"));
+
+        // And what every one of them received is script-dispatched, which is the half of this that
+        // cannot be fixed, only told: a listener reading isTrusted sees a recovered click as
+        // synthetic, wherever on the path it sits.
+        var trusted = await page.EvaluateAsync<string[]>("() => window.__relay.trusted");
+        Assert.Equal(["button:false", "inner:false", "outer:false", "form:false"], trusted);
+    }
+
     // Attach mode's first route takes whatever element carries the model-level gate id, and that
     // id is a consumer's to place: put it on a summary wrapper and it names something narrower
     // than the form, with no button under it anywhere. Accepting that would install a guard that

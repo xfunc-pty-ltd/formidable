@@ -322,7 +322,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
     {
         var model = new NestedRoot();
         var replaced = model.Child;
-        using var engine = new FormValidationEngine<NestedRoot>(
+        using var engine = new FormidableEngine<NestedRoot>(
             model,
             new EditContext(model),
             new FluentValidationModelValidator<NestedRoot>(new NestedRootValidator()),
@@ -391,7 +391,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
         Assert.Empty(form.Instance.Engine!.GetIssues(field));
     }
 
-    private static IFormValidationEngine EngineOf(IRenderedComponent<FormidableForm<MarkerModel>> cut) =>
+    private static IFormidableEngine EngineOf(IRenderedComponent<FormidableForm<MarkerModel>> cut) =>
         cut.Instance.Engine!;
 
     private static IElement? MarkerFor(IRenderedComponent<FormidableForm<MarkerModel>> cut, string field) =>
@@ -408,7 +408,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
     private static FieldRequirement RequirementOf(IValidator<NestedRoot> validator)
     {
         var model = new NestedRoot();
-        using var engine = new FormValidationEngine<NestedRoot>(
+        using var engine = new FormidableEngine<NestedRoot>(
             model,
             new EditContext(model),
             new FluentValidationModelValidator<NestedRoot>(validator),

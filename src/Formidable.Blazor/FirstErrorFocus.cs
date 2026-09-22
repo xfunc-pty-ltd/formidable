@@ -40,7 +40,7 @@ internal static class FirstErrorFocus
     /// that means the submit was superseded before its own verdict landed: it reports blocked
     /// without writing one, leaving whatever preceded it on screen, and anything a caller starts
     /// and awaits can be what supersedes it — a second submit, or the pass
-    /// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> runs. Every other way a
+    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> runs. Every other way a
     /// submit blocks writes an error — the all-suppressed gate's form-level issue and the
     /// incomplete-validation fault issue included. A page asking for the move itself reaches the
     /// same state by simpler routes, since it chooses the moment: the errors were fixed while its
@@ -74,7 +74,7 @@ internal static class FirstErrorFocus
     /// own accord discard it, having no second move to fall to.</returns>
     internal static async ValueTask<bool> MoveAsync(
         IServiceProvider services,
-        IFormValidationEngine engine,
+        IFormidableEngine engine,
         Func<FieldIdentifier, ValueTask<bool>>? fallback,
         Func<FieldIdentifier, ValueTask>? prepare)
     {
@@ -119,7 +119,7 @@ internal static class FirstErrorFocus
     /// <summary>
     /// The one report a focus miss with no fallback to retry through gets: a Trace line for a
     /// debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
-    /// mirrors <c>FormValidationEngine.ReportSuppressed</c>'s dual channel, minus the
+    /// mirrors <c>FormidableEngine.ReportSuppressed</c>'s dual channel, minus the
     /// options-callback channel that has no analogue here. Names the fallback parameter so a
     /// consumer's console points straight at the seam that would close the gap.
     /// </summary>

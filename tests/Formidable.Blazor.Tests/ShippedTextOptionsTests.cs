@@ -26,7 +26,7 @@ public class ShippedTextOptionsTests : BunitContext
     private const string ShippedFaultSentence =
         "Validation could not run to completion; recent changes may not be fully validated.";
 
-    private static FormValidationEngine<EngineOrder> Build(
+    private static FormidableEngine<EngineOrder> Build(
         EngineOrder order,
         EditContext editContext,
         FormidableOptions options) =>
@@ -38,7 +38,7 @@ public class ShippedTextOptionsTests : BunitContext
             options,
             new FakeTimeProvider());
 
-    private static FormValidationEngine<EngineOrder> BuildFaulting(
+    private static FormidableEngine<EngineOrder> BuildFaulting(
         EngineOrder order,
         EditContext editContext,
         FormidableOptions options,
@@ -54,7 +54,7 @@ public class ShippedTextOptionsTests : BunitContext
     /// <summary>An order whose only failing rule is the model-level item cap, with every field it
     /// does render registered — so a blocked submit discloses a model-level error rather than
     /// arming the gate.</summary>
-    private static EngineOrder ModelLevelFailure(FormValidationEngine<EngineOrder> engine, EngineOrder order)
+    private static EngineOrder ModelLevelFailure(FormidableEngine<EngineOrder> engine, EngineOrder order)
     {
         order.Description = "ok";
         order.Customer = new EngineCustomer();

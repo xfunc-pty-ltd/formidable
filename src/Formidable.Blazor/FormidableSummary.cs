@@ -8,7 +8,7 @@ namespace Formidable.Blazor;
 /// Renders a live, severity-grouped summary of the currently-visible validation issues across
 /// the form — all of them unless <see cref="Show"/>, <see cref="GroupByField"/> or
 /// <see cref="MaxItems"/> narrows what is listed — backed by
-/// <see cref="IFormValidationEngine.GetVisibleIssues"/>: the same
+/// <see cref="IFormidableEngine.GetVisibleIssues"/>: the same
 /// submit-then-live-deduped view <c>FormidableFieldMessage</c>/<c>FormidableCollectionMessage</c>
 /// use per-field, but for the whole form at once, and in the order that view reports: where the
 /// fields sit on the page, once the host has resolved that. The markup is one persistent
@@ -30,7 +30,7 @@ namespace Formidable.Blazor;
 /// <see cref="GroupByField"/> collapses the issues sharing a field into a single entry or
 /// <see cref="MaxItems"/> caps how many entries that band renders; an entry reads as its own
 /// issue's message unless <see cref="ItemTemplate"/> supplies something else. Subscribes to the
-/// cascaded engine's <see cref="IFormValidationEngine.StateChanged"/> so the summary stays
+/// cascaded engine's <see cref="IFormidableEngine.StateChanged"/> so the summary stays
 /// current through live edits, refreshes, and server-applied issues — not just at submit time.
 /// </summary>
 public sealed class FormidableSummary : FormidableComponentBase
@@ -170,7 +170,7 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// names. What a click on that button does stays this component's too, so rewording an entry
     /// changes what it reads as and nothing about where the click takes the visitor. A summary
     /// that needs different markup around the entries is a summary a page builds for itself out
-    /// of <see cref="IFormValidationEngine.GetVisibleIssues"/> and
+    /// of <see cref="IFormidableEngine.GetVisibleIssues"/> and
     /// <see cref="IFormidableFocusService"/>, which this component does not stand in the way of.
     /// </remarks>
     [Parameter]
@@ -196,7 +196,7 @@ public sealed class FormidableSummary : FormidableComponentBase
     /// component already imposes: a field carrying an error and a warning is listed
     /// once in each, which is one field described two ways rather than one description repeated.
     /// Entries hold the position of each field's first issue, so a grouped band is still in the
-    /// order <see cref="IFormValidationEngine.GetVisibleIssues"/> reported. Every model-level
+    /// order <see cref="IFormidableEngine.GetVisibleIssues"/> reported. Every model-level
     /// issue shares one field identifier, so a band holding more than one of them renders a
     /// single entry for the lot.
     /// </para>

@@ -26,7 +26,7 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
 {
     // PropertyPath.TryParse is purely syntactic — it never touches the model — so neither a
     // successful nor a failed parse is naturally bounded by anything the app itself controls:
-    // FormValidationEngine.Resolve calls Resolve with a server response's issue paths
+    // FormidableEngine.Resolve calls Resolve with a server response's issue paths
     // verbatim, and almost any attacker-chosen string parses as a valid single-segment path.
     // A few thousand entries comfortably covers even a large virtualized form (hundreds of
     // rows, each legitimately producing its own path, e.g. "Sessions[437].Title"). Two caps

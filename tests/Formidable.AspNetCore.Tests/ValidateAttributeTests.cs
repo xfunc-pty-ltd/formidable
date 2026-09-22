@@ -64,6 +64,14 @@ public sealed class OrdersController : ControllerBase
     [Validate(RequireValidator = true)]
     public IActionResult StrictOptional([FromBody] SampleOrder? order) => Ok(order);
 
+    [HttpPost("strict-derived-only")]
+    [Validate(RequireValidator = true)]
+    public IActionResult StrictDerivedOnly([FromBody] OnlyDerivedPolymorphicOrder order) => Ok(order);
+
+    [HttpPost("strict-explicit-unregistered")]
+    [Validate(typeof(UnregisteredModel), RequireValidator = true)]
+    public IActionResult StrictExplicitUnregistered([FromBody] UnregisteredModel model) => Ok(model);
+
     [HttpPost("explicit-unregistered")]
     [Validate(typeof(UnregisteredModel))]
     public IActionResult ExplicitUnregistered([FromBody] UnregisteredModel model) => Ok(model);
@@ -190,8 +198,9 @@ public class RushOnlyPolymorphicOrderValidator : DraftSubmitValidator<RushOnlyPo
 
 /// <summary>Never has a validator registered anywhere in this file's test apps — pins where a
 /// missing registration is reported: naming the type on the attribute makes the resolution fail
-/// loudly, while discovery mode skips the argument and strict mode has nothing to say about
-/// it.</summary>
+/// loudly, discovery mode alone skips the argument, and discovery mode under
+/// <c>RequireValidator</c> refuses the request because no type the action declares resolves a
+/// validator.</summary>
 public class UnregisteredModel
 {
     public string Name { get; set; } = string.Empty;
@@ -525,6 +534,9 @@ public class ValidateAttributeTests
         await using var app = await StartMvcAppAsync();
         var client = app.GetTestClient();
 
+        // The positive control for the request-time discovery probe as well as for the filter: the
+        // declared parameter type has a registered validator, so strict mode has nothing to say
+        // and the request runs to the action.
         var response = await client.PostAsJsonAsync("mvc/strict-orders",
             new SampleOrder { Description = "ok", Items = [new SampleItem { Sku = "A" }] });
 
@@ -580,6 +592,15 @@ public class ValidateAttributeTests
         await using var app = await StartFixedControllerAppAsync(typeof(BaseTypedParameter));
 
         Assert.NotNull(app);
+
+        // And a request to it runs. Naming the types settles strictness at model build, so
+        // nothing re-decides it per request: the declared parameter here is not one of the named
+        // types, and a request-time check that did not know it was in named-type mode would read
+        // that as the misconfiguration the model build just cleared.
+        var response = await app.GetTestClient().PostAsJsonAsync("base-typed-parameter",
+            new PolymorphicSampleOrder { Description = "ok" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -614,20 +635,67 @@ public class ValidateAttributeTests
     }
 
     [Fact]
-    public async Task Strict_discovery_mode_says_nothing_about_an_unregistered_model()
+    public async Task Strict_discovery_mode_reports_a_declared_model_no_registration_covers()
     {
         await using var app = await StartMvcAppAsync();
         var client = app.GetTestClient();
 
-        // The ruled boundary, pinned so it stays deliberate. Strict mode is decided from declared
-        // parameters, and what makes a parameter validatable in discovery mode is a REGISTRATION
-        // an application-model convention cannot read -- so a model with no validator is skipped
-        // here exactly as it is without strict mode. Naming the type is what reports it: the
-        // explicit-types sibling below 500s for this same model, pointing at
-        // AddValidatorsFromAssembly.
-        var response = await client.PostAsJsonAsync("mvc/strict-unregistered", new UnregisteredModel { Name = "x" });
+        // The catch strict discovery mode exists for, and the one an application-model convention
+        // cannot make: no IValidator<T> covers UnregisteredModel, which is what this action
+        // declares -- the shape a dropped AddValidatorsFromAssembly leaves behind. It is read from
+        // the DECLARED parameter list, which is why the two requests below differ only in what
+        // they send and fail identically; reading what they BOUND would put the timing of a
+        // configuration error in a client's hands.
+        var first = await client.PostAsJsonAsync("mvc/strict-unregistered", new UnregisteredModel { Name = "x" });
+        var second = await client.PostAsJsonAsync("mvc/strict-unregistered", new UnregisteredModel());
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, first.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, second.StatusCode);
+
+        var body = await first.Content.ReadAsStringAsync();
+        Assert.Contains(nameof(UnregisteredModel), body);
+        Assert.Contains(nameof(OrdersController.StrictUnregistered), body);
+        Assert.Contains("RequireValidator", body);
+        Assert.Equal(body, await second.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Strict_discovery_mode_refuses_a_model_only_a_runtime_type_would_reach()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // The one shape strict discovery mode refuses that the filter would have validated, kept
+        // deliberate. Runtime_type_fallback_validates_when_the_declared_type_has_no_validator
+        // posts this exact body to the same parameter shape WITHOUT RequireValidator and gets a
+        // 400: the runtime-type fallback really does reach RushOnlyPolymorphicOrder's validator.
+        // Strict mode reads the DECLARED type, OnlyDerivedPolymorphicOrder resolves nothing, and
+        // seeing the difference would mean reading what the request bound -- the client-reachable
+        // check this design exists to avoid. Naming the type keeps the check and the validation
+        // both.
+        var response = await client.PostAsync("mvc/strict-derived-only",
+            new StringContent("""{"$type":"rush","description":""}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains(nameof(OnlyDerivedPolymorphicOrder), await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Strict_named_type_mode_still_reports_the_missing_validator_registration()
+    {
+        await using var app = await StartMvcAppAsync();
+        var client = app.GetTestClient();
+
+        // Naming the types settles strictness entirely at model build, so the request-time probe
+        // is gated off and what a request meets is the resolution failure the explicit path has
+        // always reported. A probe that ran for named types too would answer first and say
+        // something else, which is what the second assertion holds it to.
+        var response = await client.PostAsJsonAsync("mvc/strict-explicit-unregistered", new UnregisteredModel());
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("No FluentValidation validator for", body);
+        Assert.DoesNotContain("RequireValidator", body);
     }
 
     [Fact]
@@ -697,6 +765,35 @@ public class ValidateAttributeTests
         [HttpPost("derived-typed-parameter")]
         [Validate(typeof(PolymorphicSampleOrder), RequireValidator = true)]
         public IActionResult Submit([FromBody] RushPolymorphicSampleOrder order) => Ok(order);
+    }
+
+    [Validate(RequireValidator = true)]
+    public sealed class ClassLevelDiscoveryStrict : ControllerBase
+    {
+        [HttpPost("class-level-discovery/covered")]
+        public IActionResult Covered([FromBody] SampleOrder order) => Ok(order);
+
+        [HttpPost("class-level-discovery/uncovered")]
+        public IActionResult Uncovered([FromBody] UnregisteredModel model) => Ok(model);
+    }
+
+    [Fact]
+    public async Task A_class_level_discovery_strict_attribute_answers_per_action()
+    {
+        await using var app = await StartFixedControllerAppAsync(typeof(ClassLevelDiscoveryStrict));
+        var client = app.GetTestClient();
+
+        // One attribute instance serves every action of the controller it sits on, so the
+        // registration answer it computes has to belong to the action rather than to itself. Both
+        // actions declare a parameter, so the model-build half passes for each; only the second
+        // declares a type nothing validates.
+        var covered = await client.PostAsJsonAsync("class-level-discovery/covered",
+            new SampleOrder { Description = "ok" });
+        var uncovered = await client.PostAsJsonAsync("class-level-discovery/uncovered", new UnregisteredModel());
+
+        Assert.Equal(HttpStatusCode.OK, covered.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, uncovered.StatusCode);
+        Assert.Contains(nameof(UnregisteredModel), await uncovered.Content.ReadAsStringAsync());
     }
 
     private static Task<Microsoft.AspNetCore.Builder.WebApplication> StartReportAccessorAppAsync(ReportCapture capture) =>

@@ -6,17 +6,17 @@ using static Formidable.Blazor.Tests.Fixtures.EngineTestSync;
 
 namespace Formidable.Blazor.Tests;
 
-public class FormValidationEngineLiveTests
+public class FormidableEngineLiveTests
 {
     private readonly EngineOrder _order = new();
     private readonly EditContext _editContext;
-    private readonly FormValidationEngine<EngineOrder> _engine;
+    private readonly FormidableEngine<EngineOrder> _engine;
     private readonly FakeTimeProvider _time = new();
 
-    public FormValidationEngineLiveTests()
+    public FormidableEngineLiveTests()
     {
         _editContext = new EditContext(_order);
-        _engine = new FormValidationEngine<EngineOrder>(
+        _engine = new FormidableEngine<EngineOrder>(
             _order,
             _editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -71,7 +71,7 @@ public class FormValidationEngineLiveTests
     {
         _order.Description = "a-b"; // warning-severity submit rule; also passes draft rules
         var options = new FormidableOptions { DisclosureOverride = _ => true };
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             _order, new EditContext(_order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(), options, _time);
@@ -99,7 +99,7 @@ public class FormValidationEngineLiveTests
     public void LiveDebounce_defers_the_live_pass_until_the_window_closes()
     {
         var editContext = new EditContext(_order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             _order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -125,7 +125,7 @@ public class FormValidationEngineLiveTests
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),

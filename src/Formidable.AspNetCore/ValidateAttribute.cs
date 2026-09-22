@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -70,24 +71,35 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
 
     /// <summary>
     /// When <see langword="true"/>, throws <see cref="InvalidOperationException"/> — naming the
-    /// action and the model type it declares no parameter for — if the action could never hand
-    /// this filter anything to validate. Decided from the action's DECLARED parameters when MVC
-    /// builds its application model, so it fires once, before the host serves a request, and no
-    /// request shape can reach it: an explicit constructor type
+    /// action and what it declares — if the action could never hand this filter anything to
+    /// validate. Decided from the action's DECLARED parameters, which no request shape can
+    /// influence, in the earliest place each mode can be decided: an explicit constructor type
     /// (<c>[Validate(typeof(Order), RequireValidator = true)]</c>) that matches no declared
-    /// parameter is the case it catches, and it catches it whether or not any request ever
-    /// arrives. Off by default: an action mixing validatable models with ordinary parameters
-    /// (route values, query strings, injected services) is free to declare no model at all,
-    /// which is not a misconfiguration.
+    /// parameter is caught when MVC builds its application model, before the host serves
+    /// anything, and with no explicit types a parameter list resolving no registered validator
+    /// at all is caught on the action's first request and on every request after it. Off by
+    /// default: an action mixing validatable models with ordinary parameters (route values,
+    /// query strings, injected services) is free to declare no model at all, which is not a
+    /// misconfiguration.
     /// </summary>
     /// <remarks>
     /// With no explicit types this attribute discovers what to validate from validator
-    /// REGISTRATION, which an application-model convention cannot see — there is no DI at model
-    /// build — so strict mode there can only insist the action declares parameters at all. The
-    /// registration failures are reported where they already are, when a resolution actually
-    /// fails: a named type with no <c>IValidator&lt;T&gt;</c> names
-    /// <c>AddValidatorsFromAssembly</c>, and an unwired adapter names <c>AddFormidable()</c>.
-    /// Naming the model types is therefore what makes strict mode strict.
+    /// REGISTRATION, which an application-model convention cannot see — an <c>ActionModel</c>
+    /// carries no <see cref="IServiceProvider"/> — so discovery mode is decided in two places.
+    /// The convention insists the action declares parameters at all; the request-time half then
+    /// probes each DECLARED parameter type for a registered
+    /// <c>FluentValidation.IValidator&lt;T&gt;</c>, the same presence check the filter itself
+    /// discovers arguments with. Declared, not bound: a parameter list is fixed where what a
+    /// request happens to bind is not, so the answer is the same on every request, is computed
+    /// once per action, and a dropped <c>AddValidatorsFromAssembly</c> then fails every request
+    /// to that action loudly instead of quietly validating nothing.
+    /// One shape is refused that the filter would otherwise have validated: a base-typed
+    /// parameter whose only registered validator is for a DERIVED type. The filter reaches that
+    /// at run time by falling back to the bound argument's own type, but the declared type
+    /// resolves nothing, and a check that read bound arguments to tell the difference would be
+    /// the client-reachable check this one exists to avoid. Naming the model types is the
+    /// stronger mode: it is answered entirely at model build, and it admits a base-typed
+    /// parameter for a named derived model.
     /// </remarks>
     public bool RequireValidator { get; set; }
 
@@ -97,6 +109,8 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
     {
         var profile = ValidationProfile.FromName(Profile);
         var services = context.HttpContext.RequestServices;
+        ThrowIfDiscoveryResolvesNoValidator(context.ActionDescriptor, services);
+
         var issues = new List<ValidationIssue>();
         var validatedAny = false;
 
@@ -248,9 +262,12 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
     private static Type? DeclaredParameterType(ActionDescriptor actionDescriptor, string parameterName) =>
         actionDescriptor.Parameters.FirstOrDefault(p => p.Name == parameterName)?.ParameterType;
 
-    // Strict mode is decided from the action's DECLARED parameters while MVC builds its
-    // application model — before the host serves anything — so a misconfiguration check can
-    // never be reached by a request's shape. It reports through the same convention seam the
+    // Strict mode is decided from the action's DECLARED parameters, so a misconfiguration check
+    // can never be reached by a request's shape. Everything decidable without a container is
+    // decided here, while MVC builds its application model — before the host serves anything;
+    // the registration half discovery mode needs waits for a request, because that is where a
+    // container first exists (ThrowIfDiscoveryResolvesNoValidator below). It reports through the
+    // same convention seam the
     // framework gives any attribute: MVC applies IActionModelConvention for a METHOD-level
     // attribute and IControllerModelConvention for a CLASS-level one, both without an
     // AddControllers(options => ...) registration, so [Validate] needs neither a startup hook
@@ -283,8 +300,8 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
         {
             // Discovery mode names no type: what makes a parameter validatable is a validator
             // REGISTRATION, and no application-model convention can read DI. An action with no
-            // parameters at all is still decidable, and is the whole of what strict discovery
-            // mode can honestly claim.
+            // parameters at all is still decidable here, which is the whole of what this half
+            // can claim; the registration itself is probed on the action's first request.
             if (action.Parameters.Count == 0)
             {
                 throw new InvalidOperationException(
@@ -326,8 +343,80 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
             "or set RequireValidator = false.");
     }
 
+    // Strict DISCOVERY mode's other half, and the reason it runs here rather than beside the
+    // application-model check above: with no type named, what makes a parameter validatable is a
+    // validator REGISTRATION, and an ActionModel carries no IServiceProvider to ask. So the
+    // convention settles what it can — the action declares parameters at all — and the rest is
+    // settled the first time a request reaches the action.
+    //
+    // What is read is ActionDescriptor.Parameters: the action's DECLARED parameter list, built
+    // once with the application model and handed to every request for that action unchanged.
+    // That is the whole distinction from reading ActionArguments, which is what a request
+    // BOUND — a shape any anonymous client controls, and reading it would turn a
+    // misconfiguration check into a 500 the client decides the timing of. Declared parameters
+    // make the verdict identical on every request, so no request can provoke the throw and none
+    // can suppress it; a wiring bug fails every request to the action, which is the posture the
+    // minimal-API half takes for the same class of fault
+    // (FormidableEndpointFilterExtensions.ThrowIfNoDeclaredParameter), reached later than its
+    // pipeline-build time only because DI is not readable before a request exists.
+    private void ThrowIfDiscoveryResolvesNoValidator(ActionDescriptor actionDescriptor, IServiceProvider services)
+    {
+        if (!RequireValidator || _modelTypes.Length > 0)
+        {
+            return;
+        }
+
+        if (DiscoversAValidator(actionDescriptor, services))
+        {
+            return;
+        }
+
+        var declared = actionDescriptor.Parameters.Count == 0
+            ? "no parameters at all"
+            : string.Join(", ", actionDescriptor.Parameters.Select(p => FriendlyTypeName.Of(p.ParameterType)));
+
+        throw new InvalidOperationException(
+            $"[Validate(RequireValidator = true)] on {Describe(actionDescriptor)} found no registered validator for any " +
+            $"type it declares — it declares {declared}. Register one with " +
+            "services.AddScoped<IValidator<T>, TValidator>() or services.AddValidatorsFromAssembly(), name the model " +
+            "types on the attribute ([Validate(typeof(T), RequireValidator = true)]), or set RequireValidator = false.");
+    }
+
+    // One verdict per action, computed on that action's first request and reused for every later
+    // one: it is built from the declared parameter list and the container's registrations,
+    // neither of which changes while the app runs, so probing them per request would repeat
+    // identical reflection for the life of the process — the same reasoning the closed-generic
+    // ValidateAsync memo below is built on. Keyed by the descriptor instance, which MVC builds
+    // once with the application model; an instance field rather than a static one, so a
+    // class-level attribute shared by a controller's actions still answers per action while the
+    // memo lives and dies with the attribute MVC caches beside them.
+    private readonly ConcurrentDictionary<ActionDescriptor, bool> _discoveredValidators = new();
+
+    private bool DiscoversAValidator(ActionDescriptor actionDescriptor, IServiceProvider services) =>
+        _discoveredValidators.GetOrAdd(
+            actionDescriptor,
+            static (descriptor, state) => descriptor.Parameters.Any(
+                parameter => Probeable(parameter.ParameterType)
+                    && state.Attribute.ShouldValidate(parameter.ParameterType, state.Services)),
+            (Attribute: this, Services: services));
+
+    // MakeGenericType cannot close IValidator<> over a by-ref, pointer or still-open type, and an
+    // ActionDescriptor can be hand-built outside MVC's own pipeline — the case
+    // DeclaredParameterType above already allows for — so the probe declines such a parameter
+    // rather than throwing a second, unrelated exception at it.
+    private static bool Probeable(Type parameterType) =>
+        !parameterType.IsByRef && !parameterType.IsPointer && !parameterType.ContainsGenericParameters;
+
     private static string Describe(ActionModel action) =>
         $"{FriendlyTypeName.Of(action.Controller.ControllerType)}.{action.ActionMethod.Name}";
+
+    // The same name the model-build message builds, from the descriptor MVC derived from that
+    // model. DisplayName covers a descriptor that is not a controller action's at all, which the
+    // request-time path can be handed where the convention could not be.
+    private static string Describe(ActionDescriptor actionDescriptor) =>
+        actionDescriptor is ControllerActionDescriptor controllerAction
+            ? $"{FriendlyTypeName.Of(controllerAction.ControllerTypeInfo)}.{controllerAction.MethodInfo.Name}"
+            : actionDescriptor.DisplayName ?? "this action";
 
     // Closed-generic ValidateAsync MethodInfo per argument type, built once and reused for
     // every later request: the argument type set for a running app is small and fixed (it's

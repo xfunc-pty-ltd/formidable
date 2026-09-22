@@ -56,7 +56,7 @@ namespace Formidable.Blazor;
 /// dispatcher. A pass in flight across such a change can therefore neither read a store that is
 /// mutating under it nor write verdicts computed against a page that has since moved.
 /// </remarks>
-public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValidatingFieldReader, IDisposable
+public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IDisposable
     where TModel : class
 {
     private readonly TModel _model;
@@ -258,7 +258,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// the edit context's field-changed notification — so verdicts for a removed row outlive
     /// it, departed fields are never pruned, and issues keep validator order.
     /// </remarks>
-    public FormValidationEngine(
+    public FormidableEngine(
         TModel model,
         EditContext editContext,
         IModelValidator<TModel> validator,
@@ -372,7 +372,7 @@ public sealed class FormValidationEngine<TModel> : IFormValidationEngine, IValid
     /// map and nothing else — a component asks with the identifier it resolved when it last
     /// bound, so a rebuild that re-files a nested member under a replaced owner leaves an
     /// unmoved component asking under the old one. That divergence is the documented limit on
-    /// <see cref="IFormValidationEngine.GetFieldRequirement"/>, and it errs towards claiming
+    /// <see cref="IFormidableEngine.GetFieldRequirement"/>, and it errs towards claiming
     /// nothing.
     /// </para>
     /// <para>
@@ -3083,12 +3083,12 @@ internal enum PassKind
     Refresh,
 
     /// <summary>
-    /// The whole-model submit-profile answer <see cref="FormValidationEngine{TModel}.DiscloseLoadedValuesAsync"/>
+    /// The whole-model submit-profile answer <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/>
     /// runs to decide what a page's freshly loaded values have earned. Its own kind rather than a
     /// refresh, because the deference rules are written in kinds: nothing an EDIT starts may
     /// supersede it, since its verdict is the only thing that engages the fields it speaks for.
     /// Another pass a caller starts and awaits still can — a submit, or a second load — the way
-    /// two submits resolve (see <see cref="FormValidationEngine{TModel}.SubmitInFlight"/>).
+    /// two submits resolve (see <see cref="FormidableEngine{TModel}.SubmitInFlight"/>).
     /// </summary>
     Load,
 }
@@ -3159,7 +3159,7 @@ internal sealed class SetVerdict(
     /// The stamp comparison says only that nothing has told the engine the model moved since —
     /// which is what "the model is unchanged" means to an engine that is told about changes. Two
     /// things tell it: a field-changed notification, and
-    /// <see cref="FormValidationEngine{TModel}.DiscloseLoadedValuesAsync"/>, which moves the stamp
+    /// <see cref="FormidableEngine{TModel}.DiscloseLoadedValuesAsync"/>, which moves the stamp
     /// itself precisely because the values it is about arrived without one. A mutation made
     /// without either is invisible to it.
     /// </remarks>

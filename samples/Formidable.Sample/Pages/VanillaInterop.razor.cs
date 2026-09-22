@@ -10,7 +10,7 @@ public partial class VanillaInterop : IDisposable
     private string _status = string.Empty;
 
     private FormidableForm<GadgetOrder>? _form;
-    private IFormValidationEngine? _subscribedEngine;
+    private IFormidableEngine? _subscribedEngine;
 
     private FieldIdentifier NicknameField => new(_order, nameof(GadgetOrder.Nickname));
 

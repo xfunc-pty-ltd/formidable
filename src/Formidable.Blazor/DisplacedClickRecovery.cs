@@ -32,11 +32,21 @@ public enum DisplacedClickRecovery
     /// </summary>
     /// <remarks>
     /// The click is re-delivered to the button itself, so an ordinary handler on a button that
-    /// submits nothing is reached the same way a submit button is. What the button receives is a
-    /// script-dispatched click: <c>isTrusted</c> is <see langword="false"/>, which matters only to
-    /// code that reads that flag. Transient user activation survives, because the delivery happens
-    /// inside the browser's own handling of the displaced click, so an activation-gated API — a
-    /// clipboard write, a popup, full-screen — still works from the recovered click.
+    /// submits nothing is reached the same way a submit button is, and the mis-delivered click is
+    /// suppressed as the recovery goes out. One press therefore stays one click at every level:
+    /// the browser dispatched the original on an ancestor of the button, which is on the
+    /// re-delivered click's own path, so the intended click arrives exactly where the misdirected
+    /// one would have and replaces it. A consumer's delegated click handler, an analytics
+    /// listener or a click-outside-to-close guard sees one click, not two.
+    /// What arrives is script-dispatched, and not only at the button: every element on its path
+    /// reads <c>isTrusted</c> as <see langword="false"/>. Code that gates on that flag — a
+    /// consumer's own handler, or a third-party widget's — treats a recovered click as synthetic
+    /// and can decline it. Script cannot dispatch a trusted event, so that is the price of
+    /// recovery rather than something this option can settle; <see cref="None"/> is the answer
+    /// for a page that would rather lose the click than deliver an untrusted one. Transient user
+    /// activation survives, because the delivery happens inside the browser's own handling of the
+    /// displaced click, so an activation-gated API — a clipboard write, a popup, full-screen —
+    /// still works from the recovered click.
     /// Three conditions all have to hold, and the last two are what keep the recovery from being
     /// a second, cruder activation path: the press began on a button inside this root; the browser
     /// retargeted the click to an ancestor of that button rather than delivering it; and the

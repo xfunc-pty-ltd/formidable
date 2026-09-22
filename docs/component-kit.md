@@ -34,7 +34,7 @@ it resolves what it needs from either an argument or the DI container, and refus
 `FormidableValidator` resolves identically, because both hosts go through the same factory:
 
 ```csharp
-    internal static FormValidationEngine<TModel> Create<TModel>(
+    internal static FormidableEngine<TModel> Create<TModel>(
         TModel model,
         EditContext editContext,
         IServiceProvider services,
@@ -216,24 +216,33 @@ goes.
 `EditForm` gives its own body — so form markup reads the cascaded context as `context` without
 capturing the component with `@ref`: a control the page draws itself marks its own field touched
 on blur with `@onblur="() => context.Engine.MarkTouched(field)"`, inline. Three notes travel with
-that. What the context reaches is always the engine's member, since everything it offers comes
-from the engine. A member declared on `FormidableForm` instead is not reachable that way:
-`ResetAsync` rebuilds the engine, which is why `ResetAsync` sits on the component, and why a
-reset button is the case that does want an `@ref` to the form. Where the engine and the component
-both declare a member, the engine's is what the context reaches, so
-`context.Engine.ApplyServerIssues(...)` is the quiet background apply rather than the form's own
-overload, which also moves focus to the first error. An inline *read* of engine state
-refreshes when the form itself re-renders (a submit is one cause), not on every validation pass —
-ongoing state travels through `Engine.StateChanged`, which observing components subscribe to
-individually — so a live spinner or a disabled submit button still wants a small component
-subscribed to that event, the shape the `/field-state` page's visualizer ships. And nesting
-another typed fragment that also leaves its parameter name implicit (a `FormidableField`, a
-`Virtualize`) makes the Razor compiler ask for a `Context="..."` on one of the two: both declare
-the implicit `context` name, so the rename is owed whether or not either body ever reads it. It
-is a compile-time rename, the same one `EditForm` has always charged, and either fragment can
-take it. The form's own can: `<FormidableForm Model="_order" Context="formidable">` names the
-form's body and leaves the nested fragment on `context`. Every shipped sample happens to name
-the inner one instead.
+that. What the context reaches is the engine's members, plus one move `FormidableForm` makes that
+the engine cannot. `context.FocusFirstErrorAsync()` is on the context because the parameters
+governing that move, `PrepareFocus` and `FocusFallback`, are the form's, and no focus service is
+reachable from the engine at all. That is what lets a shared component nested inside the form (the
+announcement dialog a design system builds once and every form reuses) finish the
+[dialog sequence](#asking-for-the-first-error-move) itself, rather than having the page thread a
+callback down to it. Every other member declared on `FormidableForm` is out of reach that way, and
+`ResetAsync` is the one that shows where the line falls rather than being an exception to it:
+resetting rebuilds the engine, so a context asked to do it would invalidate the very instance it
+was asked on, where moving focus invalidates nothing. That is why a reset button is the case that
+does want an `@ref` to the form. Where the engine and the component both declare a member, the
+engine's is what the context reaches, so `context.Engine.ApplyServerIssues(...)` is the quiet
+background apply rather than the form's own overload, which also moves focus to the first error.
+
+An inline *read* of engine state refreshes when the form itself re-renders (a submit is one
+cause), not on every validation pass — ongoing state travels through `Engine.StateChanged`, which
+observing components subscribe to individually — so a live spinner or a disabled submit button
+still wants a small component subscribed to that event, the shape the `/field-state` page's
+visualizer ships.
+
+And nesting another typed fragment that also leaves its parameter name implicit (a
+`FormidableField`, a `Virtualize`) makes the Razor compiler ask for a `Context="..."` on one of
+the two: both declare the implicit `context` name, so the rename is owed whether or not either
+body ever reads it. It is a compile-time rename, the same one `EditForm` has always charged, and
+either fragment can take it. The form's own can:
+`<FormidableForm Model="_order" Context="formidable">` names the form's body and leaves the
+nested fragment on `context`. Every shipped sample happens to name the inner one instead.
 
 Swapping the `Model` parameter to a different instance — a draft load, a "start over" reset —
 rebuilds the `EditContext` and engine; a component consuming `FormidableForm` never manages that
@@ -302,20 +311,15 @@ keyboard shortcut. It runs the submit pipeline and routes to `OnValidSubmit` or
     /// no render is triggered — a dead engine's verdict, from a submit the reset already abandoned,
     /// must not surface as if it were current. That includes the return value: cancelling the
     /// abandoned pass's token is what usually stops it short, but a validator that does not honour
-    /// the token can still run to completion, so the blocked <see cref="SubmitOutcome"/> below is
-    /// returned instead of whatever that pass actually decided.
+    /// the token can still run to completion, so a blocked <see cref="SubmitOutcome"/> carrying
+    /// nothing is returned instead of whatever that pass actually decided.
     /// </summary>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var engine = RequireEngine();
-        var outcome = await engine.ValidateForSubmitAsync();
-
-        if (!ReferenceEquals(_engine, engine))
+        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
+        if (outcome is null)
         {
-            // The dead engine's own verdict — even a passing one, if its validator outran
-            // cancellation — must not surface as current; mirrors FormValidationEngine's own
-            // precedent for a superseded pass with nothing to report.
-            return new SubmitOutcome(false, ValidationReport.Empty, []);
+            return RootSubmit.Superseded;
         }
 
         if (outcome.CanProceed)
@@ -357,7 +361,7 @@ what you're after: `CanProceed`, the full `Report`, and `VisibleErrorSummary` fo
 [Severity](severity.md)).
 
 The engine itself is exposed as a public property: `Engine => _engine`, typed as the non-generic
-`IFormValidationEngine`. `FormidableForm` also forwards its two overloads directly
+`IFormidableEngine`. `FormidableForm` also forwards its two overloads directly
 (`_form!.ApplyServerIssues(issues)`; see [Server integration](server-integration.md)), and a page
 reads `IsValidating`, `HasSubmitted` or `IsFormValid` off `Engine` without going through a field.
 The last of those needs [`TrackFormValidity`](options.md#trackformvalidity) turned on to mean
@@ -449,6 +453,14 @@ send the visitor, since a `false` means the call moved nothing.
 
 Call it from the renderer's synchronization context, as with `SubmitAsync`, and after the form's
 first render — before that there is no engine and the call throws.
+
+A component nested *inside* the form asks for the same move through the cascaded context, with no
+`@ref` to reach for: `context.FocusFirstErrorAsync()`. It calls the root's method, so the field it
+lands on, `PrepareFocus` and `FocusFallback` all come with it, and the answer means what it means
+above. That is what lets a shared announcement dialog — one a design system builds once and every
+form drops in — finish the sequence itself instead of taking a callback from each page that hosts
+it. A `FormidableFormContext` built through its public constructor (the shape
+[Testing](testing.md) points at) has no root behind it, so it moves nothing and answers `false`.
 
 ### Suppressing the automatic focus
 
@@ -2005,7 +2017,7 @@ reconcile's own continuation. Ordinary use never calls it. See
 [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) for the whole story live.
 
 Attach mode gives up nothing on the server round trip, either. `FormidableValidator` exposes the
-same `Engine` property, typed as `IFormValidationEngine`, and forwards both `ApplyServerIssues`
+same `Engine` property, typed as `IFormidableEngine`, and forwards both `ApplyServerIssues`
 overloads itself — the sequence of issues, and the deserialized `FormidableValidationProblem` an
 HTTP 400 arrives in:
 
@@ -2078,10 +2090,10 @@ markup of its own:
 ```csharp
 public sealed class FormidableFieldContext
 {
-    private readonly IFormValidationEngine _engine;
+    private readonly IFormidableEngine _engine;
 
     internal FormidableFieldContext(
-        IFormValidationEngine engine,
+        IFormidableEngine engine,
         FieldIdentifier field,
         string elementId,
         FieldState state,
@@ -2151,7 +2163,7 @@ public sealed class FormidableFieldContext
 
     /// <summary>
     /// How firmly the submit profile's rules demand that the field carry a value — see
-    /// <see cref="IFormValidationEngine.GetFieldRequirement"/> for where the answer comes from
+    /// <see cref="IFormidableEngine.GetFieldRequirement"/> for where the answer comes from
     /// and what it cannot see. <see cref="FieldRequirement.Required"/> is what
     /// <c>FormidableRequiredIndicator</c> marks and what puts <c>aria-required</c> in
     /// <see cref="InputAttributes"/>; a control rendering its own marker reads all three values
@@ -2486,11 +2498,11 @@ summary's own hook as the only `PrepareFocus` still doing work.
 
 Exceptions are handled the way the path already handles a throwing `FocusFallback`, which leaves
 one rule to learn rather than a second. A throw surfaces out of whichever call asked for the
-move — `SubmitAsync`, `ValidateForSubmitAsync`, `FocusFirstErrorAsync` on either root, or a
-summary entry's click. It reaches no caller of either
-`ApplyServerIssues` overload and is left to become an unobserved task exception: applying server
-issues is synchronous by contract, so its focus move is fire-and-forget and there is no caller
-left holding it.
+move — `SubmitAsync`, `ValidateForSubmitAsync`, `FocusFirstErrorAsync` on either root (or on the
+cascaded context, which calls the root's), or a summary entry's click. It reaches no caller of
+either `ApplyServerIssues` overload and is left to become an unobserved task exception: applying
+server issues is synchronous by contract, so its focus move is fire-and-forget and there is no
+caller left holding it.
 
 [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor) runs the whole shape, and
 carries a toggle for each of the two things that break it: the form's own move left unsuppressed,
@@ -2575,41 +2587,42 @@ class names belong here rather than on every page — see [Engine
 options](options.md#app-wide-defaults), which works through the copy a form builds when it wants
 those defaults and one setting of its own.
 
-## `FormidableCultureBootstrap`
+## Culture at WebAssembly boot
 
 A WebAssembly app downloads its satellite resource assemblies for whatever culture is current when
-`RunAsync()` is called, and never again. So an app that lets a visitor choose a language has to
-apply the stored choice *before* that line, not from a page afterwards — which is a small piece of
-startup plumbing every localized WASM app writes the same way. `FormidableCultureBootstrap` is that
-plumbing, ready-made:
+`RunAsync()` is called, and never again. An app that lets a visitor choose a language therefore has
+to apply the stored choice *before* that line, not from a page afterwards.
+
+Formidable ships nothing for this, deliberately. Every part of it is the app's own decision: where
+the choice is kept, under what key, and what a stale one should do. None of that is a validation
+library's to freeze. The plumbing is short, and the sample writes it in the open: `Program.cs`
+hands a reader to [`CultureBootstrap`](../samples/Formidable.Sample.Shared/CultureBootstrap.cs),
+which parses the stored name and sets both `CultureInfo.DefaultThreadCurrentCulture` and
+`DefaultThreadCurrentUICulture` to it:
 
 ```csharp
-var host = builder.Build();
-
 var js = host.Services.GetRequiredService<IJSRuntime>();
-await FormidableCultureBootstrap.ApplyStoredCultureAsync(js, fallback: CultureInfo.GetCultureInfo("en-AU"));
+await CultureBootstrap.ApplyStoredCultureAsync(
+    () => js.InvokeAsync<string?>("formidableSample.getCulture").AsTask(),
+    CultureInfo.GetCultureInfo("en-AU"));
 
 await host.RunAsync();
 ```
 
-It reads a culture name from `localStorage` (the key defaults to `formidable.culture`) and, when
-the value names a culture the runtime recognises, sets both `CultureInfo.DefaultThreadCurrentCulture`
-and `DefaultThreadCurrentUICulture` to it. A missing, blank, or unrecognisable value applies the
-`fallback` instead; pass no fallback and the app simply keeps the culture it booted with. A stale
-or corrupted stored value therefore cannot stop the app from starting.
+*Excerpt from `samples/Formidable.Sample/Program.cs`*
 
-A second overload takes a `Func<Task<string?>>` rather than an `IJSRuntime`, for storage that isn't
-`localStorage` — a cookie, a user profile fetched from the server, a test's canned value:
+A missing, blank or unrecognisable value applies the fallback instead. Pass no fallback and the app
+keeps the culture it booted with, so a stale or corrupted stored value cannot stop it from starting.
+The reader is a delegate rather than a storage call, which is what keeps the choice of storage the
+app's: the sample reads `localStorage` under `formidable.culture`, and a cookie, a user profile
+fetched from the server or a canned test value all fit the same shape.
 
-```csharp
-await FormidableCultureBootstrap.ApplyStoredCultureAsync(
-    () => Task.FromResult<string?>(preferences.Language));
-```
+Once the culture is set, FluentValidation's own message translations follow
+`CultureInfo.CurrentUICulture` with no further wiring. See [Profiles](profiles.md) for the
+localization story and the display-name half of it.
 
-Neither overload has anything to do with validation, and both are WebAssembly-specific: a Blazor
-Server host sets culture from the request instead, and does not use this class. FluentValidation's
-own message translations follow `CultureInfo.CurrentUICulture` from there with no further wiring —
-see [Profiles](profiles.md) for the localization story and the display-name half of it.
+This is a WebAssembly concern only. A Blazor Server host sets culture from the request instead, and
+needs no boot-time step at all.
 
 **Sample:** [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor) — stores the
 choice and reloads, which is what makes the boot-time read the only place the culture can change.
@@ -2738,7 +2751,7 @@ installs Formidable's `FieldCssClassProvider` on the `EditContext` itself at con
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
 ```
 
-*Source: `src/Formidable.Blazor/FormValidationEngine.cs`*
+*Source: `src/Formidable.Blazor/FormidableEngine.cs`*
 
 (See [CSS and accessibility](css-and-accessibility.md) for exactly which classes that
 provider applies, and how they differ from what a Formidable input's own `CssClass` computes.)

@@ -69,7 +69,7 @@ validates `ValidationProfile.Draft` at the save call, whatever the live channel 
 
 `ValidationProfile`, defaults to `ValidationProfile.Submit`. The profile the submit pipeline
 validates against, the profile the debounced refresh re-validates against, the profile
-`IFormValidationEngine.DiscloseLoadedValuesAsync` runs, the profile `TrackFormValidity`'s probe
+`IFormidableEngine.DiscloseLoadedValuesAsync` runs, the profile `TrackFormValidity`'s probe
 answers for — and, unless `LiveProfile` narrows it, the profile every live pass validates
 against too. See [Profiles](profiles.md).
 
@@ -126,7 +126,7 @@ difference.
 ### `TrackFormValidity`
 
 `bool`, defaults to `false`. Turns on the whole-form validity probe behind
-`IFormValidationEngine.IsFormValid` — the answer a disabled Submit button needs.
+`IFormidableEngine.IsFormValid` — the answer a disabled Submit button needs.
 
 Opt-in, and off by default for a reason: a form with nothing reading `IsFormValid` gets nothing
 for the work. What the work costs depends on the validator. One the engine can take rule by rule
@@ -236,10 +236,20 @@ The last two are what keep recovery from becoming a second, cruder way to activa
 press dragged off its button still cancels, and a button something merely opened over is left
 alone, since intercepting a click is what an overlay is for.
 
-What the button then receives is a script-dispatched click, so `isTrusted` reads `false`, which
-matters only to code that reads that flag. Transient user activation survives, because the
-delivery happens inside the browser's own handling of the displaced click: an activation-gated
-API (a clipboard write, a popup, full-screen) still works from the recovered click.
+The mis-delivered click is suppressed as the recovery goes out, so one press stays one click at
+every level. The browser dispatched the original on an ancestor of the button, and that ancestor
+is on the re-delivered click's own path, so the intended click arrives exactly where the
+misdirected one would have and replaces it: a delegated click handler, an analytics listener or a
+click-outside-to-close guard sees one click, not two.
+
+What arrives is a script-dispatched click, and not only at the button — every element on its path
+reads `isTrusted` as `false`. Code that gates on that flag, whether your own handler or a
+third-party widget's, treats a recovered click as synthetic and may decline it. Script cannot
+dispatch a trusted event, so that is recovery's price rather than something this option can
+settle; `None` is the answer for a page that would rather lose the click than deliver an untrusted
+one. Transient user activation survives, because the delivery happens inside the browser's own
+handling of the displaced click: an activation-gated API (a clipboard write, a popup, full-screen)
+still works from the recovered click.
 
 A guard has to be scoped to an element, and the two roots find one differently.
 `FormidableForm` renders the `<form>` itself and puts the model-level field id on it, so there is

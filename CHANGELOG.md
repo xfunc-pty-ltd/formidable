@@ -30,7 +30,7 @@ pre-publish polish wave.
   or submit rather than clobbering its field snapshot, re-arming instead of dropping the
   fields it had accumulated.
 - `FormidableOptions.TrackFormValidity` (`bool`, default `false`) plus
-  `IFormValidationEngine.IsFormValid` — an opt-in, invisible whole-form Submit-profile
+  `IFormidableEngine.IsFormValid` — an opt-in, invisible whole-form Submit-profile
   probe for disable-submit-button consumers; never writes to the message store or the
   pending indicator, raises `StateChanged` on flip, and never freezes on a faulting
   validator or loses a race against a submit's own, more authoritative verdict.
@@ -55,7 +55,7 @@ pre-publish polish wave.
   also gates `FormidableForm.ApplyServerIssues` (both overloads), which focuses that same
   first error when the payload it applies carries one, since a rejected round trip is a
   blocked submit arriving late; a clean or advisory-only payload moves nothing, and
-  `IFormValidationEngine.ApplyServerIssues` stays quiet, which is the path for a
+  `IFormidableEngine.ApplyServerIssues` stays quiet, which is the path for a
   background apply. Set `false` to choose focus yourself from `OnInvalidSubmit`.
 - `FormidableForm<TModel>.ResetAsync(TModel? newModel = null)` — returns a form to
   pristine. Omitted, rebuilds over the same model instance (touched/modified state,
@@ -66,10 +66,6 @@ pre-publish polish wave.
 - `FormidableFieldContext.InputAttributes` — one dictionary bundling `id`, `class`,
   `aria-invalid`, and `aria-describedby` for a foreign control, replacing four separate
   attribute bindings with `@attributes="field.InputAttributes"`.
-- `FormidableCultureBootstrap.ApplyStoredCultureAsync` (two overloads: a storage-read
-  primary through `IJSRuntime`, and a delegate overload any host can drive without JS) —
-  reads a stored culture, parses it with a fallback, and sets both default-thread cultures
-  before a WASM host starts.
 - `FieldState.HasInfos` — rounds out the severity trio (`HasWarnings`/`HasInfos`) a field
   state read already reported two-thirds of.
 - `FormidableValidator<TModel>.Engine` and its two `ApplyServerIssues` forwarders — gives
@@ -85,7 +81,7 @@ pre-publish polish wave.
   places; `Advisories` covers warnings and infos together, and a filter matching nothing
   renders nothing. Each summary computes its own announcement role from what it shows. The
   `/severity` sample page renders the pair, errors and advisories as separate blocks.
-- `IFormValidationEngine.GetVisibleIssues()` reports issues in the document order of the
+- `IFormidableEngine.GetVisibleIssues()` reports issues in the document order of the
   fields that render them — so `FormidableSummary` lists them in reading order within each
   severity group, and a blocked submit's focus lands on the topmost problem.
   `FormidableForm` resolves that order after any render that changed its registered field

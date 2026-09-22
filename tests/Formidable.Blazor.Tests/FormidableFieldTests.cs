@@ -146,7 +146,7 @@ public class FormidableFieldTests : BunitContext
     public void Native_input_base_gets_provider_class_names()
     {
         var order = new EngineOrder { Description = new string('x', 11) };
-        var engine = new FormValidationEngine<EngineOrder>(
+        var engine = new FormidableEngine<EngineOrder>(
             order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new Formidable.Introspection.ReflectionModelIntrospector(),
@@ -226,7 +226,7 @@ public class FormidableFieldTests : BunitContext
         });
     }
 
-    private static FormValidationEngine<EngineOrder> CreateEngine(EngineOrder order) =>
+    private static FormidableEngine<EngineOrder> CreateEngine(EngineOrder order) =>
         new(order, new EditContext(order),
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new Formidable.Introspection.ReflectionModelIntrospector(),

@@ -186,9 +186,9 @@ public class FormidableFieldCssClassProviderTests
     }
 
     // FormidableFieldCssClassProvider prefers an internal fast path (IValidatingFieldReader) that
-    // FormValidationEngine<TModel> implements for both the touched and the pending reads, and
+    // FormidableEngine<TModel> implements for both the touched and the pending reads, and
     // every test above goes through a real engine -- so those tests only ever exercise that fast
-    // path. This one constructs the provider directly with an IFormValidationEngine that does NOT
+    // path. This one constructs the provider directly with an IFormidableEngine that does NOT
     // implement the fast-path interface (the same shape any third-party engine implementation
     // has), to prove the GetFieldState(...).IsTouched/.IsValidating fallbacks actually run: the
     // EditContext is never modified, so a Valid class can only have come from the touched
@@ -232,7 +232,7 @@ public class FormidableFieldCssClassProviderTests
         Assert.Equal("formidable-pending", provider.GetFieldCssClass(editContext, field));
     }
 
-    private static FormValidationEngine<EngineOrder> CreateEngine(
+    private static FormidableEngine<EngineOrder> CreateEngine(
         EngineOrder order,
         FluentValidation.IValidator<EngineOrder> validator,
         FormidableOptions? options = null) =>
@@ -243,12 +243,12 @@ public class FormidableFieldCssClassProviderTests
             new FakeTimeProvider());
 
     /// <summary>
-    /// A minimal <see cref="IFormValidationEngine"/> that answers every field's state with a
+    /// A minimal <see cref="IFormidableEngine"/> that answers every field's state with a
     /// fixed <see cref="FieldState"/> and implements nothing beyond the interface — deliberately
-    /// not the internal fast-path capability <see cref="FormValidationEngine{TModel}"/> also
+    /// not the internal fast-path capability <see cref="FormidableEngine{TModel}"/> also
     /// implements, so a provider constructed with one must fall back to <see cref="GetFieldState"/>.
     /// </summary>
-    private sealed class FieldStateStubEngine(EditContext editContext, FieldState state) : IFormValidationEngine
+    private sealed class FieldStateStubEngine(EditContext editContext, FieldState state) : IFormidableEngine
     {
         public EditContext EditContext { get; } = editContext;
 

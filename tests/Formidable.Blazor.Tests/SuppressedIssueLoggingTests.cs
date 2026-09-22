@@ -9,12 +9,12 @@ using Microsoft.Extensions.Time.Testing;
 namespace Formidable.Blazor.Tests;
 
 // On top of the pre-existing Trace.WriteLine and SuppressedIssueDiagnostic callback (left
-// unchanged - see FormValidationEngineHardeningTests.cs for their own coverage), the suppression
+// unchanged - see FormidableEngineHardeningTests.cs for their own coverage), the suppression
 // site also logs through ILogger, so WASM's default browser-console provider shows it with zero
 // consumer wiring. This exercises the wiring end to end - through FormidableEngineFactory's
 // optional ILoggerFactory resolution from the same IServiceProvider FormidableForm already
 // injects - rather than just the engine's own call site. The two NeverRegisteredFieldDiagnostic
-// tests below construct the engine directly instead, mirroring FormValidationEngineHardeningTests'
+// tests below construct the engine directly instead, mirroring FormidableEngineHardeningTests'
 // shape rather than this file's own DI-through-FormidableForm one - they pin the never-registered
 // vs registered-then-unregistered distinction, not the logging wiring.
 public class SuppressedIssueLoggingTests : BunitContext
@@ -51,7 +51,7 @@ public class SuppressedIssueLoggingTests : BunitContext
     public async Task No_ILoggerFactory_registered_does_not_throw()
     {
         // ILoggerFactory resolution is optional: a consumer who never registered logging (or a
-        // direct FormValidationEngine construction with logger omitted) must submit exactly as
+        // direct FormidableEngine construction with logger omitted) must submit exactly as
         // before - this is the null-safety half of the logging wiring, not just the happy path.
         Services.AddFormidable();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
@@ -77,7 +77,7 @@ public class SuppressedIssueLoggingTests : BunitContext
         var suppressed = new List<ValidationIssue>();
         var neverRegistered = new List<ValidationIssue>();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),
@@ -103,7 +103,7 @@ public class SuppressedIssueLoggingTests : BunitContext
         var suppressed = new List<ValidationIssue>();
         var neverRegistered = new List<ValidationIssue>();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
             new ReflectionModelIntrospector(),

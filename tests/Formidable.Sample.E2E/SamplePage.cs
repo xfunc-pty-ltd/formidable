@@ -87,9 +87,42 @@ internal static class SamplePage
     public static async Task<(float X, float Y)> CentreOfAsync(ILocator target)
     {
         await target.EvaluateAsync("element => element.scrollIntoView({ block: 'center' })");
+        await WaitForScrollToRestAsync(target);
         var box = await target.BoundingBoxAsync()
             ?? throw new InvalidOperationException(
                 "The element has no layout box, so there is nowhere to aim a pointer gesture at it.");
         return (box.X + (box.Width / 2), box.Y + (box.Height / 2));
     }
+
+    /// <summary>
+    /// Waits until the scroll started above has come to rest, so a centre measured from the
+    /// element describes where the pointer will actually land. The sample asks for
+    /// <c>scroll-behavior: smooth</c>, so <c>scrollIntoView</c> returns while the element is still
+    /// travelling: a box read straight after it aims the gesture at a position the element leaves,
+    /// and the page then keeps moving under a pointer the test is holding still — which is a
+    /// displacement, and the displaced-click guard is built to recover exactly that. A gesture
+    /// meant to stand for a stationary press has to start from a stationary page.
+    /// Rest is three consecutive frames whose top edge has not moved, rather than a fixed delay:
+    /// a delay long enough for one machine is a guess on every other, and the resting position is
+    /// the thing actually being waited for.
+    /// </summary>
+    private static Task WaitForScrollToRestAsync(ILocator target) => target.EvaluateAsync(
+        @"element => new Promise(resolve => {
+            let last = null;
+            let still = 0;
+            let frames = 0;
+            const tick = () => {
+                const top = element.getBoundingClientRect().top;
+                still = last !== null && Math.abs(top - last) < 0.5 ? still + 1 : 0;
+                last = top;
+                // Bounded, so a page that never settles fails on the assertion the test came for
+                // rather than hanging here with nothing to read.
+                if (still >= 3 || ++frames > 180) {
+                    resolve();
+                    return;
+                }
+                requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        })");
 }

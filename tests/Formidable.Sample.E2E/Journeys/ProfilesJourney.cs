@@ -33,7 +33,7 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         // below presses a submit at all. Mutation that must break this: restoring
         // ValidationProfile.Draft as the live channel's default — the required rule then never
         // runs live and this list is empty until a submit is blocked. Same property
-        // FormValidationEngineLiveDefaultTests.An_engaged_then_emptied_required_field_discloses_with_no_submit
+        // FormidableEngineLiveDefaultTests.An_engaged_then_emptied_required_field_discloses_with_no_submit
         // pins at the engine level.
         await Field(page, "title").FillAsync("");
         await TabAsync(page);

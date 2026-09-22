@@ -21,7 +21,7 @@ namespace Formidable.Blazor.Tests;
 /// The unsubmitted form is the sharpest instance: neither reveal ledger names a field there, so
 /// its refresh changes nothing any surface shows and the counters are the whole of the evidence.
 /// </remarks>
-public class FormValidationEngineFieldSetChangeTests
+public class FormidableEngineFieldSetChangeTests
 {
     private const int PastRefreshWindow = 301;
 
@@ -143,7 +143,7 @@ public class FormValidationEngineFieldSetChangeTests
         var order = new EngineOrder { Customer = customer };
         var validator = new GatedRuleRunCountingValidator();
         var editContext = new EditContext(order);
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -220,7 +220,7 @@ public class FormValidationEngineFieldSetChangeTests
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
@@ -254,7 +254,7 @@ public class FormValidationEngineFieldSetChangeTests
         var validator = new GatedRuleRunCountingValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -456,7 +456,7 @@ public class FormValidationEngineFieldSetChangeTests
         var validator = new SlowLiveRuleValidator();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
-        using var engine = new FormValidationEngine<EngineOrder>(
+        using var engine = new FormidableEngine<EngineOrder>(
             order,
             editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
@@ -501,7 +501,7 @@ public class FormValidationEngineFieldSetChangeTests
         Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == "SKU is too long");
     }
 
-    private static FormValidationEngine<EngineOrder> Build(
+    private static FormidableEngine<EngineOrder> Build(
         EngineOrder order,
         EditContext editContext,
         RuleRunCountingValidator validator,

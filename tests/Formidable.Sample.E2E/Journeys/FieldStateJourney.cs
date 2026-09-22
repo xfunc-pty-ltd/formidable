@@ -64,7 +64,7 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         // must break this: restoring ValidationProfile.Draft as the live channel's default — the
         // required rule then never runs live, and an emptied box a visitor has just been typing
         // in reports nothing until a submit is blocked. Same property
-        // FormValidationEngineLiveDefaultTests.An_engaged_then_emptied_required_field_discloses_with_no_submit
+        // FormidableEngineLiveDefaultTests.An_engaged_then_emptied_required_field_discloses_with_no_submit
         // pins at the engine level.
         await username.FillAsync("");
         await TabAsync(page);

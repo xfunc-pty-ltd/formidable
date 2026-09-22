@@ -10,8 +10,21 @@ window.formidableSample = {
         }
     },
     // The chosen culture has to outlive the reload that applies it, so it lives in
-    // localStorage rather than in component state; FormidableCultureBootstrap reads it back
-    // through the library's own JS module, so this object only needs to write it.
+    // localStorage rather than in component state. Reading it back belongs here too: where a
+    // preference is kept is the app's business, not a validation library's.
+    getCulture: function () {
+        try {
+            return localStorage.getItem('formidable.culture');
+        } catch {
+            // A browser configured to block site data throws on the access itself, and this read
+            // runs before the host does. Letting it out would cost the whole app over a language
+            // preference, and nothing stored reads exactly like nothing chosen.
+            return null;
+        }
+    },
+    // The write is deliberately left bare. A throw here stops the switch before the reload, which
+    // is the honest outcome for a choice that could not be saved; swallowing it would reload into
+    // the old language with nothing said.
     setCulture: function (culture) {
         localStorage.setItem('formidable.culture', culture);
     },

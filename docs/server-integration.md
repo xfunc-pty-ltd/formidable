@@ -562,6 +562,8 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
     {
         var profile = ValidationProfile.FromName(Profile);
         var services = context.HttpContext.RequestServices;
+        ThrowIfDiscoveryResolvesNoValidator(context.ActionDescriptor, services);
+
         var issues = new List<ValidationIssue>();
         var validatedAny = false;
 
@@ -653,8 +655,9 @@ before deciding whether to short-circuit — one 400 for the whole action, not o
 
 `null` arguments are skipped entirely — neither normalized nor validated — before the aggregate's
 `IsValid` gate runs once, after the loop. Nothing in the loop can throw over what a request bound
-or failed to bind: strict mode is settled from the action's declared parameters long before, and
-is described below. `BuildProblem`, just out
+or failed to bind: the one strictness check that runs per request is the line above it, and it
+reads the action's declared parameters rather than its arguments — both halves are described
+below. `BuildProblem`, just out
 of view above, is where the errors become a response: it copies the mapper's dictionary into a
 `ModelStateDictionary` — lifting that dictionary's default error cap, since a validation report
 legitimately runs to one issue per collection row — and hands it to the app's own
@@ -712,34 +715,47 @@ no runtime type to steer in the first place.
 
 `RequireValidator` (default `false`) makes `[Validate]` throw `InvalidOperationException` when
 the action could never hand the filter anything to validate — an explicit constructor type
-(`[Validate(typeof(Order), RequireValidator = true)]`) that matches no declared parameter is the
-case it catches. It is decided from the action's DECLARED parameters, and MVC applies it while it
-builds its application model, so the message names the model type the attribute asked for and the
-host stops before it serves anything. No request shape reaches it: an action's parameter list is
-fixed, where what a request happens to bind is not.
+(`[Validate(typeof(Order), RequireValidator = true)]`) that matches no declared parameter, or a
+parameter list nothing registered validates. It is decided from the action's DECLARED parameters,
+which is what keeps it out of a client's reach: an action's parameter list is fixed, where what a
+request happens to bind is not.
 
-That is the same design the minimal-API half already ships — `ThrowIfNoDeclaredParameter`
-[above](#minimal-apis) reads the handler's `MethodInfo` while the endpoint's pipeline is built —
-and it reports through the seam the framework gives any attribute for it. MVC applies
-`IActionModelConvention` for an attribute on a method and `IControllerModelConvention` for one on
-a class, both without an `AddControllers(options => …)` registration, so `[Validate]` needs no
-startup hook of its own. A class-level `[Validate(RequireValidator = true)]` is judged action by
-action, exactly as the group overload on the minimal-API side checks each endpoint's own
-signature.
+Where it is decided depends on whether you name the types, because the two modes need different
+things to answer. With explicit types the parameter list either could carry one of them or could
+not, and MVC settles that while it builds its application model — the host stops before it serves
+anything, and the message names the model type the attribute asked for. That is the same design
+the minimal-API half already ships: `ThrowIfNoDeclaredParameter` [above](#minimal-apis) reads the
+handler's `MethodInfo` while the endpoint's pipeline is built. It also reports through the seam
+the framework gives any attribute for it — MVC applies `IActionModelConvention` for an attribute
+on a method and `IControllerModelConvention` for one on a class, both without an
+`AddControllers(options => …)` registration, so `[Validate]` needs no startup hook of its own. A
+class-level `[Validate(RequireValidator = true)]` is judged action by action, exactly as the group
+overload on the minimal-API side checks each endpoint's own signature.
+
+With no explicit types the attribute discovers what to validate from validator *registration*,
+and an application-model convention cannot read one: an `ActionModel` carries no
+`IServiceProvider`. So discovery mode answers in two places. The convention insists the action
+declares parameters at all, and the first request to the action probes each declared parameter
+type for a registered `IValidator<T>` — the same presence check the filter itself discovers
+arguments with. Declared, not bound: the answer is the same on every request, so it is computed
+once per action, and a dropped `AddValidatorsFromAssembly()` then fails every request to that
+action rather than quietly validating nothing. Later than build time, and for a reason that
+cannot be engineered away — there is no container to ask before a request exists — but never
+reachable by a request's shape.
+
+One shape is refused that the filter would otherwise have validated: a base-typed parameter whose
+only registered validator is for a *derived* type. The filter reaches that at run time by falling
+back to the bound argument's own type (see the resolution order above), but the declared type
+resolves nothing, and telling the difference would mean reading what a request bound — the
+client-reachable check this design exists to avoid. **Naming the model types is the stronger
+mode**: it is answered entirely at model build, it admits a base-typed parameter for a named
+derived model, and it is the same move that closes the polymorphic residual above. A named type
+with no `IValidator<T>` throws pointing at `AddValidatorsFromAssembly`, and an unwired adapter
+throws pointing at `AddFormidable()`.
 
 Off by default: an action mixing validatable models with ordinary parameters (route values, query
 strings, injected services) is free to declare no model at all, and that is not a
-misconfiguration. What it can decide also depends on whether you name the types. With explicit
-types it answers exactly: the parameter list either could carry one of them or could not. With no
-explicit types the attribute discovers what to validate from validator *registration*, which an
-application-model convention cannot read — there is no DI while the model is being built — so
-strict mode there can only insist that the action declares parameters at all.
-
-That is a deliberate line, not a gap the check fell short of: a lost registration is reported
-where a resolution actually fails, which is louder and more specific than strict mode ever was. A
-named type with no `IValidator<T>` throws pointing at `AddValidatorsFromAssembly`, and an unwired
-adapter throws pointing at `AddFormidable()`. **Naming the model types is what makes strict mode
-strict** — and it is the same move that closes the polymorphic residual above.
+misconfiguration.
 
 ### Profile string mapping
 
@@ -869,7 +885,7 @@ wire-deserialized one.
 
 ## Client round-trip
 
-`IFormValidationEngine.ApplyServerIssues` documents its own contract in full:
+`IFormidableEngine.ApplyServerIssues` documents its own contract in full:
 
 ```csharp
     /// <summary>
@@ -909,7 +925,7 @@ wire-deserialized one.
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
 ```
 
-*Source: `src/Formidable.Blazor/IFormValidationEngine.cs`*
+*Source: `src/Formidable.Blazor/IFormidableEngine.cs`*
 
 **Replace, not accumulate.** Each call is the server's current verdict, full stop. The server's
 issues live apart from the client's own answer, so applying one swaps that set outright and

@@ -145,7 +145,7 @@ is the same shape with an answer to hand back, plus a fault it throws instead of
 one-call no-order answer, so the retry after either is observable. A focus double is the same
 shape again over `FocusAsync`. A double written today also keeps compiling as Formidable grows:
 a member added after v1 to any interface a consumer implements — these three seams and
-`IFormValidationEngine` among them — carries a default implementation, and until a
+`IFormidableEngine` among them — carries a default implementation, and until a
 double overrides it, it answers the conservative default named in the interface's own remarks.
 
 There is an alternative to doubling the interfaces: let the real services run and stand in for the
@@ -155,12 +155,14 @@ front of you reaches: `orderFields` for the resolve itself, `observeLayout` and
 `disconnectLayoutObserver` for the browser-side layout observer the form establishes beside it,
 `registerClickRecovery` and `releaseClickRecovery` for the displaced-click guard, `focusField`
 once a blocked submit is going to move focus, and `syncValue` once a `FormidableInputNumber` or
-`FormidableInputDate` blurs. Strict mode is bUnit's default, and an unplanned call throws
-`JSRuntimeUnhandledInvocationException`, which derives from `Exception` rather than `JSException`,
-so the order resolve's own tolerance for a failed interop call never catches it. Render a
-`FormidableForm` at all with no plan for `orderFields`, fields or no fields, and the render
-itself throws. That is what Formidable's own `FocusServiceTests` do, because there the
-service *is* the thing under test.
+`FormidableInputDate` blurs. Of those, `registerClickRecovery` is the one that answers rather
+than returning nothing — it reports whether the script found an element to scope the guard to —
+so it is planned with `Setup<bool>` where the rest take `SetupVoid`. Strict mode is bUnit's
+default, and an unplanned call throws `JSRuntimeUnhandledInvocationException`, which derives
+from `Exception` rather than `JSException`, so the order resolve's own tolerance for a failed
+interop call never catches it. Render a `FormidableForm` at all with no plan for `orderFields`,
+fields or no fields, and the render itself throws. That is what Formidable's own
+`FocusServiceTests` do, because there the service *is* the thing under test.
 
 For a form test, the interface doubles are both less machinery and the sturdier bet, and the
 difference is what each route couples the test to. The interfaces are what Formidable holds
@@ -218,7 +220,7 @@ Three projects, unconditional — no environment variable, no running server, no
 |---|---|
 | `tests/Formidable.Tests` | Core: `Formidable` — profiles (Draft/Submit, `ProfiledValidator<T>`), the `IModelValidator<T>` seam, the reflection-based introspector, path resolution, service registration. |
 | `tests/Formidable.AspNetCore.Tests` | `Formidable.AspNetCore` — the minimal-API endpoint filter, the MVC `[Validate]` action filter, and the `ValidationProblemDetails`/advisories wire mapping. |
-| `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormValidationEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
+| `tests/Formidable.Blazor.Tests` | `Formidable.Blazor` — `FormidableEngine` (live/submit/refresh passes, supersession and race behaviour, server-issue apply/replace), the component kit (bUnit-rendered), the focus service, and the field registry. |
 
 The focus service implements both `IDisposable` and `IAsyncDisposable`, so a bUnit container
 built through `AddFormidableBlazor()` tears down on ordinary synchronous dispose — nothing extra
@@ -251,7 +253,10 @@ nothing bUnit's simulated renderer can stand in for. Every test in the project s
 the `FORMIDABLE_E2E` environment variable is set, so an ordinary `dotnet test` never launches a
 browser or the sample servers. Its `SampleAppFixture` owns both: it starts
 `Formidable.Sample.Api` and `Formidable.Sample` itself (`--no-build`, so it needs a build already
-on disk), waits for both to answer, and tears down the whole process tree afterward.
+on disk), waits for both to answer, and tears down the whole process tree afterward. Every
+context it opens asks for reduced motion, so the sample's own `prefers-reduced-motion` guard
+turns its smooth scrolling off: nothing here asserts motion, and an animated scroll makes a
+gesture's measurements and a test's timing depend on how fast the machine running it is.
 
 The tests fall into a few groups:
 

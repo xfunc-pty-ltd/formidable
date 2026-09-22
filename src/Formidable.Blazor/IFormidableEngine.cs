@@ -24,7 +24,7 @@ namespace Formidable.Blazor;
 /// properties on their arguments classes, never as a new event.
 /// </para>
 /// </remarks>
-public interface IFormValidationEngine
+public interface IFormidableEngine
 {
     /// <summary>The edit context this engine writes messages to.</summary>
     EditContext EditContext { get; }

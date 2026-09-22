@@ -4,7 +4,7 @@ namespace Formidable.Blazor;
 /// How the live channel decides whether an engaged field's issues are disclosed — the policy
 /// behind <see cref="FormidableOptions.LiveDisclosure"/>. The live channel answers only for
 /// engaged fields under either member — the ones a committed change has named, and the ones
-/// <see cref="IFormValidationEngine.DiscloseLoadedValuesAsync"/> adopted; what differs is whether
+/// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> adopted; what differs is whether
 /// registration is consulted on top of engagement.
 /// </summary>
 public enum LiveIssueDisclosure
