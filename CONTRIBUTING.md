@@ -89,10 +89,12 @@ you're trying to find where a particular behaviour lives before changing it.
 
 ## Commit conventions
 
-Commits follow [Angular Conventional Commits](https://www.conventionalcommits.org/)
-(`feat: ...`, `fix: ...`, `docs: ...`, `test: ...`, `refactor: ...`) with a body explaining the
-*why*, not just the *what*. Look at the existing git history for the tone and level of detail
-expected.
+Commits follow [Angular Conventional Commits](https://www.conventionalcommits.org/):
+`type(scope): subject`, with types `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `style`,
+`build`, `chore` or `ci`, a subject of at most 72 characters, and a body explaining the *why*,
+not just the *what*. Reference an issue from the body (`Closes #123`); the changelog links it.
+CI checks the shape on every pull request. Look at the existing git history for the tone and
+level of detail expected.
 
 Where the change lands in one of the surfaces below, name it as an optional scope,
 `type(scope): ...`:
@@ -114,14 +116,6 @@ just its type. Save `<remarks>` for one thing the caller must act on; put the re
 line of code in a `//` comment beside it instead. No em dashes. Describe the public surface in
 terms a consumer already knows, not the engine's own internal vocabulary. The maintainer checks
 every PR's XML for summary length, required tags, and that vocabulary boundary.
-
-## Commit messages
-
-Commits follow Conventional Commits: `type(scope): subject`, with types `feat`, `fix`,
-`docs`, `test`, `refactor`, `perf`, `style`, `build`, `chore` or `ci`, scopes `core`,
-`blazor`, `aspnetcore`, `sample`, `e2e`, `docs` or `build`, and a subject of at most 72
-characters. Reference an issue from the body (`Closes #123`); the changelog links it. CI
-checks the shape on every pull request.
 
 ## Before opening a PR
 
