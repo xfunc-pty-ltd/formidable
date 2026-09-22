@@ -1,0 +1,11 @@
+@*
+    Interactivity with no prerender pass, so nothing renders until the circuit is connected and
+    everything a test sees here is the interactive render. That is what makes it the honest home
+    for the validation smoke: no assertion on this page can be answered by prerendered markup.
+*@
+@page "/interactive"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<h1>Interactive</h1>
+
+<ContactForm />

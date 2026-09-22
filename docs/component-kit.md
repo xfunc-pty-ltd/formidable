@@ -120,7 +120,7 @@ alongside it.
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited before each move this form makes, so the page can clear the way first. |
-| `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<form>`, under the three positions below. |
+| `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<form>`, under the four positions below. |
 
 ```razor
 <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
@@ -153,18 +153,19 @@ The members a page calls:
 Call the methods from the renderer's synchronization context, and after the form's first render —
 before that there is no engine and they throw.
 
-**The `<form>` takes three positions of its own against the splat**, across the four attributes it
-renders:
+**The `<form>` takes four positions of its own against the splat**, across the five attributes it
+can render:
 
 | Attribute | Against the splat | What it is |
 |---|---|---|
 | `id` and `tabindex="-1"` | win outright | The model-level field's deterministic `FormidableFieldId`, which the all-suppressed gate's summary entry and the focus service both address, so its value cannot be a consumer's to choose. |
 | `novalidate` | loses outright | Renders by default. Splat `novalidate="@false"` — the `bool`, since the string `"false"` would still render the attribute — to hand the submit back to the browser's own constraint UI. |
 | `aria-describedby` | merges | Splatted ids first, the model-level message list's id appended, so a `FormidableModelMessage` describes the form with nothing wired and a page's own hint stays where the page put it. |
+| `inert` | wins while it renders | Renders only [while a prerender window is open](hosting-models.md#what-happens-inside-the-prerender-window), and wins there the way `id` does. The form renders none at any other time, so a page that makes its own form inert keeps that everywhere else. |
 
 `novalidate` renders by default so that the browser's own interactive constraint validation never
 answers a submit ahead of FluentValidation. `FormidableValidator` renders no `<form>`, so in attach
-mode all four attributes are the page's own to write —
+mode all five attributes are the page's own to write —
 [see its section](#formidablevalidatortmodel-attaching-to-an-existing-form).
 
 Where the form and the engine both declare a member, the engine's is what the context reaches, so
@@ -173,9 +174,14 @@ reach, since it rebuilds the engine the context belongs to. An inline *read* thr
 refreshes when the form itself re-renders, not on every validation pass, so a live spinner wants
 something subscribed to `Engine.StateChanged` to re-render the markup holding it.
 
-A page rendered statically with no interactivity coming can render a form but never submit one, so
-the form asks for a render mode in its own words. [Troubleshooting](troubleshooting.md) has the 400
-a host answers where that guard cannot help.
+A page rendered statically with no interactivity coming can hold a form but never submit one.
+Where the renderer reports itself static with no interactivity coming, this component renders
+none: a `<p class="formidable-render-mode-message">` asking for a render mode takes its place, and
+none of the attributes above render.
+
+Where interactivity is coming and has not arrived, the `<form>` renders `inert` instead, so a
+visitor cannot operate it in that window either. [Troubleshooting](troubleshooting.md) has the 400
+a host answers for a `<form>` that neither the render-mode refusal nor the attribute covers.
 
 **A blocked submit moves focus to the first error**, not the first entry: [issue order follows the
 page](#the-order-entries-appear-in), so a field above the failing one may carry nothing worse than
@@ -1185,7 +1191,8 @@ exactly that, `Engine` reads `null`, and `NotifyFieldSetChanged()` does nothing.
 |---|---|
 | `id` and `tabindex="-1"` | `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`, the model-level field's id, which the all-suppressed gate's summary entry and the focus service both address. |
 | `novalidate` | The page, wherever it wants FluentValidation to answer a submit ahead of the browser's own constraint UI. Leaving it off is a real choice rather than an oversight. |
-| `aria-describedby` | `FormidableFieldId.MessagesFor` of that same field, and owed only where the page renders a [`FormidableModelMessage`](#formidablemodelmessage). Compute it rather than appending `-messages` by hand, and leave the attribute off with the component: an id naming nothing is inert to a screen reader, and is what a scanner reports. |
+| `aria-describedby` | `FormidableFieldId.MessagesFor` of that same field, and owed only where the page renders a [`FormidableModelMessage`](#formidablemodelmessage). Compute it rather than appending `-messages` by hand, and leave the attribute off with the component: an id naming nothing is ignored by a screen reader, and is what a scanner reports. |
+| `inert` | The page, for [the prerender window](hosting-models.md#what-happens-inside-the-prerender-window) a Blazor Web App opens. `FormidableForm` renders it on the `<form>` it owns while interactivity is coming and has not arrived; there is no `<form>` here for this component to render it on. Write `inert="@(!RendererInfo.IsInteractive)"` on a page that carries a render mode for the same refusal. |
 
 An attribute `EditForm` does not recognise lands on the `<form>` it renders, which is how each of
 them gets there.
@@ -1249,7 +1256,7 @@ What the context carries:
 |---|---|
 | `Field` | The `FieldIdentifier` this context describes. |
 | `ElementId` | The field's deterministic element id — what the control renders, and what a `<label for="...">` targets. |
-| `State` | The field's current `FieldState`: touched, modified, validating, errors, warnings. |
+| `State` | The field's current `FieldState`: the interaction and in-flight flags, the severities it carries, and `WouldPassSubmit`, the engine's vouch that a submit would not fail the field. |
 | `CssClass` | The state class string a Formidable input would compute for the same field. |
 | `Issues` | The field's current issues, any severity. |
 | `AriaInvalid` | True while the field carries error-severity issues. |

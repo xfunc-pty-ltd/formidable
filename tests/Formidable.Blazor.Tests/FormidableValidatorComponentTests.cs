@@ -118,7 +118,7 @@ public class FormidableValidatorComponentTests : BunitContext
     // Degrade loudly, never silently. A root the guard cannot be scoped to is a page that keeps
     // the defect, and the one thing worse than keeping it is keeping it invisibly — so the miss
     // reports on the same dual channel an unwired FocusFallback's own miss already uses, naming
-    // both routes that would close it.
+    // both routes that would close it and the option that asks for no guard at all.
     [Fact]
     public async Task An_attached_root_with_nothing_to_scope_the_guard_to_reports_a_diagnostic()
     {

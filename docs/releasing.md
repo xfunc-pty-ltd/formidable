@@ -39,7 +39,7 @@ Run this on the commit you are about to tag. The release workflow builds and tes
 never sets `FORMIDABLE_E2E`, so the browser suite in `tests/Formidable.Sample.E2E` sits out
 there — this local run is the only thing that actually exercises it.
 
-1. **Build the solution.** The E2E fixture starts both sample servers with `--no-build`, so it
+1. **Build the solution.** The E2E fixture starts every server it needs with `--no-build`, so it
    runs against whatever the Debug output already holds; a stale or missing build is the usual
    cause of a start-up timeout:
 
@@ -57,8 +57,9 @@ there — this local run is the only thing that actually exercises it.
    pwsh tests/Formidable.Sample.E2E/bin/Debug/net10.0/playwright.ps1 install chromium
    ```
 
-3. **Run the whole suite with the browser tests switched on.** The fixture owns both sample
-   ports (5180 API, 5181 sample), so stop any sample app you have running first:
+3. **Run the whole suite with the browser tests switched on.** The fixture owns three ports
+   (5180 API, 5181 sample, 5183 Web App host fixture), so stop any sample app you have running
+   first:
 
    ```bash
    FORMIDABLE_E2E=1 dotnet test

@@ -815,9 +815,14 @@ in English:
 - **`ValidationFaultMessage`** is what a pass that threw before it could finish leaves on the
   form.
 
-Nothing else the kit renders is the library's own words. Every other message on a form was
-written by a rule, or came back from your server. Give the three a resource lookup and the form
-speaks your language:
+Nothing else the kit renders on a form is the library's own words. Every other message on a form
+was written by a rule, or came back from your server.
+
+One piece of the library's English renders where no form does: the paragraph `FormidableForm`
+puts in a form's place on a statically rendered page with no render mode. It speaks to whoever
+built the page rather than to a visitor, and no option localizes it.
+
+Give the three a resource lookup and the form speaks your language:
 
 ```csharp
 _options = new FormidableOptions
@@ -833,17 +838,25 @@ uses it. `ValidationFaultMessage` is the one to know about. Its issue is filed w
 happens rather than rebuilt at each read, so a change reaches the next fault and leaves one
 already on screen as it was.
 
-**Server-side, one string has no lever yet.** The endpoint filter fills an otherwise-empty 400
-with `"A request body is required."` where the platform refuses a request whose body bound to
-null. That is a response rather than something a form renders, so it takes a different kind of
-seam.
+**Server-side, one string takes a different seam.** The endpoint filter fills an otherwise-empty
+400 with `"A request body is required."` where the platform refuses a request whose body bound to
+null. That is a response rather than something a form renders, so it comes from the call site
+instead of the options:
+
+```csharp
+app.MapPost("/orders", (Order order) => Results.Ok(order))
+    .Validate<Order>(missingBodyMessage: ValidationMessages.BodyRequired);
+```
+
+Pass nothing and the English default stands.
 
 **Read more:** [localization and display names](profiles.md#localization-and-display-names),
 [`DefensiveGateMessage`](options.md#defensivegatemessage),
 [`ModelLevelDisplayName`](options.md#modelleveldisplayname),
 [`ValidationFaultMessage`](options.md#validationfaultmessage),
 [`FormidableOptions` is read once](options.md#formidableoptions-is-read-once),
-[culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot).
+[culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot),
+[a body bound to null](server-integration.md#a-body-bound-to-null).
 Sample: [`/localization`](../samples/Formidable.Sample/Pages/Localization.razor).
 
 ### I want to validate a nested object

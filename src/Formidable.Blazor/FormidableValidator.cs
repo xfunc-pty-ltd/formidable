@@ -282,8 +282,11 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// The one report a page offering the guard nothing to scope itself to gets: a Trace line for
     /// a debugger, and a logged warning when the host resolved an <see cref="ILoggerFactory"/> —
     /// written once through <see cref="FormidableDiagnostics"/>, the same dual channel
-    /// <c>FormidableForm</c>'s unwired-<c>FocusFallback</c> miss already uses. It names both
-    /// routes, because either one closes the gap in a line.
+    /// <c>FormidableForm</c>'s unwired-<c>FocusFallback</c> miss already uses. It offers three
+    /// answers: both routes to a root — either of which closes the gap in a line — and
+    /// <see cref="FormidableOptions.ClickRecovery"/> set to
+    /// <see cref="DisplacedClickRecovery.None"/>, which asks for no guard at all and ends the
+    /// report with it.
     /// </summary>
     private void ReportNoClickRecoveryRoot()
     {

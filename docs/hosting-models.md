@@ -22,9 +22,12 @@ moment it loads. A Blazor Web App server-renders its pages statically until one 
 
 So the page holding the form needs a render mode of its own, at the top of the file. Any of
 `@rendermode InteractiveServer`, `@rendermode InteractiveWebAssembly` and
-`@rendermode InteractiveAuto` answers that requirement. Leave the line off and `FormidableForm`
-refuses to render, asking for a render mode in its own message. A form on such a page could be
-filled in, but its submit would never reach the validation pipeline.
+`@rendermode InteractiveAuto` answers that requirement.
+
+Leave the line off and `FormidableForm` refuses to render, asking for a render mode in its own
+words. The message stands where the form would have been, and the rest of the page paints as it
+always does. A form there could be filled in, but its submit would never reach the validation
+pipeline.
 
 ## The server builds the form too
 
@@ -68,16 +71,39 @@ goes to one:
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 ```
 
-## What if a submit lands during prerendering?
+## What happens inside the prerender window?
 
-Prerendering is on by default under all three interactive render modes, so the page is rendered on
-the server and sent as HTML a moment before it becomes interactive. A submit that lands inside
-that window posts natively. The server answers it with the platform's own 400: *"The POST request does not
-specify which form is being submitted."*
+Prerendering is on by default under all three interactive render modes, so the page arrives as
+HTML a moment before it becomes interactive. The form is on screen in that window and nothing is
+listening to it yet.
 
-The render-mode guard cannot help there, because interactivity genuinely is coming. The fix that
-message proposes, a `FormName` on `EditForm`, is not a parameter `FormidableForm` carries. The
-ordinary answer is a submit button that stays disabled until the page reports itself interactive.
+A live form there costs the visitor twice. A submit posts natively, and the server answers it with
+the platform's own 400: *"The POST request does not specify which form is being submitted."*
+Typing is accepted and then discarded, because the interactive render fills every input from the
+model, and nothing typed in the window is in it.
+
+`FormidableForm` puts the form out of reach for that window. It renders `inert` on its own
+`<form>` until interactivity arrives, so a visitor cannot click the form, type into it, or reach
+it with Tab. The render that brings interactivity carries none, so the form writes the attribute
+for the window and nothing else.
+
+`inert` greys nothing out. The library ships no styling, so a page that wants the window to look
+as unavailable as it is writes its own rule:
+
+```css
+form[inert] { opacity: .6; }
+```
+
+Where the form is the whole point of the page, take the window away instead:
+`@rendermode @(new InteractiveServerRenderMode(prerender: false))` gives the form no prerender
+pass at all, at the cost of painting a moment later.
+
+> [!NOTE]
+> `inert` refuses a visitor, not a request. A post that reaches the server without coming from the
+> rendered form still gets the 400. The fix that message proposes, a `FormName` on `EditForm`, is
+> not a parameter `FormidableForm` carries: naming the form routes the post into the submit
+> pipeline on the static pass, where the focus move cannot reach the browser, so a 500 naming
+> the library replaces a 400 naming the fix.
 
 ## Nothing reaches the browser until interactivity does
 

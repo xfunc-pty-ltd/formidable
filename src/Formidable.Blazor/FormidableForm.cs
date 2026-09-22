@@ -11,8 +11,13 @@ namespace Formidable.Blazor;
 /// <see cref="Model"/> parameter (e.g. a draft load) rebuilds the context and engine, so
 /// consumers never manage EditContext lifecycles. Submit runs the engine pipeline and routes
 /// to <see cref="OnValidSubmit"/> / <see cref="OnInvalidSubmit"/>. The form needs an interactive
-/// render mode: on a page rendered statically with no interactivity coming, it throws rather than
-/// render a form whose submit cannot run.
+/// render mode: where the renderer reports itself static with no interactivity coming, it renders
+/// a message asking for one in place of a form whose submit cannot run. Where interactivity is
+/// coming but has not arrived — a Blazor Web App's prerender pass — the rendered form carries
+/// <c>inert</c> until it does, so a visitor cannot operate it in the window: no click reaches
+/// it, no typing lands in it, and Tab passes it by. What that prevents is a submit the platform
+/// answers with its own 400, and typing the interactive render replaces from the model a moment
+/// later.
 /// </summary>
 /// <typeparam name="TModel">The form model type.</typeparam>
 public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
@@ -23,7 +28,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private FormidableEngine<TModel>? _engine;
     private FormidableFormContext? _context;
     private string _modelLevelFieldId = string.Empty;
-    private bool _renderModeChecked;
+
+    // Null until the first read answers it — see RefusesToRender for why the answer is kept rather
+    // than re-read.
+    private bool? _refusedRenderMode;
+
     private int _fieldOrderVersion = -1;
 
     // Tracked apart from _fieldOrderVersion even though both watch the same counter: which fields
@@ -279,7 +288,11 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <c>aria-describedby</c> takes a third position of its own: it neither loses outright, like
     /// <c>id</c>/<c>tabindex</c>, nor wins outright, like <c>novalidate</c> — it MERGES with the
     /// model-level message list's id, splatted value first and the computed id appended, the same
-    /// consumer-first shape a kit input applies to its own <c>aria-describedby</c>.
+    /// consumer-first shape a kit input applies to its own <c>aria-describedby</c>. A fourth
+    /// position belongs to <c>inert</c>, and it is the only one that changes hands: the form
+    /// renders its own after the splat while interactivity is coming and has not arrived, so a
+    /// splatted <c>inert</c> loses there the way <c>id</c> does. The form renders none at any
+    /// other time, so a page that makes its own form inert keeps that everywhere else.
     /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
@@ -293,7 +306,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        VerifyInteractiveRenderMode();
+        if (RefusesToRender())
+        {
+            return;
+        }
 
         if (Model is null)
         {
@@ -986,34 +1002,40 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             "method that runs ahead of the first render.");
 
     /// <summary>
-    /// Refuses to render on a page that is statically rendered with no interactivity coming. Such a
-    /// page renders the form perfectly and then answers its first submit with the platform's own
-    /// "the POST request does not specify which form is being submitted" 400 — whose advice, pass a
-    /// FormName to EditForm, is not something any FormidableForm parameter can carry.
+    /// Whether this form renders <see cref="RenderModeMessage"/> where a form would have gone,
+    /// because the renderer reports itself static with no interactivity coming. The answer is kept,
+    /// where the <c>inert</c> reading of the same pair is taken afresh every render, because two
+    /// callers act on this one and have to agree: the parameter set that stops without building an
+    /// engine, and the render that puts the message in the form's place. Re-reading would let a
+    /// render take the form branch with no engine, context or element id behind it, and only a
+    /// parameter set builds those.
+    /// Stopping the parameter set is also what keeps the message the page's own: building the
+    /// engine resolves the validator, and a page missing that registration would fail on it
+    /// instead, naming the second thing wrong on a page whose first one is this.
     /// </summary>
-    private void VerifyInteractiveRenderMode()
+    private bool RefusesToRender()
     {
-        if (_renderModeChecked)
-        {
-            return;
-        }
-
-        _renderModeChecked = true;
-
-        // An assigned render mode means interactivity is coming, including on the static PRERENDER
-        // pass of an interactive component — which reports exactly the same non-interactive
-        // renderer as the dead end below. That is why neither signal decides this alone.
-        if (AssignedRenderMode is null && RendererDeclaresItselfStatic())
-        {
-            throw new InvalidOperationException(
-                $"{nameof(FormidableForm<TModel>)} requires an interactive render mode: this page is " +
-                "rendered statically and no interactivity is coming, so submitting the form would post " +
-                "back to the server instead of running the validation pipeline. Add a render mode to " +
-                "the page or component — @rendermode InteractiveServer, @rendermode " +
-                "InteractiveWebAssembly or @rendermode InteractiveAuto — or host the form in a " +
-                "standalone WebAssembly app, where every page is interactive already.");
-        }
+        _refusedRenderMode ??= Rendering is FormRendering.Refused;
+        return _refusedRenderMode.Value;
     }
+
+    /// <summary>
+    /// What a page with no render mode gets where its form would have been. Such a page renders a
+    /// form perfectly and then answers its first submit with the platform's own "the POST request
+    /// does not specify which form is being submitted" 400, whose advice — pass a FormName to
+    /// EditForm — is not something any FormidableForm parameter can carry, so this names the one
+    /// instruction that does work instead.
+    /// It renders rather than throws because a throw from a render reaches the visitor as the
+    /// host's own error response, which takes the whole document with it: everything else the page
+    /// holds goes too, where what is wrong is one component that cannot do its job.
+    /// </summary>
+    private static string RenderModeMessage =>
+        $"{nameof(FormidableForm<TModel>)} requires an interactive render mode: this page is " +
+        "rendered statically and no interactivity is coming, so submitting the form would post " +
+        "back to the server instead of running the validation pipeline. Add a render mode to " +
+        "the page or component — @rendermode InteractiveServer, @rendermode " +
+        "InteractiveWebAssembly or @rendermode InteractiveAuto — or host the form in a " +
+        "standalone WebAssembly app, where every page is interactive already.";
 
     /// <summary>
     /// True only when the renderer says outright that it is not interactive. A renderer that
@@ -1033,9 +1055,69 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// The three things this form does with a render — see <see cref="Rendering"/>.
+    /// </summary>
+    private enum FormRendering
+    {
+        /// <summary>
+        /// The form, as it always renders. The renderer says it is interactive, or has declined to
+        /// describe itself at all — and nothing said is not proof of anything, so both leave the
+        /// form alone.
+        /// </summary>
+        Whole,
+
+        /// <summary>
+        /// The form, carrying <c>inert</c>: a render mode says interactivity is coming and the
+        /// renderer says it has not arrived, which together describe the prerender pass and
+        /// nothing else. Nothing about this is worth remembering — the attribute is decided as the
+        /// tree is built, and a latch would rest on a renderer never revising what it says about
+        /// itself, where being wrong leaves a form inert for good.
+        /// </summary>
+        Inert,
+
+        /// <summary>
+        /// No form at all: <see cref="RenderModeMessage"/> in its place, and
+        /// <see cref="RefusesToRender"/> keeps this answer once it has it. The renderer says
+        /// outright that it is not interactive and no render mode says one is coming, so a form
+        /// here could be filled in and never submitted.
+        /// </summary>
+        Refused,
+    }
+
+    /// <summary>
+    /// What the two interactivity signals leave this form able to render. They are read together,
+    /// and in one place, because neither decides alone: the prerender pass of a component about to
+    /// become interactive reports exactly the same non-interactive renderer as a page that will
+    /// never have one, and only the assigned render mode tells those apart. One reading is also
+    /// what puts the render mode where a test can reach it: split across two predicates it is a
+    /// conjunct in each, and the render that would discriminate one of those conjuncts is the
+    /// render the other predicate answers for.
+    /// </summary>
+    private FormRendering Rendering => RendererDeclaresItselfStatic()
+        ? (AssignedRenderMode is null ? FormRendering.Refused : FormRendering.Inert)
+        : FormRendering.Whole;
+
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
+        if (RefusesToRender())
+        {
+            // The message alone, where the form would have been: the page around it paints as it
+            // always did, and the one component that cannot do its job says so in its own place.
+            // ChildContent stays unrendered with it, because a kit component in there reads the
+            // cascaded context this form never built and asks to be placed inside a form when it
+            // finds none — rendering the body would trade a message naming the fix for one naming
+            // the wrong problem. What a body without those leaves is a form's contents with no
+            // form: labels and a submit button with nothing behind them, beside a message saying
+            // as much. AdditionalAttributes belong to the form element, and there is none here.
+            builder.OpenElement(0, "p");
+            builder.AddAttribute(1, "class", "formidable-render-mode-message");
+            builder.AddContent(2, RenderModeMessage);
+            builder.CloseElement();
+            return;
+        }
+
         // Keys the cascade below on _context's own identity (the same idiom EditForm itself uses
         // for EditContext) — see the trailing comment for why this region exists.
         builder.OpenRegion(_context!.GetHashCode());
@@ -1065,7 +1147,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             inner.AddAttribute(5, "id", _modelLevelFieldId);
             inner.AddAttribute(6, "tabindex", "-1");
             inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
-            inner.AddComponentParameter(8, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
+            if (Rendering is FormRendering.Inert)
+            {
+                // Also after the splat, and for the same reason id is: what it prevents is the
+                // library's to prevent. Rendered under a condition rather than as a plain false,
+                // though, because an explicitly false attribute added after a splat removes the
+                // splatted one of the same name — and a page's own inert, for its own reasons, is
+                // no business of this form's outside the window.
+                inner.AddAttribute(8, "inert", true);
+            }
+
+            inner.AddComponentParameter(9, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();

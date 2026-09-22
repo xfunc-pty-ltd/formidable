@@ -60,7 +60,7 @@ FORMIDABLE_E2E=1 dotnet test
 ```
 
 In PowerShell, set the variable first: `$env:FORMIDABLE_E2E = "1"; dotnet test`. The E2E
-fixture starts both sample servers itself (killing them on teardown), so stop any sample app
+fixture starts every server it needs itself (killing them on teardown), so stop any sample app
 you already have running first, and expect nothing skipped except the three docs-capture
 utilities. [Releasing](docs/releasing.md) has the full pre-release version of this same
 checklist.

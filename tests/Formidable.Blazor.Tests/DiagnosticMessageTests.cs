@@ -242,18 +242,103 @@ public class DiagnosticMessageTests : BunitContext
     // The default Blazor Web App template renders its pages statically, and a static submit never
     // reaches the pipeline: it posts back, and the platform answers with a 400 telling the reader
     // to add a FormName parameter to EditForm — advice no FormidableForm parameter can follow. The
-    // guard turns that dead end into the one instruction that does work.
+    // refusal turns that dead end into the one instruction that does work.
     [Fact]
     public void Static_rendering_names_the_render_mode_the_page_is_missing()
     {
-        var exception = Assert.IsType<InvalidOperationException>(Assert.ThrowsAny<Exception>(
-            () => { _ = RenderFormOn(new RendererInfo("Static", isInteractive: false)); }));
+        var markup = RenderFormOn(new RendererInfo("Static", isInteractive: false));
 
-        Assert.Contains("FormidableForm", exception.Message);
-        Assert.Contains("@rendermode", exception.Message);
-        Assert.Contains("InteractiveServer", exception.Message);
-        Assert.Contains("InteractiveWebAssembly", exception.Message);
-        Assert.Contains("InteractiveAuto", exception.Message);
+        Assert.Contains("FormidableForm", markup);
+        Assert.Contains("@rendermode", markup);
+        Assert.Contains("InteractiveServer", markup);
+        Assert.Contains("InteractiveWebAssembly", markup);
+        Assert.Contains("InteractiveAuto", markup);
+    }
+
+    // Where the message goes is the half a throw cannot do: a form nothing can submit is replaced
+    // by the reason, and the element carrying it is addressable, so a page can style what it shows
+    // a visitor who was never meant to see it.
+    [Fact]
+    public void Static_rendering_renders_the_message_in_place_of_the_form()
+    {
+        var markup = RenderFormOn(new RendererInfo("Static", isInteractive: false));
+
+        Assert.Contains("requires an interactive render mode", markup);
+        Assert.Contains("class=\"formidable-render-mode-message\"", markup);
+        Assert.DoesNotContain("<form", markup);
+    }
+
+    // What the throw cost, measured on the page rather than on the component: the host answers a
+    // throw from a render with an error response, so everything the page holds goes with the one
+    // component that cannot do its job.
+    [Fact]
+    public void A_refused_form_leaves_the_rest_of_the_page_standing()
+    {
+        using var context = WiredContext();
+        context.SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var markup = context.Render(builder =>
+        {
+            builder.AddMarkupContent(0, "<p id=\"before\">BEFORE-FORM</p>");
+            builder.OpenComponent<FormidableForm<EngineOrder>>(1);
+            builder.AddComponentParameter(2, "Model", new EngineOrder());
+            builder.CloseComponent();
+        }).Markup;
+
+        Assert.Contains("BEFORE-FORM", markup);
+        Assert.Contains("requires an interactive render mode", markup);
+    }
+
+    // A form the render mode refused builds no engine, and this is what that is worth: building one
+    // resolves the validator, and the container a statically rendered page resolves from is exactly
+    // the one a Blazor Web App's client-only registration leaves empty. This class registers no
+    // validator, so a form that got that far would report the missing registration — the second
+    // thing wrong on a page whose first one is the render mode, and the one a reader cannot act on
+    // until the other is fixed.
+    [Fact]
+    public void A_refused_form_resolves_no_validator_it_would_not_use()
+    {
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var markup = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", new EngineOrder());
+            builder.CloseComponent();
+        }).Markup;
+
+        // The render completing at all is the discrimination here: a form that built its engine
+        // would throw the missing registration out of this call, so there would be no markup to
+        // read. What the assert adds is that the render that did complete is the refusal's.
+        Assert.Contains("requires an interactive render mode", markup);
+    }
+
+    // The message replaces the form's content as well as its element. A kit component inside it
+    // reads the cascaded context this form never built, and asks to be placed inside a form when
+    // it finds none — so rendering the body would trade a message naming the fix for one naming
+    // the wrong problem. What a body without those leaves is a form's contents with no form, next
+    // to a message saying as much.
+    [Fact]
+    public void A_refused_form_renders_none_of_its_child_content()
+    {
+        using var context = WiredContext();
+        context.SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var markup = context.Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", new EngineOrder());
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.AddMarkupContent(0, "<span id=\"child\">CHILD</span>");
+                inner.OpenComponent<FormidableModelMessage>(1);
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }).Markup;
+
+        Assert.Contains("requires an interactive render mode", markup);
+        Assert.DoesNotContain("CHILD", markup);
     }
 
     // The other half of the same signal, and the one that decides whether the guard is usable at
@@ -316,8 +401,8 @@ public class DiagnosticMessageTests : BunitContext
     }
 
     /// <summary>
-    /// A context wired well enough that the render-mode guard is the only thing left that can
-    /// throw — this class's own container deliberately leaves the validator seam empty.
+    /// A context wired well enough that the render-mode refusal is the only thing left that can
+    /// replace the form — this class's own container deliberately leaves the validator seam empty.
     /// </summary>
     private static BunitContext WiredContext()
     {

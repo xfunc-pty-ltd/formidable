@@ -197,6 +197,70 @@ public class EndpointFilterTests
     }
 
     [Fact]
+    public async Task A_supplied_message_replaces_the_default_in_the_refusal_body()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/required-localized", (SampleOrder order) => Results.Ok(order))
+                .Validate<SampleOrder>(missingBodyMessage: "Anfrage ohne Inhalt."));
+        var client = app.GetTestClient();
+
+        // The message is the one part of this 400 the library writes rather than a rule, so a
+        // localizing consumer needs it in their own words. It arrives where the default did, on
+        // the model-level key, and the default is gone rather than accompanying it.
+        var response = await client.PostAsync("/required-localized",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Anfrage ohne Inhalt.", problem!.Errors[string.Empty]);
+        Assert.DoesNotContain("A request body is required.", problem.Errors[string.Empty]);
+    }
+
+    [Fact]
+    public async Task An_empty_supplied_message_is_used_rather_than_falling_back_to_the_default()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+            a.MapPost("/required-empty", (SampleOrder order) => Results.Ok(order))
+                .Validate<SampleOrder>(missingBodyMessage: string.Empty));
+        var client = app.GetTestClient();
+
+        // Only null means "the caller named none". An empty string is a value like any other and
+        // survives to the wire, which is the same empty-message-kept-empty contract the shared
+        // mapper keeps for a rule's own text — reading emptiness as absence here would make this
+        // one path disagree with it.
+        var response = await client.PostAsync("/required-empty",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Equal([string.Empty], problem!.Errors[string.Empty]);
+    }
+
+    [Fact]
+    public async Task A_supplied_message_and_a_profile_are_carried_together_by_the_group_overload()
+    {
+        await using var app = await TestApp.StartAsync(a =>
+        {
+            var group = a.MapGroup("/grouped-localized")
+                .Validate<SampleOrder>(ValidationProfile.Draft, "Anfrage ohne Inhalt.");
+            group.MapPost("/drafts", (SampleOrder order) => Results.Ok(order));
+        });
+        var client = app.GetTestClient();
+
+        // Both optional arguments at once, on the overload that installs one filter across a
+        // group: the profile still narrows what runs, and the message still reaches a refusal.
+        var lenient = await client.PostAsJsonAsync("/grouped-localized/drafts",
+            new SampleOrder { Description = "" });
+        var refused = await client.PostAsync("/grouped-localized/drafts",
+            new StringContent("null", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, lenient.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var problem = await refused.Content.ReadFromJsonAsync<FormidableValidationProblem>();
+        Assert.Contains("Anfrage ohne Inhalt.", problem!.Errors[string.Empty]);
+    }
+
+    [Fact]
     public async Task A_downstream_filters_own_400_is_passed_on_rather_than_enriched()
     {
         await using var app = await TestApp.StartAsync(a =>

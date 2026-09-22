@@ -872,6 +872,99 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
+    public void The_form_renders_inert_while_interactivity_is_still_coming()
+    {
+        // The prerender pass of an interactive page: the renderer says it is not interactive and a
+        // render mode says interactivity is coming. A live form in that window takes a native post
+        // the platform answers with its own 400, replacing the whole document, and takes typing the
+        // interactive render then replaces from the model.
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.True(cut.Find("form").HasAttribute("inert"));
+    }
+
+    [Fact]
+    public void An_interactive_renderer_renders_no_inert()
+    {
+        // The other side of the same pair, and the half that makes the attribute a window rather
+        // than a state: once the circuit or the runtime has the component, the form is ordinary.
+        SetRendererInfo(new RendererInfo("Server", isInteractive: true));
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.False(cut.Find("form").HasAttribute("inert"));
+    }
+
+    [Fact]
+    public void A_renderer_that_does_not_describe_itself_renders_no_inert()
+    {
+        // A renderer that declines to describe itself has said nothing, and nothing is not proof of
+        // a window. bUnit's is one — it throws from RendererInfo unless a test declares one — so a
+        // form read unconditionally would hand every consumer's component test an inert form whose
+        // clicks their own test then cannot make. The render mode alone is deliberately not enough.
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.False(cut.Find("form").HasAttribute("inert"));
+    }
+
+    [Fact]
+    public void The_forms_own_inert_wins_the_splat_inside_the_window()
+    {
+        // Rendered after the splat, like id and tabindex: what the attribute prevents is the
+        // window's own cost, so a page cannot splat it away and keep the form live there.
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .AddUnmatched("inert", false)
+            .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.True(cut.Find("form").HasAttribute("inert"));
+    }
+
+    [Fact]
+    public void A_splatted_inert_stands_where_the_form_renders_none()
+    {
+        // Unlike id and tabindex, the form does not own the attribute outright — it owns the window.
+        // A page that makes its own form inert for its own reasons (a record open for reading, a
+        // panel closed around it) keeps that everywhere else, which is what renders the attribute
+        // conditionally rather than passing a false through: an explicit false after a splat takes
+        // the splatted value with it.
+        SetRendererInfo(new RendererInfo("Server", isInteractive: true));
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder())
+            .AddUnmatched("inert", true)
+            .SetAssignedRenderMode(Microsoft.AspNetCore.Components.Web.RenderMode.InteractiveServer));
+
+        Assert.True(cut.Find("form").HasAttribute("inert"));
+    }
+
+    [Fact]
+    public void A_form_the_render_mode_refused_renders_nothing_inert()
+    {
+        // The render mode is what tells a window from a dead end, and this is the side of that pair
+        // the window pins above cannot reach. A renderer saying it is not interactive with no mode
+        // saying one is coming gets the message instead of a form, and an inert message would carry
+        // the window's own mechanism on a page where nothing is coming along to take it off again.
+        SetRendererInfo(new RendererInfo("Static", isInteractive: false));
+
+        var cut = Render<FormidableForm<EngineOrder>>(parameters => parameters
+            .Add(p => p.Model, new EngineOrder()));
+
+        Assert.DoesNotContain("inert", cut.Markup);
+        Assert.Contains("requires an interactive render mode", cut.Markup);
+    }
+
+    [Fact]
     public void Removing_a_row_after_a_submit_clears_its_summary_entry()
     {
         // The summary is the only component here that injects one, and the moves it would make are

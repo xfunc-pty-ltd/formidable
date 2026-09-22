@@ -292,15 +292,17 @@ that make a "clean" build stricter than it looks.
 
 ## Browser tests (env-gated)
 
-`tests/Formidable.Sample.E2E` drives the actual sample app through headless Chromium
+`tests/Formidable.Sample.E2E` drives real apps through headless Chromium
 (Microsoft.Playwright): real navigation, real form interaction, real focus and DOM assertions,
-nothing bUnit's simulated renderer can stand in for.
+nothing bUnit's simulated renderer can stand in for. Most of it drives the sample app. A small
+group drives a Blazor Web App host fixture instead, for hosting shapes a standalone WebAssembly
+app has none of.
 
 Every test in the project self-skips unless the `FORMIDABLE_E2E` environment variable is set, so an
-ordinary `dotnet test` never launches a browser or the sample servers. Its `SampleAppFixture` owns
-both servers: it starts `Formidable.Sample.Api` and `Formidable.Sample` itself (`--no-build`, so it
-needs a build already on disk), waits for both to answer, and tears down the whole process tree
-afterward.
+ordinary `dotnet test` never launches a browser or any of the servers. Its `SampleAppFixture` owns
+all three: it starts `Formidable.Sample.Api`, `Formidable.Sample` and `Formidable.WebApp.Fixture`
+itself (`--no-build`, so it needs a build already on disk), waits for each to answer, and tears
+down the whole process tree afterward.
 
 Every context it opens asks for reduced motion, so the sample's own `prefers-reduced-motion` guard
 turns its smooth scrolling off. Nothing here asserts motion, and an animated scroll makes a
@@ -320,6 +322,9 @@ The tests fall into a few groups:
 - A handful of keystroke-level pins (`InputRegressions.cs`) for input mechanics no smoke or
   journey drives deep enough to see — caret position mid-type, a date typed segment by segment, a
   number field's blur-time value sync.
+- A hosting group (`Journeys/HostingModelsJourney.cs`) against the Web App host fixture. A form on
+  a server circuit; the prerender window's `inert` form crossing to a working one; a page with no
+  render mode, where the form renders its own refusal and the response is still a 200.
 
 `DocsCapture.cs` holds a further group: docs-capture utilities that regenerate the PNGs under
 `docs/assets`. They sit behind their own `FORMIDABLE_CAPTURE=1` gate, on top of `FORMIDABLE_E2E`,
@@ -335,8 +340,9 @@ FORMIDABLE_E2E=1 dotnet test
 
 In PowerShell, set the variable first — `$env:FORMIDABLE_E2E = "1"; dotnet test` — and clear it
 afterward (`Remove-Item Env:FORMIDABLE_E2E`) so it doesn't linger into a later plain run in the
-same session. Stop any sample app you already have running first: the fixture owns ports 5180 and
-5181, and a port already in use fails the run with an actionable error rather than a hang.
+same session. Stop any sample app you already have running first: the fixture owns ports 5180,
+5181 and 5183, and a port already in use fails the run with an actionable error rather than a
+hang.
 
 > [!NOTE]
 > A gated run skips only the docs-capture utilities (`DocsCapture.cs`) — they stay behind their

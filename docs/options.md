@@ -23,7 +23,7 @@ falls back to the app-wide default, or to `new FormidableOptions()` where none i
 
 `Options` is the parameter this page is quoted for. Any attribute `FormidableForm<TModel>` does not
 recognise is splatted onto the `<form>` it renders — [Component
-kit](component-kit.md#formidableformtmodel) has the three positions the form's own attributes take
+kit](component-kit.md#formidableformtmodel) has the four positions the form's own attributes take
 against it.
 
 One rule governs the rest: `FormidableForm<TModel>` builds its engine once per `Model` instance and

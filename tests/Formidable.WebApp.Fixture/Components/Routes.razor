@@ -1,0 +1,9 @@
+@*
+    Every page this app holds is routable and reachable; there is no not-found fragment because
+    nothing here navigates to a route that does not exist.
+*@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" />
+    </Found>
+</Router>

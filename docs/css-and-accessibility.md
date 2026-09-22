@@ -126,7 +126,7 @@ different instance on a later render throws rather than quietly changing nothing
 The five configurable names cover what the engine computes onto elements *you* render. Every class
 on an element the library itself renders is fixed. These names are contract, published here so a
 stylesheet can key on any of them and know it is keying on something that will not change. This is
-all of them — twenty-two names:
+all of them — twenty-three names:
 
 | Class | Where it renders |
 |---|---|
@@ -146,6 +146,7 @@ all of them — twenty-two names:
 | `formidable-summary__item` | each summary entry (`<li>`) |
 | `formidable-summary__link` | the entry's click-to-focus button |
 | `formidable-summary__overflow` | the list item holding what an `OverflowTemplate` renders for the entries `MaxItems` held back |
+| `formidable-render-mode-message` | the paragraph `FormidableForm` renders in place of a form on a statically rendered page that [has no render mode](hosting-models.md#does-the-page-need-a-render-mode) |
 
 These names are deliberately not configurable, and that is a ruling rather than a gap. A
 `FormidableCssClasses`-style seam for the structural names is additive later, and it could arrive
@@ -155,7 +156,8 @@ regardless. The names stay fixed vocabulary either way.
 What exists today is the splat. The message lists and the summary wrapper accept unmatched
 attributes, so utility classes and data hooks reach the containers, with a splatted `class`
 merging ahead of the structural name. The fixed-role regions and everything inside them, the
-message items, and the required marker take no splat; they are what the table freezes.
+message items, the required marker and the render-mode message take no splat; they are what the
+table freezes.
 
 ### Cueing severity without colour
 

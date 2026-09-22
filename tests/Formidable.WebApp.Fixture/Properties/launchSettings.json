@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Formidable.WebApp.Fixture": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5183",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

@@ -20,6 +20,15 @@ public static class FormidableEndpointFilterExtensions
     /// </summary>
     /// <param name="builder">The route handler to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
+    /// <param name="missingBodyMessage">
+    /// The model-level message the enriched 400 carries where the platform refuses a body that
+    /// bound to <see langword="null"/>. <see langword="null"/> keeps the library's own
+    /// "A request body is required."; every other value is used verbatim, an empty string
+    /// included, which the shared mapper keeps empty. It is the only entry such a 400's
+    /// <c>errors</c> dictionary carries, and the library's own words rather than a rule's, which
+    /// is where a localized application replaces it; the envelope around it — the problem type,
+    /// the title, the status — stays the framework's.
+    /// </param>
     /// <remarks>
     /// Always fails closed, with no silent-skip mode to opt out of: a handler with no
     /// <typeparamref name="TModel"/> parameter at all throws
@@ -31,17 +40,27 @@ public static class FormidableEndpointFilterExtensions
     /// decides it from the declaration: a parameter the handler declared optional — nullable, or
     /// carrying a default — reaches the handler with <see langword="null"/> exactly as it would
     /// without this filter, and one the platform refuses gets the standard 400 validation shape
-    /// with a model-level "A request body is required." error in place of the bare, bodiless 400
-    /// the platform writes for it. When the handler declares more than one parameter of type
+    /// with a model-level error — <paramref name="missingBodyMessage"/>, or "A request body is
+    /// required." where none is named — in place of the bare, bodiless 400 the platform writes
+    /// for it. When the handler declares more than one parameter of type
     /// <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
-    public static RouteHandlerBuilder Validate<TModel>(this RouteHandlerBuilder builder, ValidationProfile? profile = null)
+    public static RouteHandlerBuilder Validate<TModel>(
+        this RouteHandlerBuilder builder,
+        ValidationProfile? profile = null,
+        string? missingBodyMessage = null)
         where TModel : class =>
-        AddValidation<RouteHandlerBuilder, TModel>(builder, profile);
+        AddValidation<RouteHandlerBuilder, TModel>(builder, profile, missingBodyMessage);
 
-    /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile)"/>
+    /// <inheritdoc cref="Validate{TModel}(RouteHandlerBuilder, ValidationProfile, string)"/>
     /// <param name="builder">The route group to validate.</param>
     /// <param name="profile">The profile to run; defaults to <see cref="ValidationProfile.Submit"/>.</param>
+    /// <param name="missingBodyMessage">
+    /// The model-level message an enriched 400 carries where the platform refuses a body that
+    /// bound to <see langword="null"/>, for every endpoint in the group. <see langword="null"/>
+    /// keeps the library's own "A request body is required."; every other value is used verbatim,
+    /// an empty string included, which the shared mapper keeps empty.
+    /// </param>
     /// <remarks>
     /// Every endpoint in the group must bind a <typeparamref name="TModel"/>-typed parameter —
     /// checked endpoint by endpoint, and an endpoint without one throws
@@ -53,15 +72,19 @@ public static class FormidableEndpointFilterExtensions
     /// per the single-handler overload above. When an endpoint declares more than one parameter
     /// of type <typeparamref name="TModel"/>, only the first one is validated.
     /// </remarks>
-    public static RouteGroupBuilder Validate<TModel>(this RouteGroupBuilder builder, ValidationProfile? profile = null)
+    public static RouteGroupBuilder Validate<TModel>(
+        this RouteGroupBuilder builder,
+        ValidationProfile? profile = null,
+        string? missingBodyMessage = null)
         where TModel : class =>
-        AddValidation<RouteGroupBuilder, TModel>(builder, profile);
+        AddValidation<RouteGroupBuilder, TModel>(builder, profile, missingBodyMessage);
 
     // The one factory both overloads install. AddEndpointFilterFactory is itself a single
     // method generic over TBuilder : IEndpointConventionBuilder returning that same TBuilder, so
     // both builders reach one shared framework method either way; this mirrors the framework's
     // shape rather than inventing one.
-    private static TBuilder AddValidation<TBuilder, TModel>(TBuilder builder, ValidationProfile? profile)
+    private static TBuilder AddValidation<TBuilder, TModel>(
+        TBuilder builder, ValidationProfile? profile, string? missingBodyMessage)
         where TBuilder : IEndpointConventionBuilder
         where TModel : class
     {
@@ -70,7 +93,7 @@ public static class FormidableEndpointFilterExtensions
         return builder.AddEndpointFilterFactory((factoryContext, next) =>
         {
             ThrowIfNoDeclaredParameter<TModel>(factoryContext.MethodInfo);
-            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile);
+            var filter = new ValidationEndpointFilter<TModel>(resolvedProfile, missingBodyMessage);
             return invocationContext => filter.InvokeAsync(invocationContext, next);
         });
     }

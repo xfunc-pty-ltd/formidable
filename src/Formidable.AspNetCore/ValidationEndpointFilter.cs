@@ -17,11 +17,18 @@ namespace Formidable.AspNetCore;
 internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
     where TModel : class
 {
-    private readonly ValidationProfile _profile;
+    // The only entry such a 400's errors dictionary carries, and the library's own words rather
+    // than a rule's — the envelope around it is the framework's — which is why the call site
+    // can name its own and why a caller naming none leaves this standing.
+    private const string DefaultMissingBodyMessage = "A request body is required.";
 
-    public ValidationEndpointFilter(ValidationProfile profile)
+    private readonly ValidationProfile _profile;
+    private readonly string _missingBodyMessage;
+
+    public ValidationEndpointFilter(ValidationProfile profile, string? missingBodyMessage)
     {
         _profile = profile;
+        _missingBodyMessage = missingBodyMessage ?? DefaultMissingBodyMessage;
     }
 
     public async ValueTask<object?> InvokeAsync(
@@ -52,7 +59,7 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
                 && response.StatusCode == StatusCodes.Status400BadRequest
                 && !response.HasStarted)
             {
-                var missingBody = new ValidationReport([new ValidationIssue(string.Empty, "A request body is required.")]);
+                var missingBody = new ValidationReport([new ValidationIssue(string.Empty, _missingBodyMessage)]);
                 return TypedResults.ValidationProblem(ValidationReportProblemMapper.ToErrorDictionary(missingBody));
             }
 

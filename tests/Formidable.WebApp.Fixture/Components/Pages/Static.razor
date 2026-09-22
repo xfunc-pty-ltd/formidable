@@ -1,0 +1,14 @@
+@*
+    No render mode at all: the page is rendered statically and no interactivity is coming, so the
+    form refuses and says why. The two paragraphs around it are the ones an assertion reads to
+    tell a page with a refused form from no page at all.
+*@
+@page "/static"
+
+<h1>Static</h1>
+
+<p id="before-form">Before the form.</p>
+
+<ContactForm />
+
+<p id="after-form">After the form.</p>

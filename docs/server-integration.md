@@ -236,14 +236,17 @@ front of it. Declare it non-nullable and the platform refuses the request itself
 
 What the filter does then is fill in the answer, not make it. The platform's own refusal is a bare
 400 with `Content-Length: 0` — cause-blind even with `AddProblemDetails()` and
-`UseStatusCodePages()` configured — and the filter replaces that empty body with a model-level
-`"A request body is required."` error, through the same mapping every other rejection in this
-document uses.
+`UseStatusCodePages()` configured. The filter replaces that empty body with a model-level error,
+through the same mapping every other rejection in this document uses.
 
-It only does so where the platform is visibly the one refusing: an empty result came back, a 400
-stands on the response, and nothing has been written yet. Anything else — a downstream filter's
-own 400, a response already on the wire — passes through untouched. The failure mode of the check
-is plain delegation rather than a wrong answer.
+That message is `"A request body is required."` unless the call site named another one:
+`Validate<TModel>(missingBodyMessage: ...)`. Passing null keeps the default; any other string is
+used as given, which is where a localized application replaces it.
+
+The filter replaces the body only where the platform is visibly the one refusing: an empty result
+came back, a 400 stands on the response, and nothing has been written yet. Anything else — a
+downstream filter's own 400, a response already on the wire — passes through untouched. The
+failure mode of the check is plain delegation rather than a wrong answer.
 
 This is the one place the two adapters part company on more than presentation, and it parts the
 way the two halves of the framework do. MVC binds `null` and runs the action with `ModelState`

@@ -1,0 +1,35 @@
+@*
+    The quickstart's form, shared by all three pages, so the form is identical on all three and
+    the render mode is what differs. It declares no render mode of its own: whatever the page
+    hosting it asks for, this component gets.
+*@
+<FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
+    <FormidableSummary />
+
+    <label>Name
+        <FormidableInputText @bind-Value="_contact.Name" />
+    </label>
+    <FormidableFieldMessage For="() => _contact.Name" />
+
+    <label>Email
+        <FormidableInputText @bind-Value="_contact.Email" />
+    </label>
+    <FormidableFieldMessage For="() => _contact.Email" />
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@if (_saved)
+{
+    <p role="status">Submitted — thanks, @_contact.Name!</p>
+}
+
+@code {
+    private readonly Contact _contact = new();
+    private bool _saved;
+
+    private void HandleValid()
+    {
+        _saved = true;
+    }
+}

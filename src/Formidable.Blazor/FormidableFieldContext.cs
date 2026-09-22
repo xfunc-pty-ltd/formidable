@@ -55,7 +55,11 @@ public sealed class FormidableFieldContext
     /// <summary>The deterministic element id for the field's input (see <see cref="FormidableFieldId"/>).</summary>
     public string ElementId { get; }
 
-    /// <summary>The field's current state (touched, modified, validating, errors, warnings).</summary>
+    /// <summary>
+    /// The field's current <see cref="FieldState"/>: the interaction and in-flight flags, the
+    /// issue severities it carries, and <see cref="FieldState.WouldPassSubmit"/> — the engine's
+    /// vouch that a submit would not fail this field.
+    /// </summary>
     public FieldState State { get; }
 
     /// <summary>The computed CSS class string for the field's current state (see <see cref="FormidableCss"/>).</summary>

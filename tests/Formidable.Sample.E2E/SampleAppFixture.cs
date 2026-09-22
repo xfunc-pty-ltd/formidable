@@ -13,10 +13,17 @@ public sealed class E2ECollection : ICollectionFixture<SampleAppFixture>
 }
 
 /// <summary>
-/// Owns everything the browser tests talk to: both sample servers (the API on 5180, the
-/// standalone WASM sample on 5181) and one headless Chromium.
+/// Owns everything the browser tests talk to: the three servers (the API on 5180, the standalone
+/// WASM sample on 5181, the Blazor Web App host fixture on 5183) and one headless Chromium.
 /// </summary>
 /// <remarks>
+/// <para>
+/// The host fixture app is a third server rather than a second browser deliberately. A Web App is
+/// the only host where prerendering, a server circuit and a statically rendered page exist at all,
+/// so the standalone sample cannot reach those shapes; a second <see cref="IBrowser"/> would cost
+/// far more memory than one more ASP.NET Core host, and one browser keeps every assertion in this
+/// suite made by the same Chromium.
+/// </para>
 /// <para>
 /// Two things are needed before an E2E run. The solution must be built — the fixture starts the
 /// servers with <c>--no-build</c>, so a stale or missing output is the usual cause of a start-up
@@ -34,6 +41,7 @@ public sealed class SampleAppFixture : IAsyncLifetime
     private const int ApiPort = 5180;
     private const int SamplePort = 5181;
     private const string SampleOrigin = "http://localhost:5181";
+    private const int WebAppPort = 5183;
     private const int StartupTimeoutSeconds = 60;
     private const int NavTimeoutMilliseconds = 30_000;
 
@@ -44,6 +52,21 @@ public sealed class SampleAppFixture : IAsyncLifetime
     /// <summary>The headless browser shared by every E2E test.</summary>
     public IBrowser Browser => _browser ?? throw new InvalidOperationException(
         "The E2E browser was never launched — mark browser tests with [E2EFact] so they self-skip unless FORMIDABLE_E2E=1.");
+
+    /// <summary>Where the Blazor Web App host fixture serves from. Its tests navigate themselves,
+    /// so they build the URL from this rather than being handed a page already on one.</summary>
+    public string WebAppOrigin => "http://localhost:" + WebAppPort;
+
+    /// <summary>A fresh context and a page that has gone nowhere. A test that has to act before
+    /// the first navigation — routing a request, or reading the navigation's own response status —
+    /// cannot use a helper that navigates for it, so this hands over the page unnavigated and the
+    /// test calls <c>GotoAsync</c> itself. The session still owns the context: dispose it.</summary>
+    public async Task<SampleSession> NewSessionAsync()
+    {
+        var context = await Browser.NewContextAsync(new BrowserNewContextOptions { ReducedMotion = ReducedMotion.Reduce });
+        var page = await context.NewPageAsync();
+        return new SampleSession(context, page);
+    }
 
     /// <summary>Opens the sample at <paramref name="path"/> in a fresh browser context and waits
     /// for the app's nav, which is the first chrome a booted WASM app renders. The returned
@@ -89,14 +112,17 @@ public sealed class SampleAppFixture : IAsyncLifetime
             var repoRoot = FindRepoRoot();
             EnsurePortFree(ApiPort);
             EnsurePortFree(SamplePort);
+            EnsurePortFree(WebAppPort);
 
-            // The API first: the sample's server pages call it, and the order keeps the two
+            // The API first: the sample's server pages call it, and the order keeps the three
             // start-up logs readable when one of them fails.
             var api = StartServer(repoRoot, "samples/Formidable.Sample.Api");
             var sample = StartServer(repoRoot, "samples/Formidable.Sample");
+            var webApp = StartServer(repoRoot, "tests/Formidable.WebApp.Fixture");
 
             await WaitForServerAsync(api, ApiPort);
             await WaitForServerAsync(sample, SamplePort);
+            await WaitForServerAsync(webApp, WebAppPort);
 
             _playwright = await Playwright.CreateAsync();
             _browser = await LaunchBrowserAsync(_playwright);
@@ -151,7 +177,7 @@ public sealed class SampleAppFixture : IAsyncLifetime
         if (IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(endpoint => endpoint.Port == port))
         {
             throw new InvalidOperationException(
-                $"Port {port} is already listening — stop the process using port {port}; the E2E fixture owns both sample ports (5180 API, 5181 sample).");
+                $"Port {port} is already listening — stop the process using port {port}; the E2E fixture owns all three of its ports ({ApiPort} API, {SamplePort} sample, {WebAppPort} Web App host fixture).");
         }
     }
 
