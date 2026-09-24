@@ -3,9 +3,17 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0: the
-`0.MINOR.PATCH` surface can still move).
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-09-24
+
+### Fixed
+
+- *(blazor)* Keep a server reply until something newer answers ([94f6db4](https://github.com/xfunc-pty-ltd/formidable/commit/94f6db4f56fdab6b2d066e9f0a93f51663619d31), [#18](https://github.com/xfunc-pty-ltd/formidable/issues/18))
+
+### Documentation
+
+- Find a kit field by its id in component tests ([28abd5b](https://github.com/xfunc-pty-ltd/formidable/commit/28abd5b074a4aec00c43b73f63530b6e3ce11428))
 ## [1.0.0] - 2026-09-22
 
 ### Added
@@ -95,4 +103,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/) (pre-1.0:
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[1.0.1]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.1
 [1.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.0
