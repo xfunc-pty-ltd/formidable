@@ -85,30 +85,33 @@ Versions are not set by hand anywhere in the source tree.
 reachable from the commit being built, and `src/Directory.Build.props` sets `MinVerTagPrefix` to `v`.
 So MinVer looks for tags shaped `v<version>`, not bare `<version>`.
 
+In the commands below, `X.Y.Z` stands for the version you are releasing.
+
 1. **Regenerate `CHANGELOG.md`** on `main`, in the commit you're about to tag:
 
    ```bash
-   git cliff --tag v0.1.0-preview.1 -o CHANGELOG.md
+   git cliff --tag vX.Y.Z -o CHANGELOG.md
    ```
 
    (git-cliff is a one-time machine install, like `pwsh` above; `cliff.toml` in the repo root holds
-   the format.) Review the diff, then commit it on its own (`docs: release 0.1.0-preview.1` or
-   similar) before tagging: the tag then points at a commit whose CHANGELOG already reads correctly
-   for the version it's tagging.
+   the format.) Review the diff, then commit it on its own as `docs: release X.Y.Z` before tagging:
+   the tag then points at a commit whose CHANGELOG already reads correctly for the version it's
+   tagging. Keep that exact subject. `cliff.toml` leaves commits shaped `docs: release <version>` out
+   of the changelog, so the next regeneration doesn't list the release commit under the release it
+   published. Push it and let CI finish before you tag.
 
-2. **Tag the release commit** on `main`, using the `v0.x.y-preview.N` shape while the project is
-   pre-1.0 (adjust `0.x.y` and drop `-preview.N` once the project leaves preview):
+2. **Tag the release commit** on `main` with an annotated tag that names the release:
 
    ```bash
    git checkout main
    git pull
-   git tag v0.1.0-preview.1
+   git tag -a vX.Y.Z -m "Formidable X.Y.Z"
    ```
 
 3. **Push the tag** — this is the trigger; nothing publishes on push to `main` itself:
 
    ```bash
-   git push origin v0.1.0-preview.1
+   git push origin vX.Y.Z
    ```
 
 4. **The `Release` workflow queues** (`.github/workflows/release.yml`), triggered by
@@ -184,16 +187,16 @@ anything is misconfigured. To dry-run what a *specific* tag would actually produ
 locally, pack, then delete it (nothing about MinVer requires the tag to be pushed to resolve it):
 
 ```bash
-git tag v0.1.0-preview.1
+git tag vX.Y.Z
 dotnet pack src/Formidable -c Release --no-build -o /tmp/formidable-dry-run
-git tag -d v0.1.0-preview.1
+git tag -d vX.Y.Z
 ```
 
 To inspect a package's contents without extracting it by hand — a `.nupkg` is a zip file, so any
 zip-aware listing works, for example:
 
 ```bash
-unzip -l /tmp/formidable-dry-run/Formidable.0.1.0-preview.1.nupkg
+unzip -l /tmp/formidable-dry-run/Formidable.X.Y.Z.nupkg
 ```
 
 Confirm `README.md` is present at the package root and that the `.nuspec` inside reports the version
@@ -212,8 +215,8 @@ After the workflow's push step succeeds:
       [`Formidable.Blazor`](https://www.nuget.org/packages/Formidable.Blazor), and
       [`Formidable.AspNetCore`](https://www.nuget.org/packages/Formidable.AspNetCore). New packages
       and new versions of existing packages can take a few minutes to finish indexing before they're
-      visible in search: a listing page returning 404 immediately after the workflow finishes is
-      not necessarily a failure.
+      visible in search: a listing page returning 404, or still showing the previous version,
+      immediately after the workflow finishes is not necessarily a failure.
 - [ ] Open each package's nuget.org page and confirm the README tab renders correctly: the tab
       shows `docs/nuget-readme.md`, the one file all three packages ship as their `README.md` (see
       above); a rendering problem here is a packaging bug worth fixing before the next release, not
@@ -223,13 +226,16 @@ After the workflow's push step succeeds:
   ```bash
   dotnet new console -o /tmp/formidable-scratch
   cd /tmp/formidable-scratch
-  dotnet add package Formidable.Blazor --version 0.1.0-preview.1
+  dotnet add package Formidable.Blazor --version X.Y.Z
   dotnet restore
   ```
 
 - [ ] Spot-check that the installed package's dependency versions match what's declared in the
       relevant `.csproj` (e.g. `Formidable.Blazor` pulling in the matching `Formidable` version, not
       an older one already on nuget.org from a previous release).
+- [ ] Create the GitHub Release on the tag, titled `Formidable X.Y.Z`, with the version's section of
+      `CHANGELOG.md` as its body. Ticking "Create a discussion for this release" and picking the
+      Announcements category also posts it to Discussions.
 
 ## If something goes wrong mid-release
 
@@ -240,7 +246,7 @@ After the workflow's push step succeeds:
 - **Build or test fails in the workflow**: nothing was pushed (the push step never ran). Fix the
   issue on `main`, then re-tag and re-push: either move the tag to the fixed commit (`git tag -f`,
   `git push --force origin <tag>`, generally discouraged once a tag might have been observed by
-  anyone else) or, simpler, bump to the next `-preview.N` and tag again.
+  anyone else) or, simpler, bump to the next patch version and tag again.
 - **Push step fails after some packages already went through**: re-running the workflow (or
   re-running just the push command locally with the same `artifacts/` output) is safe.
   `--skip-duplicate` means already-published packages are skipped rather than erroring the whole
