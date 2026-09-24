@@ -241,25 +241,31 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // live pass back; the lower-bound assert at the end reasons about when it can fire.
         const int refreshDebounceMs = 300;
         await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
-        await page.GetByLabel("Debounce live checks (batch fast typing into one check)", new() { Exact = true })
-            .CheckAsync();
 
-        // An available username, checked through the debounced live path and settled once, then
-        // submitted — the ordinary path to a submitted form, not yet the edit under test. Typing
-        // finishes well inside the still-open 400 ms window, so nothing shows yet; waiting for the
-        // indicator to open before waiting for it to close is what makes this a genuine
-        // debounced-live-path check rather than a count(0) that was already true before the window
-        // ever closed — without it, Submit lands mid-window and the submit pass itself, not the
-        // live path, ends up being what answers "ada".
+        // An available username, checked and settled once, then submitted: the ordinary path to a
+        // submitted form, not yet the edit under test. The box stays unticked until after the
+        // submit. Ticked, a first check typed within RefreshDebounce of the first render can be
+        // run by the whole-form re-check that render armed, and before a submit that re-check
+        // marks no field pending, so the window this setup waits for would never open. Unticked,
+        // every keystroke starts its own check at once, and a re-check coming due mid-check waits
+        // for it, so Username shows pending for the whole round trip. Seeing the window open
+        // before waiting for it to close keeps Submit from landing mid-check.
+        var pendingScoped = page.WaitForFunctionAsync(
+            PendingScopedToUsername,
+            options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
         await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
-        await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
+        await pendingScoped;
         await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(page.Locator("p[role='status']"))
             .ToHaveTextAsync("Submitted — username checks passed.", new() { Timeout = AsyncTimeoutMs });
 
-        // Armed only after the form is submitted: everything above (the debounced live pass on
-        // "ada", the submit's own pass) is setup, not the edit under test.
+        // The edit under test is the debounced one, so the box is ticked here, before it.
+        await page.GetByLabel("Debounce live checks (batch fast typing into one check)", new() { Exact = true })
+            .CheckAsync();
+
+        // Armed only after the form is submitted and the box ticked: everything above (the live
+        // pass on "ada", the submit's own pass) is setup, not the edit under test.
         await page.EvaluateAsync(InstallCheckWindowProbe);
 
         // The page's own clock, read just before the edit commits — the probe stamps openedAt
