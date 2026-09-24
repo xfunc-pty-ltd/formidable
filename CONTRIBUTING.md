@@ -8,6 +8,11 @@ shape," not just "this works."
 Releases are the maintainer's alone: contributions land through pull requests, the maintainer
 reviews and merges them, and nothing in a pull request can publish a package or move a tag.
 
+Questions about using Formidable go in
+[Discussions Q&A](https://github.com/xfunc-pty-ltd/formidable/discussions/categories/q-a). Bugs
+and feature proposals go in [Issues](https://github.com/xfunc-pty-ltd/formidable/issues/new/choose),
+where the forms ask for what a report needs.
+
 ## Project layout
 
 ```

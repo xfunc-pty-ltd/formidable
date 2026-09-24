@@ -1,6 +1,6 @@
 name: Bug report
 description: Something isn't working the way it should.
-labels: ["bug"]
+labels: ["bug", "triage"]
 body:
   - type: textarea
     id: description
@@ -14,7 +14,7 @@ body:
     attributes:
       label: Steps to reproduce
       description: >
-        Minimal steps to see the bug — a code snippet, a small repro project, or steps against
+        Minimal steps to see the bug: a code snippet, a small repro project, or steps against
         one of the sample pages.
       placeholder: |
         1. ...
@@ -38,7 +38,21 @@ body:
     id: version
     attributes:
       label: Library version
-      description: Which package(s) and version(s) — e.g. Formidable.Blazor 0.1.0-preview.1.
+      description: Which package(s) and version(s), for example Formidable.Blazor 1.0.1.
+    validations:
+      required: true
+  - type: dropdown
+    id: hosting-model
+    attributes:
+      label: Hosting model
+      description: Where the form runs. On a Blazor Web App, the render mode is the page's `@rendermode` line.
+      options:
+        - Standalone WebAssembly app
+        - Blazor Web App, InteractiveServer
+        - Blazor Web App, InteractiveWebAssembly
+        - Blazor Web App, InteractiveAuto
+        - Static server rendering (no render mode)
+        - Server only (the Formidable.AspNetCore filters)
     validations:
       required: true
   - type: checkboxes
@@ -53,6 +67,6 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: .NET version, browser, anything else that might be relevant.
+      description: .NET version, browser, whether prerendering is turned off, anything else that might be relevant.
     validations:
       required: false

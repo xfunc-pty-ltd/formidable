@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/xfunc-pty-ltd/formidable/discussions/categories/q-a
+    about: How-do-I questions, and help with your own form, go in Discussions.
+  - name: Report a security vulnerability
+    url: https://github.com/xfunc-pty-ltd/formidable/security/policy
+    about: Please report it privately rather than in a public issue.
