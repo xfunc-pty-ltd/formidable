@@ -196,8 +196,9 @@ things and only three: a submit still running, the check your own edit started w
 running, and a load of values still being checked. It never waits for an open `LiveDebounce`
 window, and it never cancels what it waits for.
 
-A server reply's messages stay on screen until the next whole-form re-check, the next submit or a
-load replaces them; a live check for one field does not. Set `LiveDebounce` wider than
+A server reply's messages stay on screen until something newer replaces them: the whole-form
+re-check after a later edit or a later change to which fields are on screen, the next submit, or
+a load of values. A live check for one field does not. Set `LiveDebounce` wider than
 `RefreshDebounce` and the re-check lands before the live check, at no extra cost. What the
 submit disclosed then updates a beat before the field's own message; the settled state, and the
 cost, are the same whichever lands first.

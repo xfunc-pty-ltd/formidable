@@ -107,9 +107,11 @@ public interface IFormidableEngine
     /// <param name="issues">The server's current issues; enumerated once.</param>
     /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// A reply replaces the previous one and stands until the next submit, load or whole-form
-    /// re-check; a live check leaves it. Applying sets <see cref="HasSubmitted"/> and clears a
-    /// standing <see cref="FormidableOptions.ValidationFaultMessage"/>. Only
+    /// A reply replaces the previous one. It stands until the next submit or load, or until the
+    /// form is re-checked after a later edit or a later change in which fields render; a live
+    /// check, or one already running when the reply arrives, leaves it. Applying sets
+    /// <see cref="HasSubmitted"/> and clears a standing
+    /// <see cref="FormidableOptions.ValidationFaultMessage"/>. Only
     /// <see cref="FormidableOptions.DisclosureOverride"/> answering <see langword="false"/> hides
     /// an error. Call it from the renderer's synchronization context.
     /// </remarks>

@@ -113,14 +113,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     // The server verdict source: what the most recent ApplyServerIssues call put on screen, per
     // field, per severity channel. An apply replaces it wholesale — the payload is the server's
-    // CURRENT verdict, not an addition to its last one — and every submit, refresh and load
-    // clears it:
+    // CURRENT verdict, not an addition to its last one — and a submit, refresh or load landing
+    // with a newer answer clears it (see SupersedesServerAnswer):
     // the server's answer is a snapshot of one round trip, and a newer whole-model answer
     // supersedes it (a matching client issue continues through the client view by construction).
     // Never mixed into the client sources above; the views merge the two at read time, client
     // copy first, which is what makes the client's copy the one that shows on identical text.
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _serverErrors = [];
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _serverAdvisories = [];
+
+    // Where the server's answer stands in the engine's own clocks: the pass version, the edit
+    // stamp and the rendered-field-set generation, each read as the answer was applied. A landing
+    // compares its own begin-time readings against these, so which answer is newer is decided by
+    // what each one knew rather than by which the scheduler happened to finish last.
+    private int _serverAnswerVersion;
+    private int _serverAnswerEditStamp;
+    private int _serverAnswerGeneration;
 
     // Armed by a blocked submit that disclosed no error at all — the all-suppressed case the
     // defensive gate exists for — and disarmed by any submit that disclosed something or passed.
@@ -1383,6 +1391,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // writes anything, store included.
                 _verdictStore.TryFile(executed, generation);
 
+                if (SupersedesServerAnswer(kind, pass.Version, editStamp, generation))
+                {
+                    _serverErrors.Clear();
+                    _serverAdvisories.Clear();
+                }
+
                 applyVerdict(report);
 
                 // Coverage bookkeeping, after the apply so the submit channel's source is the
@@ -1428,6 +1442,29 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
         }
     }
+
+    /// <summary>Whether a landing pass's answer is newer than the server's current one, and so replaces it.</summary>
+    /// <param name="kind">The landing pass's kind.</param>
+    /// <param name="version">The version the pass took at begin.</param>
+    /// <param name="editStamp">The edit stamp the pass read at begin.</param>
+    /// <param name="generation">The rendered-field-set generation the pass read at begin.</param>
+    /// <returns><see langword="true"/> for a submit begun after the apply, and for a refresh or load that read a model or field set moved since it; never for a live pass.</returns>
+    // Two passes know nothing the reply does not. One was already running when the reply arrived;
+    // the other is a refresh armed before the reply that fires after it. Either would erase the
+    // newer answer with an older one, and on a filled-in form nothing the client says takes its
+    // place. A submit is the visitor asking again, so any submit begun after the reply supersedes
+    // it, changed or not. A refresh or load supersedes it only once something has moved since:
+    // an edit, a load's own declared change, or the rendered field set (the one route by which a
+    // removed row's silent change to the model reaches the engine). A reading that moved was
+    // taken after the apply, so its pass began after it too. A live pass is an edit's own
+    // answer, not the settling point the server's snapshot yields to.
+    private bool SupersedesServerAnswer(PassKind kind, int version, int editStamp, int generation) =>
+        kind switch
+        {
+            PassKind.Live => false,
+            PassKind.Submit => version > _serverAnswerVersion,
+            _ => editStamp > _serverAnswerEditStamp || generation > _serverAnswerGeneration,
+        };
 
     /// <summary>Validates the model under <paramref name="profile"/>, rule by rule against the verdict store when the validator allows it and as the whole profile in one call otherwise; writes nothing.</summary>
     /// <param name="profile">The profile.</param>
@@ -2060,12 +2097,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // live pass re-answers every engaged field.
                 _liveVerdicts.Clear();
 
-                // The server verdict is a snapshot of one round trip, and this pass is a newer
-                // whole-model answer: whatever the server said is superseded, both branches
-                // alike. A client rule that fails the same way keeps its message showing through
-                // the client's own answer.
-                _serverErrors.Clear();
-                _serverAdvisories.Clear();
+                // The server's answer has already been cleared by the time this runs, when this
+                // submit began after it (see SupersedesServerAnswer), both branches alike. A
+                // client rule that fails the same way keeps its message showing through the
+                // client's own answer.
 
                 // Submit already IS the whole-model SubmitProfile validation IsFormValid tracks —
                 // adopting it here means a disable-submit button reflects the submit's own answer
@@ -2180,6 +2215,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _serverErrors.Clear();
         _serverAdvisories.Clear();
 
+        // Read beside the swap, on the renderer's synchronization context this method requires,
+        // which is where all three move: a pass that took these readings or earlier ones knows
+        // nothing this answer does not.
+        _serverAnswerVersion = _version;
+        _serverAnswerEditStamp = _editStamp;
+        _serverAnswerGeneration = _verdictStore.Generation;
+
         foreach (var issue in issues)
         {
             var field = Resolve(issue);
@@ -2272,12 +2314,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             {
                 // The refresh apply, for the reason a refresh makes it: this IS a completed
                 // whole-model submit-profile answer, so it becomes the submit channel's client
-                // source and supersedes whatever a server round trip left behind. Nothing is
-                // revealed by it — a load is not a submit — so on a form that has never
-                // submitted the ledgers stay empty and that channel shows nothing at all.
+                // source, and a server reply applied before this load began went as it landed,
+                // since the load declared the model changed (see SupersedesServerAnswer); one that
+                // arrived while it ran still stands. Nothing is revealed by
+                // it — a load is not a submit — so on a form that has never submitted the
+                // ledgers stay empty and that channel shows nothing at all.
                 AdoptFormValidity(report);
-                _serverErrors.Clear();
-                _serverAdvisories.Clear();
                 _submitVerdictErrors = GroupByResolvedField(report.Errors);
                 _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
 
@@ -2715,16 +2757,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 AdoptFormValidity(report);
 
                 // Landing the verdict is the whole apply: the fresh whole-model answer replaces
-                // the submit channel's source, and the server source clears — the server's answer
-                // was a snapshot of one round trip, and this pass supersedes it (a client rule
-                // failing the same way keeps the message showing through the client view). What
-                // the channel SHOWS is the views' business: the reveal ledgers decide which of
-                // these entries surface — fixed fields clear because the rules stopped producing
-                // them, fields revealed after submit stay quiet until the next submit because no
-                // ledger watches them — and the gate needs nothing here to survive, because it
-                // was never an entry a rebuild could drop.
-                _serverErrors.Clear();
-                _serverAdvisories.Clear();
+                // the submit channel's source. The server's answer went as this pass landed if
+                // the model or the field set moved after it arrived (see SupersedesServerAnswer),
+                // and a client rule failing the same way keeps the message showing through the
+                // client view. What the channel SHOWS is the views'
+                // business: the reveal ledgers decide which of these entries surface — fixed
+                // fields clear because the rules stopped producing them, fields revealed after
+                // submit stay quiet until the next submit because no ledger watches them — and
+                // the gate needs nothing here to survive, because it was never an entry a rebuild
+                // could drop.
                 _submitVerdictErrors = GroupByResolvedField(report.Errors);
                 _submitVerdictAdvisories = GroupByResolvedField(report.Advisories);
             }).ConfigureAwait(false);

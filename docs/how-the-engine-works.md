@@ -70,15 +70,21 @@ settling point a server snapshot yields to.
 
 **Submit.** Started by `ValidateForSubmitAsync` (a root's `SubmitAsync` reaches it). It runs the
 submit profile form-wide, pending indicator form-wide. On landing it sets `HasSubmitted`, clears
-every live verdict (the engaged set stands, so the next live pass re-answers it), clears the
-server store, unions or resets the reveal ledgers, and arms or disarms the gate. A submit reads no
-stored verdict: it executes its whole selection by fiat.
+every live verdict (the engaged set stands, so the next live pass re-answers it), unions or resets
+the reveal ledgers, and arms or disarms the gate. A submit reads no stored verdict: it executes its
+whole selection by fiat.
+
+A submit clears the server store too when it began after the last apply
+([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
 **Refresh.** Started by the refresh timer, which two things arm (and a deferred fire re-arms): a
 field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerIssues` also sets
 `HasSubmitted`), and any move in the rendered field set, the first render included. It runs the
 submit profile whole-model, pending indicator scoped to the fields edited within the window.
-Landing replaces the submit channel's source and clears the server store. It reveals nothing.
+
+Landing replaces the submit channel's source and reveals nothing. It clears the server store only
+when the edit stamp or the generation it read at begin had moved since the last apply: an edit, a
+load or a field-set move in between.
 
 On a form that has never been submitted the ledgers are empty and the gate unarmed, so a
 refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
@@ -86,8 +92,8 @@ and `IsFormValid` alone, and its pending scope names no field.
 
 **Load.** Started by `DiscloseLoadedValuesAsync`. It moves the edit stamp first, because the
 page is stating that the model changed without a notification, and abandons the held vouch. It
-runs the submit profile with an empty pending scope, replaces the submit channel's source and
-clears the server store.
+runs the submit profile with an empty pending scope and replaces the submit channel's source. It
+clears the server store unless an apply arrived after the load began.
 
 Abandoning the vouch takes the valid class off any field wearing it until the load, or a later
 answer, lands: invisibly on a synchronous validator, and for as long as the slowest rule on one that
@@ -785,6 +791,9 @@ unconditionally, one of the two places that issue is cleared (a pass landing is 
 clears both dictionaries before it reads the payload, so a replace is a wholesale swap of that one
 source and the client's own verdict sources are untouched.
 
+Beside the swap it records the version, the edit stamp and the store's generation, which decide
+which later landing replaces it ([what replaces the server's answer](#what-replaces-the-servers-answer)).
+
 Each issue is resolved to a field through the introspector ([the walk](#the-walk)) and, where it
 lands, added to the dictionary for its severity. Within one payload a second copy of a sentence for
 one field at the same severity folds into the first (`SameMessageAndSeverity`, the same test the
@@ -815,10 +824,28 @@ exists because a hidden error would otherwise fail a submit silently, and an adv
 ### What replaces the server's answer
 
 A live pass leaves the server store standing, whatever profile it ran: it is an edit's own answer,
-not the settling point the server's snapshot yields to. A refresh, a submit and a load each clear
-both dictionaries as they land ([the five pass kinds](#the-five-pass-kinds)), so a server-only
-issue goes with that landing and one a client rule agrees with continues through the client's own
-answer.
+not the settling point the server's snapshot yields to.
+
+A refresh, a submit and a load clear both
+dictionaries as they land ([the five pass kinds](#the-five-pass-kinds)), but only when their
+answer is newer than the server's (`SupersedesServerAnswer`). A server-only issue goes with the
+first landing that is, and one a client rule agrees with continues through the client's own answer.
+
+Newer is decided by what each answer knew, not by which the scheduler finished last. An apply
+records three readings beside its swap: the version, the edit stamp and the verdict store's
+generation, which a rendered-field-set move advances. A landing compares the readings it took at
+begin against them.
+
+A submit supersedes the server's answer when it began after the apply, changed or not, because a
+submit is the visitor asking again. A refresh or a load supersedes it only when the edit stamp or
+the generation moved after the apply; a load moves the stamp itself as it begins.
+
+So neither a pass already in flight at the apply, nor a refresh armed before it that fires after
+it, can erase it. Supersession never cancels a pass here: each still lands its own verdict and
+ends as usual.
+
+The engine cannot see when the page sent the request. A reply to a request sent before an edit,
+arriving after it, stands until the next edit, field-set move, submit or load.
 
 At read time the submit view merges client-first: `MergeServer` drops a server issue whose message
 and severity both match one the client already shows, and `ExceptShadowed` is the separate,

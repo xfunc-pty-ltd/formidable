@@ -83,6 +83,15 @@ answer, so a client rule failing on the same field keeps its own message through
 `Timeout.InfiniteTimeSpan` turns the re-check off, and the server's answer then stands until the
 next submit or load of values.
 
+The re-check replaces the reply only after a change made since the reply arrived. A re-check
+already waiting out `RefreshDebounce` when the reply lands, and any check already running, leave
+the reply standing, since neither knows anything the reply does not.
+
+The form cannot see when your page sent the request, so a reply stands until the next change,
+submit or load of values, even if the visitor edited the field while it was on its way. When saves
+can overlap, apply only the latest one's reply: each apply replaces the last, so an older reply
+arriving late would stand in place of the newer one.
+
 Each apply replaces what the last one applied rather than piling onto it. The server's issues live
 apart from the client's own answer, so applying a reply swaps that set outright and touches nothing
 the client said, and resubmitting the same or a corrected payload never leaves a stale duplicate
