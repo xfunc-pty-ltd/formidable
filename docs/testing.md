@@ -111,6 +111,11 @@ public class SignupFormTests : BunitContext
 }
 ```
 
+Find a field's own element by the id the kit gives it, `FormidableFieldId.For(field)`, rather than
+by an attribute it carries. The `<form>` carries `aria-describedby` too, pointing at the list
+`FormidableModelMessage` renders, so a selector such as `[aria-describedby]` matches the form before
+any input.
+
 The three seams, and what a double over each one buys:
 
 | Seam | What needs it | What a double makes assertable |
