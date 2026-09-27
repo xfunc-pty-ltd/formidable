@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-09-27
+
+### Fixed
+
+- *(blazor)* Let a re-check set IsValidating on fields in LiveDebounce ([36c173a](https://github.com/xfunc-pty-ltd/formidable/commit/36c173ab1a0873c69bdbc773fc7d750f4874893f), [#19](https://github.com/xfunc-pty-ltd/formidable/issues/19))
+- *(blazor)* List a mid-submit server reply in VisibleErrorSummary ([47a9ea9](https://github.com/xfunc-pty-ltd/formidable/commit/47a9ea988e15abe4bd811095bc1cf313592a6da8), [#20](https://github.com/xfunc-pty-ltd/formidable/issues/20))
+
+### Documentation
+
+- Bring the release runbook up to the 1.x release shape ([f88e8ff](https://github.com/xfunc-pty-ltd/formidable/commit/f88e8ff2379c7b64e2be2429100d5c85fa277724))
+- Split the XML docs paragraph in CONTRIBUTING ([314aa7e](https://github.com/xfunc-pty-ltd/formidable/commit/314aa7e2dc9cc0c8a8bcaabb299de7529fe0431f))
 ## [1.0.1] - 2026-09-24
 
 ### Fixed
@@ -103,5 +114,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[1.0.2]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.2
 [1.0.1]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.1
 [1.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.0
