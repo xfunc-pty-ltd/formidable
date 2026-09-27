@@ -447,8 +447,8 @@ Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 ### `ModelLevelDisplayName`
 
 `string`, defaults to `"This form"`. The name `SubmitOutcome.VisibleErrorSummary` lists an error
-under when that error's issue names no field of its own: the defensive gate's explanation, and any
-model-level rule a blocked submit disclosed.
+under when that error's issue names no field of its own: the defensive gate's explanation, any
+model-level rule a blocked submit disclosed, and a server reply's model-level error still showing.
 
 That list holds names rather than messages. An entry is the issue's `DisplayName` where the issue
 carries one (what `WithName(...)` sets) and its `Path` otherwise, and this option stands in

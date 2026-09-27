@@ -2172,16 +2172,32 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     _submitVerdictAdvisories = ResolveVisibleAdvisories(report);
                     _revealedAdvisoryFields.UnionWith(_submitVerdictAdvisories.Keys);
 
-                    // Both arms name the model level the same way, because both are naming the
-                    // same nameless thing: an issue that resolved to no field of its own.
+                    // The summary names what the submit view shows as this submit lands: its own
+                    // disclosed errors first, in report order, then a server reply's errors on
+                    // fields its own do not already name, so a field both sides flag is listed
+                    // once, under the client's display name. A reply only stands here when it
+                    // arrived while this submit ran (see SupersedesServerAnswer). The gate's own
+                    // entry is listed under the model-level name only while the gate shows, which
+                    // is never beside a server error. Every entry names the model level the same
+                    // way, because each is naming the same nameless thing: an issue that resolved
+                    // to no field of its own.
                     var modelLevelName = _options.ModelLevelDisplayName;
-                    summary = disclosed.Count > 0
-                        ? disclosed
-                            .Select(x => x.Issue.DisplayName ?? x.Issue.Path)
-                            .Select(name => name.Length == 0 ? modelLevelName : name)
-                            .Distinct()
-                            .ToList()
-                        : [modelLevelName]; // the gate's own model-level entry is what the summary points at
+                    string NameOf(ValidationIssue issue) =>
+                        (issue.DisplayName ?? issue.Path) is { Length: > 0 } name ? name : modelLevelName;
+
+                    var named = disclosed.Select(x => x.Field).ToHashSet();
+                    summary = disclosed
+                        .Select(x => NameOf(x.Issue))
+                        .Concat(_serverErrors
+                            .Where(entry => !named.Contains(entry.Key))
+                            .SelectMany(entry => entry.Value)
+                            .Select(NameOf))
+                        .Distinct()
+                        .ToList();
+                    if (GateActive)
+                    {
+                        summary.Add(modelLevelName);
+                    }
                 }
             }).ConfigureAwait(false);
 

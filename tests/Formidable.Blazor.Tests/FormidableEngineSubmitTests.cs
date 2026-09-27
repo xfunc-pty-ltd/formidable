@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -36,6 +37,40 @@ public class FormidableEngineSubmitTests
         Assert.Equal(["Order description"], outcome.VisibleErrorSummary);
         Assert.NotEmpty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Description))));
         Assert.Empty(_editContext.GetValidationMessages(Field(_order, nameof(EngineOrder.Customer))));
+    }
+
+    // Two failing rules under one display name list that name once: the summary is by name, not by
+    // issue. Mutation this breaks: drop the summary's Distinct.
+    [Fact]
+    public async Task A_name_two_failing_rules_share_is_listed_once()
+    {
+        var order = new EngineOrder();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(new SameNameTwiceValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+        using var reg = engine.Registry.Register(Field(order, nameof(EngineOrder.Description)));
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(2, outcome.Report.Errors.Count);
+        Assert.Equal(["Description"], outcome.VisibleErrorSummary);
+    }
+
+    private sealed class SameNameTwiceValidator : DraftSubmitValidator<EngineOrder>
+    {
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+            RuleFor(x => x.Description).MinimumLength(5).WithMessage("Description is too short");
+        }
     }
 
     [Fact]

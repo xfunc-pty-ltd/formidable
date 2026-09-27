@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Bunit;
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
@@ -146,6 +147,69 @@ public class FormidableEngineServerApplyRaceTests
         Assert.Equal(["Server says no"], editContext.GetValidationMessages(customer));
     }
 
+    // The submit's own error sits on a field nothing renders, so it discloses nothing and would
+    // normally explain the block with the form-level gate. A reply that arrived while it ran
+    // stands, and the gate never shows beside a server error, so the summary names the server's
+    // error: what is on screen, and what focus lands on.
+    [Fact]
+    public async Task A_blocked_submit_a_reply_overtook_names_the_errors_on_screen()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var validator = new GatedValidator();
+        var editContext = new EditContext(order);
+        var options = new FormidableOptions();
+        using var engine = Build(order, editContext, validator, new FakeTimeProvider(), options);
+
+        var submit = engine.ValidateForSubmitAsync();
+        engine.ApplyServerIssues([new ValidationIssue("Customer", "Server says no")]);
+        validator.Gate.SetResult();
+        var outcome = await submit;
+
+        Assert.False(outcome.CanProceed);
+        Assert.DoesNotContain(engine.GetVisibleIssues(), v => v.Issue.Message == options.DefensiveGateMessage);
+        Assert.Equal(["Customer"], outcome.VisibleErrorSummary);
+    }
+
+    [Fact]
+    public async Task A_blocked_submit_a_reply_overtook_lists_its_own_errors_first()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var validator = new GatedValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FakeTimeProvider());
+        using var rendered = engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        var submit = engine.ValidateForSubmitAsync();
+        engine.ApplyServerIssues([new ValidationIssue("Customer", "Server says no")]);
+        validator.Gate.SetResult();
+        var outcome = await submit;
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(["Description", "Customer"], outcome.VisibleErrorSummary);
+    }
+
+    // A field both sides flag is one entry, under the client's display name: the wire carries no
+    // display name, and when the two messages match the server's copy is not on screen at all.
+    [Theory]
+    [InlineData("Server says no")]
+    [InlineData("async says no")]
+    public async Task A_blocked_submit_a_reply_overtook_names_a_field_both_sides_flag_once(string serverMessage)
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var validator = new NamedGatedValidator();
+        var editContext = new EditContext(order);
+        using var engine = Build(order, editContext, validator, new FakeTimeProvider());
+        using var rendered = engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+
+        var submit = engine.ValidateForSubmitAsync();
+        engine.ApplyServerIssues([new ValidationIssue("Description", serverMessage)]);
+        validator.Gate.SetResult();
+        var outcome = await submit;
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(["Order description"], outcome.VisibleErrorSummary);
+    }
+
     [Fact]
     public async Task A_live_check_already_running_when_a_reply_arrives_still_lands_its_verdict()
     {
@@ -248,6 +312,26 @@ public class FormidableEngineServerApplyRaceTests
             new ReflectionModelIntrospector(),
             options ?? new FormidableOptions(),
             time);
+
+    /// <summary>A submit rule on <see cref="EngineOrder.Description"/> that fails under a display name of its own, held on <see cref="Gate"/>.</summary>
+    private sealed class NamedGatedValidator : DraftSubmitValidator<EngineOrder>
+    {
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(x => x.Description)
+                .MustAsync(async (_, ct) =>
+                {
+                    await Gate.Task.WaitAsync(ct);
+                    return false;
+                })
+                .WithName("Order description")
+                .WithMessage("async says no");
+    }
 }
 
 /// <summary>
