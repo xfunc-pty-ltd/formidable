@@ -19,7 +19,7 @@ public readonly record struct FieldState
     /// <summary>Whether the <c>EditContext</c> reports the field as modified.</summary>
     public bool IsModified { get; init; }
 
-    /// <summary>Whether a check with this field in its scope is running: a live check for a change or loaded value of it, a submit, or the whole-form re-check an edit of it started after a submit.</summary>
+    /// <summary>Whether a check covering this field is running: a live check of it, a submit, or a whole-form re-check that follows its edit after a submit or runs while its debounced check waits.</summary>
     /// <remarks>
     /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> covers no field while it runs;
     /// only <see cref="IFormidableEngine.IsValidating"/> reports it, for a page-level spinner.

@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -575,5 +576,186 @@ public class FormidableEngineValidatingScopeTests
 
         validator.Gate.SetResult();
         await submit;
+    }
+
+    // Before a submit, a whole-form re-check that comes due while a debounced edit is still
+    // waiting runs that field's check itself, and the debounced pass that follows answers from
+    // the stored verdict at once. So the re-check is the only moment the check is out, and the
+    // field has to read as pending for it. Mutation this breaks: take the waiting fields back out
+    // of the re-check's pending scope.
+    [Fact]
+    public async Task A_refresh_answering_a_waiting_debounced_edit_flags_that_field_before_any_submit()
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var validator = new FilledFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name));
+
+        // The first render arms the re-check at the default 300 ms; the edit lands inside it and
+        // opens a 400 ms debounce window that outlasts it.
+        engine.OnRenderedFieldsChanged();
+        order.Description = "ada";
+        editContext.NotifyFieldChanged(description);
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.Equal(1, validator.Started);
+        Assert.True(engine.GetFieldState(description).IsValidating);
+        Assert.False(engine.GetFieldState(customerName).IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+
+        Assert.False(engine.GetFieldState(description).IsValidating);
+    }
+
+    // The other half of the same scope: a field that is not waiting on a debounced check is not
+    // flagged by a re-check that happens to run its rules. Here the edit's debounced pass has
+    // already answered, and a later change to the rendered field set empties the stored verdicts,
+    // so the re-check it arms runs the rule again with nothing waiting. Mutation this breaks:
+    // widen the scope to every engaged field.
+    [Fact]
+    public async Task A_refresh_before_any_submit_flags_no_field_that_is_not_waiting_on_a_debounced_check()
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var validator = new FilledFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        order.Description = "ada";
+        editContext.NotifyFieldChanged(description);
+        time.Advance(TimeSpan.FromMilliseconds(401));
+        Assert.True(engine.GetFieldState(description).IsValidating, "the debounced pass should be out");
+        var answered = Quiescence(engine);
+        validator.Gate.SetResult();
+        await answered;
+        validator.Reset();
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.Equal(2, validator.Started);
+        Assert.True(engine.IsValidating, "the re-check should be held open by the gated rule");
+        Assert.False(engine.GetFieldState(description).IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+    }
+
+    // After a submit the waiting field is lent to the re-check too: the submit cleared every
+    // live verdict, so the field's own answer is still owed, and this re-check is running its
+    // rule. Mutation this breaks: lend the waiting fields only before a submit.
+    [Fact]
+    public async Task A_post_submit_refresh_flags_a_field_still_waiting_out_its_debounce()
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var validator = new FilledFieldGatedValidator();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.FromMilliseconds(400) },
+            time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name));
+
+        // Description is edited and Submit pressed inside its window; Name is edited while the
+        // submit runs, which arms the re-check ahead of the window's own fire.
+        order.Description = "ada";
+        editContext.NotifyFieldChanged(description);
+        var submit = engine.ValidateForSubmitAsync();
+        order.Customer.Name = "bo";
+        editContext.NotifyFieldChanged(customerName);
+        validator.Gate.SetResult();
+        await submit;
+
+        validator.Reset();
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.True(engine.IsValidating, "the re-check should be held open by the gated rule");
+        Assert.True(engine.GetFieldState(description).IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+    }
+
+    // A window armed with Timeout.InfiniteTimeSpan never fires, so nothing ever drains it: a field
+    // it holds waits on no check, and a re-check must not light it. Mutation this breaks: lend a
+    // never-closing window's fields to the re-check's scope.
+    [Fact]
+    public async Task A_live_window_that_never_closes_lends_no_field_to_a_refresh()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var validator = new GatedValidator { ShouldPass = true };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = Timeout.InfiniteTimeSpan },
+            time);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name));
+
+        order.Description = "edited before the submit";
+        editContext.NotifyFieldChanged(description);
+        validator.Gate.SetResult();
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+
+        validator.Reset();
+        order.Customer!.Name = "edited after";
+        editContext.NotifyFieldChanged(customerName);
+        time.Advance(TimeSpan.FromMilliseconds(301));
+
+        Assert.True(engine.IsValidating, "the re-check should be held open by the gated rule");
+        Assert.True(engine.GetFieldState(customerName).IsValidating);
+        Assert.False(engine.GetFieldState(description).IsValidating);
+
+        var settled = Quiescence(engine);
+        validator.Gate.SetResult();
+        await settled;
+    }
+
+    /// <summary>An async rule on <see cref="EngineOrder.Description"/> in the always-on bucket that skips an empty value, the shape of a uniqueness check, held on <see cref="Gate"/>.</summary>
+    private sealed class FilledFieldGatedValidator : DraftSubmitValidator<EngineOrder>
+    {
+        public TaskCompletionSource Gate { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Started;
+
+        public void Reset() => Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override void ConfigureDraftRules() =>
+            RuleFor(x => x.Description)
+                .MustAsync(async (_, ct) =>
+                {
+                    Interlocked.Increment(ref Started);
+                    await Gate.Task.WaitAsync(ct);
+                    return true;
+                })
+                .When(x => !string.IsNullOrEmpty(x.Description));
+
+        protected override void ConfigureSubmitRules()
+        {
+        }
     }
 }

@@ -498,7 +498,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Whether the pass in flight covers <paramref name="field"/>, which the pass's kind decides through its pending scope.</summary>
     /// <param name="field">The field.</param>
-    /// <returns><see langword="true"/> for any field under a submit, a triggering field under a live pass, a field edited within the window under a refresh, and never under a load.</returns>
+    /// <returns><see langword="true"/> for any field under a submit, a triggering field under a live pass, a field edited within the window or still held by a debounce window under a refresh, and never under a load.</returns>
     // GetFieldState folds this into its own read; IValidatingFieldReader exposes it alone for the
     // css class provider, which wants only this without the cost of a whole FieldState.
     private bool IsFieldValidating(FieldIdentifier field) =>
@@ -1160,8 +1160,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // The submit channel needs reconciling only once it has disclosed something, but the
         // coverage the Valid class rests on was just emptied on every form alike, and this is
         // the pass that refills it. Before a submit it is the quietest pass the engine runs: no
-        // ledger admits its findings and no field is flagged pending for it, so answering is
-        // all it does.
+        // ledger admits its findings, and the only fields flagged pending for it are those an
+        // open debounce window holds, whose check it is answering. Answering is all it does.
         ScheduleRefresh();
     }
 
@@ -1275,7 +1275,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/> and narrows the checking indicator to <paramref name="fields"/>.</summary>
     /// <param name="pass">The pass, which must still be current for the write to land.</param>
-    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window, an empty set for a load, and <see langword="null"/> for a submit, which covers every field.</param>
+    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, an empty set for a load, and <see langword="null"/> for a submit, which covers every field.</param>
     private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
         PublishPassStateAsync(pass, () =>
         {
@@ -1320,7 +1320,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="kind">The pass kind, which decides the fault policy and whether stored verdicts are served; a submit executes its whole selection.</param>
     /// <param name="profile">The profile the model is validated under.</param>
     /// <param name="external">The caller's token; only a submit and a load carry one, so a cancellation with none requested means supersession.</param>
-    /// <param name="beginScope">Produces the pending scope once the pass has begun; a refresh's is a snapshot-and-clear of its accumulator, so when it is taken matters.</param>
+    /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters.</param>
     /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it.</param>
     /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load; a validator's exception under either kind propagates as well.</exception>
@@ -2689,7 +2689,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return RunLivePassAsync(fields);
     }
 
-    /// <summary>The refresh timer's handler: re-arms behind a submit, live pass or load in flight, else re-checks the whole model under the submit profile with the indicator narrowed to the fields edited within the window.</summary>
+    /// <summary>The refresh timer's handler: re-arms behind a submit, live pass or load in flight, else re-checks the whole model under the submit profile, the indicator narrowed to the fields edited within the window and those a debounce window holds.</summary>
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -2724,8 +2724,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             CancellationToken.None,
             () =>
             {
-                // Snapshot-and-clear: this window's refresh flags exactly the fields the user
-                // edited since the last refresh (or since submit, for the first one). Fields
+                // Snapshot-and-clear: this window's refresh flags the fields the user edited since
+                // the last refresh (or since submit, for the first one), plus any a debounce
+                // window is still holding (below). Fields
                 // edited while this pass is in flight land in the now-empty accumulator and are
                 // flagged by the NEXT refresh instead — they are not lost, just deferred one
                 // window (see ScheduleRefresh's re-arm on the deferral branch above for the
@@ -2746,6 +2747,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // profile; only which fields the indicator lights narrows.
                 var edited = new HashSet<FieldIdentifier>(_pendingRefreshFields);
                 _pendingRefreshFields.Clear();
+
+                // A field an open debounce window is still holding is one this pass answers for
+                // as well. Before a submit nothing else puts it in the scope above, and the
+                // debounced pass stands down behind this one; on a validator the engine can take
+                // rule by rule it then answers from this pass's verdicts at once, so this pass is
+                // the only moment the field's check is out. Read and not cleared: the window's own
+                // fire still owns the accumulator. A window armed with Timeout.InfiniteTimeSpan
+                // never fires, so its accumulator only grows and a field in it waits on no check;
+                // it is left out.
+                if (_options.LiveDebounce != Timeout.InfiniteTimeSpan)
+                {
+                    edited.UnionWith(_pendingDebouncedLiveFields);
+                }
+
                 return edited;
             },
             report =>

@@ -80,7 +80,11 @@ A submit clears the server store too when it began after the last apply
 **Refresh.** Started by the refresh timer, which two things arm (and a deferred fire re-arms): a
 field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerIssues` also sets
 `HasSubmitted`), and any move in the rendered field set, the first render included. It runs the
-submit profile whole-model, pending indicator scoped to the fields edited within the window.
+submit profile whole-model.
+
+Its pending indicator is scoped to the fields edited within the window, and to any field an open
+`LiveDebounce` window still holds, since this pass is answering that field's check. A window of
+`Timeout.InfiniteTimeSpan` never fires, so it holds no field for this scope.
 
 Landing replaces the submit channel's source and reveals nothing. It clears the server store only
 when the edit stamp or the generation it read at begin had moved since the last apply: an edit, a
@@ -88,7 +92,8 @@ load or a field-set move in between.
 
 On a form that has never been submitted the ledgers are empty and the gate unarmed, so a
 refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
-and `IsFormValid` alone, and its pending scope names no field.
+and `IsFormValid` alone, and its pending scope names only a field an open `LiveDebounce` window
+still holds.
 
 **Load.** Started by `DiscloseLoadedValuesAsync`. It moves the edit stamp first, because the
 page is stating that the model changed without a notification, and abandons the held vouch. It

@@ -256,10 +256,11 @@ Why: [how the engine works: how answers are reused](how-the-engine-works.md#the-
 
 ## Where does "checking" show, and where doesn't it?
 
-On the field you changed, and nowhere else, while its live check runs: `Username` and
-`DisplayName` above each show their own "checking" without one lighting up the other. After a
-submit, the whole-form re-check shows it on the fields you edited since. Pressing Submit shows it
-form-wide, because every field is being checked at once. Loading values shows it nowhere.
+On the field you changed, and nowhere else, while the check for your change runs: `Username` and
+`DisplayName` above each show their own "checking" without one lighting up the other. The
+whole-form re-check shows it on a field whose change is still waiting out `LiveDebounce`, and
+after a submit on the fields you edited since. Pressing Submit shows it form-wide, because every
+field is being checked at once. Loading values shows it nowhere.
 
 Two flags answer "is something still checking?". `IFormidableEngine.IsValidating` is true
 while any check but `TrackFormValidity`'s is running, whichever field started it, so it is the

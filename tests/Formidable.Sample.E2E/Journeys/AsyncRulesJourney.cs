@@ -244,12 +244,10 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
 
         // An available username, checked and settled once, then submitted: the ordinary path to a
         // submitted form, not yet the edit under test. The box stays unticked until after the
-        // submit. Ticked, a first check typed within RefreshDebounce of the first render can be
-        // run by the whole-form re-check that render armed, and before a submit that re-check
-        // marks no field pending, so the window this setup waits for would never open. Unticked,
-        // every keystroke starts its own check at once, and a re-check coming due mid-check waits
-        // for it, so Username shows pending for the whole round trip. Seeing the window open
-        // before waiting for it to close keeps Submit from landing mid-check.
+        // submit, so every keystroke starts its own check at once and a re-check coming due
+        // mid-check waits for it: Username shows pending for the whole round trip, however the
+        // typing lines up with the re-check the first render armed. Seeing the window open before
+        // waiting for it to close keeps Submit from landing mid-check.
         var pendingScoped = page.WaitForFunctionAsync(
             PendingScopedToUsername,
             options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
