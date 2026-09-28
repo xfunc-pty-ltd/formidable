@@ -61,9 +61,13 @@
                         ReturnFocusTo="_submitButton" OnDismissed="ReturnToFirstErrorAsync">
         <p>@_blockedFields @(_blockedFields == 1 ? "field needs" : "fields need") attention. Pick one to go straight to it.</p>
 
+        @* The entries are field names here rather than messages. DisplayName is the name
+           SubmitOutcome.VisibleErrorSummary lists the entry under, the one the line above
+           counts: the WithName(...) a rule gave, else the property path, else
+           ModelLevelDisplayName for an issue about the whole form. *@
         <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4"
                            PrepareFocus="DismissAnnouncementAsync">
-            <ItemTemplate Context="entry">@NameOf(entry.Issue)</ItemTemplate>
+            <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>
             <OverflowTemplate Context="held">@held.Count more to fix</OverflowTemplate>
         </FormidableSummary>
     </AnnouncementDialog>

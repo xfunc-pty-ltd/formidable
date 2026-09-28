@@ -64,7 +64,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`ReportStaleRegistrations`](#reportstaleregistrations) | `bool` | `false` | Reports that divergence instead of throwing. |
 | [`InlineMessageLive`](#inlinemessagelive) | `string?` | `null` (no attribute) | The `aria-live` politeness every message list carries. |
 | [`DefensiveGateMessage`](#defensivegatemessage) | `string` | `"The form cannot be submitted because information that is not currently displayed is invalid."` | The sentence the all-suppressed defensive gate carries. |
-| [`ModelLevelDisplayName`](#modelleveldisplayname) | `string` | `"This form"` | The name a fieldless error is listed under. |
+| [`ModelLevelDisplayName`](#modelleveldisplayname) | `string` | `"This form"` | The name a fieldless issue is listed under. |
 | [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The form-level message shown when a live check or the whole-form re-check throws. |
 | [`OrderIssues`](#orderissues) | `Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?` | `null` (document order) | Re-sorts the order visible issues are reported in. |
 | [`CssClasses`](#cssclasses) | `FormidableCssClasses` | a new instance | The five field-state class names. |
@@ -511,17 +511,18 @@ Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 
 ### `ModelLevelDisplayName`
 
-`string`, defaults to `"This form"`. The name `SubmitOutcome.VisibleErrorSummary` lists an error
-under when that error's issue names no field of its own: the defensive gate's explanation, any
-model-level rule a blocked submit disclosed, and a server reply's model-level error still showing.
+`string`, defaults to `"This form"`. The name an issue is given when it names no field of its own:
+the defensive gate's explanation, a validator fault, a model-level rule, or a server reply's
+model-level issue. `SubmitOutcome.VisibleErrorSummary` lists such an error under it, and
+`VisibleIssue.DisplayName` carries it on each entry `GetVisibleIssues` returns.
 
-That list holds names rather than messages. An entry is the issue's `DisplayName` where the issue
-carries one (what `WithName(...)` sets) and its `Path` otherwise, and this option stands in
-wherever that pair leaves an empty string. It is read as each submit builds its outcome, so a
-`SubmitOutcome` already handed back holds the names it was built with.
+Both name an issue by one rule: the issue's `DisplayName` where it carries one (what `WithName(...)`
+sets), its `Path` otherwise, and this option wherever that pair leaves an empty string. A submit
+reads the option as it builds its outcome, so a `SubmitOutcome` already handed back holds the names
+it was built with. Each `GetVisibleIssues` call reads it afresh.
 
-It reaches that list and nothing else; a `FormidableSummary` entry renders its issue's `Message`
-instead.
+A `FormidableSummary` entry renders its issue's `Message` until an `ItemTemplate` renders the name
+([Deciding what an entry says](component-kit.md#deciding-what-an-entry-says)).
 
 ### `ValidationFaultMessage`
 

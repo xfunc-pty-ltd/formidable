@@ -680,11 +680,15 @@ Entries are keyed. Without a key, sibling `<li>` elements match by position, so 
 field the first entry names rewrites the text of every entry below it and drops the last one: a
 whole band's worth of churn where one node should have left.
 
-The key is `(entry, occurrence)`, the `VisibleIssue` paired with its ordinal among the entries
-equal to it. Two issues carrying the same field, message, severity, code and state are equal
-records (a validator declaring one rule twice reaches that shape), and Blazor rejects duplicate
-sibling keys at the first diff rather than the first render, so keying by value alone would paint
-a form and then throw.
+The key is `(entry.Field, entry.Issue, occurrence)`: the entry's field and issue, paired with its
+ordinal among the entries carrying an equal pair. The entry's `DisplayName` stays out of the key,
+so re-voicing `ModelLevelDisplayName` renames a model-level entry in place rather than replacing
+it.
+
+Two issues carrying the same field, message, severity, code and state are equal records (a
+validator declaring one rule twice reaches that shape), and Blazor rejects duplicate sibling keys
+at the first diff rather than the first render, so keying by value alone would paint a form and
+then throw.
 
 Every entry also restarts its own sequence numbering from zero inside the band's region, so a
 matched entry keeps its subtree rather than rebuilding it under a surviving `<li>`.

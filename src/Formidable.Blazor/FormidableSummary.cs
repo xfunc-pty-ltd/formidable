@@ -259,8 +259,10 @@ public sealed class FormidableSummary : FormidableComponentBase
             // whole band's worth of churn where one node should have left. Two halves make the key
             // work, and neither is sufficient alone.
             //
-            // The first is what the key IS: the entry paired with its ordinal among the entries
-            // EQUAL to it, never its position. Two issues carrying the same field, message,
+            // The first is what the key IS: the entry's field and issue paired with its ordinal
+            // among the entries carrying an EQUAL field and issue, never its position. The name
+            // stays out of the key, since re-voicing ModelLevelDisplayName renames a model-level
+            // entry without making it another entry. Two issues carrying the same field, message,
             // severity, code and state are equal records — a shape a validator reaches by
             // declaring one rule twice — and Blazor rejects duplicate sibling keys outright, at
             // the first DIFF rather than the first render, so keying by value alone would paint a
@@ -277,7 +279,7 @@ public sealed class FormidableSummary : FormidableComponentBase
             // that survived. Identical numbering settles what follows a band as well: the region
             // takes one sequence number however many entries it holds, so an entry arriving or
             // leaving leaves the overflow line and the band after it on the numbers they had.
-            var occurrences = shown > 1 ? new Dictionary<VisibleIssue, int>(shown) : null;
+            var occurrences = shown > 1 ? new Dictionary<(FieldIdentifier, ValidationIssue), int>(shown) : null;
 
             builder.OpenRegion(sequence++);
 
@@ -287,13 +289,13 @@ public sealed class FormidableSummary : FormidableComponentBase
                 var occurrence = 0;
                 if (occurrences is not null)
                 {
-                    occurrences.TryGetValue(entry, out occurrence);
-                    occurrences[entry] = occurrence + 1;
+                    occurrences.TryGetValue((entry.Field, entry.Issue), out occurrence);
+                    occurrences[(entry.Field, entry.Issue)] = occurrence + 1;
                 }
 
                 var entrySequence = 0;
                 builder.OpenElement(entrySequence++, "li");
-                builder.SetKey((entry, occurrence));
+                builder.SetKey((entry.Field, entry.Issue, occurrence));
                 builder.AddAttribute(entrySequence++, "class", "formidable-summary__item");
 
                 builder.OpenElement(entrySequence++, "button");

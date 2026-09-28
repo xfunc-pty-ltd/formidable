@@ -154,4 +154,56 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
 
         await Services.DisposeAsync();
     }
+
+    /// <summary>
+    /// A model-level entry takes its name from <c>ModelLevelDisplayName</c>, which a page can
+    /// re-voice while the entry shows, as a runtime language switch does. The entry still speaks
+    /// for the same issue on the same field, so it has to stay the same entry: a replaced one
+    /// would take focus off its button and be announced again. Mutation that must break it: add
+    /// <c>entry.DisplayName</c> to the entry's key, and the witness after the re-voicing is a new
+    /// instance.
+    /// </summary>
+    [Fact]
+    public async Task Re_voicing_the_model_level_name_keeps_the_entry()
+    {
+        Services.AddSingleton<FluentValidation.IValidator<EngineOrder>>(new ToggleableTripleValidator());
+        var options = new FormidableOptions();
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "Options", options);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.AddComponentParameter(1, nameof(FormidableSummary.ItemTemplate),
+                    (RenderFragment<VisibleIssue>)(entry => item =>
+                    {
+                        item.OpenComponent<EntryWitness>(0);
+                        item.AddComponentParameter(1, nameof(EntryWitness.Label), entry.DisplayName ?? string.Empty);
+                        item.CloseComponent();
+                    }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+
+        // Nothing renders the fields the validator fails, so the blocked submit can show only the
+        // gate's explanation, which names no field of its own.
+        Submit(form, expectedEntries: 1);
+        var before = Assert.Single(form.FindComponents<EntryWitness>()).Instance;
+        Assert.Equal("This form", before.Label);
+
+        options.ModelLevelDisplayName = "Ce formulaire";
+        form.Render();
+
+        var after = Assert.Single(form.FindComponents<EntryWitness>()).Instance;
+        Assert.Equal("Ce formulaire", after.Label);
+        Assert.Same(before, after);
+
+        await Services.DisposeAsync();
+    }
 }

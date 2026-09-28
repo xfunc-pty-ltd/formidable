@@ -881,20 +881,30 @@ combinators: the chain is `.formidable-summary` > `__region` > `__band` > `ul`, 
 ### Deciding what an entry says
 
 `ItemTemplate` receives the entry's `VisibleIssue`, the field and the issue together. The common
-reason to reach for it is the field's name rather than the rule's complaint: `Issue.DisplayName`
-([Profiles](profiles.md#where-do-display-names-and-localized-messages-come-from) has where that name comes from).
+reason to reach for it is the field's name rather than the rule's complaint: `entry.DisplayName`,
+which is never `null` on an entry the summary hands over.
 
 ```razor
 <FormidableSummary>
-    <ItemTemplate Context="entry">@entry.Issue.DisplayName</ItemTemplate>
+    <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>
 </FormidableSummary>
 ```
 
-| When | What you see |
+The name is the issue's own `Issue.DisplayName` where it has one
+([Profiles](profiles.md#where-do-display-names-and-localized-messages-come-from) has where that name
+comes from), else its `Path`, else [`ModelLevelDisplayName`](options.md#modelleveldisplayname).
+`SubmitOutcome.VisibleErrorSummary` names its errors by the same rule, so an error it lists reads
+the same there as beside its summary entry.
+
+| When | What `entry.DisplayName` reads |
 |---|---|
-| The issue carries no `DisplayName` | Nothing, under a name-only template: the gate's explanation, a validator fault and a [response-body error](server-integration.md#the-wire-contract) carry none. |
-| The issue is a server advisory | A `DisplayName` only where the response supplied one. |
-| You read `SubmitOutcome.VisibleErrorSummary` instead | It falls back to the issue's `Path`, then to [`ModelLevelDisplayName`](options.md#modelleveldisplayname). A template does neither. |
+| The rule named its field (`WithName(...)`, or FluentValidation's own name) | That name. |
+| The issue has a path but no `Issue.DisplayName` | The path. A [response-body error](server-integration.md#the-wire-contract) carries none, and a server advisory carries one only where the response supplied it. |
+| The issue names no field of its own | `ModelLevelDisplayName`. The gate's explanation and a validator fault carry no `Issue.DisplayName` and no path. |
+| You built the `VisibleIssue` yourself | `null`. The name stays out of the record's equality, so your instance equals the summary's entry for the same field and issue. |
+
+A template that reads `entry.Issue.DisplayName` instead renders nothing for the gate's explanation,
+a validator fault or a response-body error.
 
 Rewording an entry changes what it reads as and nothing about where its click takes the visitor.
 Different markup *around* the entries is a summary of your own.
@@ -910,7 +920,7 @@ rest:
 
 ```razor
 <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true">
-    <ItemTemplate Context="entry">@entry.Issue.DisplayName</ItemTemplate>
+    <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>
 </FormidableSummary>
 ```
 
@@ -936,7 +946,7 @@ Four things about it are decided rather than incidental:
 
 ```razor
 <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4">
-    <ItemTemplate Context="entry">@entry.Issue.DisplayName</ItemTemplate>
+    <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>
     <OverflowTemplate Context="held">+ @held.Count more to fix</OverflowTemplate>
 </FormidableSummary>
 ```

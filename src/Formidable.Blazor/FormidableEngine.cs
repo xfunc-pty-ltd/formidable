@@ -657,13 +657,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <inheritdoc />
-    /// <returns>Every showing issue with its field, collected channel by channel as <see cref="IFormidableEngine.GetVisibleIssues"/> states and sorted by the order <see cref="SetFieldOrder"/> supplied while one is in force.</returns>
+    /// <returns>Every showing issue with its field and its <see cref="VisibleIssue.DisplayName"/>, collected channel by channel as <see cref="IFormidableEngine.GetVisibleIssues"/> states and sorted by the order <see cref="SetFieldOrder"/> supplied while one is in force.</returns>
     // Collecting channel by channel decides which issues are in the list at all; the sort decides
     // only their order, which is what makes a summary's order the page's rather than the
     // engine's own.
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
         var result = new List<VisibleIssue>();
+
+        // Read at each call rather than held, because options change in place: a re-voiced
+        // model-level name names the next read without anything having to run first.
+        var modelLevelName = _options.ModelLevelDisplayName;
 
         // Only the filtered phases consult the shadow map, so it exists only when there is one to
         // consult it — a summary showing submit errors alone builds nothing. Counted from the
@@ -675,7 +679,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         if (_faultIssue is not null)
         {
-            result.Add(new VisibleIssue(ModelLevelField, _faultIssue));
+            result.Add(IssueDisplayName.Named(ModelLevelField, _faultIssue, modelLevelName));
             RecordShowing(showing, ModelLevelField, _faultIssue);
         }
 
@@ -683,7 +687,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             foreach (var issue in issues)
             {
-                result.Add(new VisibleIssue(field, issue));
+                result.Add(IssueDisplayName.Named(field, issue, modelLevelName));
                 RecordShowing(showing, field, issue);
             }
         }
@@ -705,7 +709,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
             foreach (var issue in ExceptShadowed(issues, field, showing!))
             {
-                result.Add(new VisibleIssue(field, issue));
+                result.Add(IssueDisplayName.Named(field, issue, modelLevelName));
             }
         }
 
@@ -720,7 +724,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                 foreach (var issue in ExceptShadowed(issues, field, showing))
                 {
-                    result.Add(new VisibleIssue(field, issue));
+                    result.Add(IssueDisplayName.Named(field, issue, modelLevelName));
                 }
             }
         }
@@ -2357,8 +2361,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // way, because each is naming the same nameless thing: an issue that resolved
                     // to no field of its own.
                     var modelLevelName = _options.ModelLevelDisplayName;
-                    string NameOf(ValidationIssue issue) =>
-                        (issue.DisplayName ?? issue.Path) is { Length: > 0 } name ? name : modelLevelName;
+                    string NameOf(ValidationIssue issue) => IssueDisplayName.Resolve(issue, modelLevelName);
 
                     var named = disclosed.Select(x => x.Field).ToHashSet();
                     summary = disclosed

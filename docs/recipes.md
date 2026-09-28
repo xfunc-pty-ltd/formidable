@@ -620,7 +620,7 @@ yourself once the dialog closes.
                         Heading="This form is not ready to send">
         <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4"
                            PrepareFocus="DismissAnnouncementAsync">
-            <ItemTemplate Context="entry">@NameOf(entry.Issue)</ItemTemplate>
+            <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>
             <OverflowTemplate Context="held">@held.Count more to fix</OverflowTemplate>
         </FormidableSummary>
     </AnnouncementDialog>
@@ -657,9 +657,9 @@ The dialog itself is yours: the library ships none, and no styling either. `Item
 an entry reads, `GroupByField` gives one entry per field, and `MaxItems` with `OverflowTemplate`
 caps the list and stands a line of your own in for the rest.
 
-**`NameOf` above is the page's own helper**, because `Issue.DisplayName` is nullable: a model-level
-issue carries none, and neither does an error the server sent. Fall back to the issue's `Path`, and
-to `ModelLevelDisplayName` where there is no path, read off `Engine.Options`.
+**`entry.DisplayName` names every entry**, including those whose `Issue.DisplayName` is `null`: a
+model-level issue carries none, and neither does an error the server sent. The entry's name falls
+back to the issue's `Path`, and to `ModelLevelDisplayName` where there is no path.
 
 **Read more:**
 
@@ -796,17 +796,12 @@ public partial class MissingFieldList : ComponentBase, IDisposable
 
     private IFormidableEngine? _subscribed;
 
-    private List<(string Name, FieldIdentifier Field)> Entries =>
+    private List<(string? Name, FieldIdentifier Field)> Entries =>
         Context.Engine.GetVisibleIssues()
             .Where(visible => visible.Issue.Severity == ValidationSeverity.Error)
             .GroupBy(visible => visible.Field)
-            .Select(group => (Name: NameOf(group.First().Issue), Field: group.Key))
+            .Select(group => (Name: group.First().DisplayName, Field: group.Key))
             .ToList();
-
-    private string NameOf(ValidationIssue issue) =>
-        issue.DisplayName ?? (issue.Path.Length == 0
-            ? Context.Engine.Options.ModelLevelDisplayName
-            : issue.Path);
 
     private async Task GoToAsync(FieldIdentifier field) => await Focus.FocusAsync(field);
 
@@ -855,10 +850,10 @@ What the shipped component knows, yours has to know too:
 - **`GetVisibleIssues()` is the whole answer.** It is the view the kit's message components read
   per field, computed on every ask, each issue paired with the `FieldIdentifier` it resolved to,
   the model-level identifier included.
-- **`Issue.DisplayName` is the user-facing name, and it is nullable.** A model-level issue carries
-  none, and neither does an error the server sent. Hence the two-step fallback above, ending at
-  `ModelLevelDisplayName` read from `Context.Engine.Options`, so re-voicing that option changes
-  your list and the shipped summary together.
+- **Each entry's `DisplayName` is the user-facing name.** `Issue.DisplayName` is `null` for a
+  model-level issue and for an error the server sent, so the entry's name falls back to the issue's
+  `Path`, then to `ModelLevelDisplayName`. `SubmitOutcome.VisibleErrorSummary` names by the same
+  rule, so re-voicing that option changes your list and that outcome's names together.
 - **The order is the page's under `FormidableForm`,** which resolves where the fields sit.
   `FormidableValidator` resolves no order, so a list inside someone else's `EditForm` arrives in
   the engine's own order ([Component kit](component-kit.md#the-order-entries-appear-in)).
@@ -1011,8 +1006,8 @@ English:
 
 - **`DefensiveGateMessage`** is the explanation a blocked submit shows when every field that failed
   is hidden.
-- **`ModelLevelDisplayName`** is the name a model-level entry is listed under in
-  `SubmitOutcome.VisibleErrorSummary`.
+- **`ModelLevelDisplayName`** is the name a model-level entry is listed under, in
+  `SubmitOutcome.VisibleErrorSummary` and on each visible issue's `DisplayName`.
 - **`ValidationFaultMessage`** is what the form shows when a validator throws during a live check
   or the whole-form re-check (a submit or a load throws to your own code instead).
 

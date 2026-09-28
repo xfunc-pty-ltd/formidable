@@ -65,16 +65,5 @@ public partial class DialogSubmit
         _ = _announcement.CloseAsync();
     }
 
-    // The entries are field names here rather than messages, and a display name is nullable: the
-    // engine's own model-level issues carry none, and neither does an error mapped from a
-    // ProblemDetails body. The property path stands in where an issue has one. An issue naming no
-    // field at all takes the name the engine itself lists it under in
-    // SubmitOutcome.VisibleErrorSummary, read from the options rather than written out again
-    // here, so re-voicing that one string moves the entry and the count line above it together.
-    private string NameOf(ValidationIssue issue) =>
-        issue.DisplayName ?? (issue.Path.Length == 0
-            ? _form!.Engine!.Options.ModelLevelDisplayName
-            : issue.Path);
-
     private void HandleValid() => _status = "Submitted — the invoice request is on its way.";
 }

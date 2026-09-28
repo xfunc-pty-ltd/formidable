@@ -11,7 +11,7 @@
             <li><strong>Ticket reference</strong>: required, and shaped like <code>TKT-0000</code>. Two rules on one field, so an empty box breaks both at once — one field, two complaints, which is the case <code>GroupByField</code> exists for.</li>
             <li><strong>Requester</strong>, <strong>Requester email</strong>, <strong>Product</strong>, <strong>Version</strong>, <strong>Steps to reproduce</strong>: required, one rule each. <strong>Requester email</strong> also has to be an address once there is anything in it.</li>
             <li><strong>Impact</strong>: a warning when it is empty rather than an error. It fills a second band in the summary, and it does not block a submit.</li>
-            <li><strong><code>ItemTemplate</code></strong>: what an entry's button contains. Left unset — the first toggle off — an entry is the rule's message. The template this page hands it renders the field's name instead, out of <code>Issue.DisplayName</code>, which is the <code>WithName(...)</code> the validator gave that rule.</li>
+            <li><strong><code>ItemTemplate</code></strong>: what an entry's button contains. Left unset (the first toggle off), an entry is the rule's message. The template this page hands it renders the field's name instead, out of the entry's <code>DisplayName</code>: the <code>WithName(...)</code> the validator gave that rule, else the property path for an error that arrives with no name, else <code>ModelLevelDisplayName</code> for one about the whole form.</li>
             <li><strong><code>GroupByField</code></strong>: one entry per field instead of one per issue. It keeps each field's first issue and drops the rest, so <strong>Ticket reference</strong> is listed once rather than twice. It groups inside a band and never across the summary: a field carrying an error and a warning is listed once under each, which is one field described two ways rather than one description repeated.</li>
             <li><strong><code>MaxItems</code></strong>: the most entries a band lists, three here. It counts entries, and an entry is an issue by default and a field under <code>GroupByField</code> — so grouping and capping together are "the first three fields with a problem", where capping alone is "the first three problems". The cap is counted per band: the error band loses rows while the advisory band, holding one entry, never reaches it.</li>
             <li><strong><code>OverflowTemplate</code></strong>: what a capped band renders after its last shown entry. It is handed the entries the cap held back rather than their number, which is what lets the expander here name them; a line that only counted them would read <code>held.Count</code> and stop there. Leave it unset with the cap on — the last toggle off — and a capped band renders nothing at all in place of what it dropped: no element, no sentence. The wording is the page's own, because a sentence has a language and a plural rule behind it that the component cannot pick.</li>
@@ -78,8 +78,8 @@
 
     // The entries, not their number. held.Count is the line's own count, and the list under it is
     // what a count cannot give: the names of the ones that did not fit. Each held-back entry is a
-    // VisibleIssue, the same field-and-issue pair ItemTemplate is handed for an entry that did
-    // fit, so one method renders both.
+    // VisibleIssue, the same kind of entry ItemTemplate is handed for one that did fit, so one
+    // method renders both.
     private RenderFragment<IReadOnlyList<VisibleIssue>> HeldBack => held =>
         @<details class="overflow-reveal">
             <summary>@held.Count not listed</summary>
