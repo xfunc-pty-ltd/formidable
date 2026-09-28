@@ -246,8 +246,9 @@ field back out.
 After a submit, every edit re-checks the whole form after the `RefreshDebounce` wait (300 ms by
 default; see [Options](options.md#refreshdebounce)), and that re-check updates what the watched
 fields say. On the default `LiveProfile` the edit's own live check updates this channel's answer
-too, so with no `LiveDebounce` set neither direction waits out a debounce at all. The re-check never
-goes looking for a newly warning-worthy field that neither a submit nor a server reply has shown.
+too, once any `LiveDebounce` wait has passed, so with none set neither direction waits out a
+debounce at all. The re-check never goes looking for a newly warning-worthy field that neither a
+submit nor a server reply has shown.
 
 A field that was an error site at submit picks up a newly-appearing warning too, because it is
 already watched. That holds whether or not it carried a warning at submit time. Only a

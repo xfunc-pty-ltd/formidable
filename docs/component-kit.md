@@ -1086,7 +1086,7 @@ What the context carries:
 | `AriaDescribedBy` | The id of the element holding the field's messages, or `null` where it has none. Deliberately a single id rather than a merged list: a control carrying its own hint composes the two itself. |
 | `Requirement` | How firmly the submit profile's rules demand a value: [`Required`, `ConditionallyRequired` or `NotRequired`](#formidablerequiredindicatortvalue). A control reading all three and deciding for itself is the only way to draw anything for the middle one. |
 | `InputAttributes` | `id` and `class`, plus `aria-invalid`, `aria-describedby` and `aria-required` where each applies, bundled for one `@attributes` splat. |
-| `NotifyChanged()` | States that a committed value change happened: it marks the field touched, engages it, and starts a live check. |
+| `NotifyChanged()` | States that a committed value change happened: it marks the field touched, engages it, and starts a live check, or `LiveDebounce`'s wait where one is set. |
 | `MarkTouched()` | Marks the field touched without notifying a change, for a blur or focus-out handler. |
 
 ### Naming a field whose type your own component doesn't know

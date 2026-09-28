@@ -145,8 +145,8 @@ Options.LiveProfile = ValidationProfile.Draft;
 `ValidationProfile.Draft` is the usual choice: the default rules alone, leaving every
 `"Submit"`-ruleset rule to the submit button and the whole-form re-check after it.
 
-Reach for this on cost rather than strictness. The live channel checks on every committed change, so
-a rule that calls a server or walks a long collection is worth keeping off it.
+Reach for this on cost rather than strictness. By default the live channel checks on every committed
+change, so a rule that calls a server or walks a long collection is worth keeping off it.
 
 **Keeping one rule live while the rest wait.** That rule needs membership in the narrow profile as
 well as in `"Submit"`, without existing twice:

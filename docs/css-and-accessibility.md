@@ -72,10 +72,11 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 
 ### Which check turns a field green?
 
-On the default profiles, the live check behind a committed change supplies that answer on a
-validator the engine can take rule by rule. [`LiveProfile`](options.md#liveprofile) tracks the
-submit profile, so that check runs the submit rules. One answer covers the form, not only the
-changed field. A submit, and the whole-form re-check after one, turn fields green the same way.
+On the default profiles, with a `LiveDebounce` that can close, the live check behind a committed
+change supplies that answer on a validator the engine can take rule by rule.
+[`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the submit
+rules. One answer covers the form, not only the changed field. A submit, and the whole-form re-check
+after one, turn fields green the same way.
 
 A validator the engine cannot take rule by rule earns green only from a check that answers the
 whole model: a submit, the whole-form re-check, a load of values, or `TrackFormValidity`, never a
@@ -83,6 +84,9 @@ live check. [`TrackFormValidity`](options.md#trackformvalidity)'s validity check
 left: a form that narrows `LiveProfile` past the submit rules, and a validator the engine cannot
 take rule by rule. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
 itself, with no validity check needed.
+
+A `LiveDebounce` that never closes holds back the validity check too, since it waits for the same
+window. After an edit there, green comes from a submit, the whole-form re-check or a load of values.
 
 Why: [how the engine works: which checks count](how-the-engine-works.md#the-submit-coverage-vouch).
 
@@ -94,9 +98,13 @@ whole-form re-check that same move starts lands a fresh one. That re-check also 
 changed alongside the markup without a notification, so green describes the model, not the markup.
 
 And while a check that answers the submit rules is on its way, one edit does not blank every other
-field's confirmation border. On the default profiles every committed change has one on its way.
-Every field the edit did not touch keeps its green while that check is on its way, and its answer
-then decides. The edited field itself earns no green until its own answer lands.
+field's confirmation border. On the default profiles, with a `LiveDebounce` that can close, every
+committed change has one on its way. Every field the edit did not touch keeps its green while that
+check is on its way, and its answer then decides. The edited field itself earns no green until its
+own answer lands.
+
+Under a `LiveDebounce` that never closes, an edit before the first submit or server reply starts no
+check, so it takes the green off every other field unless another check is already on its way.
 
 The hold across an edit is bounded rather than indefinite: a check still running past thirty
 seconds loses it. A check that throws, or a submit or load its caller cancels, drops either hold

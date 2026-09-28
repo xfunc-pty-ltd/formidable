@@ -117,10 +117,10 @@ Set it for the whole app with
 `TimeSpan.Zero` re-checks as soon as the edit is committed; only `Timeout.InfiniteTimeSpan` turns
 the re-check off.
 
-Before the first submit or server reply, an edit gets one live check, which answers every field
-you have engaged, and no whole-form re-check follows it. A change to which fields are on screen (a
-row leaving, a section collapsing) re-checks the whole form after the same wait at any point in
-the form's life.
+Before the first submit or server reply, an edit gets at most one live check, which answers every
+field you have engaged, and no whole-form re-check follows it. A change to which fields are on
+screen (a row leaving, a section collapsing) re-checks the whole form after the same wait at any
+point in the form's life.
 
 It is a second debounce because the re-check is whole-form work, too much to repeat on every
 keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst of edits or
@@ -150,7 +150,9 @@ and a memo answers the expensive rule's repeat asks
 what asking again about the same value costs.
 
 With `TrackFormValidity` on, its validity check waits for the same window, and after a submit the
-same edit starts the whole-form re-check's own wait as well.
+same edit starts the whole-form re-check's own wait as well. `Timeout.InfiniteTimeSpan` is a wait
+that never passes, so no edit starts a live check; the re-check still runs on
+[`RefreshDebounce`](#refreshdebounce).
 
 Set it once for the whole app in `Program.cs`,
 `builder.Services.AddFormidableBlazor(options => options.LiveDebounce = TimeSpan.FromMilliseconds(400));`,
