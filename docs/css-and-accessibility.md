@@ -252,9 +252,9 @@ whose answer changes is honoured at the next render.
 `required` also arms the browser's own submit-time enforcement. `FormidableForm`'s default
 `novalidate` ([Component kit](component-kit.md#formidableformtmodel)) keeps that from firing. A
 form without it is the case to know: attach mode's consumer-owned `EditForm`, or a splat that
-removed the default. There the browser refuses the submit before Formidable's submit check ever
-runs. It puts its own bubble in front of the message the form was going to show, in the browser's
-wording and placement.
+removed the default. There the browser refuses the submit before Formidable ever sees it. It puts
+its own bubble in front of the message the form was going to show, in the browser's wording and
+placement.
 
 Why: [how the engine works: what a kit input reads per render](how-the-engine-works.md#the-state-classes-how-formidablecss-computes-them).
 
@@ -670,24 +670,24 @@ Why: [how the engine works: how a native input's class is computed](how-the-engi
 
 ## Where this is demonstrated
 
-- The class rule and its interaction with the `Pending` state — every sample using
+- The class rule and its interaction with the `Pending` state: every sample using
   `FormidableInputText` shows it implicitly; [Async validation](async-validation.md)'s pending-UI
   section is the most direct look at `Pending` specifically.
-- Renaming two of `FormidableCssClasses`' five class names to fit a UI library's own —
+- Renaming two of `FormidableCssClasses`' five class names to fit a UI library's own:
   [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor), which points
   `Invalid`/`Valid` at Bootstrap's `is-invalid`/`is-valid` and leaves `Warning`, `Info` and
   `Pending` at their defaults. Bootstrap has no advisory tier to remap onto, so the page invents
   none. That is harmless there: its validator never raises a warning or an info.
 - A consumer stylesheet keying off those same class names with CSS custom properties instead of
-  fixed colours — [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor).
-- The `FieldCssClassProvider` bridge and a native `InputBase` picking up the same classes —
+  fixed colours: [`/css-colours`](../samples/Formidable.Sample/Pages/CssColours.razor).
+- The `FieldCssClassProvider` bridge and a native `InputBase` picking up the same classes:
   [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor), covered in
   [Component kit](component-kit.md).
-- `aria-invalid`/`aria-describedby` on a hand-rolled control —
+- `aria-invalid`/`aria-describedby` on a hand-rolled control:
   [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor).
-- `FormidableSummary`'s live regions and click-to-focus, including the virtualize limit —
+- `FormidableSummary`'s live regions and click-to-focus, including the virtualize limit:
   [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor).
-- The field id on markup the page renders itself (a native input, a collection's container) —
+- The field id on markup the page renders itself (a native input, a collection's container):
   [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor),
   [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) and
   [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (the venue region input and the

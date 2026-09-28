@@ -43,7 +43,7 @@ That lands near 250 characters: past the warning at 200, inside the cap at 280. 
 The warning is on screen and the submit went through anyway. That is the whole rule, and it runs one
 way only: errors block a submit, while warnings and infos say their piece and let it through.
 
-## Style the tiers
+## See both tiers at once
 
 You added the tier rules at stage 2, in the same block as the invalid and valid ones. These two
 paint the field:
@@ -66,8 +66,8 @@ colours that one too, and the summary's bands to match:
 ```
 
 So Bio's border, its message and its summary entry are one colour, and an error's three stay red.
-See both tiers at once: empty Name and submit again. Name turns red, the submit blocks, Bio keeps
-its orange, and the summary lists one of each.
+Now empty Name and submit again. Name turns red, the submit blocks, Bio keeps its orange, and the
+summary lists one of each.
 
 ## Recap
 
