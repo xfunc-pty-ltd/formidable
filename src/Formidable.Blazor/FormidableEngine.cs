@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Logging;
@@ -2747,11 +2748,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return false;
         }
 
-        // The default of the declared type, obtained without asking for a constructor: a
-        // one-element array of it is zero-initialised, and its single element is that default
-        // boxed. Building it from the declared type keeps the comparison the one NotEmpty()
-        // makes, for a struct nobody here has to know about.
-        return value.Equals(Array.CreateInstance(declaredType, 1).GetValue(0));
+        // The default of the declared type, obtained without asking for a constructor: a zeroed
+        // block the size of one instance, boxed as that type, is that default. Building it from
+        // the declared type keeps the comparison the one NotEmpty() makes, for a struct nobody
+        // here has to know about. A one-element array of the type would hold the same default,
+        // but a Native AOT app lacks an array type its own code never uses, and cannot build
+        // one when asked.
+        var handle = declaredType.TypeHandle;
+        var zeroed = new byte[RuntimeHelpers.SizeOf(handle)];
+        return value.Equals(RuntimeHelpers.Box(ref zeroed[0], handle));
     }
 
     /// <summary>Arms or re-arms the refresh timer at <see cref="FormidableOptions.RefreshDebounce"/>, from every arm site alike; a disposed engine arms nothing.</summary>

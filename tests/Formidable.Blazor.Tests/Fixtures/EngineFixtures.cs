@@ -842,6 +842,50 @@ public sealed class TypedDraftValidator : DraftSubmitValidator<TypedDraft>
     }
 }
 
+/// <summary>How urgent a <see cref="ValueTypedDraft"/> is; its zero value is the unanswered one.</summary>
+public enum DraftUrgency
+{
+    Unset,
+    Low,
+    High,
+}
+
+/// <summary>An amount with its currency, compared by value: <c>0.00m</c> equals the default's <c>0m</c> although its bits differ.</summary>
+public readonly record struct DraftAmount(decimal Amount, string? Currency);
+
+/// <summary>
+/// A saved draft whose fields are value types the runtime has no special knowledge of: an enum
+/// and a struct with equality of its own. Each is held twice, once at a value its type's default
+/// equals and once at an answer, so a load has to read emptiness as <c>NotEmpty()</c> does, by
+/// equality with the declared type's default.
+/// </summary>
+public sealed class ValueTypedDraft
+{
+    public DraftUrgency Urgency { get; set; }
+
+    public DraftUrgency Escalation { get; set; }
+
+    public DraftAmount Budget { get; set; }
+
+    public DraftAmount Deposit { get; set; }
+}
+
+/// <summary>One presence rule per field of <see cref="ValueTypedDraft"/>, and nothing else.</summary>
+public sealed class ValueTypedDraftValidator : DraftSubmitValidator<ValueTypedDraft>
+{
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(d => d.Urgency).NotEmpty().WithMessage("Urgency is required");
+        RuleFor(d => d.Escalation).NotEmpty().WithMessage("Escalation is required");
+        RuleFor(d => d.Budget).NotEmpty().WithMessage("A budget is required");
+        RuleFor(d => d.Deposit).NotEmpty().WithMessage("A deposit is required");
+    }
+}
+
 /// <summary>Three independent submit-only presence rules, none tagged and none reaching a child
 /// validator — the shape that lands whole in ONE <see cref="IRuleLevelValidator{TModel}.GroupBySelectionClass"/>
 /// class, so a pass over all three is the sharpest shape for pinning that the engine issues one

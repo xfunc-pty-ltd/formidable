@@ -388,6 +388,46 @@ public class FormidableEngineDraftLoadTests
             BothSeams(engine, editContext, new FieldIdentifier(draft, nameof(TypedDraft.Subscribed))));
     }
 
+    // The same reading for value types the runtime has no special knowledge of. An enum at its
+    // zero value, and a struct that equals its default (0.00m equals 0m by value, though not by
+    // bits), are both silent, as NotEmpty() fails both; the same types holding answers are
+    // confirmed. Mutation this breaks: answer every value type that is not a primitive as a
+    // value, ahead of the default read, and the zero enum and the zero amount paint red.
+    [Fact]
+    public async Task Emptiness_of_an_enum_or_a_struct_is_equality_with_its_default()
+    {
+        var draft = new ValueTypedDraft
+        {
+            Urgency = DraftUrgency.Unset,
+            Escalation = DraftUrgency.High,
+            Budget = new DraftAmount(0.00m, null),
+            Deposit = new DraftAmount(250m, "AUD"),
+        };
+        var editContext = new EditContext(draft);
+        using var engine = new FormidableEngine<ValueTypedDraft>(
+            draft,
+            editContext,
+            new FluentValidationModelValidator<ValueTypedDraft>(new ValueTypedDraftValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Equal(
+            string.Empty,
+            BothSeams(engine, editContext, new FieldIdentifier(draft, nameof(ValueTypedDraft.Urgency))));
+        Assert.Equal(
+            string.Empty,
+            BothSeams(engine, editContext, new FieldIdentifier(draft, nameof(ValueTypedDraft.Budget))));
+        Assert.Equal(
+            "formidable-valid",
+            BothSeams(engine, editContext, new FieldIdentifier(draft, nameof(ValueTypedDraft.Escalation))));
+        Assert.Equal(
+            "formidable-valid",
+            BothSeams(engine, editContext, new FieldIdentifier(draft, nameof(ValueTypedDraft.Deposit))));
+    }
+
     // The two halves of the classification need different things, and this pins the split: a
     // validator that cannot be inspected still discloses a value the rules fail, because
     // deciding that needs only the model - while it vouches for nothing, because the list of
