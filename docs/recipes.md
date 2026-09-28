@@ -1126,6 +1126,65 @@ Sample:
 - [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — teams holding members,
   nested inside a collection
 
+### I want a list to hold at least one item, or at least N
+
+**Set:** `NotEmpty()` on the list for one or more. For two or more, a `MinimumCount` extension of
+your own, written over `Must`.
+
+```csharp
+RuleFor(c => c.Members).NotEmpty();
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/CollectionCountRecipeTests.cs` -->
+
+```csharp
+RuleFor(c => c.Members).MinimumCount(2);
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/CollectionCountRecipeTests.cs` -->
+
+FluentValidation has no rule that counts a list, so keep this extension beside your validators:
+
+```csharp
+public static class MinimumCountExtensions
+{
+    // A null list passes and is left to NotNull(), as FluentValidation's length rules leave a
+    // null string. The doubled braces keep {PropertyName} for FluentValidation to fill in.
+    public static IRuleBuilderOptions<T, IList<TItem>?> MinimumCount<T, TItem>(
+        this IRuleBuilder<T, IList<TItem>?> rule, int minimum) =>
+        rule.Must(list => list is null || list.Count >= minimum)
+            .WithMessage($"'{{PropertyName}}' must contain at least {minimum} items.");
+}
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/Fixtures/MinimumCountExtensions.cs` -->
+
+`NotEmpty()` marks the list required, so a `FormidableRequiredIndicator` pointed at the list draws
+its marker. An empty list fails with FluentValidation's own text (`'Members' must not be empty.`
+for a `Members` list) until a `WithMessage` replaces it.
+
+`MinimumCount` draws no marker, because a rule written over `Must` is a predicate and the form cannot
+read a predicate as a demand. Where the list should carry one, declare it required with
+`RequiredOverride`.
+
+The count passes a `null` list. Where the list can arrive as `null`, put `NotNull()` in front of it
+(`NotNull().MinimumCount(2)`), and a missing list fails once, on `NotNull()`. `NotNull()` also marks
+the list required, so that chain draws the marker without `RequiredOverride`.
+
+A list has no input of its own, so render `FormidableCollectionMessage` for it to give either
+message somewhere to appear.
+
+**Read more:**
+
+- [a rule for the list](tutorial/4-collections.md#a-rule-for-the-list) (tutorial stage 4)
+- [where a collection-level rule's message goes](collections-and-row-identity.md#where-does-a-collection-level-rules-message-go)
+- [marking fields required](#i-want-to-mark-fields-required-when-the-rules-cannot-say-so)
+
+Sample:
+
+- [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) — `NotEmpty()` on both of
+  its lists, the teams and each team's members
+
 ### I want to wrap the validator without losing what it can do
 
 **Set:** derive from `DelegatingModelValidator<TModel>`, override every member whose behaviour
