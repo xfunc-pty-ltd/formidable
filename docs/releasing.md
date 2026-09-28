@@ -155,11 +155,16 @@ In the commands below, `X.Y.Z` stands for the version you are releasing.
 ### What CI does NOT do
 
 `.github/workflows/ci.yml` runs `dotnet build -c Release` + `dotnet test -c Release --no-build` on
-every push to `main` and on every pull request, plus a second job (`hosted-demo-smoke`) that
-publishes the sample with `-p:HostedDemo=true` on the same triggers (a build smoke whose output
-goes nowhere). It never packs and never pushes to NuGet. Publishing is tag-driven only, via the
-separate `Release` workflow above: merging to `main` never ships a package by itself, and neither
-does a tag, which only asks.
+every push to `main` and on every pull request. Two more jobs run on the same triggers.
+`hosted-demo-smoke` publishes the sample with `-p:HostedDemo=true` (a build smoke whose output
+goes nowhere). `consumer-restore` packs the three packages to a throwaway local feed and restores
+them into two new consumers that between them pin both framework floors, so a raised floor fails
+there. A fourth job, `commit-style`, checks commit subjects on pull requests (Dependabot's
+excepted).
+
+No `ci.yml` job pushes to NuGet. Publishing is tag-driven only, via the separate `Release`
+workflow above: merging to `main` never ships a package by itself, and neither does a tag, which
+only asks.
 
 ## Local dry run
 
@@ -180,11 +185,17 @@ dotnet pack src/Formidable.AspNetCore -c Release --no-build -o /tmp/formidable-d
 ls /tmp/formidable-dry-run
 ```
 
-Without a tag reachable from the current commit, MinVer falls back to a `0.0.0-alpha.0.<height>`
-version (`<height>` is the commit count since the repo's start). That's expected for a pre-release
-dry run and is how every ordinary local `pack` and the `ci.yml` build behave; it is not a sign
-anything is misconfigured. To dry-run what a *specific* tag would actually produce, create it
-locally, pack, then delete it (nothing about MinVer requires the tag to be pushed to resolve it):
+Between tags, MinVer versions a commit from the nearest `v*` tag reachable from it plus the number
+of commits since that tag. After a release tag `vX.Y.Z`, the shape is
+`X.Y.<Z+1>-alpha.0.<height>`, where `<height>` is that commit count.
+
+That pre-release version is expected for a dry run and is not a sign anything is misconfigured. A
+local `pack` of `main` produces a version of that shape, and the `ci.yml` builds use one too,
+because their checkout fetches the tags. With no reachable tag at all, MinVer falls back to
+`0.0.0-alpha.0.<height>` (`<height>` is the commit count since the repo's start).
+
+To dry-run what a *specific* tag would actually produce, create it locally, pack, then delete it
+(nothing about MinVer requires the tag to be pushed to resolve it):
 
 ```bash
 git tag vX.Y.Z

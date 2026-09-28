@@ -77,8 +77,8 @@ jobs:
           # Microsoft.AspNetCore.Components.WebAssembly raises Microsoft.AspNetCore.Components.Web
           # to that patch. Pinning it at 10.0.0 leaves Formidable's declared floor as the one
           # under test, so a downgrade error here comes from Formidable and not from the
-          # template. The DevServer package declares no dependencies and is pinned too only to
-          # keep the template's two WebAssembly packages on one version.
+          # template. The DevServer package declares no dependencies and is pinned as well, only
+          # to keep the template's two WebAssembly packages on one version.
           dotnet add package Microsoft.AspNetCore.Components.WebAssembly --version 10.0.0
           dotnet add package Microsoft.AspNetCore.Components.WebAssembly.DevServer --version 10.0.0
           dotnet add package Microsoft.AspNetCore.Components.Web --version 10.0.0

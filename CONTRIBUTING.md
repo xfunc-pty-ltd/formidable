@@ -47,11 +47,12 @@ dotnet test
 Both should be clean before you open a PR: the build has `TreatWarningsAsErrors` enabled
 (`Directory.Build.props`), and all three shipping packages require XML doc comments on public
 API (`GenerateDocumentationFile`, `src/Directory.Build.props`). A missing doc comment on a new
-public member is a build warning, which is also a build error. Plain `dotnet test` runs the
-unit suite only; it also reports the E2E project's tests as skipped (see below) rather than
-failing, so a clean run reports passed + skipped, never a failure, when nothing is broken. CI
-(`.github/workflows/ci.yml`) runs `dotnet build -c Release` and `dotnet test -c Release
---no-build` on every push and pull request.
+public member is a build warning, which is also a build error.
+
+Plain `dotnet test` runs the unit suite only; it also reports the E2E project's tests as skipped
+(see below) rather than failing, so a clean run reports passed + skipped, never a failure, when
+nothing is broken. CI (`.github/workflows/ci.yml`) runs `dotnet build -c Release` and
+`dotnet test -c Release --no-build` on every push to `main` and every pull request.
 
 ### The E2E gate
 
@@ -105,10 +106,13 @@ are squash-merged, so history stays linear whatever your fork looks like.
 4. Commit following [Commit conventions](#commit-conventions) below, and run the checks in
    [Before opening a PR](#before-opening-a-pr).
 5. Push the branch to your fork and open a pull request against `xfunc-pty-ltd/formidable`'s `main`.
-6. CI runs the build, the tests and the commit-shape check; the maintainer reviews and
-   squash-merges. The squash subject is taken from the pull request title, so give the PR a
-   title in the same `type(scope): subject` shape.
-7. Keep your fork current by syncing its `main` (the Sync fork button on GitHub, or
+6. CI builds and tests the solution, publishes the sample as a smoke check, restores the packed
+   packages into two consumers that between them pin both framework floors, and checks the
+   commit shape. A pull request that raises a framework floor in `src/` fails that restore with
+   a package-downgrade error (`NU1605`).
+7. The maintainer reviews and squash-merges. The squash subject is taken from the pull request
+   title, so give the PR a title in the same `type(scope): subject` shape.
+8. Keep your fork current by syncing its `main` (the Sync fork button on GitHub, or
    `git fetch upstream` followed by `git rebase upstream/main`), and rebase your branch on it
    rather than merging, so the PR stays a clean line.
 
