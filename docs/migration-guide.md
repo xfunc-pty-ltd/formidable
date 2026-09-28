@@ -110,10 +110,11 @@ on the old one implicitly.
   `<FormidableFieldAnchor>` alongside it to opt back in to being counted as revealed. Sections that
   were always fully rendered are unaffected either way.
 
-  The gate belongs to the submit channel's client half, and server-declared errors bypass it. The
-  live channel has no such gate by default. A field the user has committed a change to goes on
-  speaking whether or not anything registered it, unless `FormidableOptions.LiveDisclosure` opts it
-  into the same visibility test.
+  Checking whether a field is on the page belongs to the submit channel. That check judges a server
+  reply's warnings and infos as it judges the submit's own issues, and server-declared errors bypass
+  it. The live channel makes no such check by default. A field the user has committed a change to
+  goes on speaking whether or not anything registered it, unless `FormidableOptions.LiveDisclosure`
+  opts it into the same check.
 
 ### Attach mode submits through `OnSubmit`, not `OnValidSubmit`
 
