@@ -962,7 +962,8 @@ h1:focus {
    summary inside it is a live region that was already on the page when its contents arrived.
    visibility does the hiding: it keeps the panel out of the tab order and out of the
    accessibility tree while the dialog is closed, and it is transitionable, so the fade plays out
-   before the panel goes. */
+   before the panel goes. AnnouncementDialog waits out these .2s transitions with a FadeDuration
+   of its own, and nothing binds the two numbers: change them together. */
 .announcement {
     position: fixed;
     inset: 0;
