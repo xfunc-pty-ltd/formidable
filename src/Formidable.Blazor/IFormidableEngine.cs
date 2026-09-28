@@ -39,7 +39,8 @@ public interface IFormidableEngine
     /// adoption of a submit's, a load's or the whole-form re-check's answer (the engine's private
     /// AdoptFormValidity) returns before writing. With tracking on from the start it reads
     /// <see langword="false"/> until a whole-form check has answered once. Issues a server applied through
-    /// <see cref="ApplyServerIssues"/> are not part of the answer.
+    /// <see cref="ApplyServerIssues"/> are not part of the answer. The first read with tracking
+    /// off writes one Trace line and one logged warning naming the option.
     /// </remarks>
     bool IsFormValid { get; }
 

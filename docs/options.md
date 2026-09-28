@@ -236,6 +236,10 @@ With tracking off `IsFormValid` keeps its last answer, `false` on a form that ha
 it on, `false` until a whole-form check has answered once (a validity check, a submit, a load, or the
 whole-form re-check). Issues a server applied through `ApplyServerIssues` are not part of the answer.
 
+Each time the form is built, the first read with tracking off writes a note naming this option, as a
+logged warning and a `Trace` line. `ResetAsync`, a new model, and a new `EditContext` under
+`FormidableValidator` each rebuild the form.
+
 Tracking also feeds the `Valid` class, so it can put green on a field a narrowed live check could
 not, or one edited under a window that never closes
 ([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:

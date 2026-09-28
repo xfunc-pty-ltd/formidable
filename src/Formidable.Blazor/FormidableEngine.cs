@@ -186,6 +186,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private int _version;
     private int _formValidityStamp;
 
+    // IsFormValid's value. The public getter carries the untracked-read note, so every read the
+    // engine makes itself goes through this field and can never write the note.
+    private bool _isFormValid;
+
+    // Set by the first read of IsFormValid while TrackFormValidity is off, so the note is written
+    // once per engine. An int for Interlocked, because a page may read the property off the
+    // dispatcher.
+    private int _untrackedReadNoted;
+
     // Counts field changes, so a stored rule verdict can be asked whether it still answers for
     // the model. A pass stamps every verdict it writes with the count it read as it began, and a
     // later pass reuses one only while the two stamps agree. What moves this is a notification,
@@ -322,7 +331,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     public bool HasSubmitted { get; private set; }
 
     /// <inheritdoc />
-    public bool IsFormValid { get; private set; }
+    public bool IsFormValid
+    {
+        get
+        {
+            // The option is read at each use, like every other option, so a page that turns
+            // tracking off mid-form is told on its next read.
+            if (!_options.TrackFormValidity && _untrackedReadNoted == 0)
+            {
+                ReportUntrackedFormValidityRead();
+            }
+
+            return _isFormValid;
+        }
+    }
 
     /// <inheritdoc />
     public event EventHandler<FormidableStateChangedEventArgs>? StateChanged;
@@ -1854,8 +1876,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // add, and the stamp moves whether or not the value changes: a probe that started earlier,
     // or one already reaching its write-back, discards its answer rather than land after this
     // one. On a rule-capable validator the adopted report is assembled from the store the pass
-    // just repopulated, so this is the store's own reading landing. With tracking off no probe
-    // can be in flight and nothing reads IsFormValid.
+    // just repopulated, so this is the store's own reading landing. With tracking off there is
+    // nothing to keep current, so the adoption writes nothing; a probe started before the page
+    // turned tracking off can still land its answer.
     private void AdoptFormValidity(ValidationReport report)
     {
         if (!_options.TrackFormValidity)
@@ -1877,9 +1900,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // last.
     private void SetFormValidity(bool value)
     {
-        if (value != IsFormValid)
+        if (value != _isFormValid)
         {
-            IsFormValid = value;
+            _isFormValid = value;
             NotifyStateChanged();
         }
     }
@@ -1960,6 +1983,31 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             "milliseconds or less, throws the first time the wait starts; the timer reads any other " +
             "negative value as zero or as a wait that never ends, not the wait the form counts on.",
             option, value, model);
+    }
+
+    /// <summary>Writes the one-time note for a read of <see cref="IsFormValid"/> while <see cref="FormidableOptions.TrackFormValidity"/> is off: a Trace line and a logged warning.</summary>
+    // With tracking off, a Submit button disabled on IsFormValid stays disabled and nothing on the
+    // page says why. Once per engine rather than per read, because the read sits on the render
+    // path; the exchange keeps two threads reading at once from both writing it.
+    private void ReportUntrackedFormValidityRead()
+    {
+        if (Interlocked.Exchange(ref _untrackedReadNoted, 1) != 0)
+        {
+            return;
+        }
+
+        var model = FriendlyTypeName.Of(typeof(TModel));
+        System.Diagnostics.Trace.WriteLine(
+            $"Formidable: IsFormValid was read on the form for {model} while " +
+            "FormidableOptions.TrackFormValidity is off, so it keeps its last answer: false on a " +
+            "form that has never tracked. Turn TrackFormValidity on where anything, such as a " +
+            "disabled Submit button, depends on IsFormValid.");
+        _logger?.LogWarning(
+            "Formidable: IsFormValid was read on the form for {Model} while " +
+            "FormidableOptions.TrackFormValidity is off, so it keeps its last answer: false on a " +
+            "form that has never tracked. Turn TrackFormValidity on where anything, such as a " +
+            "disabled Submit button, depends on IsFormValid.",
+            model);
     }
 
     /// <summary>Reports one suppressed issue: a Trace line, a logged warning, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>, and <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> for a field nothing ever registered.</summary>
