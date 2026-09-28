@@ -32,6 +32,84 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true
 
+  # A raised framework floor fails the restore of a consumer that references that package itself
+  # at a lower version. No project under samples/ or tests/ references either floored package
+  # directly, so none of them is such a consumer. This job packs the three packages and
+  # restores them into two new consumers. The Blazor WebAssembly app pins
+  # Microsoft.AspNetCore.Components.Web at the declared floor, 10.0.0, and the class library
+  # also pins Microsoft.Extensions.DependencyInjection.Abstractions there. A library floor raised
+  # above 10.0.0 then fails the restore with a downgrade error naming the Formidable package it
+  # came through.
+  consumer-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Pack the three packages to a local feed
+        run: |
+          mkdir -p /tmp/formidable-feed
+          dotnet pack src/Formidable/Formidable.csproj -c Release -o /tmp/formidable-feed
+          dotnet pack src/Formidable.Blazor/Formidable.Blazor.csproj -c Release -o /tmp/formidable-feed
+          dotnet pack src/Formidable.AspNetCore/Formidable.AspNetCore.csproj -c Release -o /tmp/formidable-feed
+      - name: Read back the packed version
+        id: version
+        run: |
+          nupkg=$(ls /tmp/formidable-feed/Formidable.[0-9]*.nupkg)
+          version=$(basename "$nupkg" .nupkg | sed 's/^Formidable\.//')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Restore a Blazor WebAssembly app pinned at the Components.Web floor
+        working-directory: /tmp
+        env:
+          FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # The framework is named so that a newer SDK on the runner still makes a net10.0
+          # consumer for the 10.0.0 pins below. A template that does not offer net10.0 fails
+          # here rather than quietly targeting another framework.
+          dotnet new blazorwasm -o consumer-app --empty --framework net10.0
+          cd consumer-app
+          dotnet new nugetconfig
+          dotnet nuget add source /tmp/formidable-feed -n formidable-local --configfile nuget.config
+          # The template references its WebAssembly packages at the patch the SDK ships, and
+          # Microsoft.AspNetCore.Components.WebAssembly raises Microsoft.AspNetCore.Components.Web
+          # to that patch. Pinning it at 10.0.0 leaves Formidable's declared floor as the one
+          # under test, so a downgrade error here comes from Formidable and not from the
+          # template. The DevServer package declares no dependencies and is pinned too only to
+          # keep the template's two WebAssembly packages on one version.
+          dotnet add package Microsoft.AspNetCore.Components.WebAssembly --version 10.0.0
+          dotnet add package Microsoft.AspNetCore.Components.WebAssembly.DevServer --version 10.0.0
+          dotnet add package Microsoft.AspNetCore.Components.Web --version 10.0.0
+          dotnet add package Formidable.Blazor --version "$FORMIDABLE_VERSION"
+          # Audit is off: an advisory against a package pinned at exactly 10.0.0 would turn the
+          # run red for a reason that has nothing to do with the floors.
+          dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
+          dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
+      - name: Restore a Razor class library pinned at both floors
+        working-directory: /tmp
+        env:
+          FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Named for the same reason as in the step above.
+          dotnet new razorclasslib -o consumer-lib --framework net10.0
+          cd consumer-lib
+          dotnet new nugetconfig
+          dotnet nuget add source /tmp/formidable-feed -n formidable-local --configfile nuget.config
+          # The template's own Microsoft.AspNetCore.Components.Web reference is pinned at 10.0.0
+          # for the same reason: at the patch the SDK ships, it raises
+          # Microsoft.Extensions.DependencyInjection.Abstractions to that patch. No
+          # FrameworkReference to Microsoft.AspNetCore.App is added. Formidable.AspNetCore's
+          # package carries one, and declaring it again beside package references that the
+          # shared framework already contains fails restore with NU1510.
+          dotnet add package Microsoft.AspNetCore.Components.Web --version 10.0.0
+          dotnet add package Microsoft.Extensions.DependencyInjection.Abstractions --version 10.0.0
+          dotnet add package Formidable.AspNetCore --version "$FORMIDABLE_VERSION"
+          # Audit is off for the same reason as in the step above.
+          dotnet restore -p:TreatWarningsAsErrors=true -p:NuGetAudit=false
+          dotnet build -c Release --no-restore -p:TreatWarningsAsErrors=true
+
   commit-style:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
