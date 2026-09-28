@@ -3,24 +3,25 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor.Tests.Fixtures;
 
 /// <summary>
-/// Records every <see cref="IFormidableFocusService"/> request, standing in for the JS-backed
-/// service so a host test asserts against the seam instead of driving a browser. Registering it
-/// before <c>AddFormidableBlazor()</c> is what puts it in place — that registration is a TryAdd.
+/// Stands in for the focus service that calls JavaScript. It records every request, and answers
+/// each one with <see cref="Lands"/>.
 /// </summary>
-/// <remarks>
-/// <see cref="OnFocus"/> is the difference from a plain spy, and it is what an ordering claim
-/// needs: it runs INSIDE the focus request, so a test can read what the page had finished doing
-/// at the moment focus was asked for rather than by the time the call that started it returned.
-/// </remarks>
 public sealed class RecordingFocusService : IFormidableFocusService
 {
-    /// <summary>The fields focus was requested for, one entry per call, in call order.</summary>
+    /// <summary>The fields focus was asked for, one entry per request, in order.</summary>
     public List<FieldIdentifier> Requests { get; } = [];
 
-    /// <summary>What each request answers: false is the miss a fallback exists to recover.</summary>
+    /// <summary>
+    /// What every request answers, where true means the field's element took focus. Set it to
+    /// false to stand in for an element that is missing or will not take focus.
+    /// </summary>
     public bool Lands { get; set; } = true;
 
-    /// <summary>Run during each request, before it answers.</summary>
+    /// <summary>
+    /// Runs inside each request, before it answers. A test that reads the page here sees it as it
+    /// was when focus was asked for, not as it is once the call that started the request (a
+    /// blocked submit, say) has returned.
+    /// </summary>
     public Action<FieldIdentifier>? OnFocus { get; set; }
 
     public ValueTask<bool> FocusAsync(FieldIdentifier field)

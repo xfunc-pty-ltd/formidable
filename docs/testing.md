@@ -145,13 +145,140 @@ Three details make a double behave like the real thing:
 - A field the double leaves out of its answer sorts after every field it names, which is the shape
   of an unrendered field.
 
-Formidable's own
-[`RecordingDomValueSync`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingDomValueSync.cs) is a
-twenty-line class recording every call.
-[`RecordingFieldOrderService`](../tests/Formidable.Blazor.Tests/Fixtures/RecordingFieldOrderService.cs)
-is the same shape with an answer to hand back. It also carries a fault it throws instead of
-answering, and a one-call no-order answer, so the retry after either is observable. A focus double
-is the same shape again over `FocusAsync`.
+Formidable's own tests use the three doubles below, and you can copy each one into your test
+project whole where nullable reference types and implicit usings are on (a new `dotnet new xunit`
+project has both).
+
+`RecordingDomValueSync` is the smallest (twenty lines recording every call) and needs
+`using Formidable.Blazor;`:
+
+```csharp
+/// <summary>
+/// Stands in for the service that writes a field's value back to its element through
+/// JavaScript. The kit's number and date inputs call it when they lose focus, and this double
+/// records each call.
+/// </summary>
+public sealed class RecordingDomValueSync : IFormidableDomValueSync
+{
+    /// <summary>Each call's element id and value, one entry per call, in order.</summary>
+    public List<(string ElementId, string? Value)> Calls { get; } = [];
+
+    /// <summary>Runs inside each call, so a test can see its order among other handlers.</summary>
+    public Action? OnSync { get; set; }
+
+    public ValueTask SyncValueAsync(string elementId, string? value)
+    {
+        Calls.Add((elementId, value));
+        OnSync?.Invoke();
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/Fixtures/RecordingDomValueSync.cs` -->
+
+`RecordingFieldOrderService` is the same shape with an answer to hand back, and needs
+`using Formidable.Blazor;` and `using Microsoft.AspNetCore.Components.Forms;` (for
+`FieldIdentifier`):
+
+```csharp
+/// <summary>
+/// Stands in for the service that reads the fields' document order through JavaScript. It records
+/// each request, and answers with <see cref="Result"/> when that is set, or otherwise with the
+/// fields it was handed, reversed.
+/// </summary>
+public sealed class RecordingFieldOrderService : IFormidableFieldOrderService
+{
+    /// <summary>The field lists the form asked about, one entry per request, in order.</summary>
+    public List<IReadOnlyList<FieldIdentifier>> Requests { get; } = [];
+
+    /// <summary>The order to answer with, or null to answer with the request reversed.</summary>
+    public IReadOnlyList<FieldIdentifier>? Result { get; set; }
+
+    /// <summary>Thrown instead of an answer, to stand in for a browser call that failed.</summary>
+    public Exception? Fault { get; set; }
+
+    /// <summary>
+    /// Clears <see cref="Fault"/> after it is thrown once, so the next request is answered.
+    /// </summary>
+    public bool FaultOnce { get; set; }
+
+    /// <summary>
+    /// Answers <see langword="null"/> (no order could be resolved) to the next request that
+    /// <see cref="Fault"/> does not throw on, then answers as usual. An unset <see cref="Result"/>
+    /// differs: it still answers with an order.
+    /// </summary>
+    public bool AnswerWithNothingOnce { get; set; }
+
+    public ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields)
+    {
+        Requests.Add(fields);
+
+        if (Fault is { } fault)
+        {
+            if (FaultOnce)
+            {
+                Fault = null;
+            }
+
+            throw fault;
+        }
+
+        if (AnswerWithNothingOnce)
+        {
+            AnswerWithNothingOnce = false;
+            return ValueTask.FromResult<IReadOnlyList<FieldIdentifier>?>(null);
+        }
+
+        return ValueTask.FromResult<IReadOnlyList<FieldIdentifier>?>(Result ?? fields.Reverse().ToList());
+    }
+}
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/Fixtures/RecordingFieldOrderService.cs` -->
+
+`RecordingFieldOrderService` also carries a fault it throws instead of answering (`Fault`), and a
+one-call no-order answer (`AnswerWithNothingOnce`), so the retry after either is observable. Make
+`Fault` one of the exceptions a failed browser call raises, such as `JSDisconnectedException`.
+Those are the only ones the form catches when it asks for the order, and after one it keeps the
+order it had.
+
+`RecordingFocusService` is the same shape again over `FocusAsync`, and needs the same two `using`
+lines as the order double:
+
+```csharp
+/// <summary>
+/// Stands in for the focus service that calls JavaScript. It records every request, and answers
+/// each one with <see cref="Lands"/>.
+/// </summary>
+public sealed class RecordingFocusService : IFormidableFocusService
+{
+    /// <summary>The fields focus was asked for, one entry per request, in order.</summary>
+    public List<FieldIdentifier> Requests { get; } = [];
+
+    /// <summary>
+    /// What every request answers, where true means the field's element took focus. Set it to
+    /// false to stand in for an element that is missing or will not take focus.
+    /// </summary>
+    public bool Lands { get; set; } = true;
+
+    /// <summary>
+    /// Runs inside each request, before it answers. A test that reads the page here sees it as it
+    /// was when focus was asked for, not as it is once the call that started the request (a
+    /// blocked submit, say) has returned.
+    /// </summary>
+    public Action<FieldIdentifier>? OnFocus { get; set; }
+
+    public ValueTask<bool> FocusAsync(FieldIdentifier field)
+    {
+        Requests.Add(field);
+        OnFocus?.Invoke(field);
+        return ValueTask.FromResult(Lands);
+    }
+}
+```
+
+<!-- Excerpt from `tests/Formidable.Blazor.Tests/Fixtures/RecordingFocusService.cs` -->
 
 A double written today also keeps compiling as Formidable grows. A member added after v1 to any
 interface a consumer implements (these three seams and `IFormidableEngine` among them) carries a
