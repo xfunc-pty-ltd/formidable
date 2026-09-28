@@ -59,6 +59,15 @@ Two habits keep each row's messages on that row. Key the row's root element by t
 `@key="member"`, never the loop index. And write every `For` lambda as a closure over that same
 instance, the way `() => member.Name` does.
 
+Switch on the row-key check in `Program.cs`, so a forgotten `@key` throws in Development instead of
+filing messages under the wrong row:
+
+```csharp
+builder.Services.AddFormidableBlazor(options => options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment());
+```
+
+<!-- Excerpt from `samples/Formidable.Tutorial/Program.cs` -->
+
 `FormidableField` renders no markup of its own. It hands its content the list's field context, which
 the Add and Remove buttons pass along to their handlers:
 

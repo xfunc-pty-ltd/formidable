@@ -10,7 +10,7 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-builder.Services.AddFormidableBlazor();
+builder.Services.AddFormidableBlazor(options => options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment());
 builder.Services.AddScoped<IValidator<Stage1.Contact>, Stage1.ContactValidator>();
 builder.Services.AddScoped<IValidator<Stage2.Contact>, Stage2.ContactValidator>();
 builder.Services.AddScoped<IValidator<Stage3.Contact>, Stage3.ContactValidator>();
