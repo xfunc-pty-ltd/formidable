@@ -255,6 +255,11 @@ over what is on screen, and the live channel consults it only under
 `LiveIssueDisclosure.EngagedAndVisible` (see [`LiveDisclosure`](#livedisclosure)). See
 [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for what each channel makes of one.
 
+**Sample:** [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor), whose summary
+lists every row's errors from the first submit, rows Virtualize has never rendered included.
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) sets the same override on its
+sessions.
+
 ### `RequiredOverride`
 
 `Func<FieldIdentifier, FieldRequirement?>?`, defaults to `null`. Consulted before the validator's
@@ -278,9 +283,8 @@ cheap and pure.
 The delegate receives the field's identifier alone, so a lambda that reads the condition off your
 model, `field => field.FieldName == nameof(Booking.Company) && _booking.WantsInvoice ?
 FieldRequirement.Required : null`, makes the mark follow a checkbox bound to that flag at the
-page's next render.
-Or render your own marker from `FormidableFieldContext.Requirement` inside a `FormidableField`,
-which can say something for the conditional case as well.
+page's next render. Or render your own marker from `FormidableFieldContext.Requirement` inside a
+`FormidableField`, which can say something for the conditional case as well.
 
 **Recipe:**
 [mark fields required when the rules cannot say so](recipes.md#i-want-to-mark-fields-required-when-the-rules-cannot-say-so).
@@ -295,7 +299,10 @@ switch for a design that marks the optional fields instead.
 
 Off means off for everything the indicator might ever render. What it never suppresses is
 `aria-required`: whether a value is demanded is a fact about the input rather than a decoration. For
-a marker drawn entirely in CSS, leave the switch on and empty the content instead — next.
+a marker drawn entirely in CSS, leave the switch on and empty the content instead (the next entry).
+
+**Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), with the switch at
+its default: a required field there carries its mark and says nothing.
 
 ### `RequiredIndicatorContent`
 
@@ -307,6 +314,9 @@ That is `ShowRequiredIndicators`, above.
 Set it to `""` for a marker drawn entirely in CSS: the marker element still renders, empty, which is
 what a stylesheet's `::before`/`::after` needs to land on. The library ships no styling, so this is
 the text inside the marker's `formidable-required` element and nothing else.
+
+**Sample:** [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where the default
+`"*"` sits beside each required field's label, coloured by the sample's own stylesheet.
 
 ### `LiveDisclosure`
 
@@ -346,6 +356,10 @@ in silence, and the channels that record a suppression whether or not this callb
 The issue carries the response body's own strings on the `ApplyServerIssues` route. The library
 neutralizes control characters in the path and bounds its length; telemetry that writes `issue.Path`
 owes it the same.
+
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor). Submit with
+*traveler details* hidden, and the error lands in the diagnostic list below the form rather than
+inline.
 
 ### `NeverRegisteredFieldDiagnostic`
 
@@ -394,9 +408,11 @@ has the ways a page produces the divergence.
 [Need to know](#need-to-know) names this a coarser read: the answer is captured once, per component,
 the moment it binds, so flipping it mid-life reaches only components that bind afterward.
 
-Treat it as a startup switch for Development builds;
-[`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) is the exception, and
+Treat it as a startup switch for Development builds.
 [`ReportStaleRegistrations`](#reportstaleregistrations) answers where a throw is the wrong severity.
+
+**Sample:** [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor), the exception:
+it is on in every build, since the page's whole point is the row-key discipline the check enforces.
 
 ### `ReportStaleRegistrations`
 
@@ -439,7 +455,7 @@ variant form under *Without a summary* sets it to `"polite"` on options of its o
 ### `DefensiveGateMessage`
 
 `string`, defaults to `"The form cannot be submitted because information that is not currently
-displayed is invalid."` — the sentence the all-suppressed defensive gate carries (see
+displayed is invalid."`. It is the sentence the all-suppressed defensive gate carries (see
 [Disclosure](disclosure.md)).
 
 A replacement reaches the kit's components, and a direct `GetIssues` or `GetVisibleIssues` call,
@@ -466,14 +482,13 @@ instead.
 ### `ValidationFaultMessage`
 
 `string`, defaults to `"Validation could not run to completion; recent changes may not be fully
-validated."` — the form-level message for a check that threw before finishing. It appears when a
-live check or the whole-form re-check throws, since what the form shows is then incomplete rather
-than wrong; a submit or a load of values throws to the code that awaited it instead.
+validated."`. It is the form-level message for a check that threw before finishing, and appears
+when a live check or the whole-form re-check throws, since what the form shows is then incomplete
+rather than wrong; a submit or a load of values throws to the code that awaited it instead.
 
 Its read timing is not `DefensiveGateMessage`'s. The issue is filed when the fault is reported and
-then stored, so
-a change reaches the *next* fault while one already on screen goes on saying what it said when it
-was written.
+then stored, so a change reaches the *next* fault while one already on screen goes on saying what it
+said when it was written.
 
 It says nothing about what threw: the exception goes to the engine's `ValidationFaulted` event,
 where a host logs it. The stored issue clears at the next check that completes without throwing,
@@ -663,9 +678,11 @@ A form that wants different class names assigns a new map to its own copy.
   disabled Submit button.
 - `NormalizeOnSubmit` — [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor), beside
   the two buttons that call `Normalize()` by hand.
-- `SuppressedIssueDiagnostic` and `DisclosureOverride` —
-  [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) and
-  [Disclosure](disclosure.md).
+- `SuppressedIssueDiagnostic` — [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)
+  and [Disclosure](disclosure.md).
+- `DisclosureOverride` — [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor) and
+  [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor), each forcing a virtualized
+  collection's rows visible, and [Disclosure](disclosure.md).
 - `CssClasses` — [CSS and accessibility](css-and-accessibility.md); remapped onto a UI library's own
   classes ([`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor)) and recoloured
   live via CSS custom properties
