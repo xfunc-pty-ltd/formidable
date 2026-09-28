@@ -720,6 +720,7 @@ What inspection reads, and where it stops — every limit costing a mark rather 
 |---|---|
 | `NotEmpty()` or `NotNull()` | Read as presence. On a `bool`, whose empty value is `false`, that is how "must be ticked" becomes readable as a demand. |
 | A rule declared with the index left open, `Attendees[].Name` | Expanded against the rows the model holds, one answer per row under the row's own identifier, so a field inside a collection row is marked exactly as a top-level one: each attendee's Name earns its own marker and its own `aria-required`. |
+| A rule over a dictionary's entries, `RuleForEach(x => x.Prices)` or over `x.Prices.Values` | `NotRequired` for every entry, whatever the key type. FluentValidation names an entry by its position (`Prices[0].Value`), and that path reaches no entry's own field, so the mark is left off rather than guessed. [`RequiredOverride`](options.md#requiredoverride) can declare it. |
 | `Must(s => !string.IsNullOrWhiteSpace(s))`, or `Equal(true)` on that same `bool` | `NotRequired`: a predicate is indistinguishable from any other predicate, so the mark waits on [`RequiredOverride`](options.md#requiredoverride). |
 | Any rule on a validator that cannot be inspected | `NotRequired`, for every field it declares. |
 | `RuleForEach(...).Where(...)` or `.WhereAsync(...)` | `ConditionallyRequired` for every row. Which rows the filter admits cannot be answered without a model, so the answer is a property of the rules rather than of any one row's values. |
