@@ -25,5 +25,7 @@ on whichever route you used once the report has been triaged.
 
 ## Supported versions
 
-Formidable is pre-1.0. Security fixes land on the latest published version; there is no
-long-term-support branch for older pre-1.0 releases.
+Formidable follows [Semantic Versioning](https://semver.org/). Security fixes ship as a patch
+release of the newest 1.x minor version. There is no long-term-support branch, so a fix is not
+backported to older minor versions. If you are on an older 1.x, upgrade to the newest; a minor
+release adds to the public API without breaking it.
