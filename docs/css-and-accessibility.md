@@ -634,10 +634,10 @@ These names are deliberately not configurable. A `FormidableCssClasses`-style se
 structural names is additive later, and the names above are what a stylesheet keys on whether or not
 one arrives.
 
-What exists today is the splat. The message lists and the summary wrapper accept unmatched
-attributes, so utility classes and data hooks reach the containers. A splatted `class` merges ahead
-of the structural name. The fixed-role regions and everything inside them, the message items, the
-required marker and the render-mode message take no splat; they are what the table freezes.
+What exists today is the splat. The message lists, the summary wrapper and the required marker
+accept unmatched attributes, so utility classes and data hooks reach those elements. A splatted
+`class` merges ahead of the structural name. The fixed-role regions and everything inside them, the
+message items and the render-mode message take no splat; they are what the table freezes.
 
 ## Configuring `FormidableCssClasses`
 

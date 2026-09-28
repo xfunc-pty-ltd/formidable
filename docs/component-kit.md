@@ -688,8 +688,9 @@ Marks a field the submit profile demands a value for.
 | Parameter | Type | Default | One line |
 |---|---|---|---|
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the field to mark, e.g. `() => Model.Title`. |
+| `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the marker `<span>`, under the three positions below. |
 
-It declares nothing else. Place it where the mark belongs:
+Place it where the mark belongs:
 
 ```razor
 <div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
@@ -704,6 +705,17 @@ It declares nothing else. Place it where the mark belongs:
 | `RequiredOverride`'s answer or `SubmitProfile` changes | The mark follows on the page's next render, not before. |
 | It stands beside a control | It registers nothing (a marker is not an input); the input beside it, or a `FormidableFieldAnchor`, keeps the field registered. |
 | A test queries raw text | It sees the marker. A role-and-name query, which runs the accessible-name algorithm, does not: `aria-hidden` separates them. |
+
+**The marker takes three positions of its own against the splat:**
+
+| Attribute | Against the splat | What it is |
+|---|---|---|
+| `class` | merges | The splatted value first, `formidable-required` after. |
+| `aria-hidden` | wins outright | Always `"true"`. The input's `aria-required` announces the demand, so the mark stays out of the accessibility tree whatever the page passes. |
+| Any attribute | renders only with the mark | A splat never makes the marker render. Where no mark is drawn (a field that is not `Required`, or `ShowRequiredIndicators` off), no element renders to carry it. |
+
+A UI library's class, a `title` or a test id goes straight onto the mark, with no wrapper element of
+the page's own around it.
 
 The mark is derived from the validator's rules rather than declared on the markup, so a presence
 rule moving between profiles moves the mark with it. The submit profile is the one that decides: a

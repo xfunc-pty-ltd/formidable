@@ -81,9 +81,9 @@ public static class FormidableCss
     /// <param name="computed">The value the kit computed for the same attribute.</param>
     /// <returns>Both values space-joined, or whichever one is present.</returns>
     // The one merge rule behind every kit element that both accepts a splat and computes a value
-    // for the same attribute (an input's state class, a message list's class, the summary
-    // wrapper's class, aria-describedby). Behaviourally the framework's own splat/class merge,
-    // reimplemented rather than taken as a dependency on an internal type.
+    // for the same attribute (the class the kit computes for the element, or aria-describedby).
+    // Behaviourally the framework's own splat/class merge, reimplemented rather than taken as a
+    // dependency on an internal type.
     internal static string CombineSplatted(IReadOnlyDictionary<string, object>? attributes, string attributeName, string computed)
     {
         if (attributes is null || !attributes.TryGetValue(attributeName, out var splatted))

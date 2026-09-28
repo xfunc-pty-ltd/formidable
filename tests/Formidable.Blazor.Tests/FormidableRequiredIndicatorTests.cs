@@ -204,6 +204,79 @@ public class FormidableRequiredIndicatorTests : BunitContext
         Assert.Equal("true", marker.GetAttribute("aria-hidden"));
     }
 
+    // A page's own attributes reach the marker element itself, so a tooltip or a test id needs
+    // no wrapper element of the page's own around it. Mutation that must break this: dropping
+    // the splat from the marker's span.
+    [Fact]
+    public void Splatted_attributes_land_on_the_marker()
+    {
+        var model = new MarkerModel();
+        var cut = RenderMarker(
+            model, () => model.Name, options: null, ("title", "Required"), ("data-testid", "name-required"));
+
+        var marker = MarkerOf(cut).Find("span.formidable-required");
+        Assert.Equal("Required", marker.GetAttribute("title"));
+        Assert.Equal("name-required", marker.GetAttribute("data-testid"));
+        Assert.Equal("*", marker.TextContent);
+    }
+
+    // A page's class joins the marker's rather than replacing it, and goes first, as on every kit
+    // element that takes a splat. formidable-required is the name a stylesheet keys on, so a
+    // splatted class that replaced it would unstyle the mark. Mutation that must break this:
+    // writing formidable-required alone rather than merging it with the splatted value.
+    [Fact]
+    public void A_splatted_class_merges_ahead_of_formidable_required()
+    {
+        var model = new MarkerModel();
+        var cut = RenderMarker(model, () => model.Name, options: null, ("class", "text-danger ms-1"));
+
+        Assert.Equal("text-danger ms-1 formidable-required", MarkerOf(cut).Find("span").GetAttribute("class"));
+    }
+
+    // aria-hidden is the rendering contract, not a default: the fact that a value is demanded is
+    // the input's aria-required, and a marker a screen reader could reach would announce the
+    // field a second time, as a glyph inside its label. So a splatted aria-hidden is overwritten
+    // rather than honoured. Mutation that must break this: writing aria-hidden before the splat,
+    // which hands the splatted value the last word.
+    [Fact]
+    public void A_splatted_aria_hidden_loses_to_the_components()
+    {
+        var model = new MarkerModel();
+        var cut = RenderMarker(model, () => model.Name, options: null, ("aria-hidden", "false"));
+
+        Assert.Equal("true", MarkerOf(cut).Find("span").GetAttribute("aria-hidden"));
+    }
+
+    // The splat rides on the marker and never stands in for it: where the component draws
+    // nothing, a page's attributes do not conjure an element to carry them. The three silences
+    // are the three routes to one (no rule, a conditional rule, the form-wide off switch), each
+    // asserted as the answer it claims to be, and the first render is the control: the same
+    // splat on a marked field does render, so the empty markup below is the gate's doing rather
+    // than the helper's. Mutation that must break this: opening the span, and splatting onto it,
+    // before the requirement test.
+    [Fact]
+    public void Splatted_attributes_never_make_the_marker_render()
+    {
+        var model = new MarkerModel();
+        (string, object)[] splat = [("title", "Required"), ("data-testid", "marker"), ("class", "text-danger")];
+
+        var marked = RenderMarker(model, () => model.Name, options: null, splat);
+        Assert.NotEmpty(MarkerOf(marked).Markup);
+
+        var unruled = RenderMarker(model, () => model.Nickname, options: null, splat);
+        Assert.Equal(FieldRequirement.NotRequired, RequirementOf(unruled, nameof(MarkerModel.Nickname)));
+        Assert.Empty(MarkerOf(unruled).Markup);
+
+        var conditional = RenderMarker(model, () => model.Nominee, options: null, splat);
+        Assert.Equal(FieldRequirement.ConditionallyRequired, RequirementOf(conditional, nameof(MarkerModel.Nominee)));
+        Assert.Empty(MarkerOf(conditional).Markup);
+
+        var switchedOff = RenderMarker(
+            model, () => model.Name, new FormidableOptions { ShowRequiredIndicators = false }, splat);
+        Assert.Equal(FieldRequirement.Required, RequirementOf(switchedOff, nameof(MarkerModel.Name)));
+        Assert.Empty(MarkerOf(switchedOff).Markup);
+    }
+
     // Reference's NotEmpty() sits in the submit bucket while its length rule sits in the draft
     // one, so the same field answers differently under the two profiles. The submit profile is
     // what decides, because "required" on a form means "required before this can be submitted".
@@ -438,6 +511,47 @@ public class FormidableRequiredIndicatorTests : BunitContext
 
     private static IElement InputFor(IRenderedComponent<FormidableForm<MarkerModel>> cut, string field) =>
         cut.FindAll($"[data-field='{field}'] input").Single();
+
+    private static IRenderedComponent<FormidableRequiredIndicator<string>> MarkerOf(
+        IRenderedComponent<FormidableForm<MarkerModel>> cut) =>
+        cut.FindComponent<FormidableRequiredIndicator<string>>();
+
+    private static FieldRequirement RequirementOf(IRenderedComponent<FormidableForm<MarkerModel>> cut, string field) =>
+        EngineOf(cut).GetFieldRequirement(new FieldIdentifier(cut.Instance.Model, field));
+
+    /// <summary>
+    /// A form holding one marker and nothing else, with <paramref name="attributes"/> passed to it
+    /// as a page's unmatched attributes arrive. No input stands beside it, so what the marker
+    /// renders is all the markup its component owns.
+    /// </summary>
+    private IRenderedComponent<FormidableForm<MarkerModel>> RenderMarker(
+        MarkerModel model,
+        Expression<Func<string>> marked,
+        FormidableOptions? options,
+        params (string Name, object Value)[] attributes)
+    {
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<MarkerModel>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Options", options);
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                var sequence = 0;
+                inner.OpenComponent<FormidableRequiredIndicator<string>>(sequence++);
+                inner.AddComponentParameter(sequence++, "For", marked);
+                foreach (var (name, value) in attributes)
+                {
+                    inner.AddComponentParameter(sequence++, name, value);
+                }
+
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+
+        return cut.FindComponent<FormidableForm<MarkerModel>>();
+    }
 
     /// <summary>
     /// The submit-profile requirement an engine over <paramref name="validator"/> reports for
