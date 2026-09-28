@@ -54,20 +54,6 @@ public class VisibleIssueDisplayNameTests
             RuleFor(x => x.Reference).NotEmpty().WithName("Ticket reference");
     }
 
-    // A validator of the page's own rather than FluentValidation, which names every failure it
-    // reports: only a hand-rolled validator (or a server reply) yields an issue with a path and
-    // no name, and the agreement pin needs one among a submit's own errors.
-    private sealed class FixedReportValidator(params ValidationIssue[] issues) : IModelValidator<Ticket>
-    {
-        public Task<ValidationReport> ValidateAsync(
-            Ticket model,
-            ValidationProfile profile,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Validate(model, profile));
-
-        public ValidationReport Validate(Ticket model, ValidationProfile profile) => new(issues);
-    }
-
     private static FormidableEngine<Ticket> Build(
         Ticket ticket,
         IModelValidator<Ticket> validator,
@@ -182,7 +168,7 @@ public class VisibleIssueDisplayNameTests
         var ticket = new Ticket();
         using var engine = Build(
             ticket,
-            new FixedReportValidator(new ValidationIssue(string.Empty, "The ticket is incomplete", DisplayName: string.Empty)),
+            new FixedReportValidator<Ticket>(new ValidationIssue(string.Empty, "The ticket is incomplete", DisplayName: string.Empty)),
             new FormidableOptions { ModelLevelDisplayName = ReVoicedModelLevelName });
 
         var outcome = await engine.ValidateForSubmitAsync();
@@ -257,9 +243,11 @@ public class VisibleIssueDisplayNameTests
         // fallback (DisplayName ?? Path, no model-level name), and the model-level entry reads ""
         // where the summary says "This form". Or drop the Path fallback in
         // IssueDisplayName.Resolve: both sides then call the Requester entry "This form" and
-        // still agree, so the pin on the three names below is what catches it.
+        // still agree, so the pin on the three names below is what catches it. The pin needs an
+        // issue with a path and no name (Requester's) among a submit's own errors, which only a
+        // validator of the page's own can report.
         var ticket = new Ticket();
-        using var engine = Build(ticket, new FixedReportValidator(
+        using var engine = Build(ticket, new FixedReportValidator<Ticket>(
             new ValidationIssue(nameof(Ticket.Reference), "A reference is required", DisplayName: "Ticket reference"),
             new ValidationIssue(nameof(Ticket.Requester), "A requester is required"),
             new ValidationIssue(string.Empty, "The ticket is incomplete"),

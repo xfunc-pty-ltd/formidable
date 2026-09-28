@@ -137,15 +137,19 @@ Why: [how the engine works: how a green border is held](how-the-engine-works.md#
 ## How do I show severity without relying on colour?
 
 Put it into a word, a heading or an icon with a text alternative, because on the item itself
-severity is a class name and nothing more. An inline message item is its own text plus two
-classes: `formidable-message`, and one of `--error`, `--warning` or `--info`. That modifier is the
-only thing on the item saying which severity it is.
+severity is a class name and nothing more. By default an inline message item is its own text plus
+two classes: `formidable-message`, and one of `--error`, `--warning` or `--info`. That modifier is
+the only thing on the item saying which severity it is.
 
 `FormidableSummary` can put that difference into words. `ErrorsHeading`, `WarningsHeading` and
 `InfosHeading` label each band in your own wording, with no English default standing in for them.
-An inline list has no such parameter. Its cue has to come from the stylesheet or from the message
-text: a word ahead of the message, an icon with a text alternative, anything visible that survives
-being read in one colour.
+
+An inline list can carry the same words. The simplest way needs no markup: write the word
+into the message itself (`WithMessage("Warning: ...")`), and it travels with the message wherever
+the message shows. Or give the list an `ItemTemplate` that renders a word, or an icon with a text
+alternative, ahead of each message
+([Putting a word ahead of each message](component-kit.md#putting-a-word-ahead-of-each-message)). A
+stylesheet cue works too, provided it survives being read in one colour.
 
 `formidable-valid` and `formidable-pending` are the same question with less to fall back on.
 `formidable-invalid` at least pairs with the input's `aria-invalid` and with the message that

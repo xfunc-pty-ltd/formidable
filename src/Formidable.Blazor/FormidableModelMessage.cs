@@ -18,6 +18,10 @@ public sealed class FormidableModelMessage : FormidableComponentBase
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
+    /// <summary>The content of each item, handed a <see cref="VisibleIssue"/> for the model-level field with its <see cref="VisibleIssue.DisplayName"/>; the item and its severity class stay the component's. Defaults to <see langword="null"/>, which renders the issue's <see cref="ValidationIssue.Message"/>.</summary>
+    [Parameter]
+    public RenderFragment<VisibleIssue>? ItemTemplate { get; set; }
+
     /// <summary>Resolves the model-level field from <paramref name="context"/>'s model, computes the list's id, and registers nothing.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>Always <see langword="null"/>.</returns>
@@ -31,7 +35,7 @@ public sealed class FormidableModelMessage : FormidableComponentBase
         return null;
     }
 
-    /// <summary>Renders the list through <see cref="FormidableMessageList"/> with the model-level field's current issues and any <see cref="FormidableOptions.InlineMessageLive"/> the engine reports; renders nothing before the first bind.</summary>
+    /// <summary>Renders the list through <see cref="FormidableMessageList"/> with the model-level field's current issues, <see cref="ItemTemplate"/> and any <see cref="FormidableOptions.InlineMessageLive"/> the engine reports; renders nothing before the first bind.</summary>
     /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
@@ -40,11 +44,6 @@ public sealed class FormidableModelMessage : FormidableComponentBase
             return;
         }
 
-        FormidableMessageList.Render(
-            builder,
-            AdditionalAttributes,
-            _messagesElementId,
-            (Context.Engine as IValidatingFieldReader)?.InlineMessageLive,
-            Context.Engine.GetIssues(_field));
+        FormidableMessageList.Render(builder, AdditionalAttributes, _messagesElementId, Context.Engine, _field, ItemTemplate);
     }
 }

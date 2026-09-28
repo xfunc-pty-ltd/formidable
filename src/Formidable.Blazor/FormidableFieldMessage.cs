@@ -24,6 +24,10 @@ public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponen
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
+    /// <summary>The content of each item, handed a <see cref="VisibleIssue"/> for this list's field with its <see cref="VisibleIssue.DisplayName"/>; the item and its severity class stay the component's. Defaults to <see langword="null"/>, which renders the issue's <see cref="ValidationIssue.Message"/>.</summary>
+    [Parameter]
+    public RenderFragment<VisibleIssue>? ItemTemplate { get; set; }
+
     /// <summary>Registers <paramref name="field"/> with <paramref name="context"/>'s registry, or returns <see langword="null"/>; the base registers nothing, and <see cref="FormidableCollectionMessage{TValue}"/> overrides it to register its collection-level path.</summary>
     /// <param name="context">The context being bound.</param>
     /// <param name="field">The field these messages speak for.</param>
@@ -40,7 +44,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponen
         return RegisterField(context, _field);
     }
 
-    /// <summary>Renders the list through <see cref="FormidableMessageList"/> with the field's current issues and any <see cref="FormidableOptions.InlineMessageLive"/> the engine reports; renders nothing before the first bind.</summary>
+    /// <summary>Renders the list through <see cref="FormidableMessageList"/> with the field's current issues, <see cref="ItemTemplate"/> and any <see cref="FormidableOptions.InlineMessageLive"/> the engine reports; renders nothing before the first bind.</summary>
     /// <param name="builder">The render tree builder.</param>
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
@@ -49,12 +53,7 @@ public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponen
             return;
         }
 
-        FormidableMessageList.Render(
-            builder,
-            AdditionalAttributes,
-            _messagesElementId,
-            (Context.Engine as IValidatingFieldReader)?.InlineMessageLive,
-            Context.Engine.GetIssues(_field));
+        FormidableMessageList.Render(builder, AdditionalAttributes, _messagesElementId, Context.Engine, _field, ItemTemplate);
     }
 }
 
@@ -69,19 +68,27 @@ internal static class FormidableMessageList
     private const string WarningItemClass = "formidable-message formidable-message--warning";
     private const string InfoItemClass = "formidable-message formidable-message--info";
 
-    /// <summary>Renders the list: the splat, then the id, the merged class and <paramref name="live"/> as <c>aria-live</c> where set, then one <c>li</c> per issue classed by severity.</summary>
+    /// <summary>Renders the list: the splat, then the id, the merged class and the engine's <see cref="FormidableOptions.InlineMessageLive"/> as <c>aria-live</c> where set, then one <c>li</c> per issue the engine holds for <paramref name="field"/>, classed by severity, holding the message or the template's content.</summary>
     /// <param name="builder">The render tree builder.</param>
     /// <param name="additionalAttributes">The consumer's splatted attributes, or <see langword="null"/>.</param>
     /// <param name="listElementId">The id the list carries, as <see cref="FormidableFieldId.MessagesFor(FieldIdentifier)"/> derives it.</param>
-    /// <param name="live">The <c>aria-live</c> value, or <see langword="null"/> to render none.</param>
-    /// <param name="issues">The issues to list, in the order given.</param>
+    /// <param name="engine">The form's engine, read at this render for the live-message setting, the field's issues in the order it lists them, and <see cref="FormidableOptions.ModelLevelDisplayName"/> for an issue that names no field of its own.</param>
+    /// <param name="field">The field the list speaks for, handed to <paramref name="itemTemplate"/> with each issue.</param>
+    /// <param name="itemTemplate">The content of each item, or <see langword="null"/> to render the issue's message.</param>
+    // With a template, each item keeps the element, the class and the sequence slot the message
+    // takes without one, so turning a template on or off changes only what the item holds.
     internal static void Render(
         RenderTreeBuilder builder,
         IReadOnlyDictionary<string, object>? additionalAttributes,
         string listElementId,
-        string? live,
-        IReadOnlyList<ValidationIssue> issues)
+        IFormidableEngine engine,
+        FieldIdentifier field,
+        RenderFragment<VisibleIssue>? itemTemplate)
     {
+        var live = (engine as IValidatingFieldReader)?.InlineMessageLive;
+        var issues = engine.GetIssues(field);
+        var modelLevelDisplayName = engine.Options.ModelLevelDisplayName;
+
         var sequence = 0;
         builder.OpenElement(sequence++, "ul");
         builder.AddMultipleAttributes(sequence++, additionalAttributes!);
@@ -99,7 +106,15 @@ internal static class FormidableMessageList
                 sequence++,
                 "class",
                 FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
-            builder.AddContent(sequence++, issue.Message);
+            if (itemTemplate is null)
+            {
+                builder.AddContent(sequence++, issue.Message);
+            }
+            else
+            {
+                builder.AddContent(sequence++, itemTemplate, IssueDisplayName.Named(field, issue, modelLevelDisplayName));
+            }
+
             builder.CloseElement();
         }
 

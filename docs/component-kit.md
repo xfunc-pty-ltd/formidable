@@ -577,6 +577,7 @@ for this component and every other input.
 | Parameter | Type | Default | One line |
 |---|---|---|---|
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the field these messages speak for, e.g. `() => Model.Email`. |
+| `ItemTemplate` | `RenderFragment<VisibleIssue>?` | `null` | [What each `<li>` holds](#putting-a-word-ahead-of-each-message) in place of the message. The `<li>` and its severity classes stay the component's. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<ul>`, under the three positions below. |
 
 ```razor
@@ -613,6 +614,35 @@ public but not extension points: neither constructor is accessible outside the a
 component and [`FormidableCollectionMessage`](#formidablecollectionmessagetvalue) are the only two
 shapes the first takes.
 
+### Putting a word ahead of each message
+
+`ItemTemplate` decides what each item holds. It receives a `VisibleIssue` for the component's own
+field: the field, the issue, and the `DisplayName` a summary entry for the same issue carries
+([Deciding what an entry says](#deciding-what-an-entry-says)). A severity word is the usual reason:
+
+```razor
+<FormidableFieldMessage For="() => Model.Reference">
+    <ItemTemplate Context="item"><strong>@SeverityWord(item.Issue.Severity)</strong> @item.Issue.Message</ItemTemplate>
+</FormidableFieldMessage>
+
+@code {
+    private static string SeverityWord(ValidationSeverity severity) => severity switch
+    {
+        ValidationSeverity.Warning => "Warning:",
+        ValidationSeverity.Info => "Note:",
+        _ => "Error:",
+    };
+}
+```
+
+| When | What you see |
+|---|---|
+| The template is set | Its content inside each `<li>`, which keeps `formidable-message` and its severity class. The `<ul>` keeps its id, its class and any `aria-live`. |
+| The template is unset | Each `<li>` holds the issue's `Message`, as it always has. |
+| The component sits inside `FormidableForm` | The template needs a `Context` name of its own, because the form's child content already takes `context`. A form whose own `Context` is renamed leaves `context` free for the template. |
+
+`FormidableCollectionMessage` and `FormidableModelMessage` take the same parameter.
+
 ## `FormidableModelMessage`
 
 Some verdicts are about the form rather than about any field: the defensive gate's explanation for
@@ -628,9 +658,10 @@ that field.
 
 | Parameter | Type | Default | One line |
 |---|---|---|---|
+| `ItemTemplate` | `RenderFragment<VisibleIssue>?` | `null` | [What each `<li>` holds](#putting-a-word-ahead-of-each-message), handed the model-level field. The gate's explanation and a validator fault arrive named by [`ModelLevelDisplayName`](options.md#modelleveldisplayname). |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<ul>`, under [the message list's three positions](#formidablefieldmessagetvalue). |
 
-Nothing else is declared, because the field it speaks for is fixed:
+It takes no `For`, because the field it speaks for is fixed:
 
 ```razor
 <FormidableForm Model="_inlineRequest" Options="_inlineOptions"
@@ -895,7 +926,7 @@ The name is the issue's own `Issue.DisplayName` when it has text
 comes from), else its `Path` when that has text, else
 [`ModelLevelDisplayName`](options.md#modelleveldisplayname).
 `SubmitOutcome.VisibleErrorSummary` names its errors by the same rule, so an error it lists reads
-the same there as beside its summary entry.
+the same there as in the summary.
 
 | When | What `entry.DisplayName` reads |
 |---|---|
@@ -1048,6 +1079,7 @@ control anywhere in the form to register the path that rule reports against. Thi
 |---|---|---|---|
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the collection-level field, e.g. `() => Model.Teams`. |
 | `KeepRegistered` | `bool` | `false` | [Keeps the field registered after the component is disposed](#virtualize-and-keepregistered), for a virtualized container. |
+| `ItemTemplate` | `RenderFragment<VisibleIssue>?` | `null` | [What each `<li>` holds](#putting-a-word-ahead-of-each-message), handed the collection-level field. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<ul>`, under [the message list's three positions](#formidablefieldmessagetvalue). |
 
 ```razor

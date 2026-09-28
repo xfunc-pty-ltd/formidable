@@ -514,7 +514,7 @@ Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 `string`, defaults to `"This form"`. The name an issue is given when it names no field of its own:
 the defensive gate's explanation, a validator fault, a model-level rule, or a server reply's
 model-level issue. `SubmitOutcome.VisibleErrorSummary` lists such an error under it, and
-`VisibleIssue.DisplayName` carries it on each entry `GetVisibleIssues` returns.
+`VisibleIssue.DisplayName` carries it on each such entry `GetVisibleIssues` returns.
 
 Both name an issue by one rule: the issue's `DisplayName` when it has text (what `WithName(...)`
 sets), else its `Path` when that has text, else this option. A submit reads the option as it builds

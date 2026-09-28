@@ -3,9 +3,10 @@ using Microsoft.AspNetCore.Components.Forms;
 namespace Formidable.Blazor;
 
 /// <summary>The one rule that names an issue for display: its display name when it has text, else its path when it has text, else the model-level name.</summary>
-// Every name the kit hands out comes from here: each entry GetVisibleIssues returns and each name
-// in a submit outcome's VisibleErrorSummary. One copy of the rule is what keeps the name beside an
-// entry equal to the name the count line lists it under.
+// Every name the kit hands out comes from here: each entry GetVisibleIssues returns, each name in a
+// submit outcome's VisibleErrorSummary and each item a message list's template receives. One copy
+// of the rule is what keeps the name beside an entry equal to the name the count line lists it
+// under.
 internal static class IssueDisplayName
 {
     /// <summary>Names <paramref name="issue"/>: its <see cref="ValidationIssue.DisplayName"/> when it has text, else its <see cref="ValidationIssue.Path"/> when it has text, else <paramref name="modelLevelDisplayName"/>.</summary>

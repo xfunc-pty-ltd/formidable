@@ -1,0 +1,29 @@
+@using Formidable.Blazor
+
+@* Razor-compiled on purpose: a severity word ahead of each inline message, written the way a page
+   writes it, so the template syntax the docs teach is the syntax this project builds. The
+   template names its own Context because the form's child content already takes the implicit
+   one. *@
+<FormidableForm Model="Model" Validator="Validator" Options="Options">
+    <FormidableFieldMessage For="() => Model.Reference">
+        <ItemTemplate Context="item"><strong>@SeverityWord(item.Issue.Severity)</strong> @item.Issue.Message</ItemTemplate>
+    </FormidableFieldMessage>
+</FormidableForm>
+
+@code {
+    [Parameter]
+    public ItemTemplateTicket Model { get; set; } = default!;
+
+    [Parameter]
+    public IModelValidator<ItemTemplateTicket>? Validator { get; set; }
+
+    [Parameter]
+    public FormidableOptions? Options { get; set; }
+
+    private static string SeverityWord(ValidationSeverity severity) => severity switch
+    {
+        ValidationSeverity.Warning => "Warning:",
+        ValidationSeverity.Info => "Note:",
+        _ => "Error:",
+    };
+}

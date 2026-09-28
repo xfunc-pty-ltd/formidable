@@ -231,8 +231,8 @@ public class EmptyProfileSelectionTraceTests
     // lined up on a barrier. Every thread holds its own adapter over its own instance of one
     // validator type, as a server with a scoped validator does, and every round must write exactly
     // one line.
-    // Mutation: replace the concurrent record with a plain HashSet (whether this catches it is
-    // a race, and the run that tried it is reported).
+    // Mutation: replace the concurrent record with a plain HashSet. Whether a run catches it is a
+    // race, so one green run under the mutation proves nothing.
     [Fact]
     public void Concurrent_first_calls_trace_once()
     {
@@ -306,7 +306,8 @@ public class EmptyProfileSelectionTraceTests
     }
 
     // A replaced selector factory whose selector reads the model cannot answer the model-less
-    // count. The report stays silent and the call validates as it did before the report existed.
+    // count. The count gives up without writing a line, and the call validates and returns its
+    // report.
     // The factory is process-wide and classes outside the collection walk model-less selections
     // meanwhile, so the installed selector refuses only this class's model and hands every other
     // question to the stock selector.
