@@ -296,9 +296,9 @@ public class FieldOrderTests : BunitContext
 
     // The version guard is what stops the form re-resolving on every render, so a resolve that
     // fails must not leave it latched: a stable form registers nothing further, so there would be
-    // no later render carrying a retry, and the page would keep validator order for good. The JS
-    // module deliberately drops a faulted import so the NEXT call re-imports — this is what makes
-    // sure there is a next call.
+    // no later render carrying a retry, and the page would keep the order it had for good.
+    // The JS module deliberately drops a faulted import so the NEXT call re-imports — this is what
+    // makes sure there is a next call.
     [Fact]
     public async Task A_faulted_resolve_is_retried_on_the_next_render()
     {
@@ -315,8 +315,8 @@ public class FieldOrderTests : BunitContext
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
         cut.Find("form").Submit();
 
-        // The engine's own order is the contract; what is already on screen picks it up on its
-        // next render, which every pass and every edit triggers anyway.
+        // The order GetVisibleIssues reports is the contract; what is already on screen picks it
+        // up on its next render, which every pass and every edit triggers anyway.
         cut.WaitForAssertion(() => Assert.Equal(
             DocumentOrderMessages,
             cut.Instance.Engine!.GetVisibleIssues().Select(v => v.Issue.Message).ToArray()));
@@ -362,7 +362,8 @@ public class FieldOrderTests : BunitContext
 
     // The same latch contract, for the seam's other way of not answering. An order that could not
     // be resolved at all is not a page that placed none of these fields, and latching the version
-    // guard on one would strand a stable form on validator order exactly as a latched fault would.
+    // guard on one would strand a stable form on the order it had, exactly as a latched fault
+    // would.
     [Fact]
     public async Task A_resolve_that_answered_with_nothing_is_retried_on_the_next_render()
     {
@@ -625,7 +626,7 @@ public class FieldOrderTests : BunitContext
             [description] = 0,
             [customerName] = 1,
         });
-        Assert.Equal(1, notifications); // validator order to a resolved one is a difference
+        Assert.Equal(1, notifications); // the engine's own order to a resolved one is a difference
 
         _engine.SetFieldOrder(new Dictionary<FieldIdentifier, int>
         {
@@ -635,7 +636,7 @@ public class FieldOrderTests : BunitContext
         Assert.Equal(2, notifications);
 
         _engine.SetFieldOrder(null);
-        Assert.Equal(3, notifications); // and back to validator order is one too
+        Assert.Equal(3, notifications); // and back to the engine's own order is one too
     }
 
     // The half that pins the gate. Most resolves answer with the order already in force — a

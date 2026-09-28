@@ -216,7 +216,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// only supported hosts. An engine built directly, as a test does, never hears of a move in
     /// the rendered field set, because only a root calls <see cref="OnRenderedFieldsChanged"/>
     /// and <see cref="SetFieldOrder"/>: a departed field keeps its live verdict, the stored
-    /// verdicts are never dropped, and issues list in validator order. With
+    /// verdicts are never dropped, and issues list in the engine's own order. With
     /// <see cref="FormidableOptions.TrackFormValidity"/> on, construction runs the first probe.
     /// </remarks>
     public FormidableEngine(
@@ -580,7 +580,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <returns>Every showing issue with its field, collected channel by channel as <see cref="IFormidableEngine.GetVisibleIssues"/> states and sorted by the order <see cref="SetFieldOrder"/> supplied while one is in force.</returns>
     // Collecting channel by channel decides which issues are in the list at all; the sort decides
     // only their order, which is what makes a summary's order the page's rather than the
-    // validator's.
+    // engine's own.
     public IReadOnlyList<VisibleIssue> GetVisibleIssues()
     {
         var result = new List<VisibleIssue>();
@@ -650,8 +650,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return result;
         }
 
-        // OrderBy is a stable sort, so several issues on one field keep the order the
-        // validator produced them in.
+        // OrderBy is a stable sort, so several issues on one field keep the engine's own order,
+        // the one they were collected in above.
         return result.OrderBy(v => _fieldOrder.TryGetValue(v.Field, out var ordinal) ? ordinal : int.MaxValue).ToList();
     }
 
@@ -988,7 +988,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>The model-level identifier: the root model with an empty field name, which an issue with an empty path resolves to.</summary>
     internal FieldIdentifier ModelLevelField => new(_model, string.Empty);
 
-    /// <summary>Sets the order <see cref="GetVisibleIssues"/> lists by; an order equal to the one in force raises nothing, and <see langword="null"/> restores validator order.</summary>
+    /// <summary>Sets the order <see cref="GetVisibleIssues"/> lists by; an order equal to the one in force raises nothing, and <see langword="null"/> restores the engine's own order.</summary>
     /// <param name="order">Each rendered field's ordinal in document order, as the host resolved it, or <see langword="null"/>.</param>
     /// <remarks>
     /// A field absent from the map sorts after every mapped field. <see cref="FormidableForm{TModel}"/>
@@ -1017,7 +1017,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         NotifyStateChanged();
     }
 
-    /// <summary>Whether two resolved orders sort visible issues identically; <see langword="null"/> is validator order and differs from any map.</summary>
+    /// <summary>Whether two resolved orders sort visible issues identically; <see langword="null"/> is the engine's own order and differs from any map.</summary>
     /// <param name="current">The order in force.</param>
     /// <param name="replacement">The order offered.</param>
     /// <returns><see langword="true"/> when both are the same reference, or hold the same fields at the same ordinals.</returns>

@@ -13,7 +13,7 @@ namespace Formidable.Blazor;
 /// maps a field to the id its element carries.
 /// </remarks>
 // A member added here defaults to answering that nothing could be resolved, the state a null
-// from OrderAsync already puts a host in (validator order stands until a later render
+// from OrderAsync already puts a host in (the order in force stands until a later render
 // resolves), so an implementation that does not override the addition never asserts an order
 // it did not derive.
 public interface IFormidableFieldOrderService

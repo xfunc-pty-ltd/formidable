@@ -57,12 +57,12 @@ Derive one from `DelegatingModelValidator<TModel>`, which forwards all three:
 Resolution fails loudly, and the validator's two failures are how a first form fails to start. Each
 message below carries the form's own model type where `Order` is.
 
-- `No IModelValidator<Order> is registered in the container this render is resolving from` —
+- `No IModelValidator<Order> is registered in the container this render is resolving from`:
   Formidable itself is missing from that container. Call `services.AddFormidableBlazor()` there and
   register the FluentValidation validator with it.
   [Hosting models](hosting-models.md#the-server-builds-the-form-too) has the page shape a
   two-project app most often meets it on.
-- `No FluentValidation validator for 'Order' is registered` — the commoner of the two. Formidable is
+- `No FluentValidation validator for 'Order' is registered`: the commoner of the two. Formidable is
   registered, so the open-generic adapter exists, but the FluentValidation validator it wraps does
   not. Register one with `services.AddScoped<IValidator<Order>, OrderValidator>()`, or a whole
   assembly's at once with `services.AddValidatorsFromAssembly()`. The container's own exception is
@@ -810,10 +810,10 @@ or from anything else it knows about a field. Five properties of the resulting o
 
 | Property | What it means |
 |---|---|
-| Two issues on one field keep validator order | The sort is by field, so it never reorders what one field reported. |
+| Two issues on one field keep the engine's own order | The sort is by field, so it never reorders what one field reported. |
 | A verdict about the whole form is reported first | The model-level field rides along on every resolution, and its element is the `<form>`, which contains every field on the page, so document order puts the all-suppressed gate's explanation and a validator fault first. An implementation need not special-case it: `FormidableFieldId.For` derives its id the same way. |
 | A field the page cannot place sorts last | The service answers only for the fields it can locate, so anything it leaves out sorts after everything it placed: a control that renders no id of its own, and a row held only by [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it has left the DOM. |
-| An empty answer and no answer are different answers | An empty list says none of these fields are on the page, which is taken as the order. `null` says the order could not be resolved at all, and the form asks again on a later render, as it does after an interop call that threw. Answer `null` where empty was meant and the form re-resolves on every render; answer empty where `null` was meant and it settles on validator order until the registered field set next changes. |
+| An empty answer and no answer are different answers | An empty list says none of these fields are on the page, which is taken as the order. `null` says the order could not be resolved at all, and the form asks again on a later render, as it does after an interop call that threw. Answer `null` where empty was meant and the form re-resolves on every render; answer empty where `null` was meant and it settles on the engine's own order until the registered field set next changes. |
 | Before the first resolution, the order is the engine's own | A resolve lands after the render that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel: the fault issue, then submit errors, then advisories, then the live channel. The same is true of a host that never resolves an order (`FormidableValidator` in attach mode, or an app that registered no order service), which keeps the summary working and costs it only the reading order ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 
 Document order is the default, being the order a visitor reads the form in. A form wanting another

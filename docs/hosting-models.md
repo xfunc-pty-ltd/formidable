@@ -142,8 +142,9 @@ in the platform's own words: *"JavaScript interop calls cannot be issued at this
 because the component is being statically rendered."*
 
 The library's browser-side work waits accordingly. The displaced-click guard installs on the first
-interactive render, and a summary lists issues in validator order until the first field-order
-resolve lands. Interop of your own belongs in `OnAfterRenderAsync` for the same reason.
+interactive render, and a summary lists issues in the engine's own order
+([Component kit](component-kit.md#the-order-entries-appear-in)) until the first field-order resolve
+lands. Interop of your own belongs in `OnAfterRenderAsync` for the same reason.
 
 ## Culture at WebAssembly boot
 

@@ -1,9 +1,9 @@
 # Recipes: from behaviour to configuration
 
 Some of Formidable's behaviour comes from a handful of switches: bucket, profile, commit timing,
-render state, severity, and the server's verdict. Each recipe opens with **Set:** — what to reach
-for, or a note that nothing needs setting. Every one links to what explains it in full; a sample
-page follows where one demonstrates it. Chasing a symptom instead of a goal?
+render state, severity, and the server's verdict. Each recipe opens with **Set:**, naming what to
+reach for or noting that nothing needs setting. Every one links to what explains it in full; a
+sample page follows where one demonstrates it. Chasing a symptom instead of a goal?
 [Troubleshooting](troubleshooting.md) answers by symptom.
 
 ### I want to validate while typing, on blur, or only at submit
@@ -763,7 +763,7 @@ visual order are the same answer.
 
 ### I want my own summary markup
 
-**Set:** nothing, in most cases — check first that
+**Set:** nothing, in most cases. Check first that
 [`FormidableSummary`](component-kit.md#formidablesummary) cannot be shaped into what you want.
 `ItemTemplate`, `GroupByField` and `MaxItems` with `OverflowTemplate` between them give a field-name
 list, deduplicated and capped. The click is none of their business: the component wires every entry
@@ -852,7 +852,7 @@ What the shipped component knows, yours has to know too:
   your list and the shipped summary together.
 - **The order is the page's under `FormidableForm`,** which resolves where the fields sit.
   `FormidableValidator` resolves no order, so a list inside someone else's `EditForm` arrives in
-  validator order.
+  the engine's own order ([Component kit](component-kit.md#the-order-entries-appear-in)).
 - **Focus goes through `IFormidableFocusService`,** whose currency is the `FieldIdentifier` your
   entry already holds. `FormidableSummary`'s miss recovery is not free: reading the `false` and
   retrying once the element is reachable is yours.
