@@ -507,6 +507,26 @@ less motion gets the animation anyway. Watch what else the declaration catches, 
 `scrollTop`, or calling `scrollTo` without an explicit `behavior`, animates once the box is smooth,
 which is rarely what a programmatic jump wants.
 
+A sticky header needs one more declaration. A target taller than 60% of the viewport aligns to its
+top, which puts it under the header. Give the element the move scrolls a `scroll-margin-top` of the
+header's height: the field's message list where one renders, otherwise the element carrying the
+field's id. A margin on the field does nothing while its message list is the one scrolled.
+
+```css
+:root {
+    --site-header-height: 4rem;
+}
+
+/* The message lists, and any tall element of yours that carries a field's id. */
+.formidable-message-list,
+.field-group {
+    scroll-margin-top: var(--site-header-height);
+}
+```
+
+A `scroll-padding-top` of the same height on `html` gives that room to whatever the page scrolls into
+view, message list or field.
+
 ### How do I send focus to something that is not an input?
 
 Give any element the field's `FormidableFieldId.For(...)` id and a `tabindex="-1"` so it can hold
