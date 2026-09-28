@@ -86,4 +86,104 @@ public sealed class FormidableFieldContext
 
     /// <summary>Marks the field touched from a custom input's blur handler, without reporting a value change, so its classes update and no check runs.</summary>
     public void MarkTouched() => _engine.MarkTouched(Field);
+
+    /// <summary>Adds <paramref name="item"/> to <paramref name="list"/> and, unless <paramref name="list"/> is a set that already holds it, reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the collection with the item in place.</summary>
+    /// <typeparam name="TItem">The collection's item type.</typeparam>
+    /// <param name="list">The collection this field names: a list, a set, or an entity's navigation collection.</param>
+    /// <param name="item">The item to add.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="list"/> is <see langword="null"/>.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="list"/> cannot grow, as an array cannot. The exception is the collection's own, and nothing is reported.</exception>
+    /// <remarks>
+    /// An <see cref="ISet{T}"/> reports only when its own <see cref="ISet{T}.Add(T)"/> returns
+    /// <see langword="true"/>; any other collection always reports. Pass the collection
+    /// <see cref="Field"/> names; nothing checks it. Another collection is edited all the same, and
+    /// the change is still reported for this field.
+    /// </remarks>
+    public void AddItem<TItem>(ICollection<TItem> list, TItem item)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        if (list is ISet<TItem> set)
+        {
+            if (!set.Add(item))
+            {
+                return;
+            }
+        }
+        else
+        {
+            list.Add(item);
+        }
+
+        NotifyChanged();
+    }
+
+    /// <summary>Removes <paramref name="item"/> from <paramref name="list"/> and, when it was there, reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the collection without it.</summary>
+    /// <typeparam name="TItem">The collection's item type.</typeparam>
+    /// <param name="list">The collection this field names.</param>
+    /// <param name="item">The item to remove.</param>
+    /// <returns><see langword="true"/> when an item went; <see langword="false"/> when a list holds no match or the collection's own <see cref="ICollection{T}.Remove(T)"/> returned <see langword="false"/>, and then nothing is reported.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="list"/> is <see langword="null"/>.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="list"/> is a list that holds the item but cannot shrink, as an array cannot; or a collection that is not a list refuses its own <see cref="ICollection{T}.Remove(T)"/>, as a dictionary's <see cref="Dictionary{TKey, TValue}.Keys"/> does whether or not it holds the item. The exception is the collection's own, and nothing is reported.</exception>
+    /// <remarks>
+    /// In an <see cref="IList{T}"/>, the first element matching <paramref name="item"/> goes. When
+    /// <typeparamref name="TItem"/> is a value type or <see cref="string"/>, an equal value matches;
+    /// for any other <typeparamref name="TItem"/>, only the same instance does, so of two rows that
+    /// compare equal, the one passed goes. Any other collection, such as a set, removes by its own
+    /// <see cref="ICollection{T}.Remove(T)"/>. Pass the collection <see cref="Field"/> names;
+    /// nothing checks it. Another collection is edited all the same, and the change is still
+    /// reported for this field.
+    /// </remarks>
+    public bool RemoveItem<TItem>(ICollection<TItem> list, TItem item)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        if (list is IList<TItem> indexed)
+        {
+            var index = IndexOfMatch(indexed, item);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            indexed.RemoveAt(index);
+        }
+        else if (!list.Remove(item))
+        {
+            return false;
+        }
+
+        NotifyChanged();
+        return true;
+    }
+
+    // The rule keys on TItem, not on each item's own type. A value type or a string matches by
+    // value: a boxed value is a new object on every call, and a tag typed into an input arrives
+    // as a new string. Any other TItem (a class, an interface, object) matches by reference,
+    // because a row's messages follow its instance: two rows that compare equal are still two
+    // rows.
+    private static int IndexOfMatch<TItem>(IList<TItem> list, TItem item)
+    {
+        if (typeof(TItem).IsValueType || typeof(TItem) == typeof(string))
+        {
+            var comparer = EqualityComparer<TItem>.Default;
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (comparer.Equals(list[i], item))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (ReferenceEquals(list[i], item))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }

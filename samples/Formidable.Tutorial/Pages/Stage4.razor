@@ -39,11 +39,11 @@
                     </label>
                     <FormidableFieldMessage For="() => member.Email" />
 
-                    <button type="button" @onclick="() => RemoveMember(_contact.Members, member, membersField)">Remove</button>
+                    <button type="button" @onclick="() => membersField.RemoveItem(_contact.Members, member)">Remove</button>
                 </div>
             }
 
-            <button type="button" @onclick="() => AddMember(_contact.Members, membersField)">Add member</button>
+            <button type="button" @onclick="() => membersField.AddItem(_contact.Members, new Member())">Add member</button>
         </FormidableField>
 
         <button type="submit">Submit</button>
@@ -78,21 +78,6 @@
     {
         var result = await Validator.ValidateAsync(_contact, ValidationProfile.Draft);
         _draftFailureCount = result.Errors.Count;
-    }
-
-    // Adding or removing a row mutates the list directly, and an edit the engine never hears
-    // about starts no live check - NotifyChanged() engages the field, so the live check it starts
-    // answers "Add at least one member" the moment the last row leaves.
-    private static void AddMember(List<Member> members, FormidableFieldContext field)
-    {
-        members.Add(new Member());
-        field.NotifyChanged();
-    }
-
-    private static void RemoveMember(List<Member> members, Member member, FormidableFieldContext field)
-    {
-        members.Remove(member);
-        field.NotifyChanged();
     }
 
     public class Contact

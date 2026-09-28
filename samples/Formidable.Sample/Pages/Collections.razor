@@ -60,15 +60,15 @@
                                     <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
                                     <FormidableFieldMessage For="() => member.Alias" />
                                     <div class="actions">
-                                        <button type="button" @onclick="() => RemoveItem(team.Members, member, membersField)">Remove</button>
+                                        <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
                                         <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
                                     </div>
                                 </li>
                             }
                         </ul>
                         <div class="actions">
-                            <button type="button" @onclick="() => AddItem(team.Members, new Member(), membersField)">Add member</button>
-                            <button type="button" @onclick="() => RemoveItem(_roster.Teams, team, teamsField)">Remove team</button>
+                            <button type="button" @onclick="() => membersField.AddItem(team.Members, new Member())">Add member</button>
+                            <button type="button" @onclick="() => teamsField.RemoveItem(_roster.Teams, team)">Remove team</button>
                             <button type="button" @onclick="() => MoveUp(_roster.Teams, team, teamsField)">Move team up</button>
                         </div>
                     </fieldset>
@@ -77,7 +77,7 @@
         </div>
 
         <div class="actions">
-            <button type="button" @onclick="() => AddItem(_roster.Teams, new Team(), teamsField)">Add team</button>
+            <button type="button" @onclick="() => teamsField.AddItem(_roster.Teams, new Team())">Add team</button>
             <button type="submit">Submit</button>
         </div>
     </FormidableField>

@@ -26,26 +26,14 @@ public partial class Collections
 
     private void HandleValid() => _status = "Submitted — every row passed.";
 
-    // Add, Remove and MoveUp all mutate a list directly, and an edit the engine never hears
-    // about starts no live check - so each handler notifies the field context afterward.
-    // NotifyChanged() engages the field, and the live check it starts answers only the fields
-    // such notifications have engaged. A rule that starts or stops failing because of the
-    // edit, "every team needs at least one member" going red the moment the last one leaves,
-    // needs a fresh check to say so; no prune can invent an issue no check produced. MoveUp
-    // notifies too, for the same contract, even though reordering doesn't change what any rule
-    // here has to say.
-    private static void AddItem<T>(List<T> list, T item, FormidableFieldContext field)
-    {
-        list.Add(item);
-        field.NotifyChanged();
-    }
-
-    private static void RemoveItem<T>(List<T> list, T item, FormidableFieldContext field)
-    {
-        list.Remove(item);
-        field.NotifyChanged();
-    }
-
+    // An edit the engine never hears about starts no live check. The Add and Remove buttons go
+    // through the field context's AddItem and RemoveItem, which edit the list and then notify.
+    // A reorder has no such call, so MoveUp edits the list and then calls NotifyChanged() itself,
+    // even though reordering doesn't change what any rule here has to say. NotifyChanged()
+    // engages the field, and the live check it starts answers only the fields such notifications
+    // have engaged. A rule that starts or stops failing because of the edit, "every team needs at
+    // least one member" going red the moment the last one leaves, needs a fresh check to say so;
+    // no prune can invent an issue no check produced.
     private static void MoveUp<T>(List<T> list, T item, FormidableFieldContext field)
     {
         var index = list.IndexOf(item);

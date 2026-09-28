@@ -1073,6 +1073,7 @@ no markup of its own: it registers its field, and hands its `ChildContent` a fre
 |---|---|
 | You splat `field.InputAttributes` | The `id`, the state class and the aria attributes; `NotifyChanged()` stays your handler's: only your markup knows which event commits the value. |
 | You call `MarkTouched()` alone | The field goes touched with no check ever running, which looks like validation quietly doing nothing. |
+| You hand `AddItem` or `RemoveItem` a list the field does not name | That list is edited all the same, and the change is reported for this field: nothing checks that the two match. |
 
 What the context carries:
 
@@ -1089,6 +1090,10 @@ What the context carries:
 | `InputAttributes` | `id` and `class`, plus `aria-invalid`, `aria-describedby` and `aria-required` where each applies, bundled for one `@attributes` splat. |
 | `NotifyChanged()` | States that a committed value change happened: it marks the field touched, engages it, and starts a live check, or `LiveDebounce`'s wait where one is set. |
 | `MarkTouched()` | Marks the field touched without notifying a change, for a blur or focus-out handler. |
+| `AddItem(list, item)` | Adds `item` to `list`, then does what `NotifyChanged()` does. `list` is any collection: a `List<T>`, a `HashSet<T>`, an entity's navigation collection. A set reports only when it takes the item, so adding one it already holds reports nothing. Pass the collection the field names. One that cannot grow, such as an array, throws its own exception and nothing is reported. |
+| `RemoveItem(list, item)` | When `list` holds a match for `item`, removes it, does what `NotifyChanged()` does, and returns `true`. In a list the first match goes: in a list of a value type (a struct or an enum) or of strings, an equal value matches; in a list of any other item type (a class, an interface, `object`), only the instance itself does. A collection that is not a list, such as a set, removes by its own rule. When a list holds no match, or a collection's own rule removes nothing, it returns `false` and reports nothing. A list that cannot shrink, such as an array, throws its own exception only when it holds the row. A read-only collection that is not a list, such as a dictionary's `Keys`, throws its own exception whether or not it holds the row. |
+
+Any other list edit, such as a reorder, calls `NotifyChanged()` after it.
 
 ### Naming a field whose type your own component doesn't know
 

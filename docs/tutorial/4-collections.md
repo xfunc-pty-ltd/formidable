@@ -45,15 +45,22 @@ Render one block per member, inside a `FormidableField` wrapping the whole list:
             </label>
             <FormidableFieldMessage For="() => member.Email" />
 
-            <button type="button" @onclick="() => RemoveMember(_contact.Members, member, membersField)">Remove</button>
+            <button type="button" @onclick="() => membersField.RemoveItem(_contact.Members, member)">Remove</button>
         </div>
     }
 
-    <button type="button" @onclick="() => AddMember(_contact.Members, membersField)">Add member</button>
+    <button type="button" @onclick="() => membersField.AddItem(_contact.Members, new Member())">Add member</button>
 </FormidableField>
 ```
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
+
+`FormidableField` renders no markup of its own. It hands its content the list's field context,
+`membersField`, and the Add and Remove buttons call `AddItem` and `RemoveItem` on it.
+
+Each call edits the list and tells the form, so a rule on the list itself answers before a submit.
+An edit the form never hears about starts no live check, which is why the buttons go through the
+context. For any other edit to the list, call `membersField.NotifyChanged()` after it.
 
 Two habits keep each row's messages on that row. Key the row's root element by the row instance —
 `@key="member"`, never the loop index. And write every `For` lambda as a closure over that same
@@ -67,28 +74,6 @@ builder.Services.AddFormidableBlazor(options => options.VerifyRowKeys = builder.
 ```
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Program.cs` -->
-
-`FormidableField` renders no markup of its own. It hands its content the list's field context, which
-the Add and Remove buttons pass along to their handlers:
-
-```razor
-private static void AddMember(List<Member> members, FormidableFieldContext field)
-{
-    members.Add(new Member());
-    field.NotifyChanged();
-}
-
-private static void RemoveMember(List<Member> members, Member member, FormidableFieldContext field)
-{
-    members.Remove(member);
-    field.NotifyChanged();
-}
-```
-
-<!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
-
-Adding or removing a row edits the list directly. An edit the engine never hears about starts no
-live check, so `NotifyChanged()` tells it.
 
 ## Give each row its rules
 
@@ -158,7 +143,7 @@ Remove both rows and the message lands there straight away, before you submit.
 
 - `RuleForEach(...).ChildRules(...)` gives a row its own rules, split by bucket like any field's.
 - `@key` by instance, and `For` closed over that instance, keep each message on its own row.
-- A page that edits the list itself calls `NotifyChanged()`.
+- `AddItem` and `RemoveItem` on the list's field context edit the list and tell the form.
 - A collection-level rule needs `FormidableCollectionMessage` to have anywhere to appear.
 
 **Compare your work:** [`/stage4`](../../samples/Formidable.Tutorial/Pages/Stage4.razor) in
