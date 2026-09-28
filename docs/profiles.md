@@ -140,6 +140,10 @@ without any validator declaring them. The check rides the profile-taking `Valida
 overloads `ValidatorProfileExtensions` adds, so a plain `AbstractValidator<T>` called through them
 is not covered.
 
+A plain validator gets a `Trace` line instead, once per validator type and profile, when a profile
+that leaves out the default rules selects none of its rules. The form, the server filters and the
+`ValidatorProfileExtensions` overloads all write it.
+
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a third,
 custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
 

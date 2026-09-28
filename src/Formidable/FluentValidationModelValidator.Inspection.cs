@@ -145,8 +145,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
             typeof(TModel),
             string.Empty,
             conditional: false,
-            BuildProfileSelector(profile),
-            CreateSelectionContext(),
+            ProfileRuleSelection.BuildProfileSelector(profile),
+            ProfileRuleSelection.CreateSelectionContext<TModel>(),
             declared,
             new HashSet<object>(ReferenceEqualityComparer.Instance));
 

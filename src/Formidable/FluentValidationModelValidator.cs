@@ -92,15 +92,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
         var abstractValidator = RequireRuleLevelCapability();
         VerifyRuleSets(profile);
 
-        var selector = BuildProfileSelector(profile);
-        var selectionContext = CreateSelectionContext();
         var selected = new List<RuleIdentity>();
-        foreach (var rule in (IEnumerable<IValidationRule>)abstractValidator)
+        foreach (var rule in ProfileRuleSelection.RulesSelectedBy<TModel>(abstractValidator, profile))
         {
-            if (selector.CanExecute(rule, string.Empty, selectionContext))
-            {
-                selected.Add(new RuleIdentity(rule));
-            }
+            selected.Add(new RuleIdentity(rule));
         }
 
         // Every caller is handed the filed instance itself. What keeps one caller from altering
@@ -391,24 +386,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return string.Join('\u0000', sorted);
     }
 
-    /// <summary>Runs the wrapped validator's ruleset-name verification where it has one, so a misnamed ruleset fails here as it does when validating.</summary>
+    /// <summary>Checks <paramref name="profile"/> as validating under it does: a misnamed ruleset on a <see cref="ProfiledValidator{T}"/> fails here too, and a plain validator that a profile leaving out the default rules selects no rule of is named in Trace, once per validator type and profile.</summary>
     /// <param name="profile">The profile whose ruleset names are checked.</param>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
     private void VerifyRuleSets(ValidationProfile profile) =>
-        ProfiledValidator<TModel>.VerifyRuleSetsIfProfiled(_validator, profile);
-
-    /// <summary>The profile's selector, built by FluentValidation's global ruleset-selector factory from <see cref="ValidationProfile.ToRuleSetNames"/>.</summary>
-    /// <param name="profile">The profile to build the selector for.</param>
-    /// <returns>The selector the factory returns for the profile's names.</returns>
-    /// <remarks>
-    /// A consumer who replaces <c>ValidatorOptions.Global.ValidatorSelectors.RulesetValidatorSelectorFactory</c>
-    /// changes what this validator selects and what a full validation selects together.
-    /// </remarks>
-    // The very list ValidatorProfileExtensions names on its validation strategy, so the two
-    // selections read one profile once rather than agreeing by discipline; the strategy resolves
-    // its own selector through the same factory.
-    private static IValidatorSelector BuildProfileSelector(ValidationProfile profile) =>
-        ValidatorOptions.Global.ValidatorSelectors.RulesetValidatorSelectorFactory(profile.ToRuleSetNames());
+        ProfiledValidator<TModel>.CheckProfile(_validator, profile);
 
     /// <summary>The stock <see cref="RulesetValidatorSelector"/> for the profile's names, which <see cref="RuleSetSelector"/> delegates child-context decisions to.</summary>
     /// <param name="profile">The profile to build the selector for.</param>
@@ -416,16 +398,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // The shape a full validation produces while the global factory is unreplaced.
     private static RulesetValidatorSelector BuildWholeProfileSelector(ValidationProfile profile) =>
         new(profile.ToRuleSetNames());
-
-    /// <summary>A model-less context for selection questions; the stock selector reads only the rule and its own name list.</summary>
-    /// <returns>A context whose model is <see langword="null"/>.</returns>
-    /// <remarks>
-    /// A replaced selector factory (<see cref="BuildProfileSelector"/>) whose selector reads the
-    /// model reads <see langword="null"/> here.
-    /// </remarks>
-    // FluentValidation's ruleset selector answers from the rule's memberships and its own name
-    // list, using the context only as a scratchpad for bookkeeping it never reads back.
-    private static ValidationContext<TModel> CreateSelectionContext() => new(default!);
 
     private AbstractValidator<TModel> RequireRuleLevelCapability()
     {

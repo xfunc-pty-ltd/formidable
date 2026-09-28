@@ -15,12 +15,17 @@ public static class ValidatorProfileExtensions
     /// <exception cref="ArgumentNullException"><paramref name="validator"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
     /// <exception cref="AsyncValidatorInvokedSynchronouslyException">A rule <paramref name="profile"/> selects reaches an async validator or an async condition.</exception>
-    /// <remarks>A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first; any other validator is not checked.</remarks>
+    /// <remarks>
+    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. When a
+    /// profile that leaves out the default rules selects no rule of a plain
+    /// <see cref="AbstractValidator{T}"/>, one Trace line says so, once per validator type and
+    /// profile in a process.
+    /// </remarks>
     public static ValidationResult Validate<T>(this IValidator<T> validator, T model, ValidationProfile profile)
     {
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(profile);
-        ProfiledValidator<T>.VerifyRuleSetsIfProfiled(validator, profile);
+        ProfiledValidator<T>.CheckProfile(validator, profile);
 
         return validator.Validate(BuildContext(model, profile));
     }
@@ -34,13 +39,18 @@ public static class ValidatorProfileExtensions
     /// <returns>FluentValidation's result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="validator"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
-    /// <remarks>A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first; any other validator is not checked.</remarks>
+    /// <remarks>
+    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. When a
+    /// profile that leaves out the default rules selects no rule of a plain
+    /// <see cref="AbstractValidator{T}"/>, one Trace line says so, once per validator type and
+    /// profile in a process.
+    /// </remarks>
     public static Task<ValidationResult> ValidateAsync<T>(
         this IValidator<T> validator, T model, ValidationProfile profile, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(profile);
-        ProfiledValidator<T>.VerifyRuleSetsIfProfiled(validator, profile);
+        ProfiledValidator<T>.CheckProfile(validator, profile);
 
         return validator.ValidateAsync(BuildContext(model, profile), cancellationToken);
     }
