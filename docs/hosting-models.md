@@ -157,3 +157,38 @@ Formidable ships nothing for this, deliberately. The sample app that ships with 
 the few lines in the open.
 
 **Read more:** [Culture at WebAssembly boot](component-kit.md#culture-at-webassembly-boot)
+
+## Trimming and AOT
+
+All three packages are marked trimmable. A WebAssembly publish trims `Formidable` and
+`Formidable.Blazor` along with the framework's own assemblies; `Formidable.AspNetCore` is a server
+package. `Formidable` and `Formidable.Blazor` are also marked AOT-compatible. `Formidable.AspNetCore`
+is not.
+
+| Package | Trimmable | AOT-compatible |
+|---|---|---|
+| `Formidable` | yes | yes |
+| `Formidable.Blazor` | yes | yes |
+| `Formidable.AspNetCore` | yes | no |
+
+AOT-compatible means an app published with Native AOT gets no trimming or AOT warning from inside
+that package. `Formidable.AspNetCore` is not marked because `[Validate]` looks up a validator for
+each action argument's type while the app runs, which builds generic types at run time. The
+`Validate<TModel>()` endpoint filter does none of that, but the package is unmarked as a whole, so
+treat a Native AOT app using the filter as untested.
+
+Trimming asks two things of an app. The first is how it reads a 400 body: through
+`FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`, not the generic
+`ReadFromJsonAsync<T>()`, because trimmed output cannot read the type by reflection
+([How does a 400 reach the client](server-integration.md#how-does-a-400-reach-the-client-and-what-shape-must-it-have)
+shows the call).
+
+The second is about your model. A form reads your model's properties by name, through the
+registered `IModelIntrospector`. By default a WebAssembly publish trims only assemblies marked
+trimmable (`TrimMode` is `partial`), so your model's assembly stays whole and needs nothing. Any
+publish that trims your own assemblies as well, such as a WebAssembly one with `TrimMode` set to
+`full`, needs an `IModelIntrospector` of your own, registered before `AddFormidableBlazor()`.
+
+A WebAssembly AOT publish (`RunAOTCompilation`) of an app using the core and Blazor packages
+succeeds with no warnings, and compiles both packages ahead of time with the rest of the app. AOT
+multiplies the runtime's download several times over.
