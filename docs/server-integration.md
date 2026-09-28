@@ -71,7 +71,9 @@ it sends back.
 ## What happens to a server error when I edit the field?
 
 It stays, until the whole form is re-checked. Your edit's own live check leaves a message the
-server put there standing, whatever the edit did to the value.
+server put there standing, whatever the edit did to the value. The re-check runs the form's own
+validator and does not send the form back to the endpoint that raised the error, so the error
+clearing does not mean that server accepts the new value.
 
 The server's verdict stands until a newer whole-form answer replaces it: the whole-form re-check
 (behind the next committed edit, or a change to which fields are on screen), the next submit, or a

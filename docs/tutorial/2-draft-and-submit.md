@@ -119,7 +119,8 @@ the validator you already registered, and what comes back is FluentValidation's 
 `Errors` lists everything the draft rules found.
 
 A draft save skips the form's submit pipeline. It is a plain call against the validator, so nothing
-on the form changes but the count.
+on the form changes but the count. In your own handler, save the draft only when the check found
+nothing (`result.Errors.Count == 0`).
 
 Run it. Click **Save draft** with the form empty, and the readout says `0 finding(s)`. Nothing is
 malformed yet, and presence is a submit question.

@@ -114,6 +114,8 @@ the `Valid` class stays honest, with no second submit.
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.RefreshDebounce = TimeSpan.FromMilliseconds(500));`.
+`TimeSpan.Zero` re-checks as soon as the edit is committed; only `Timeout.InfiniteTimeSpan` turns
+the re-check off.
 
 Before the first submit or server reply, an edit gets one live check, which answers every field
 you have engaged, and no whole-form re-check follows it. A change to which fields are on screen (a
@@ -143,6 +145,9 @@ one field's rule is the expensive one, leave `LiveDebounce` unset and let that i
 once ([stop the check firing on every keystroke](async-validation.md#how-do-i-stop-the-check-firing-on-every-keystroke)),
 and a memo answers the expensive rule's repeat asks
 ([remember its answer](recipes.md#i-want-a-slow-async-check-to-remember-its-answer)).
+
+`LiveDebounce` and a memo work together: the wait cuts how often the check runs, and the memo cuts
+what asking again about the same value costs.
 
 With `TrackFormValidity` on, its validity check waits for the same window, and after a submit the
 same edit starts the whole-form re-check's own wait as well.

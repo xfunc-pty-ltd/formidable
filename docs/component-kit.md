@@ -737,7 +737,9 @@ Where the rules cannot be read, the marker is what an option says instead:
 ## `FormidableSummary`
 
 Renders a live, severity-grouped list of the currently visible issues across the form: every one of
-them until you say otherwise.
+them until you say otherwise. Within each group, entries follow the page's order under
+`FormidableForm` and the engine's own order under `FormidableValidator`
+([The order entries appear in](#the-order-entries-appear-in)).
 
 | Parameter | Type | Default | One line |
 |---|---|---|---|
