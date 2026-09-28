@@ -5,7 +5,7 @@ using FluentValidation.Validators;
 
 namespace Formidable;
 
-/// <summary>Checks once per process that the loaded FluentValidation assembly carries the four members rule inspection reads by name.</summary>
+/// <summary>Checks once per process that the loaded FluentValidation assembly carries the four members rule inspection reads by name, and keeps them for the reading.</summary>
 /// <remarks>
 /// The members are <c>ChildValidatorAdaptor&lt;T, TProperty&gt;</c>'s <c>GetValidator</c> and
 /// <c>RuleSets</c> and <c>ICollectionRule&lt;T, TElement&gt;</c>'s <c>Filter</c> and
@@ -21,43 +21,60 @@ namespace Formidable;
 // anywhere. This check turns that silence into an honest "cannot tell".
 internal static class FluentValidationInspectionSurface
 {
-    // The four by-name reads the inspection walk performs, named once here and shared with the
-    // walk (FluentValidationModelValidator.Inspection.cs) so the guard and the walk cannot drift
-    // to different names of the same member.
-    internal const string GetValidatorMethod = "GetValidator";
-    internal const string RuleSetsProperty = "RuleSets";
+    // The four by-name reads, named once here. The walk (FluentValidationModelValidator.Inspection.cs)
+    // reads the adaptor's two through Members and the row filter's two by these same names, so
+    // the guard and the walk cannot drift to different members.
+    private const string GetValidatorMethod = "GetValidator";
+    private const string RuleSetsProperty = "RuleSets";
     internal const string FilterProperty = "Filter";
     internal const string AsyncFilterProperty = "AsyncFilter";
 
     // Lazy, so the reflection runs on the first inspection ask rather than at type load, and
     // in its default ExecutionAndPublication mode, so the check runs once per process and the
     // diagnostic inside it cannot repeat.
-    private static readonly Lazy<bool> Verified = new(Verify);
+    private static readonly Lazy<InspectionMembers?> Found = new(Verify);
+
+    /// <summary>The members the check found, each declared on its open generic type; <see langword="null"/> when any one is missing.</summary>
+    internal static InspectionMembers? Members => Found.Value;
 
     /// <summary>Whether every member the inspection walk reads by name was found.</summary>
-    internal static bool Intact => Verified.Value;
+    internal static bool Intact => Members is not null;
+
+    /// <summary>The four members, as found on the open generic types the walk closes.</summary>
+    /// <param name="GetValidator"><c>ChildValidatorAdaptor&lt;T, TProperty&gt;.GetValidator</c>.</param>
+    /// <param name="RuleSets"><c>ChildValidatorAdaptor&lt;T, TProperty&gt;.RuleSets</c>.</param>
+    /// <param name="Filter"><c>ICollectionRule&lt;T, TElement&gt;.Filter</c>.</param>
+    /// <param name="AsyncFilter"><c>ICollectionRule&lt;T, TElement&gt;.AsyncFilter</c>.</param>
+    internal sealed record InspectionMembers(
+        MethodInfo GetValidator,
+        PropertyInfo RuleSets,
+        PropertyInfo Filter,
+        PropertyInfo AsyncFilter);
 
     /// <summary>Looks each by-name member up on the open generic type the walk closes, counting a lookup that throws as not found.</summary>
-    /// <returns><see langword="true"/> when all four members were found.</returns>
-    // The same route the walk takes, so what this finds is what the walk will find; a member
-    // the reflection cannot single out is one the walk cannot read, whatever the reason.
-    internal static bool Verify()
+    /// <returns>The four members when all were found; otherwise <see langword="null"/>.</returns>
+    // Each lookup names its open type with a literal typeof, which is what keeps the trimmer from
+    // removing the member. A member the reflection cannot single out is one the walk cannot read,
+    // whatever the reason.
+    internal static InspectionMembers? Verify()
     {
-        bool intact;
+        InspectionMembers? members;
         try
         {
-            intact =
-                typeof(ChildValidatorAdaptor<,>).GetMethod(GetValidatorMethod, BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ChildValidatorAdaptor<,>).GetProperty(RuleSetsProperty, BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ICollectionRule<,>).GetProperty(FilterProperty, BindingFlags.Public | BindingFlags.Instance) is not null
-                && typeof(ICollectionRule<,>).GetProperty(AsyncFilterProperty, BindingFlags.Public | BindingFlags.Instance) is not null;
+            members =
+                typeof(ChildValidatorAdaptor<,>).GetMethod(GetValidatorMethod, BindingFlags.Public | BindingFlags.Instance) is { } getValidator
+                && typeof(ChildValidatorAdaptor<,>).GetProperty(RuleSetsProperty, BindingFlags.Public | BindingFlags.Instance) is { } ruleSets
+                && typeof(ICollectionRule<,>).GetProperty(FilterProperty, BindingFlags.Public | BindingFlags.Instance) is { } filter
+                && typeof(ICollectionRule<,>).GetProperty(AsyncFilterProperty, BindingFlags.Public | BindingFlags.Instance) is { } asyncFilter
+                    ? new InspectionMembers(getValidator, ruleSets, filter, asyncFilter)
+                    : null;
         }
         catch (Exception)
         {
-            intact = false;
+            members = null;
         }
 
-        if (!intact)
+        if (members is null)
         {
             System.Diagnostics.Trace.WriteLine(
                 "Formidable: the resolved FluentValidation assembly is missing members rule inspection " +
@@ -67,6 +84,6 @@ internal static class FluentValidationInspectionSurface
                 "inside the range this Formidable release declares.");
         }
 
-        return intact;
+        return members;
     }
 }

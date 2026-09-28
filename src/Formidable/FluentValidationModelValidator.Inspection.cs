@@ -289,13 +289,21 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // this rule carry a row filter at all", asked once per rule rather than once per question.
     // The closed interface is built from a literal typeof so the trimmer keeps the interface both
     // callers' instance tests need. A model/element pair that cannot close the interface answers
-    // null the same as a rule that is not one; MakeGenericType has no constraints to fail
-    // against on this interface, so the narrow catch is defensive rather than load-bearing. The
-    // return carries a PublicProperties annotation for HasRowFilter's sake: the trimmer already
-    // keeps the closed interface's full member set once it is constructed from a literal typeof,
-    // but that provenance does not survive crossing a method boundary as a plain Type without
-    // one.
+    // null the same as a rule that is not one. MakeGenericType has no constraints to fail against
+    // on this interface, and Native AOT hands back a type to test even for a pair it has no code
+    // for, so both caught exceptions are defensive rather than load-bearing. The return carries a
+    // PublicProperties annotation for HasRowFilter's sake: the trimmer already keeps the closed
+    // interface's full member set once it is constructed from a literal typeof, but that
+    // provenance does not survive crossing a method boundary as a plain Type without one.
     [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)]
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "The built type is only tested against a live rule, and read for two " +
+            "properties when the test passes. A rule implementing the interface carries that " +
+            "closed type in its own type, so the test meets the type the rule implements. For " +
+            "any other pair nothing is instantiated from the type, and a NotSupportedException " +
+            "from a runtime that will not build it answers null like a failed test.")]
     private static Type? CollectionRuleTypeOf(IValidationRule rule, Type modelType)
     {
         try
@@ -304,7 +312,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 .MakeGenericType(modelType, rule.TypeToValidate);
             return collectionRuleType.IsInstanceOfType(rule) ? collectionRuleType : null;
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
         {
             return null;
         }
@@ -361,13 +369,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// read like any other child.
     /// </remarks>
     // FluentValidation exposes both through ChildValidatorAdaptor<T, TProperty>, the GetValidator
-    // method and the public RuleSets property its published XML docs do not mention, whose closed
-    // type is built from a literal typeof, which is what keeps the trimmer from removing the
-    // members this reads. The call needs a context, and there is no model, so it passes one
-    // carrying none: an adaptor holding a validator instance ignores it and hands the validator
-    // back; one holding a factory runs that factory against a model that is not there. Every
-    // failure lands in the same place (no child, so no paths from it) because an inspection
-    // answer decorates a form and a missing decoration beats a thrown render.
+    // method and the public RuleSets property its published XML docs do not mention. The surface
+    // check finds each once, on the open type named by a literal typeof (which is what keeps the
+    // trimmer from removing it), and the reading matches it to the closed type the live adaptor
+    // already has. The call needs a context, and there is no model, so it passes one carrying
+    // none: an adaptor holding a validator instance ignores it and hands the validator back; one
+    // holding a factory runs that factory against a model that is not there. Every failure lands
+    // in the same place (no child, so no paths from it) because an inspection answer decorates a
+    // form and a missing decoration beats a thrown render.
     // Answers are remembered per component, including "cannot be had": a component is one
     // declaration on one rule of one validator, and this validator's rules are fixed once it is
     // constructed, so the child behind a component cannot change. That keeps a caller asking per
@@ -385,28 +394,55 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return resolved;
     }
 
+    // ValidationContext<T>'s one-argument constructor, found on the open type by a literal typeof
+    // so the trimmer keeps it, and matched on each read to the closed context type GetValidator
+    // takes. It is public FluentValidation API, not one of the by-name reads the surface check
+    // vouches for, so its absence is tested here and leaves the child unread.
+    private static readonly ConstructorInfo? OpenContextConstructor =
+        typeof(ValidationContext<>).GetConstructor([typeof(ValidationContext<>).GetGenericArguments()[0]]);
+
+    // Every closed type this touches is read off the live adaptor rather than built from type
+    // arguments. An adaptor closed over another pair than the walk carries, which is what a child
+    // met below a validator written for a base type has, is left unread: the walk tests that
+    // validator's rules against the property's type rather than the base type they were written
+    // for, so a collection rule there does not read as one and its child would be filed under
+    // the wrong path.
     private static ChildReading ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
     {
         try
         {
-            var adaptor = typeof(ChildValidatorAdaptor<,>).MakeGenericType(modelType, propertyType);
-            var getValidator = adaptor.GetMethod(FluentValidationInspectionSurface.GetValidatorMethod, BindingFlags.Public | BindingFlags.Instance);
-            if (getValidator is null)
+            var adaptor = ClosedAdaptorTypeOf(component.Validator);
+            if (adaptor is null
+                || adaptor.GetGenericArguments() is not [var judged, var child]
+                || judged != modelType
+                || child != propertyType)
             {
                 return ChildReading.Unreadable;
             }
 
-            var context = Activator.CreateInstance(
-                typeof(ValidationContext<>).MakeGenericType(modelType), [null]);
+            // The walk runs only while the surface is intact, so the members are there. Were that
+            // ever not so, the dereference would throw into the catch below and read as unreadable.
+            var members = FluentValidationInspectionSurface.Members!;
+            var getValidator = (MethodInfo)adaptor.GetMemberWithSameMetadataDefinitionAs(members.GetValidator);
+
+            // GetValidator's first parameter is the context type it takes, ValidationContext<T>
+            // for the adaptor's T; the open type's one-argument constructor is matched to that
+            // closed one.
+            var contextType = getValidator.GetParameters()[0].ParameterType;
+            if (OpenContextConstructor is null)
+            {
+                return ChildReading.Unreadable;
+            }
+
+            var context = ((ConstructorInfo)contextType.GetMemberWithSameMetadataDefinitionAs(OpenContextConstructor)).Invoke([null]);
 
             if (getValidator.Invoke(component.Validator, [context, null]) is not IValidator validator)
             {
                 return ChildReading.Unreadable;
             }
 
-            var ruleSets = adaptor
-                .GetProperty(FluentValidationInspectionSurface.RuleSetsProperty, BindingFlags.Public | BindingFlags.Instance)
-                ?.GetValue(component.Validator) as string[];
+            var ruleSets = ((PropertyInfo)adaptor.GetMemberWithSameMetadataDefinitionAs(members.RuleSets))
+                .GetValue(component.Validator) as string[];
 
             return new ChildReading(validator, ruleSets);
         }
@@ -414,6 +450,25 @@ public sealed partial class FluentValidationModelValidator<TModel>
         {
             return ChildReading.Unreadable;
         }
+    }
+
+    /// <summary>The closed <c>ChildValidatorAdaptor&lt;,&gt;</c> in the validator's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
+    /// <param name="validator">The component's validator.</param>
+    /// <returns>The closed adaptor type, or <see langword="null"/>.</returns>
+    // The base types are walked because the adaptor is open to subclassing (FluentValidation's own
+    // polymorphic child validator is a subclass), and a subclass is read through the adaptor's
+    // members like the adaptor itself.
+    private static Type? ClosedAdaptorTypeOf(object validator)
+    {
+        for (var type = validator.GetType(); type is not null; type = type.BaseType)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ChildValidatorAdaptor<,>))
+            {
+                return type;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Whether the component is a <c>NotEmpty()</c> or <c>NotNull()</c> validator, by the marker interface FluentValidation gives each.</summary>

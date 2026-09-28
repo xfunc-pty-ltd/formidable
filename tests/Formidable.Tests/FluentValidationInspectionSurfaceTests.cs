@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using FluentValidation;
+using FluentValidation.Validators;
 
 namespace Formidable.Tests;
 
@@ -14,8 +16,28 @@ public class FluentValidationInspectionSurfaceTests
     [Fact]
     public void The_inspection_surface_is_intact_on_the_resolved_FluentValidation()
     {
-        Assert.True(FluentValidationInspectionSurface.Verify());
+        Assert.NotNull(FluentValidationInspectionSurface.Verify());
         Assert.True(FluentValidationInspectionSurface.Intact);
+    }
+
+    /// <summary>
+    /// The check keeps the four members it found. Each is declared on the open generic type it was
+    /// looked up on, and the child reading matches the adaptor's two to each live adaptor's closed
+    /// type instead of looking them up again.
+    /// </summary>
+    // Mutation this breaks: Verify keeps null where it found all four members, writing no Trace
+    // line. The child-reading tests in ChildAdaptorReadingTests fail with it, because a surface
+    // that keeps no members reads as not intact and the readers then claim nothing.
+    [Fact]
+    public void The_surface_keeps_the_members_it_verified()
+    {
+        var members = FluentValidationInspectionSurface.Members;
+
+        Assert.NotNull(members);
+        Assert.Equal(typeof(ChildValidatorAdaptor<,>), members.GetValidator.DeclaringType);
+        Assert.Equal(typeof(ChildValidatorAdaptor<,>), members.RuleSets.DeclaringType);
+        Assert.Equal(typeof(ICollectionRule<,>), members.Filter.DeclaringType);
+        Assert.Equal(typeof(ICollectionRule<,>), members.AsyncFilter.DeclaringType);
     }
 
     /// <summary>

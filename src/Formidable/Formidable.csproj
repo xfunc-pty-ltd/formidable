@@ -3,6 +3,7 @@
     <PropertyGroup>
         <Description>Form validation for Blazor built on FluentValidation: validation profiles, progressive disclosure, collection paths with row-stable identity, client + server.</Description>
         <PackageTags>blazor;validation;fluentvalidation;forms</PackageTags>
+        <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
     <ItemGroup>
