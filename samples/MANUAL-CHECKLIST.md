@@ -38,8 +38,8 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ## Navigation
 
-- [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields &
-      collections, Async & server, Presentation, Model & data, Workout
+- [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields & collections,
+      Async & server, Presentation, Model & data, Workout
 - [ ] All twenty-two links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
 - [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
@@ -495,22 +495,24 @@ Work top to bottom: the steps build on each other.
 
 ### Normalize
 
-- [ ] `  spaced   out  title  ` + *Normalize now*: the raw value line below snaps clean AND
-      the INPUT BOX itself loses its spaces — box and model can never show different text
+- [ ] `spaced   out  title` with two spaces before and after it + *Normalize now*: the raw value
+      line below snaps clean AND the INPUT BOX itself loses its spaces — box and model can never
+      show different text
 - [ ] Pad Title with spaces past 40 characters: "Title is 40 characters max" appears live;
       *Normalize now* trims under the limit and the message clears AT ONCE — no tab-through or
       submit needed
-- [ ] *Try it* step 3 verbatim — `    Meeting notes about the Q3 rollout    ` (42 raw, 34
-      trimmed) + *Normalize + submit*: trimming runs BEFORE validation, the 40-char rule judges
-      the cleaned value, and the submit SUCCEEDS (status line confirms)
+- [ ] *Try it* step 3 verbatim — four spaces, `Meeting notes about the Q3 rollout`, four more
+      (42 raw, 34 trimmed) + *Normalize + submit*: trimming runs BEFORE validation, the 40-char
+      rule judges the cleaned value, and the submit SUCCEEDS (status line confirms)
 - [ ] All-spaces Title + *Normalize + submit*: trims to empty and ONLY "Title is required"
       shows — no length message stacked alongside it, whatever the number of spaces
 - [ ] All three buttons fire on the FIRST click every time — no mid-click layout shift
       swallowing the press
 - [ ] Body is a textarea; chrome and focus ring match the other fields, light + dark
-- [ ] Tick *Normalize automatically on submit*, type `    Meeting notes about the Q3 rollout    `
-      (42 raw, 34 trimmed) and click plain *Submit* (not *Normalize + submit*): it succeeds with
-      no manual step — the option trimmed it first
+- [ ] Tick *Normalize automatically on submit*, type four spaces,
+      `Meeting notes about the Q3 rollout` and four more (42 raw, 34 trimmed), and click plain
+      *Submit* (not *Normalize + submit*): it succeeds with no manual step — the option trimmed it
+      first
 - [ ] Untick the box, replace Title with the same raw text, and click *Submit* again: BLOCKED
       — "Title is 40 characters max" — the raw 42-character value is judged as typed, since
       nothing trimmed it
@@ -598,9 +600,9 @@ steps build on each other.
       explains it
 - [ ] **The gate survives editing (step 8).** While the form stays blocked, type into
       Description and Tab: the box takes the confirmed border, which is the sign a pass has
-      answered for it — and the form-level entry is still in the summary above. No refresh can retire
-      the gate; an error reaching the screen does, and Description has no rule of its own to put
-      one there. A submit that can show the error, or one that passes, re-decides it
+      answered for it — and the form-level entry is still in the summary above. No refresh can
+      retire the gate; an error reaching the screen does, and Description has no rule of its own to
+      put one there. A submit that can show the error, or one that passes, re-decides it
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
       takes focus. From the KEYBOARD it shows the accent outline; by MOUSE, the scroll alone
 - [ ] **Disclosure (steps 9-10).** Re-tick *Include catering* — the note renders empty and stays
@@ -621,9 +623,9 @@ steps build on each other.
 - [ ] *Add attendee*: the row appears with the required mark on Name and none on Email — both
       carry the indicator; the rules decide — and stays silent even though Name's rule is
       already failing: a mark is not a message, and nothing has engaged the row yet. Type a
-      name and Tab, then come back, clear it and Tab again:
-      "Attendee name is required" appears as soon as that edit's live pass does, inline and in
-      the summary, with NO submit; clicking that entry focuses that row's Name
+      name and Tab, then come back, clear it and Tab again: "Attendee name is required" appears as
+      soon as that edit's live pass does, inline and in the summary, with NO submit; clicking that
+      entry focuses that row's Name
 - [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
       attendees needs approval — submission is not blocked" appears below the list
 - [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
