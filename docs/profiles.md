@@ -59,10 +59,22 @@ empty value as missing.
 
 `DraftSubmitValidator<T>` also runs a diagnostic once, at construction. For every property whose
 same-kind rule appears in both the draft rules and the `"Submit"` ruleset, it invokes
-`OnOverlappingRuleAxes` for that (property, validator) pair. That overlap is usually a sign the
-malformed/missing convention was broken by accident. The default implementation writes a `Trace`
-line, which the released package keeps; override it to route the report elsewhere or to stay
-silent.
+`OnOverlappingRuleAxes` for that (property, validator) pair.
+
+Two `Must` rules, or two `MustAsync` rules, count as the same kind only when their messages match,
+since the message is how the diagnostic tells two checks apart. Two left on FluentValidation's
+default message share it, so they count. Comparing them runs each `WithMessage` lambda at most
+once, at construction and with no model, so a lambda with side effects can run then too. A message
+the diagnostic cannot read at construction (usually a lambda that reads the model) counts as a
+match.
+
+Two `Custom` rules, or two `CustomAsync` rules, cannot be told apart this way. FluentValidation
+gives them one fixed message, and `WithMessage` cannot follow them, so one on each axis of a
+property is reported.
+
+An overlap is usually a sign the malformed/missing convention was broken by accident. The default
+implementation writes a `Trace` line, which the released package keeps; override it to route the
+report elsewhere or to stay silent.
 
 That's the whole decision most forms make: derive from `DraftSubmitValidator<T>`, override two
 methods, done. What follows is for the forms that need a third moment, and how the client decides
@@ -117,7 +129,7 @@ runtime switch).
 
 A rule that needs membership in two rulesets without existing twice takes a comma-separated name:
 `Profile("Step1,Step2", ...)` tags every rule inside with both, and either name composes into a
-profile on its own — see
+profile on its own. See
 [narrow what the live channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates)
 for a worked example.
 
