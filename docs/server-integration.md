@@ -126,7 +126,8 @@ one just applied, under the same `FocusFirstErrorOnInvalidSubmit` switch (`true`
 blocked client submit uses ([Component kit](component-kit.md#formidableformtmodel)). A payload
 with no error in it moves nothing, since nothing about it was rejected.
 
-`Engine.ApplyServerIssues(...)` is the quiet path for an apply nobody just asked for, and
+[`Engine.ApplyServerIssues(...)`](engine-reference.md#iformidableengine) is the quiet path for an
+apply nobody just asked for, and
 `FormidableValidator`'s two overloads are quiet too. Attach mode does focus a blocked submit's first
 error, through its own `ValidateForSubmitAsync()`, but the round trip is the page's own, so what
 happens after a rejection is the page's to choose. `FocusFirstErrorAsync()` on the validator is how
@@ -561,7 +562,8 @@ those is [the guard around the parse](#what-if-the-400-is-not-formidables) above
 
 ### The server-side mapper
 
-`ValidationReportProblemMapper` in `Formidable.AspNetCore` turns a `ValidationReport` into the
+`ValidationReportProblemMapper` in `Formidable.AspNetCore` turns a
+[`ValidationReport`](engine-reference.md#validationreport) into the
 `errors` dictionary and the `advisories` payload, and both adapters call it.
 
 | Member | What it gives back |

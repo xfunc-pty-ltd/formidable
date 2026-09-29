@@ -254,7 +254,7 @@ field's issues, and `aria-required` from what the submit profile's rules demand:
 |---|---|---|
 | `aria-invalid="true"` | the field has an error-severity issue | Fixed. Warnings and infos do not raise it. |
 | `aria-describedby` | the field has an issue of any severity, warnings and infos included, since those are still rendered and still worth announcing | The field's messages id, merged behind anything the consumer splatted. |
-| `aria-required="true"` | `IFormidableEngine.GetFieldRequirement` reports `FieldRequirement.Required` | Fixed, and untouched by any check. |
+| `aria-required="true"` | [`IFormidableEngine.GetFieldRequirement`](engine-reference.md#iformidableengine) reports `FieldRequirement.Required` | Fixed, and untouched by any check. |
 
 The `aria-describedby` merge puts a persistent hint's own value first and appends the messages id
 after it while issues exist. That is the same consumer-first policy as the `class` merge, so an

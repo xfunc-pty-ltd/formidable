@@ -300,6 +300,7 @@ check cancels the older one, which is why the rule has to honour its token.
 - [why the element renders empty](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong)
 - [Options](options.md) (`RefreshDebounce`)
 - [CSS and accessibility](css-and-accessibility.md) (`Pending`)
+- [The engine and its results](engine-reference.md#iformidableengine) (`IsValidating`)
 
 Samples:
 
@@ -592,6 +593,7 @@ submits successfully, and the same rule holds on the server. `FormidableFieldMes
 
 - [Severity](severity.md)
 - [the warning lifetime](severity.md#how-long-does-a-warning-stay-on-screen)
+- [The engine and its results](engine-reference.md#submitoutcome) (`SubmitOutcome`)
 
 Samples:
 

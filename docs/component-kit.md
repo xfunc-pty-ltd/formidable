@@ -114,7 +114,7 @@ The members a page calls:
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
 | `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
-| `Engine` | The engine as the non-generic `IFormidableEngine`, where `IsValidating`, `HasSubmitted` and `IsFormValid` are read — the last meaning nothing until [`TrackFormValidity`](options.md#trackformvalidity) is on. |
+| `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine), where `IsValidating`, `HasSubmitted` and `IsFormValid` are read — the last meaning nothing until [`TrackFormValidity`](options.md#trackformvalidity) is on. |
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
 Before that there is no engine and they throw.
@@ -1065,7 +1065,7 @@ The members a page calls:
 | `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned), that contract whole. |
 | `NotifyFieldSetChanged()` | Reconciles the rendered field set now. Ordinary use never calls it: the component notices a field arriving or leaving on its own, shortly after the render that moved it, so removing a row prunes its live issues and [re-checks the whole form](collections-and-row-identity.md#what-happens-when-a-row-leaves-or-the-list-reorders) unasked ([`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) removes a line with `List.Remove` and nothing more). |
-| `Engine` | The engine as the non-generic `IFormidableEngine`. |
+| `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine). |
 
 Call them from the renderer's synchronization context, and after the component has bound to its
 `EditContext`. Before that there is no engine: the four that require one throw a message saying

@@ -96,7 +96,8 @@ to the submit profile, and the field is one the visitor has engaged. Under the d
 that commit lands as the field is left.
 
 None of that changes what a warning or an info does to the submit itself: nothing. `IsValid` counts
-only errors, and `SubmitOutcome.CanProceed` is the same flag for a submit that landed; a submit
+only errors, and [`SubmitOutcome.CanProceed`](engine-reference.md#submitoutcome) is the same flag
+for a submit that landed; a submit
 displaced by a newer submit, a load, or the form being rebuilt or torn down reports `false` whatever
 its report holds. `FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when
 `CanProceed`, `OnInvalidSubmit` otherwise. A model that's all warnings and infos, with no errors,

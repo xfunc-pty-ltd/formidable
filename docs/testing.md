@@ -67,7 +67,8 @@ Assert.Contains(submit.Errors, i => i.Path == "Title"); // submitting it is not
 exactly what a form runs. One profile at a time is the pairing worth pinning: a presence rule stays
 quiet under `Draft` and blocks under `Submit`.
 
-`ValidationReport` splits the answer by severity: `Errors`, `Warnings`, `Infos`, and `Advisories`
+[`ValidationReport`](engine-reference.md#validationreport) splits the answer by severity: `Errors`,
+`Warnings`, `Infos`, and `Advisories`
 for every non-error issue (warnings, infos, and any severity outside those two). `IsValid` counts
 errors only, so a warning-only report is valid. `ValidationIssue.Path` is FluentValidation's own
 property path, indexes included (`Lines[0].Sku`).
@@ -281,7 +282,8 @@ public sealed class RecordingFocusService : IFormidableFocusService
 <!-- Excerpt from `tests/Formidable.Blazor.Tests/Fixtures/RecordingFocusService.cs` -->
 
 A double written today also keeps compiling as Formidable grows. A member added after v1 to any
-interface a consumer implements (these three seams and `IFormidableEngine` among them) carries a
+interface a consumer implements (these three seams and
+[`IFormidableEngine`](engine-reference.md#iformidableengine) among them) carries a
 default implementation. Until a double overrides it, it answers a conservative default: nothing took
 focus, no order could be resolved, nothing was written, and for `IFormidableEngine` the answer an
 engine without the feature would give.

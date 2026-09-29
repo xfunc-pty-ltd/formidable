@@ -262,7 +262,8 @@ whole-form re-check shows it on a field whose change is still waiting out `LiveD
 after a submit on the fields you edited since. Pressing Submit shows it form-wide, because every
 field is being checked at once. Loading values shows it nowhere.
 
-Two flags answer "is something still checking?". `IFormidableEngine.IsValidating` is true
+Two flags answer "is something still checking?".
+[`IFormidableEngine.IsValidating`](engine-reference.md#iformidableengine) is true
 while any check but `TrackFormValidity`'s is running, whichever field started it, so it is the
 one for a form-wide spinner; `GetFieldState(field).IsValidating` (`field.State.IsValidating`
 inside a `FormidableField`) is scoped as above. The per-field flag drives the `Pending` class

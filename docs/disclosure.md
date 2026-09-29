@@ -58,7 +58,8 @@ A field is engaged the moment a field-changed notification names it: a kit input
 value (in every `UpdateOn` mode, `OnBlur` included, since only a commit ever notifies), a native
 input's own change, or an explicit `FormidableFieldContext.NotifyChanged()`. A page that fills the
 model itself, from a saved draft or a record opened for editing, engages those fields with
-`IFormidableEngine.DiscloseLoadedValuesAsync()`, since writing model properties notifies nothing.
+[`IFormidableEngine.DiscloseLoadedValuesAsync()`](engine-reference.md#iformidableengine), since
+writing model properties notifies nothing.
 
 Loaded values are engaged rather than merely marked touched so that a bad saved value can speak.
 Touched alone would paint the good ones green and leave the wrong one silent among them, and
