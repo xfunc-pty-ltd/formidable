@@ -26,7 +26,7 @@ and the behaviour a signature does not give away.
 | [`FormidableCollectionMessage<TValue>`](#formidablecollectionmessagetvalue) | message | `FormidableFieldMessage`'s sibling for a collection-level rule, registering its own path. | [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) |
 | [`FormidableField<TValue>` and `FormidableFieldContext`](#formidablefieldtvalue-and-formidablefieldcontext) | seam | Renderless: hands your own markup the field's state, ids and issues. | [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor) |
 | [`FormidableFieldAnchor<TValue>`](#formidablefieldanchortvalue) | registration | Registration and nothing else, for a control the kit does not render. | [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor) |
-| [The foreign-control pattern](#the-foreign-control-pattern) | note | `FormidableField` around a plain `<select>`, worked end to end. | [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor) |
+| [The foreign-control pattern](#the-foreign-control-pattern) | note | `FormidableField` around a plain `<select>`, worked end to end. | [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor); [`/mudblazor`](../samples/Formidable.Sample/Pages/MudBlazorFitting.razor) (MudBlazor's controls bound through `@bind-Value:after`) |
 | [`FocusFallback`](#focusfallback) | delegate | The parameter that recovers a focus move that missed. | [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor) (one callback on the form and the summary) |
 | [`PrepareFocus`](#preparefocus) | delegate | The parameter awaited before a move is attempted. | [`/dialog-submit`](../samples/Formidable.Sample/Pages/DialogSubmit.razor) (a toggle makes the dismissal report early) |
 | [`AddFormidableBlazor()`](#addformidableblazor) | registration | The one-call registration, and where app-wide options are set. | — |
@@ -1133,6 +1133,7 @@ no markup of its own: it registers its field, and hands its `ChildContent` a fre
 | You splat `field.InputAttributes` | The `id`, the state class and the aria attributes; `NotifyChanged()` stays your handler's: only your markup knows which event commits the value. |
 | You call `MarkTouched()` alone | The field goes touched with no check ever running, which looks like validation quietly doing nothing. |
 | You hand `AddItem` or `RemoveItem` a list the field does not name | That list is edited all the same, and the change is reported for this field: nothing checks that the two match. |
+| You leave out `For` | The page does not build: with nothing to infer `TValue` from, Razor reports `RZ10001`, beside an `RZ2012` warning that `For` is expected. Given an explicit `TValue`, it builds with the `RZ2012` warning and throws `InvalidOperationException` as its parameters are set, naming the component and `For`. `FormidableFieldMessage`, `FormidableCollectionMessage`, `FormidableFieldAnchor` and `FormidableRequiredIndicator` answer the same way. |
 
 What the context carries:
 
@@ -1271,6 +1272,23 @@ private void OnColourChanged(ChangeEventArgs args, FormidableFieldContext field)
 | You label the control | `for="@field.ElementId"` rather than a wrap: the label has to target the foreign element's own id, which only the field context knows. |
 | You render the `<select>` | `@attributes="field.InputAttributes"` carries the id, the state class and the aria attributes: what a kit input renders on itself. |
 | The value changes | The handler sets the model, then `field.NotifyChanged()`: what `FormidableInputBase` does on a commit, called by hand since no base bakes it in. |
+
+A control that takes a `Value` and a `ValueChanged` of its own needs no handler method. Bind it to
+the model with `@bind-Value` and hand `field.NotifyChanged` to `@bind-Value:after`, which runs once
+the model holds the new value:
+
+```razor
+<FormidableField For="() => _order.Colour" Context="field">
+    <ColourPicker @bind-Value="_order.Colour"
+                  @bind-Value:after="field.NotifyChanged"
+                  @attributes="field.InputAttributes" />
+</FormidableField>
+```
+
+Render one `FormidableFieldMessage` per field and leave the control's own error parameters unset, so
+each message shows once.
+[`/mudblazor`](../samples/Formidable.Sample/Pages/MudBlazorFitting.razor) binds MudBlazor's text
+field and select this way, with `field.InputAttributes` splatted onto each control.
 
 ## `FocusFallback`
 

@@ -40,7 +40,7 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 - [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields & collections,
       Async & server, Presentation, Model & data, Workout
-- [ ] All twenty-two links route to a live page; the active link is highlighted
+- [ ] All twenty-three links route to a live page; the active link is highlighted
 - [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
 - [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
       carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
@@ -348,6 +348,31 @@ Work top to bottom: the steps build on each other.
 - [ ] Fix a field and leave it: Bootstrap's green `is-valid` state shows
 - [ ] *Show the code*: the only Formidable-specific lines are the `Options` object and the
       components themselves
+
+### Fitting MudBlazor
+
+- [ ] LIGHT and DARK mode: the text field, the select and the Submit button wear MudBlazor's own
+      look (an underlined field with a floating label, a filled button) in MudBlazor's palette
+      for that scheme
+- [ ] Flip the OS colour scheme with the page OPEN: the controls and the button follow at once,
+      no reload
+- [ ] While this page is open, the whole page (sidebar included) takes MudBlazor's fonts and
+      spacing. Open any other page and the sample's own fonts come back
+- [ ] Submit empty, in BOTH schemes: each control's underline and floating label turn
+      MudBlazor's error colour, and Formidable's message sits under the underline. No box or
+      ring is drawn round the control, and the focused Band name keeps its label in the error
+      colour rather than the accent
+- [ ] Inspect Band name in devtools: `formidable-invalid` sits on the outer `mud-input-control`
+      div, while the `id`, `aria-invalid` and `aria-describedby` sit on the `<input>` inside it
+- [ ] Fix both fields and click away: both underlines and labels turn green, in both schemes
+- [ ] Open Room: the popover lists three studios right against the select (below it, or above
+      it when the window has no room below), on MudBlazor's own surface and legible in both
+      schemes. Picking one closes it and the studio shows in the field
+- [ ] Submit with Room empty and click its summary entry: focus lands in the select with
+      MudBlazor's own focus underline, not the sample's rounded accent ring, and the popover
+      stays shut
+- [ ] Open another page from the sidebar and come back, then open Room again: the popover
+      still sits against the select, and the other page showed nothing of MudBlazor's look
 
 ### CSS colours
 

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
+using MudBlazor.Services;
 #if HOSTED_DEMO
 using Formidable;
 #endif
@@ -17,6 +18,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddFormidableBlazor();
 builder.Services.AddValidatorsFromSharedAssembly();
+builder.Services.AddMudServices();
 
 #if HOSTED_DEMO
 // The hosted demo has no real API behind it (GitHub Pages is static-only), so the HttpClient's

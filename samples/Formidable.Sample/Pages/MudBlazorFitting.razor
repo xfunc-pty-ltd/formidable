@@ -1,0 +1,106 @@
+@page "/mudblazor"
+@using MudBlazor
+
+<PageTitle>Fitting MudBlazor</PageTitle>
+<HeadContent>
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
+    <style>
+        /* The state class lands on MudBlazor's outer wrapper. These rules draw it the way
+           MudBlazor draws a state of its own: the underline and the label take its colour. The
+           sample's ring and focus fill stand down, since MudBlazor's controls draw their own. */
+        form .mud-input-control.formidable-invalid { --state-colour: var(--mud-palette-error); }
+        form .mud-input-control.formidable-warning { --state-colour: var(--mud-palette-warning); }
+        form .mud-input-control.formidable-info { --state-colour: var(--mud-palette-info); }
+        form .mud-input-control.formidable-valid { --state-colour: var(--mud-palette-success); }
+        form .mud-input-control:is(.formidable-invalid, .formidable-warning, .formidable-info, .formidable-valid) {
+            box-shadow: none;
+        }
+        form .mud-input-control:is(.formidable-invalid, .formidable-warning, .formidable-info, .formidable-valid) .mud-input-underline::after {
+            transform: scaleX(1);
+            border-bottom-color: var(--state-colour);
+        }
+        form .mud-input-control:is(.formidable-invalid, .formidable-warning, .formidable-info, .formidable-valid) .mud-input-label,
+        form .mud-input-control:is(.formidable-invalid, .formidable-warning, .formidable-info, .formidable-valid) .mud-input:focus-within ~ .mud-input-label {
+            color: var(--state-colour);
+        }
+        form .mud-input-control .mud-input-root:focus {
+            box-shadow: none;
+            background-color: transparent;
+        }
+    </style>
+</HeadContent>
+
+@if (_scriptLoaded)
+{
+    <MudThemeProvider @ref="_theme" @bind-IsDarkMode="_isDarkMode" />
+    <MudPopoverProvider />
+    <MudDialogProvider />
+    <MudSnackbarProvider />
+}
+
+<h1>Fitting MudBlazor</h1>
+<p>MudBlazor's text field and select, validated by Formidable. Each control sits inside <code>FormidableField</code>, whose <code>For</code> names the field. The Mud control binds the model with <code>@@bind-Value</code> and reports each change with <code>@@bind-Value:after="field.NotifyChanged"</code>. One <code>@@attributes</code> splat carries the field's id, state class and aria attributes onto the control, and <code>FormidableFieldMessage</code> shows the messages under it. MudBlazor draws the rest in its own style, in your OS colour scheme.</p>
+<p>MudBlazor's stylesheet arrives with this page and leaves with it, so the other pages keep their own look. While it is loaded it styles the whole document, so the fonts and spacing around the demo change too. Its script loads the first time you open the page and stays until the app reloads. In your own app both go in the host page, as MudBlazor's installation guide describes.</p>
+
+<TeachingPanel CodeFiles="@(new[] { "MudBlazorFitting.razor", "MudBlazorFitting.razor.cs", "StudioBooking.cs" })">
+    <Rules>
+        <ul>
+            <li><strong>Band name</strong>: required.</li>
+            <li><strong>Room</strong>: required.</li>
+            <li>The binding: <code>&lt;FormidableField For="() =&gt; _booking.Room" Context="field"&gt;</code> names the field. The Mud control binds the model with <code>@@bind-Value="_booking.Room"</code>, and <code>@@bind-Value:after="field.NotifyChanged"</code> reports each change once the model holds the new value.</li>
+            <li>The splat: <code>@@attributes="field.InputAttributes"</code>. MudBlazor puts the id and the aria attributes on its input, and the state class on its outer <code>mud-input-control</code> wrapper. A few lines of page CSS draw that class the way MudBlazor draws a state of its own, in the underline and the label.</li>
+            <li>One message list per field: <code>FormidableFieldMessage</code>, which the input's <code>aria-describedby</code> names. The Mud controls' own <code>Error</code> and <code>ErrorText</code> stay unset, so each message shows once. Their <code>For</code> and <code>Required</code> stay unset too, so the validator's rules are the only rules on the form.</li>
+        </ul>
+    </Rules>
+    <TryIt>
+        <ol>
+            <li>Submit empty. Each control shows its message underneath, the summary lists both, and each control's underline and label turn the error colour.</li>
+            <li>Click Room's entry in the summary: focus moves into the select, because the id the entry targets sits on MudBlazor's input.</li>
+            <li>Type a band name and tab out: its message goes, with no second submit. Open Room and pick a studio: the same.</li>
+            <li>Open another page from the sidebar and come back. MudBlazor's stylesheet link leaves the document head with this page and returns with it, and the select still opens.</li>
+        </ol>
+    </TryIt>
+</TeachingPanel>
+
+@if (_scriptLoaded)
+{
+    <FormidableForm Model="_booking" OnValidSubmit="HandleValid">
+        <div class="summary-slot">
+            <FormidableSummary />
+        </div>
+
+        <div class="field">
+            <FormidableField For="() => _booking.BandName" Context="field">
+                <MudTextField T="string" Label="Band name"
+                              @bind-Value="_booking.BandName"
+                              @bind-Value:after="field.NotifyChanged"
+                              @attributes="field.InputAttributes" />
+                <FormidableFieldMessage For="() => _booking.BandName" />
+            </FormidableField>
+        </div>
+
+        <div class="field">
+            <FormidableField For="() => _booking.Room" Context="field">
+                <MudSelect T="string" Label="Room"
+                           @bind-Value="_booking.Room"
+                           @bind-Value:after="field.NotifyChanged"
+                           @attributes="field.InputAttributes">
+                    <MudSelectItem T="string" Value="@("Studio A")">Studio A</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Studio B")">Studio B</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Studio C")">Studio C</MudSelectItem>
+                </MudSelect>
+                <FormidableFieldMessage For="() => _booking.Room" />
+            </FormidableField>
+        </div>
+
+        <div class="actions">
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Submit</MudButton>
+        </div>
+    </FormidableForm>
+}
+else
+{
+    <p>Loading MudBlazor…</p>
+}
+
+<p role="status">@_status</p>

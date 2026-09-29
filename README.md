@@ -24,7 +24,7 @@ covered by tests.
 It runs one real client project's forms today. Exactly one: a number I'd rather give you straight
 than round up. What that buys you is a library that met a deadline before it met a README, so the
 awkward parts were found by shipping rather than by guessing. You can run two apps out of this repo:
-the [sample](#run-the-sample-locally) (22 pages, one feature each) and
+the [sample](#run-the-sample-locally) (23 pages, one feature each) and
 `samples/Formidable.Tutorial`, which grows a single signup form across six stages.
 
 If you'd rather see it than read about it, there is a [live demo](#live-demo) and a

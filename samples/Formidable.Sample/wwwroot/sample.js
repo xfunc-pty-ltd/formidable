@@ -72,5 +72,28 @@ window.formidableSample = {
     unwatchBsTheme: id => {
         const w = window.formidableSample._bsWatches[id];
         if (w) { w.mq.removeEventListener('change', w.apply); delete window.formidableSample._bsWatches[id]; }
+    },
+    // A script added once the app is running runs when its download finishes, and a component
+    // that calls into it on its first render can get there first. This adds the script to the
+    // head and returns a promise that settles once it has run. A later call for the same script
+    // returns the same promise, so the script runs once however often a page asks for it: a
+    // second run would replace the objects the first run set up.
+    _scripts: {},
+    loadScript: src => {
+        const scripts = window.formidableSample._scripts;
+        if (!scripts[src]) {
+            scripts[src] = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    delete scripts[src];
+                    script.remove();
+                    reject(new Error('Could not load ' + src));
+                };
+                document.head.appendChild(script);
+            });
+        }
+        return scripts[src];
     }
 };

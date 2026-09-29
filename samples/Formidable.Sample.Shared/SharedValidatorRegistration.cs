@@ -25,6 +25,7 @@ public static class SharedValidatorRegistration
         services.AddScoped<IValidator<SavedProposal>, SavedProposalValidator>();
         services.AddScoped<IValidator<InvoiceRequest>, InvoiceRequestValidator>();
         services.AddScoped<IValidator<SupportTicket>, SupportTicketValidator>();
+        services.AddScoped<IValidator<StudioBooking>, StudioBookingValidator>();
 
         return services;
     }

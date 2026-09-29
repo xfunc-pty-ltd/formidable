@@ -911,9 +911,30 @@ Sample:
 
 ### I want to use a native or third-party control
 
-**Set:** wrap it in `FormidableField` and call `field.NotifyChanged()` from its change handler. The
-context supplies `ElementId`, `CssClass`, `AriaInvalid`, `AriaDescribedBy`, `Requirement` and
-`MarkTouched()`.
+**Set:** wrap the control in `FormidableField`, then either bind it with `@bind-Value` and report
+with `@bind-Value:after="field.NotifyChanged"`, or call `field.NotifyChanged()` from its change
+handler. The context supplies `InputAttributes` (the id, state class and aria attributes in one
+splat), most of those on their own (`ElementId`, `CssClass`, `AriaInvalid`, `AriaDescribedBy`),
+the `Requirement` behind `aria-required`, and `MarkTouched()`.
+
+A control that takes a `Value` and a `ValueChanged` of its own needs no handler method. Bind it to
+the model with `@bind-Value`, and hand `field.NotifyChanged` to `@bind-Value:after`, which runs once
+the model holds the new value:
+
+```razor
+<FormidableField For="() => Model.Colour" Context="field">
+    <ColourPicker @bind-Value="Model.Colour"
+                  @bind-Value:after="field.NotifyChanged"
+                  @attributes="field.InputAttributes" />
+</FormidableField>
+```
+
+A control bound with a `:get`/`:set` pair calls `field.NotifyChanged()` from its `:set` lambda
+instead, once the lambda has written the model. The splat gives the control the field's id, state
+class and aria attributes. Render one `FormidableFieldMessage` for the field and leave the control's
+own error parameters unset, so each message shows once.
+
+Any other control writes the model in its own handler:
 
 ```razor
 <select @attributes="field.InputAttributes"
@@ -961,6 +982,7 @@ Samples:
 - [`/foreign`](../samples/Formidable.Sample/Pages/ForeignControl.razor)
 - [`/vanilla`](../samples/Formidable.Sample/Pages/VanillaInterop.razor)
 - [`/bootstrap`](../samples/Formidable.Sample/Pages/BootstrapFitting.razor)
+- [`/mudblazor`](../samples/Formidable.Sample/Pages/MudBlazorFitting.razor)
 - [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
 ### I want profiles of my own

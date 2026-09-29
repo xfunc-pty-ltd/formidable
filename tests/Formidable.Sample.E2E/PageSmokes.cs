@@ -96,6 +96,14 @@ public sealed class PageSmokes(SampleAppFixture app)
         await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Fitting a UI library");
     }
 
+    // Mutation that must break this: rename the page's h1.
+    [E2EFact]
+    public async Task Smoke_mudblazor()
+    {
+        await using var session = await app.NewPageAsync("/mudblazor");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Fitting MudBlazor");
+    }
+
     [E2EFact]
     public async Task Smoke_field_state()
     {
