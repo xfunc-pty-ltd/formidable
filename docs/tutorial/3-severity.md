@@ -43,6 +43,11 @@ That lands near 250 characters: past the warning at 200, inside the cap at 280. 
 The warning is on screen and the submit went through anyway. That is the whole rule, and it runs one
 way only: errors block a submit, while warnings and infos say their piece and let it through.
 
+> [!NOTE]
+> **Save draft** counts the warning too, because FluentValidation lists warnings in `Errors`. A
+> draft save gated on `result.Errors.Count == 0`, as stage 2 suggested, now refuses this bio. Gate
+> it on errors alone: `!result.Errors.Any(e => e.Severity == Severity.Error)`.
+
 ## See both tiers at once
 
 You added the tier rules at stage 2, in the same block as the invalid and valid ones. These two
