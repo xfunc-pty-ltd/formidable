@@ -523,6 +523,30 @@ public class DiagnosticMessageTests : BunitContext
         Assert.Equal(2, logger.Entries.Count);
     }
 
+    // A pin, not a red-first test: the stale-registration report writes the sentence it logs to
+    // Trace as well, and logs it at Warning. Its own test class reads the logged channel alone,
+    // so this is the test that reads the Trace line. Matched by content, as above.
+    // Mutation: hand the report's log template to Trace in place of the formatted line, so the
+    // Trace line carries "{Component}" and matches no logged sentence.
+    [Fact]
+    public void A_stale_registration_report_writes_its_logged_sentence_to_Trace()
+    {
+        var logger = new CapturingLogger();
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "original" } };
+        using var engine = BuildEngine(order, Adapter(), logger);
+        var report = new StaleRegistrationReport(
+            typeof(FormidableFieldMessage<string>),
+            new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name)),
+            new FieldIdentifier(new EngineCustomer(), nameof(EngineCustomer.Name)));
+
+        var traceLines = CaptureTrace(() => ((IStaleRegistrationReporter)engine).Report(report));
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("FormidableFieldMessage", entry.Message);
+        Assert.Contains(traceLines, line => line == entry.Message);
+    }
+
     // The gate is asked before the edit context is subscribed to or given a class provider, so a
     // consumer capability tester that throws leaves nothing of the half-built engine attached to
     // a context the caller still holds. Asking the touched context for a class is what reads that:

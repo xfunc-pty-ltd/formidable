@@ -1927,7 +1927,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         var model = FriendlyTypeName.Of(typeof(TModel));
         var validator = FriendlyTypeName.Of(_validator.GetType());
-        System.Diagnostics.Trace.WriteLine(
+        FormidableDiagnostics.Write(
+            _logger,
+            LogLevel.Information,
             $"Formidable: the validator for {model} ('{validator}') cannot report its own rules. " +
             "Validation is unaffected, but nothing is marked required from the rules, so a " +
             "required indicator and aria-required reach only the fields " +
@@ -1935,8 +1937,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             "DiscloseLoadedValuesAsync load confirms nothing. A validator that wraps another " +
             "keeps what the validator underneath has by deriving from DelegatingModelValidator " +
             "rather than implementing IModelValidator alone; one that is not a FluentValidation " +
-            "AbstractValidator has no rules Formidable can read.");
-        _logger?.LogInformation(
+            "AbstractValidator has no rules Formidable can read.",
             "Formidable: the validator for {Model} ('{Validator}') cannot report its own rules. " +
             "Validation is unaffected, but nothing is marked required from the rules, so a " +
             "required indicator and aria-required reach only the fields " +
@@ -1997,12 +1998,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         var model = FriendlyTypeName.Of(typeof(TModel));
-        System.Diagnostics.Trace.WriteLine(
+        FormidableDiagnostics.Warn(
+            _logger,
             $"Formidable: IsFormValid was read on the form for {model} while " +
             "FormidableOptions.TrackFormValidity is off, so it keeps its last answer: false on a " +
             "form that has never tracked. Turn TrackFormValidity on where anything, such as a " +
-            "disabled Submit button, depends on IsFormValid.");
-        _logger?.LogWarning(
+            "disabled Submit button, depends on IsFormValid.",
             "Formidable: IsFormValid was read on the form for {Model} while " +
             "FormidableOptions.TrackFormValidity is off, so it keeps its last answer: false on a " +
             "form that has never tracked. Turn TrackFormValidity on where anything, such as a " +
@@ -2023,9 +2024,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private void ReportSuppressed(ValidationIssue issue)
     {
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
-        System.Diagnostics.Trace.WriteLine(
-            $"Formidable: issue at '{path}' is suppressed - nothing renders its field, or a disclosure override answered no.");
-        _logger?.LogWarning(
+        FormidableDiagnostics.Warn(
+            _logger,
+            $"Formidable: issue at '{path}' is suppressed - nothing renders its field, or a disclosure override answered no.",
             "Formidable: issue at '{Path}' is suppressed - nothing renders its field, or a disclosure override answered no.",
             path);
 
@@ -2051,14 +2052,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         var component = FriendlyTypeName.Of(report.ComponentType);
         var change = FormidableComponentBase.DescribeChange(report.RegisteredField, report.CurrentField);
-        System.Diagnostics.Trace.WriteLine(
+        FormidableDiagnostics.Warn(
+            _logger,
             $"Formidable: {component} {change}, without having been rebuilt in between - its " +
             "registration, element id, aria attributes and messages stay with the field it " +
             "registered. Key the component by the owning object (@key=\"item\" on the element " +
             "the loop renders) so a replacement rebuilds it. (Reported by " +
             "FormidableOptions.ReportStaleRegistrations; FormidableOptions.VerifyRowKeys throws " +
-            "for this instead.)");
-        _logger?.LogWarning(
+            "for this instead.)",
             "Formidable: {Component} {Change}, without having been rebuilt in between - its " +
             "registration, element id, aria attributes and messages stay with the field it " +
             "registered. Key the component by the owning object (@key=\"item\" on the element " +
