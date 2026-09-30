@@ -419,6 +419,33 @@ public class FormidableInputDateTests : BunitContext
         var inner = Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Contains("does not support the type", inner.Message);
     }
+
+    // Mutation this breaks: drop the Nullable<T> branch from FriendlyTypeName.Of, and the message
+    // names the type 'Nullable' instead of the type it holds.
+    [Fact]
+    public void A_nullable_unsupported_type_is_named_by_its_held_type()
+    {
+        var trip = new Trip();
+
+        var ex = Assert.Throws<TypeInitializationException>(() =>
+        {
+            Render(builder =>
+            {
+                builder.OpenComponent<FormidableForm<Trip>>(0);
+                builder.AddComponentParameter(1, "Model", trip);
+                builder.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+                {
+                    inner.OpenComponent<FormidableInputDate<TimeOnly?>>(0);
+                    inner.CloseComponent();
+                }));
+                builder.CloseComponent();
+            });
+        });
+
+        var inner = Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Contains("'TimeOnly?'", inner.Message);
+        Assert.DoesNotContain("Nullable", inner.Message);
+    }
 }
 
 public sealed class Trip

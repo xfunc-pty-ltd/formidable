@@ -640,6 +640,17 @@ public class ValidateAttributeTests
         Assert.Contains("RequireValidator", exception.Message);
     }
 
+    // Mutation this breaks: drop the Nullable<T> branch from FriendlyTypeName.Of, and the declared
+    // parameter list reads "Nullable" instead of naming the type the parameter holds.
+    [Fact]
+    public async Task Strict_mode_names_a_nullable_parameter_by_its_held_type()
+    {
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => StartFixedControllerAppAsync(typeof(NamedTypeMatchesANullableParameter)));
+
+        Assert.Contains("Int32?", exception.Message);
+    }
+
     [Fact]
     public async Task A_class_level_RequireValidator_is_checked_for_every_action_of_the_controller()
     {
@@ -817,6 +828,13 @@ public class ValidateAttributeTests
         [HttpPost("named-type-matches-nothing/{id:int}")]
         [Validate(typeof(SampleOrder), RequireValidator = true)]
         public IActionResult NoModel(int id) => Ok(id);
+    }
+
+    public sealed class NamedTypeMatchesANullableParameter : ControllerBase
+    {
+        [HttpPost("named-type-matches-a-nullable-parameter")]
+        [Validate(typeof(SampleOrder), RequireValidator = true)]
+        public IActionResult NoModel(int? count) => Ok(count);
     }
 
     [Validate(typeof(SampleOrder), RequireValidator = true)]
