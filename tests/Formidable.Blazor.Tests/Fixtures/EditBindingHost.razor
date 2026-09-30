@@ -1,0 +1,28 @@
+@using Formidable.Blazor
+@using Microsoft.AspNetCore.Components.Web
+
+@* Razor-compiled on purpose: which Edit overload each lambda below binds is decided by the C#
+   the Razor compiler generates for the markup, and that choice is what the test pins. Built with
+   a RenderTreeBuilder, the test would name the overload itself. *@
+<FormidableForm Model="Model">
+    <FormidableField For="() => Model.Items" Context="field">
+        <button id="remove-absent" type="button" @onclick="() => field.Edit(() => Rows.Remove(Absent))">Remove absent</button>
+        <button id="remove-present" type="button" @onclick="() => field.Edit(() => Rows.Remove(Present))">Remove present</button>
+        <button id="add-after-gate" type="button" @onclick="() => field.Edit(async () => { await Gate.Task; Rows.Add(new RowListItem()); })">Add after gate</button>
+    </FormidableField>
+</FormidableForm>
+
+@code {
+    [Parameter]
+    public RowListModel Model { get; set; } = default!;
+
+    [Parameter]
+    public RowListItem Present { get; set; } = default!;
+
+    [Parameter]
+    public TaskCompletionSource Gate { get; set; } = default!;
+
+    private IList<RowListItem> Rows => Model.Items;
+
+    private RowListItem Absent { get; } = new();
+}

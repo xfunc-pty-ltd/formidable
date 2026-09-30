@@ -155,6 +155,75 @@ public sealed class FormidableFieldContext
         return true;
     }
 
+    /// <summary>Runs <paramref name="edit"/>, then reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the value the edit left.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, such as a reorder of its list.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>.</exception>
+    /// <remarks>An edit that throws reports nothing, and its exception reaches the caller.</remarks>
+    public void Edit(Action edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        edit();
+        NotifyChanged();
+    }
+
+    /// <summary>Runs <paramref name="edit"/> and, only when it returns <see langword="true"/>, reports the change as <see cref="NotifyChanged"/> does.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, returning whether it changed anything.</param>
+    /// <returns>What <paramref name="edit"/> returned.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>.</exception>
+    /// <remarks>An edit that throws reports nothing, and its exception reaches the caller.</remarks>
+    public bool Edit(Func<bool> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        if (!edit())
+        {
+            return false;
+        }
+
+        NotifyChanged();
+        return true;
+    }
+
+    /// <summary>Awaits <paramref name="edit"/>, then reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the value the edit left once it completed.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, which awaits before or while it changes the value.</param>
+    /// <returns>A task that completes once the edit has completed and the change is reported.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
+    /// <remarks>An edit that faults or is cancelled reports nothing, and the returned task carries its exception or its cancellation.</remarks>
+    public Task Edit(Func<Task> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return EditThenReportAsync(edit);
+    }
+
+    /// <summary>Awaits <paramref name="edit"/> and, only when it returns <see langword="true"/>, reports the change as <see cref="NotifyChanged"/> does.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything.</param>
+    /// <returns>A task carrying what <paramref name="edit"/> returned, which completes once any report is made.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
+    /// <remarks>An edit that faults or is cancelled reports nothing, and the returned task carries its exception or its cancellation.</remarks>
+    public Task<bool> Edit(Func<Task<bool>> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return EditThenReportAsync(edit);
+    }
+
+    // Both awaits keep the caller's context, because the report reaches the EditContext, which
+    // belongs to the renderer's context.
+    private async Task EditThenReportAsync(Func<Task> edit)
+    {
+        await edit();
+        NotifyChanged();
+    }
+
+    private async Task<bool> EditThenReportAsync(Func<Task<bool>> edit)
+    {
+        if (!await edit())
+        {
+            return false;
+        }
+
+        NotifyChanged();
+        return true;
+    }
+
     // The rule keys on TItem, not on each item's own type. A value type or a string matches by
     // value: a boxed value is a new object on every call, and a tag typed into an input arrives
     // as a new string. Any other TItem (a class, an interface, object) matches by reference,

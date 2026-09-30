@@ -50,7 +50,7 @@ Two habits do that, and the sample's member list carries both:
             <FormidableFieldMessage For="() => member.Alias" />
             <div class="actions">
                 <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
-                <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
+                <button type="button" @onclick="() => membersField.Edit(() => MoveUp(team.Members, member))">Move up</button>
             </div>
         </li>
     }
@@ -113,8 +113,9 @@ field, a submit, or a server apply naming it, and a silent page-driven edit supp
 
 In the excerpt, Remove calls the context's own `RemoveItem`, which removes the row and then tells the
 form. Add member, in the full page further down, calls `AddItem` the same way. Move up is a reorder,
-which neither call covers, so the page's `MoveUp` edits the list and then calls `NotifyChanged()`
-itself.
+which neither call covers, so the page hands its `MoveUp` to the context's `Edit`. `MoveUp` returns
+whether the row moved, and `Edit` tells the form only when it did. Move up on the top row changes
+nothing, so the form hears nothing.
 
 Removing the last member does more than shrink a list on screen. It can flip a collection rule from
 passing to failing, and no prune can invent a failure no check produced.
@@ -266,7 +267,7 @@ and register each collection that carries a rule of its own. The sample nests tw
                                     <FormidableFieldMessage For="() => member.Alias" />
                                     <div class="actions">
                                         <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
-                                        <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
+                                        <button type="button" @onclick="() => membersField.Edit(() => MoveUp(team.Members, member))">Move up</button>
                                     </div>
                                 </li>
                             }
@@ -274,7 +275,7 @@ and register each collection that carries a rule of its own. The sample nests tw
                         <div class="actions">
                             <button type="button" @onclick="() => membersField.AddItem(team.Members, new Member())">Add member</button>
                             <button type="button" @onclick="() => teamsField.RemoveItem(_roster.Teams, team)">Remove team</button>
-                            <button type="button" @onclick="() => MoveUp(_roster.Teams, team, teamsField)">Move team up</button>
+                            <button type="button" @onclick="() => teamsField.Edit(() => MoveUp(_roster.Teams, team))">Move team up</button>
                         </div>
                     </fieldset>
                 </FormidableField>

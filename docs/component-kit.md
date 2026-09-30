@@ -1092,8 +1092,10 @@ What the context carries:
 | `MarkTouched()` | Marks the field touched without notifying a change, for a blur or focus-out handler. |
 | `AddItem(list, item)` | Adds `item` to `list`, then does what `NotifyChanged()` does. `list` is any collection: a `List<T>`, a `HashSet<T>`, an entity's navigation collection. A set reports only when it takes the item, so adding one it already holds reports nothing. Pass the collection the field names. One that cannot grow, such as an array, throws its own exception and nothing is reported. |
 | `RemoveItem(list, item)` | When `list` holds a match for `item`, removes it, does what `NotifyChanged()` does, and returns `true`. In a list the first match goes: in a list of a value type (a struct or an enum) or of strings, an equal value matches; in a list of any other item type (a class, an interface, `object`), only the instance itself does. A collection that is not a list, such as a set, removes by its own rule. When a list holds no match, or a collection's own rule removes nothing, it returns `false` and reports nothing. A list that cannot shrink, such as an array, throws its own exception only when it holds the row. A read-only collection that is not a list, such as a dictionary's `Keys`, throws its own exception whether or not it holds the row. |
+| `Edit(edit)` | Runs `edit` (your own change to the value the field names), then does what `NotifyChanged()` does. When `edit` returns a `bool`, the change is reported only on `true`, and `Edit` returns that `bool`: a reorder that says whether it moved anything reports only when it did. An `edit` that throws reports nothing. |
+| `Edit(async () => ...)` | The same for an edit that awaits. `Edit` returns a task and reports once the edit completes, again only on `true` when the edit returns a `bool`. An edit that faults or is cancelled reports nothing, and the task carries its exception. |
 
-Any other list edit, such as a reorder, calls `NotifyChanged()` after it.
+Any other list edit, such as a reorder, goes through `Edit`, or calls `NotifyChanged()` after it.
 
 ### Naming a field whose type your own component doesn't know
 

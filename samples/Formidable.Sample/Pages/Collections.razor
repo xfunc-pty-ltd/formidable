@@ -61,7 +61,7 @@
                                     <FormidableFieldMessage For="() => member.Alias" />
                                     <div class="actions">
                                         <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
-                                        <button type="button" @onclick="() => MoveUp(team.Members, member, membersField)">Move up</button>
+                                        <button type="button" @onclick="() => membersField.Edit(() => MoveUp(team.Members, member))">Move up</button>
                                     </div>
                                 </li>
                             }
@@ -69,7 +69,7 @@
                         <div class="actions">
                             <button type="button" @onclick="() => membersField.AddItem(team.Members, new Member())">Add member</button>
                             <button type="button" @onclick="() => teamsField.RemoveItem(_roster.Teams, team)">Remove team</button>
-                            <button type="button" @onclick="() => MoveUp(_roster.Teams, team, teamsField)">Move team up</button>
+                            <button type="button" @onclick="() => teamsField.Edit(() => MoveUp(_roster.Teams, team))">Move team up</button>
                         </div>
                     </fieldset>
                 </FormidableField>

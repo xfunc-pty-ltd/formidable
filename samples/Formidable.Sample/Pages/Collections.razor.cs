@@ -28,22 +28,24 @@ public partial class Collections
 
     // An edit the engine never hears about starts no live check. The Add and Remove buttons go
     // through the field context's AddItem and RemoveItem, which edit the list and then notify.
-    // A reorder has no such call, so MoveUp edits the list and then calls NotifyChanged() itself,
-    // even though reordering doesn't change what any rule here has to say. NotifyChanged()
-    // engages the field, and the live check it starts answers only the fields such notifications
-    // have engaged. A rule that starts or stops failing because of the edit, "every team needs at
-    // least one member" going red the moment the last one leaves, needs a fresh check to say so;
-    // no prune can invent an issue no check produced.
-    private static void MoveUp<T>(List<T> list, T item, FormidableFieldContext field)
+    // A reorder has no such call, so the Move up buttons hand MoveUp to the field context's Edit,
+    // which runs it and notifies only when it returns true: the first row has nowhere to go, and
+    // its Move up changes nothing and notifies nothing. The notification comes even though
+    // reordering doesn't change what any rule here has to say. It engages the field, and the live
+    // check it starts answers only the fields such notifications have engaged. A rule that starts
+    // or stops failing because of the edit, "every team needs at least one member" going red the
+    // moment the last one leaves, needs a fresh check to say so; no prune can invent an issue no
+    // check produced.
+    private static bool MoveUp<T>(List<T> list, T item)
     {
         var index = list.IndexOf(item);
         if (index <= 0)
         {
-            return;
+            return false;
         }
 
         list.RemoveAt(index);
         list.Insert(index - 1, item);
-        field.NotifyChanged();
+        return true;
     }
 }
