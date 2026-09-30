@@ -10,9 +10,8 @@ namespace Formidable.Blazor.Tests;
 /// <summary>
 /// Pins the name every visible issue carries: the rule's display name when it has text, else the
 /// issue's path when it has text, else the model-level name the options hold at the moment of the
-/// read. The submit outcome's
-/// error summary names its entries by the same rule, so the name beside an entry and the name
-/// the count line lists it under cannot disagree.
+/// read. The submit outcome's error summary names its entries by the same rule, so the name beside
+/// an entry and the name the count line lists it under cannot disagree.
 /// </summary>
 public class VisibleIssueDisplayNameTests
 {
@@ -115,8 +114,8 @@ public class VisibleIssueDisplayNameTests
     [Fact]
     public async Task A_blank_display_name_is_named_by_the_path()
     {
-        // Mutation: IssueDisplayName.Resolve goes back to (DisplayName ?? Path) is { Length: > 0 },
-        // and the empty name wins over the path, so the entry and the summary read "This form".
+        // Mutation: IssueDisplayName.Resolve becomes (DisplayName ?? Path) is { Length: > 0 }, and
+        // the empty name wins over the path, so the entry and the summary read "This form".
         var ticket = new Ticket();
         using var engine = Build(ticket, new FluentValidationModelValidator<Ticket>(new BlankNameValidator()));
         using var title = engine.Registry.Register(new FieldIdentifier(ticket, nameof(Ticket.Title)));
@@ -133,8 +132,8 @@ public class VisibleIssueDisplayNameTests
     [Fact]
     public void A_server_issue_with_an_empty_display_name_is_named_by_the_path()
     {
-        // Mutation: IssueDisplayName.Resolve goes back to (DisplayName ?? Path) is { Length: > 0 },
-        // and both entries read "This form".
+        // Mutation: IssueDisplayName.Resolve becomes (DisplayName ?? Path) is { Length: > 0 }, and
+        // both entries read "This form". The advisory (the wire route) is asserted first.
         var ticket = new Ticket();
         using var engine = Build(ticket, new FluentValidationModelValidator<Ticket>(new TicketValidator()));
         using var requester = engine.Registry.Register(new FieldIdentifier(ticket, nameof(Ticket.Requester)));
@@ -155,16 +154,17 @@ public class VisibleIssueDisplayNameTests
         ]);
 
         var entries = engine.GetVisibleIssues();
-        Assert.Equal(nameof(Ticket.Requester), Assert.Single(entries, v => v.Field.FieldName == nameof(Ticket.Requester)).DisplayName);
         Assert.Equal(nameof(Ticket.Impact), Assert.Single(entries, v => v.Field.FieldName == nameof(Ticket.Impact)).DisplayName);
+        Assert.Equal(nameof(Ticket.Requester), Assert.Single(entries, v => v.Field.FieldName == nameof(Ticket.Requester)).DisplayName);
     }
 
     [Fact]
     public async Task An_issue_with_neither_a_display_name_nor_a_path_is_named_by_ModelLevelDisplayName()
     {
-        // A pin of the rule's last branch, which holds before and after the empty-name change.
-        // Mutation: IssueDisplayName.Resolve drops the model-level fallback and returns the path
-        // whenever the display name has no text, and the entry and the summary read "".
+        // A pin of the rule's last branch: an issue with no text in either its display name or its
+        // path is named by the model-level name. Mutation: IssueDisplayName.Resolve drops the
+        // model-level fallback and returns the path whenever the display name has no text, and the
+        // entry and the summary read "".
         var ticket = new Ticket();
         using var engine = Build(
             ticket,
@@ -281,7 +281,7 @@ public class VisibleIssueDisplayNameTests
     public async Task A_hand_built_VisibleIssue_has_no_name_and_equals_the_engine_s()
     {
         // Mutations: delete VisibleIssue's declared Equals and GetHashCode, and the synthesized
-        // equality compares the name too, so the hand-built pair no longer equals the engine's.
+        // equality compares the name too, so the hand-built pair differs from the engine's.
         // Or DisplayName defaults to Issue.DisplayName through an initialiser, and the hand-built
         // copy reads "Ticket reference".
         var ticket = new Ticket();

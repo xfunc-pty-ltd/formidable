@@ -688,18 +688,29 @@ Entries are keyed. Without a key, sibling `<li>` elements match by position, so 
 field the first entry names rewrites the text of every entry below it and drops the last one: a
 whole band's worth of churn where one node should have left.
 
-The key is `(entry.Field, entry.Issue, occurrence)`: the entry's field and issue, paired with its
-ordinal among the entries carrying an equal pair. The entry's `DisplayName` stays out of the key,
-so re-voicing `ModelLevelDisplayName` renames a model-level entry in place rather than replacing
-it.
+The key is `(IssueKey.Of(entry.Field, entry.Issue), occurrence)`: the entry's field and every
+member of its issue but `State`, paired with its ordinal among the entries carrying an equal key.
+The entry's `DisplayName` stays out of the key, so re-voicing `ModelLevelDisplayName` renames a
+model-level entry in place rather than replacing it.
 
-Two issues carrying the same field, message, severity, code and state are equal records (a
-validator declaring one rule twice reaches that shape), and Blazor rejects duplicate sibling keys
-at the first diff rather than the first render, so keying by value alone would paint a form and
-then throw.
+`State` stays out because it compares through `object.Equals`. A `WithState` payload of a plain
+class is a new instance each time its rule runs, so a key holding it would change after every
+re-check, and the entry would be replaced for saying the same thing.
+
+Two issues that differ only in their state get the same key, and so do two equal issues (a
+validator declaring one rule twice reaches either shape). Blazor does not reject duplicate sibling
+keys at every render, so keying without the ordinal would paint such a pair on a blocked submit and
+then throw on the next one.
+
+The ordinal is counted on the key itself: counted on the issue record, two issues differing only in
+state would each take ordinal 0 under one key.
 
 Every entry also restarts its own sequence numbering from zero inside the band's region, so a
 matched entry keeps its subtree rather than rebuilding it under a surviving `<li>`.
+
+The message lists key their items the same way, each item numbering its frames from zero inside a
+region of its list's own, so a message keeps its item (and any `ItemTemplate` component inside it)
+when one above it clears.
 
 ## Row identity: how a path resolves to an object
 

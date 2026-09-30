@@ -1,8 +1,11 @@
 using Bunit;
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -32,8 +35,51 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
     {
         [Parameter] public string Label { get; set; } = string.Empty;
 
+        // The issue's state as the entry last handed it over, which says which pass the
+        // instance was last rendered for.
+        [Parameter] public object? State { get; set; }
+
         protected override void BuildRenderTree(RenderTreeBuilder builder) =>
             builder.AddContent(0, Label);
+    }
+
+    /// <summary>A <c>WithState</c> payload of a plain class, which compares by reference.</summary>
+    private sealed class StatePayload
+    {
+    }
+
+    /// <summary>
+    /// Description's rule attaches a fresh <see cref="StatePayload"/> each time it runs, beside a
+    /// Customer rule that gives the page another field to edit.
+    /// </summary>
+    private sealed class StatefulDescriptionValidator : DraftSubmitValidator<EngineOrder>
+    {
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required").WithState(_ => new StatePayload());
+            RuleFor(x => x.Customer).NotNull().WithMessage("A customer is required");
+        }
+    }
+
+    /// <summary>
+    /// Two Description rules alike in every member but their <see cref="StatePayload"/>, so their
+    /// issues are unequal records that still say the same thing.
+    /// </summary>
+    private sealed class TwinStateValidator : DraftSubmitValidator<EngineOrder>
+    {
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required").WithState(_ => new StatePayload());
+            RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required").WithState(_ => new StatePayload());
+        }
     }
 
     public FormidableSummaryEntryIdentityTests()
@@ -46,7 +92,13 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
         module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
     }
 
-    private IRenderedComponent<FormidableForm<EngineOrder>> RenderSummary(bool withWitness)
+    /// <summary>
+    /// Renders a form holding a summary and nothing else. With <paramref name="withWitness"/>,
+    /// each entry renders an <see cref="EntryWitness"/> labelled by <paramref name="label"/>, or
+    /// by the issue's message when no label is given.
+    /// </summary>
+    private IRenderedComponent<FormidableForm<EngineOrder>> RenderSummary(
+        bool withWitness, FormidableOptions? options = null, Func<VisibleIssue, string>? label = null)
     {
         var order = new EngineOrder();
         var cut = Render(builder =>
@@ -54,8 +106,9 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
             builder.AddComponentParameter(1, "Model", order);
             // Nothing here renders a field, so without the override every client submit error
-            // would be filtered out as belonging to something unrendered.
-            builder.AddComponentParameter(2, "Options", new FormidableOptions { DisclosureOverride = _ => true });
+            // would be filtered out as belonging to something unrendered. Options a test passes
+            // replace it.
+            builder.AddComponentParameter(2, "Options", options ?? new FormidableOptions { DisclosureOverride = _ => true });
             builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
             builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
@@ -66,7 +119,8 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
                         (RenderFragment<VisibleIssue>)(entry => item =>
                         {
                             item.OpenComponent<EntryWitness>(0);
-                            item.AddComponentParameter(1, nameof(EntryWitness.Label), entry.Issue.Message);
+                            item.AddComponentParameter(1, nameof(EntryWitness.Label), label is null ? entry.Issue.Message : label(entry));
+                            item.AddComponentParameter(2, nameof(EntryWitness.State), entry.Issue.State);
                             item.CloseComponent();
                         }));
                 }
@@ -168,28 +222,7 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
     {
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>>(new ToggleableTripleValidator());
         var options = new FormidableOptions();
-        var order = new EngineOrder();
-        var cut = Render(builder =>
-        {
-            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
-            builder.AddComponentParameter(1, "Model", order);
-            builder.AddComponentParameter(2, "Options", options);
-            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.FocusFirstErrorOnInvalidSubmit), false);
-            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
-            {
-                inner.OpenComponent<FormidableSummary>(0);
-                inner.AddComponentParameter(1, nameof(FormidableSummary.ItemTemplate),
-                    (RenderFragment<VisibleIssue>)(entry => item =>
-                    {
-                        item.OpenComponent<EntryWitness>(0);
-                        item.AddComponentParameter(1, nameof(EntryWitness.Label), entry.DisplayName ?? string.Empty);
-                        item.CloseComponent();
-                    }));
-                inner.CloseComponent();
-            }));
-            builder.CloseComponent();
-        });
-        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+        var form = RenderSummary(withWitness: true, options, label: entry => entry.DisplayName ?? string.Empty);
 
         // Nothing renders the fields the validator fails, so the blocked submit can show only the
         // gate's explanation, which names no field of its own.
@@ -206,4 +239,75 @@ public class FormidableSummaryEntryIdentityTests : BunitContext
 
         await Services.DisposeAsync();
     }
+
+    /// <summary>
+    /// A rule's <c>WithState</c> payload is a new instance each time the rule runs, and a plain
+    /// class compares by reference, so the issue it rides on is a new record after every re-check.
+    /// The entry still speaks for the same issue on the same field, so it has to stay the same
+    /// entry: a replaced one would take focus off its button and be announced again. Mutation
+    /// that must break it: key the entry by <c>(entry.Field, entry.Issue, occurrence)</c>, which
+    /// puts the state in the key, and the witness after the edit is a new instance.
+    /// </summary>
+    [Fact]
+    public async Task A_WithState_payload_of_a_plain_class_keeps_its_entry_across_passes()
+    {
+        var clock = new FakeTimeProvider();
+        Services.AddSingleton<TimeProvider>(clock);
+        Services.AddSingleton<FluentValidation.IValidator<EngineOrder>>(new StatefulDescriptionValidator());
+
+        var form = RenderSummary(withWitness: true);
+        Submit(form, expectedEntries: 2);
+
+        var before = DescriptionWitness(form);
+        var stateBefore = before.State;
+        Assert.IsType<StatePayload>(stateBefore);
+
+        // An edit to another field after a blocked submit re-checks the whole form once the
+        // debounce has passed, which runs Description's rule again and hands it a new payload.
+        var engine = form.Instance.Engine!;
+        var customer = new FieldIdentifier(form.Instance.Model!, nameof(EngineOrder.Customer));
+        await form.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(customer));
+        clock.Advance(new FormidableOptions().RefreshDebounce + TimeSpan.FromMilliseconds(1));
+
+        // Waiting on the payload the entry renders with, not on the engine, is what makes the
+        // identity check below read the render that followed the re-check.
+        form.WaitForAssertion(() => Assert.NotSame(stateBefore, DescriptionWitness(form).State));
+
+        Assert.Same(before, DescriptionWitness(form));
+
+        await Services.DisposeAsync();
+    }
+
+    /// <summary>
+    /// A pin of the agreement between the key and its count. Two issues alike in everything but a
+    /// class-payload state are unequal records that key alike, so their occurrence alone tells
+    /// them apart, and it has to be counted on the key the entry carries. Mutation that must break
+    /// it: count occurrences by <c>(entry.Field, entry.Issue)</c> while keying by
+    /// <c>IssueKey</c>, and both entries take occurrence 0 under one key, so the second submit
+    /// throws "More than one sibling of element 'li' has the same key value".
+    /// </summary>
+    [Fact]
+    public async Task Two_issues_differing_only_in_State_render_as_two_entries_and_survive_the_next_render()
+    {
+        Services.AddSingleton<FluentValidation.IValidator<EngineOrder>>(new TwinStateValidator());
+
+        var form = RenderSummary(withWitness: false);
+        Submit(form, expectedEntries: 2);
+
+        var twins = form.Instance.Engine!.GetVisibleIssues();
+        Assert.Equal(2, twins.Count);
+        Assert.NotEqual(twins[0].Issue, twins[1].Issue);
+        Assert.Equal(twins[0].Issue with { State = null }, twins[1].Issue with { State = null });
+
+        Submit(form, expectedEntries: 2);
+
+        Assert.Equal(
+            ["Description is required", "Description is required"],
+            form.FindAll("li.formidable-summary__item").Select(li => li.TextContent));
+
+        await Services.DisposeAsync();
+    }
+
+    private static EntryWitness DescriptionWitness(IRenderedComponent<FormidableForm<EngineOrder>> form) =>
+        Assert.Single(form.FindComponents<EntryWitness>(), c => c.Instance.Label == "Description is required").Instance;
 }

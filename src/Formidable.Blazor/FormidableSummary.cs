@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -259,16 +260,21 @@ public sealed class FormidableSummary : FormidableComponentBase
             // whole band's worth of churn where one node should have left. Two halves make the key
             // work, and neither is sufficient alone.
             //
-            // The first is what the key IS: the entry's field and issue paired with its ordinal
-            // among the entries carrying an EQUAL field and issue, never its position. The name
-            // stays out of the key, since re-voicing ModelLevelDisplayName renames a model-level
-            // entry without making it another entry. Two issues carrying the same field, message,
-            // severity, code and state are equal records — a shape a validator reaches by
-            // declaring one rule twice — and Blazor rejects duplicate sibling keys outright, at
-            // the first DIFF rather than the first render, so keying by value alone would paint a
-            // form correctly and then throw on the next pass. An entry with no equal in its band
-            // keeps ordinal 0 wherever it moves, so the pairing costs the duplicate case alone,
-            // and a band showing one entry cannot collide with itself at all.
+            // The first is what the key IS: the entry's IssueKey (its field and every member of
+            // its issue but the state) paired with its ordinal among the entries carrying an
+            // EQUAL key, never its position. The state stays out because a WithState payload of a
+            // plain class compares by reference and is a new instance each time its rule runs,
+            // which would make the entry a new one after every re-check. The entry's own
+            // DisplayName stays out too, since re-voicing ModelLevelDisplayName renames a
+            // model-level entry without making it another entry. Two issues alike in field, path,
+            // message, severity, code and display name key alike whatever their state (a shape a
+            // validator reaches by declaring one rule twice), and Blazor rejects duplicate sibling
+            // keys outright, at a DIFF rather than the first render, so keying without the ordinal
+            // would paint a form correctly and then throw on the next pass. The ordinal is counted
+            // on the key itself: counted on the issue record, two issues differing only in state
+            // would each take ordinal 0 under one key. An entry with no equal key in its band keeps
+            // ordinal 0 wherever it moves, so the pairing costs the duplicate case alone, and a
+            // band showing one entry cannot collide with itself at all.
             //
             // The second is the numbering: every entry emits the SAME sequence numbers, which is
             // what a Razor @foreach compiles to and why the entries render inside their own
@@ -279,23 +285,25 @@ public sealed class FormidableSummary : FormidableComponentBase
             // that survived. Identical numbering settles what follows a band as well: the region
             // takes one sequence number however many entries it holds, so an entry arriving or
             // leaving leaves the overflow line and the band after it on the numbers they had.
-            var occurrences = shown > 1 ? new Dictionary<(FieldIdentifier, ValidationIssue), int>(shown) : null;
+            var occurrences = shown > 1 ? new Dictionary<IssueKey, int>(shown) : null;
 
             builder.OpenRegion(sequence++);
 
             for (var index = 0; index < shown; index++)
             {
                 var entry = entries[index];
+                var key = IssueKey.Of(entry.Field, entry.Issue);
                 var occurrence = 0;
                 if (occurrences is not null)
                 {
-                    occurrences.TryGetValue((entry.Field, entry.Issue), out occurrence);
-                    occurrences[(entry.Field, entry.Issue)] = occurrence + 1;
+                    // One lookup: the count is read and bumped through the slot it lives in.
+                    ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(occurrences, key, out _);
+                    occurrence = count++;
                 }
 
                 var entrySequence = 0;
                 builder.OpenElement(entrySequence++, "li");
-                builder.SetKey((entry.Field, entry.Issue, occurrence));
+                builder.SetKey((key, occurrence));
                 builder.AddAttribute(entrySequence++, "class", "formidable-summary__item");
 
                 builder.OpenElement(entrySequence++, "button");

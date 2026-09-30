@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
@@ -89,34 +90,62 @@ internal static class FormidableMessageList
         var issues = engine.GetIssues(field);
         var modelLevelDisplayName = engine.Options.ModelLevelDisplayName;
 
-        var sequence = 0;
-        builder.OpenElement(sequence++, "ul");
-        builder.AddMultipleAttributes(sequence++, additionalAttributes!);
-        builder.AddAttribute(sequence++, "id", listElementId);
-        builder.AddAttribute(sequence++, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
+        builder.OpenElement(0, "ul");
+        builder.AddMultipleAttributes(1, additionalAttributes!);
+        builder.AddAttribute(2, "id", listElementId);
+        builder.AddAttribute(3, "class", FormidableCss.CombineClassNames(additionalAttributes, "formidable-message-list"));
         if (live is not null)
         {
-            builder.AddAttribute(sequence++, "aria-live", live);
+            builder.AddAttribute(4, "aria-live", live);
         }
+
+        // Each item is keyed, so a message keeps its own item, and the template instance inside
+        // it, when one above it clears. Unkeyed, siblings match by position: the message that
+        // moved up would take over the cleared one's item, template state included, and a list
+        // with InlineMessageLive set would announce it again for saying what it already said.
+        // The key is the summary's: the issue's IssueKey paired with its ordinal among the items
+        // carrying an equal key, counted on that same key, so two issues alike but for their
+        // state stay two keys. A list of one issue cannot collide with itself and counts nothing.
+        //
+        // The items render inside a region of their own, and each numbers its frames from zero
+        // (what a Razor @foreach compiles to). A key decides which old item a new one matches,
+        // but the frames inside it still match by sequence number, so under a running counter a
+        // matched item's content would be rebuilt inside an item that kept its key. The region
+        // also keeps the items on the same numbers whether or not aria-live is set.
+        var occurrences = issues.Count > 1 ? new Dictionary<IssueKey, int>(issues.Count) : null;
+
+        builder.OpenRegion(5);
 
         foreach (var issue in issues)
         {
-            builder.OpenElement(sequence++, "li");
+            var key = IssueKey.Of(field, issue);
+            var occurrence = 0;
+            if (occurrences is not null)
+            {
+                ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(occurrences, key, out _);
+                occurrence = count++;
+            }
+
+            var itemSequence = 0;
+            builder.OpenElement(itemSequence++, "li");
+            builder.SetKey((key, occurrence));
             builder.AddAttribute(
-                sequence++,
+                itemSequence++,
                 "class",
                 FormidableCss.SelectBySeverity(issue.Severity, ErrorItemClass, WarningItemClass, InfoItemClass));
             if (itemTemplate is null)
             {
-                builder.AddContent(sequence++, issue.Message);
+                builder.AddContent(itemSequence, issue.Message);
             }
             else
             {
-                builder.AddContent(sequence++, itemTemplate, IssueDisplayName.Named(field, issue, modelLevelDisplayName));
+                builder.AddContent(itemSequence, itemTemplate, IssueDisplayName.Named(field, issue, modelLevelDisplayName));
             }
 
             builder.CloseElement();
         }
+
+        builder.CloseRegion();
 
         builder.CloseElement();
     }
