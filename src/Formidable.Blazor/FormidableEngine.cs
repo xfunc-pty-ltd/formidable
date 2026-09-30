@@ -10,11 +10,11 @@ namespace Formidable.Blazor;
 /// <typeparam name="TModel">The form's model type.</typeparam>
 /// <remarks>
 /// <para>
-/// The sources: the live channel's per-field verdicts, the engaged set, the last submit-profile
-/// answer, the two reveal ledgers, the server-issue store, the gate latch, the fault issue and
-/// <see cref="HasSubmitted"/>, with the per-set verdict store and the submit-coverage vouch
-/// beside them. Every issue read computes from them; the message store is a projection rebuilt
-/// when a source moves.
+/// The sources: the live channel's per-field verdicts, the engaged set, the registry's submit
+/// holds, the last submit-profile answer, the two reveal ledgers, the server-issue store, the gate
+/// latch, the fault issue and <see cref="HasSubmitted"/>, with the per-set verdict store and the
+/// submit-coverage vouch beside them. Every issue read computes from them; the message store is a
+/// projection rebuilt when a source moves.
 /// </para>
 /// <para>
 /// The passes: live, submit, refresh and load; the <see cref="FormidableOptions.TrackFormValidity"/>
@@ -75,7 +75,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // The live channel's verdict source: each engaged field's answer from the live pass that
     // most recently filed one — an empty list is a real answer (the field's rules passed), a
     // missing entry means no pass has answered the field yet. The live VIEW is this dictionary
-    // read through the engaged set; nothing else ever filters it (see LiveIssuesFor).
+    // read through the engaged set, then through LiveViewOf (the submit hold a WaitForSubmit
+    // registration asks for, and the disclosure policy); nothing else filters it (see
+    // LiveIssuesFor).
     private readonly Dictionary<FieldIdentifier, List<ValidationIssue>> _liveVerdicts = [];
 
     private readonly HashSet<FieldIdentifier> _touched = [];
@@ -307,6 +309,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         editContext.OnFieldChanged += HandleFieldChanged;
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
+        Registry.HeldStateChanged += OnHeldStateChanged;
 
         if (options.TrackFormValidity)
         {
@@ -763,10 +766,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
 
             // The live channel explains a block just as well as the submit channel does, so it
-            // is read here too — through LiveEntries, which applies the one LiveDisclosure
-            // policy every live surface answers from, and never through a channel view, since
-            // the views synthesize the gate issue from this very predicate. Error severity
-            // alone dissolves it: a warning on screen does not say why a submit was refused.
+            // is read here too — through LiveEntries, which applies the hold and the one
+            // LiveDisclosure policy every live surface answers from, and never through a channel
+            // view, since the views synthesize the gate issue from this very predicate. Error
+            // severity alone dissolves it: a warning on screen does not say why a submit was
+            // refused.
             // Evaluated last because the arming test above is false on virtually every form, so
             // no form walks the engaged set unless a gate is actually standing.
             foreach (var (_, issues) in LiveEntries())
@@ -783,40 +787,58 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>One field's live view: the verdict the last live pass filed for it while the field is engaged, read through <see cref="LiveViewOf"/>.</summary>
     /// <param name="field">The field.</param>
-    /// <returns>The issues the view shows, empty when the field's rules passed; <see langword="null"/> when the field is not engaged or no live pass has answered it.</returns>
-    // Under the default policy registration filters nothing here: an engaged field's verdict
+    /// <returns>The issues the view shows, empty when the field's rules passed; <see langword="null"/> when the field is not engaged, no live pass has answered it, or the submit hold keeps it from showing.</returns>
+    // Under the default policy, rendering filters nothing here: an engaged field's verdict
     // discloses on every surface whether or not anything renders the field, which is the
     // native-interop bridge's contract; a field that leaves the page leaves the engaged set
-    // (HasDeparted decides that). The opt-in policy narrows the view through LiveViewOf.
+    // (HasDeparted decides that). Two things narrow the view, both through LiveViewOf: the
+    // opt-in policy, and a registration holding the field until a submit or a server apply has
+    // answered. A held field's view comes back null and is passed through as it is, so the live
+    // view of a held field reads as that of a field no pass has answered.
     private List<ValidationIssue>? LiveIssuesFor(FieldIdentifier field) =>
         _engagedFields.Contains(field) && _liveVerdicts.TryGetValue(field, out var live)
             ? LiveViewOf(field, live)
             : null;
 
-    /// <summary>Every engaged field's live view.</summary>
-    /// <returns>Each engaged field that has a filed verdict, paired with the view <see cref="LiveViewOf"/> gives it.</returns>
+    /// <summary>Every engaged field's live view, leaving out a field the submit hold keeps from showing.</summary>
+    /// <returns>Each engaged field that has a filed verdict and a view, paired with the view <see cref="LiveViewOf"/> gives it.</returns>
+    // Leaving a held field out, rather than building an empty list for it, keeps the entries
+    // non-null for every caller at no allocation.
     private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> LiveEntries()
     {
         foreach (var (field, issues) in _liveVerdicts)
         {
-            if (_engagedFields.Contains(field))
+            if (_engagedFields.Contains(field) && LiveViewOf(field, issues) is { } view)
             {
-                yield return (field, LiveViewOf(field, issues));
+                yield return (field, view);
             }
         }
     }
 
-    /// <summary>Applies <see cref="FormidableOptions.LiveDisclosure"/> to one engaged field's filed verdict: untouched by default, filtered per issue on <see cref="IsVisible"/> under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>.</summary>
+    /// <summary>Applies the submit hold, then <see cref="FormidableOptions.LiveDisclosure"/>, to one engaged field's filed verdict: no view while a registration holds the field and no submit or server apply has answered, otherwise untouched by default and filtered per issue on <see cref="IsVisible"/> under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>.</summary>
     /// <param name="field">The field.</param>
     /// <param name="filed">The verdict the last live pass filed for it.</param>
-    /// <returns>The issues that may show; the filed list itself when nothing is filtered out.</returns>
-    // The one place the policy exists, so every live surface (the issue reads, the severity
-    // scan, the visible-issue collection and the store projection through them) answers alike.
+    /// <returns>The issues that may show, and the filed list itself when nothing is filtered out; <see langword="null"/> for a held field, whatever was filed.</returns>
+    // The one place the hold and the policy exist, so every live surface (the issue reads, the
+    // severity scan, the visible-issue collection and the store projection through them) answers
+    // alike.
     // Per issue because the override is per issue: an issue forced visible still shows from a
     // field nothing renders. Read from the options at every evaluation, because options mutate in
     // place.
-    private List<ValidationIssue> LiveViewOf(FieldIdentifier field, List<ValidationIssue> filed)
+    private List<ValidationIssue>? LiveViewOf(FieldIdentifier field, List<ValidationIssue> filed)
     {
+        // The submit hold, ahead of either policy: a component registered with WaitForSubmit
+        // keeps its field's filed verdict off every live surface until a submit or a server
+        // apply has answered. The rules still ran; only the view waits. The registry answers
+        // IsHeld afresh at every read, so a hold that starts or stops is seen at once. The
+        // answer is null, what LiveIssuesFor gives a field no pass has answered, so no read
+        // builds an empty list to say that nothing shows, and an issue read with nothing else to
+        // report returns the shared empty list.
+        if (!HasSubmitted && Registry.IsHeld(field))
+        {
+            return null;
+        }
+
         if (_options.LiveDisclosure == LiveIssueDisclosure.Engaged || filed.Count == 0)
         {
             return filed;
@@ -1152,13 +1174,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         // Departure alone: DisclosureOverride is not consulted, so an issue an override forces
         // visible still goes once its field departs. The override decides whether an unrendered
-        // field's issue may be SHOWN on the submit channel; engagement is the live channel's only
-        // predicate, and re-deciding disclosure here — per issue, over a set keyed by field —
-        // would suppress live issues the engine otherwise reports. A field that never rendered
-        // can be engaged too, since a consumer may notify a change for one, and it is precisely
-        // the field this must not drop: it never arrived, so it cannot have left, and every
-        // surface the default discloses it on — the store a native ValidationMessage reads above
-        // all — is one it reaches without a registration of its own.
+        // field's issue may be SHOWN on the submit channel; on the live channel, engagement
+        // decides which fields answer at all, the view's own filters (the opt-in policy and the
+        // submit hold) sit in LiveViewOf, and re-deciding disclosure here — per issue, over a set
+        // keyed by field — would suppress live issues the engine otherwise reports. A field that
+        // never rendered can be engaged too, since a consumer may notify a change for one, and it
+        // is precisely the field this must not drop: it never arrived, so it cannot have left,
+        // and every surface the default discloses it on — the store a native ValidationMessage
+        // reads above all — is one it reaches without a registration of its own.
         //
         // Collected first: removing from the set while enumerating it throws, and in the common
         // case (a page whose churn is rows arriving, or a virtualized one whose rows stay
@@ -1197,9 +1220,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // Under the opt-in live-disclosure policy the registered field set is one of the live
         // view's own inputs — a field REGISTERING can disclose a live verdict the store was not
         // projecting, exactly as a departure can retract one — so a field-set change with filed
-        // verdicts standing owes a republish in that mode. The default policy never consults
-        // registration, which is what keeps the default's churn cost at the departure-only
-        // republish above.
+        // verdicts standing owes a republish in that mode. The default policy consults
+        // registration only through the submit hold, and a field starting or stopping being held
+        // reaches the engine as it happens, through the registry's HeldStateChanged (see
+        // OnHeldStateChanged), whatever rendered the change and whether or not this call follows.
+        // That keeps the default's churn cost here at the departure-only republish above.
         if (!dropped
             && _liveVerdicts.Count > 0
             && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)
@@ -1247,6 +1272,49 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // ledger admits its findings, and the only fields flagged pending for it are those an
         // open debounce window holds, whose check it is answering. Answering is all it does.
         ScheduleRefresh();
+    }
+
+    /// <summary>Republishes when a field still on the page starts or stops being held while its filed live verdict carries an issue, so every surface follows the submit hold as it moves.</summary>
+    /// <param name="field">The field whose held state flipped.</param>
+    // The registry raises this synchronously, from inside the render batch that changed the
+    // registration: a component mounting, leaving, or re-rendering with a new WaitForSubmit. The
+    // engine's own reads already follow, since LiveViewOf asks the registry at every read; what a
+    // flip leaves stale is the store a native ValidationMessage renders from, and every kit
+    // surface that re-renders only on StateChanged, and RebuildStore moves both. Nothing a root
+    // runs is involved: a change of hold moves neither the registry's version nor its Changed,
+    // and a flip that a mount or a departure makes is answered here, before and apart from any
+    // rendered-field-set reconcile, so a component a nested render mounts is covered under
+    // either root. After the first answered submit or server apply no hold applies.
+    //
+    // Before the first answered submit or server apply, a flip moves the flipped field's own live
+    // view and nothing else (LiveViewOf is the engine's one read of the hold), and that view can
+    // show something only while the field is engaged and its filed verdict carries an issue. A
+    // field with nothing filed, or whose rules passed, reads the same held or not, so its flip
+    // publishes nothing, and a page that mounts or re-renders waiting fields in bulk pays no
+    // render round for fields like that. Any severity counts, because the kit surfaces that
+    // StateChanged re-renders show a warning or an info, though the store never carries one. Each
+    // flip is raised and answered alone, so a batch that flips several such fields rebuilds once
+    // for each of them.
+    //
+    // A field whose last registration left with no retention has departed rather than stopped
+    // waiting, and its flip is not published here. The departure belongs to the root's
+    // rendered-field-set reconcile, which drops the filed verdict with the engagement and
+    // republishes then; until it runs, the field is still engaged, so a republish here would put
+    // the message it was holding on every surface outside the departing subtree. HasDeparted is
+    // the prune's own test, so the two cannot disagree about which fields have left.
+    private void OnHeldStateChanged(FieldIdentifier field)
+    {
+        if (_disposed || HasSubmitted || HasDeparted(field))
+        {
+            return;
+        }
+
+        if (_engagedFields.Contains(field)
+            && _liveVerdicts.TryGetValue(field, out var filed)
+            && filed.Count > 0)
+        {
+            RebuildStore();
+        }
     }
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
@@ -2199,10 +2267,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Rebuilds the <see cref="ValidationMessageStore"/> from the fault issue, the submit-error view and the live errors not already showing, then notifies.</summary>
-    // The EditContext API takes writes, so the projection runs at every publish point (a pass's
-    // verdict apply, a server apply, a fault report, a departure that dropped a filed verdict,
-    // and under EngagedAndVisible a field-set change with verdicts standing), and the store
-    // between rebuilds is what the views said the last time a source moved.
+    // The EditContext API takes writes, so the projection runs at every publish point, and the
+    // store between rebuilds is what the views said the last time a source moved. The publish
+    // points: a pass's verdict apply, a server apply, a fault report, a departure that dropped a
+    // filed verdict, under EngagedAndVisible a field-set change with verdicts standing, and,
+    // before the first answered submit or server apply, a hold starting or stopping on a field
+    // that is engaged, has an issue filed and has not departed (OnHeldStateChanged).
     private void RebuildStore()
     {
         _store.Clear();

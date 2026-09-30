@@ -28,7 +28,7 @@ and pending is decided separately, on top of whatever that left:
 
 | In order | When | Class |
 |---|---|---|
-| 1 | The field has error-severity issues | `Invalid` (`formidable-invalid`), gated by nothing else: a field the user must still fix never reads as merely advisory |
+| 1 | The field has error-severity issues to show | `Invalid` (`formidable-invalid`), gated by nothing else: a field the user must still fix never reads as merely advisory |
 | 2 | The field is neither touched nor modified | No class at all, whatever it carries |
 | 3 | It has a warning-severity issue | `Warning` (`formidable-warning`) |
 | 4 | Its only issues are info-severity | `Info` (`formidable-info`) |
@@ -37,6 +37,12 @@ and pending is decided separately, on top of whatever that left:
 
 That is the entire class-name contract: rename the five strings, and the order above still decides
 when each one applies.
+
+One input setting changes what the first tier sees. A field rendered with
+[`WaitForSubmit`](options.md#waitforsubmit-per-component-not-a-formidableoptions-property) has no
+error to show until a submit or server reply answers, so until then a failing value wears no state
+class and no `aria-invalid`. A passing value still earns `Valid`, and a running check still shows
+`Pending`.
 
 ## What puts green on a field?
 

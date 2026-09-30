@@ -105,7 +105,8 @@ Why: [how the engine works: what replaces the server's answer](how-the-engine-wo
 
 Yes. An apply is treated as a submit's verdict arriving late, so it sets `HasSubmitted`, and a
 page whose only validation is server-side reaches the submitted state through this call alone. From then on every committed edit re-checks the whole form after `RefreshDebounce`, which is
-what keeps the summary truthful for fields the edit never named.
+what keeps the summary truthful for fields the edit never named. A field that was waiting for
+submit (`WaitForSubmit`) answers live from then on too.
 
 An apply is also a disclosure event for the fields it shows: a client error the last submit
 computed but had nowhere to show surfaces alongside the server's, and those fields go under the
@@ -321,7 +322,8 @@ Why: [how the engine works: what the message store carries](how-the-engine-works
 Because the message store takes the errors each channel discloses and asks nothing further about
 registration. A field the submit channel is watching keeps its entry there after it leaves the page,
 until a later check answers for it again. The live channel's default discloses an engaged field's
-error whether or not anything renders it.
+error whether or not anything renders it, unless a component renders the field with
+`WaitForSubmit`, which holds it until a submit or server reply has answered.
 
 That last one matters most to a form with no Formidable components at all: nothing registers its
 fields, so a registration-gated live channel would leave that page's own errors out of the only

@@ -10,12 +10,27 @@ public sealed class FormidableFieldAnchor<TValue> : FormidableAccessorComponentB
     [Parameter]
     public bool KeepRegistered { get; set; }
 
+    /// <summary>Whether the field's messages wait for the form's first submit or server reply, while its rules still run. Defaults to <see langword="false"/>.</summary>
+    /// <remarks>
+    /// A field waits while any component registered for it sets this, and a change takes effect
+    /// at the component's next render. A kit input's
+    /// <see cref="FormidableInputBase{TValue}.UpdateOn"/> still decides which event commits the
+    /// value, and a passing value still earns the valid class.
+    /// <see cref="IFormidableEngine.IsFormValid"/> does not wait, so a Submit button disabled on it
+    /// can refuse the one click that would show why.
+    /// </remarks>
+    [Parameter]
+    public bool WaitForSubmit { get; set; }
+
     /// <summary><see langword="false"/>: an anchor renders nothing, so it subscribes to no state change.</summary>
     protected override bool ObservesEngineState => false;
 
-    /// <summary>Registers the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/>.</summary>
+    /// <summary>Returns <see cref="WaitForSubmit"/>.</summary>
+    private protected override bool HoldsLiveMessages => WaitForSubmit;
+
+    /// <summary>Registers the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/> and <see cref="WaitForSubmit"/>.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
     protected override FieldRegistration? Register(FormidableFormContext context) =>
-        context.Registry.Register(ResolveField(), KeepRegistered);
+        context.Registry.RegisterWithHold(ResolveField(), KeepRegistered, HoldsLiveMessages);
 }

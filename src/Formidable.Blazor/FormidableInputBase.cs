@@ -41,6 +41,18 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     [Parameter]
     public bool KeepRegistered { get; set; }
 
+    /// <summary>Whether the field's messages wait for the form's first submit or server reply, while its rules still run. Defaults to <see langword="false"/>.</summary>
+    /// <remarks>
+    /// A field waits while any component registered for it sets this, and a change takes effect
+    /// at the component's next render. A kit input's
+    /// <see cref="FormidableInputBase{TValue}.UpdateOn"/> still decides which event commits the
+    /// value, and a passing value still earns the valid class.
+    /// <see cref="IFormidableEngine.IsFormValid"/> does not wait, so a Submit button disabled on it
+    /// can refuse the one click that would show why.
+    /// </remarks>
+    [Parameter]
+    public bool WaitForSubmit { get; set; }
+
     /// <summary>Which native event commits the value, and whether the engine hears about it then or on the next blur. Defaults to <see cref="InputUpdateMode.OnChange"/>.</summary>
     [Parameter]
     public InputUpdateMode UpdateOn { get; set; } = InputUpdateMode.OnChange;
@@ -72,6 +84,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     private protected sealed override FieldIdentifier ResolveField() =>
         FieldIdentifier.Create(FieldAccessor.RequireBoundField(For, ValueExpression, GetType()));
 
+    /// <summary>Returns <see cref="WaitForSubmit"/>; sealed so every input waits exactly when its parameter says.</summary>
+    private protected sealed override bool HoldsLiveMessages => WaitForSubmit;
+
     /// <summary>Resolves the field, computes its two ids and registers it with <paramref name="context"/>'s registry; sealed so every input speaks for the field its accessor names.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
@@ -86,7 +101,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         Field = ResolveField();
         ElementId = FormidableFieldId.For(Field);
         MessagesElementId = FormidableFieldId.MessagesFor(ElementId);
-        return context.Registry.Register(Field, KeepRegistered);
+        return context.Registry.RegisterWithHold(Field, KeepRegistered, HoldsLiveMessages);
     }
 
     /// <summary>Adds the attributes every validated input shares, in this order: the splat, then <c>id</c>, <c>class</c> and the aria attributes <see cref="FormidableFieldContext.InputAttributes"/> bundles, using four sequence numbers from <paramref name="sequence"/>.</summary>

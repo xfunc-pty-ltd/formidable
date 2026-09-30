@@ -34,7 +34,12 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <summary>Whether the component subscribes to <see cref="IFormidableEngine.StateChanged"/> and re-renders on it; <see langword="false"/> subscribes to nothing. Defaults to <see langword="true"/>.</summary>
     protected virtual bool ObservesEngineState => true;
 
-    /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise runs the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for.</summary>
+    /// <summary>Whether the component's registration holds its field's live messages until the form's first submit or server reply answers; <see langword="false"/> unless a component that waits overrides it.</summary>
+    // Passed to RegisterWithHold by the components that wait, and read again at every later
+    // parameter set, so a mounted component's hold follows its parameter at its next render.
+    private protected virtual bool HoldsLiveMessages => false;
+
+    /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise applies a change of <c>WaitForSubmit</c> where the component has one, and runs the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for.</summary>
     /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor names a different field than the component registered.</exception>
     /// <remarks>
     /// An override must call <c>base.OnParametersSet()</c>, or the component registers nothing
@@ -44,6 +49,9 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     {
         if (_binding.IsBound(Context))
         {
+            // The registration stands, so a change of the wait moves only its hold, at the render
+            // that carries the new parameter, and the field never leaves the page for it.
+            _binding.ChangeHold(HoldsLiveMessages);
             VerifyRowKey();
             return;
         }

@@ -5,8 +5,8 @@
 edit ([Async validation](async-validation.md)).
 
 Every setting the engine reads lives on one class, `FormidableOptions`, handed to a form through
-`FormidableForm<TModel>`'s `Options` parameter. This page catalogs each property, then `UpdateOn`,
-the read-once rule, and app-wide registration.
+`FormidableForm<TModel>`'s `Options` parameter. This page catalogs each property, then `UpdateOn`
+and `WaitForSubmit`, the read-once rule, and app-wide registration.
 
 ## Need to know
 
@@ -365,15 +365,23 @@ the text inside the marker's `formidable-required` element and nothing else.
 ### `LiveDisclosure`
 
 `LiveIssueDisclosure`, defaults to `LiveIssueDisclosure.Engaged`. Which of an engaged field's live
-issues the live channel discloses (the one lever over a channel registration never touches).
+issues the live channel discloses, for the whole form. The per-field lever is
+[`WaitForSubmit`](#waitforsubmit-per-component-not-a-formidableoptions-property), which holds one
+field's issues until a submit or server reply has answered.
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.LiveDisclosure = LiveIssueDisclosure.EngagedAndVisible);`.
 
 Under the default, engagement alone discloses: a field a committed change has named, or one a draft
-load adopted, shows its live issues on every surface, rendered or not.
+load adopted, shows its live issues on every surface, rendered or not. The exception, under either
+value, is a field a component renders with `WaitForSubmit`: it shows none until a submit or server
+reply has answered.
+
+Under the default, registration decides only two things on the live channel. A field that leaves
+the page is no longer engaged, so its message goes with the next change to which fields are on
+screen. And a field rendered with `WaitForSubmit` holds its issues, as above.
 [Disclosure](disclosure.md#why-isnt-my-message-showing-yet) has why that default exists and what
-departure means. Departure is the one thing registration decides here.
+counts as leaving the page.
 
 `LiveIssueDisclosure.EngagedAndVisible` gates each live issue on the same override-aware visibility
 the submit channel consults, message store included. Reach for it when a page deliberately notifies
@@ -619,11 +627,48 @@ blur keeps doing so after the mode is switched on.
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
 full behaviour table (all three modes, against a rule the live channel selects and one it does not)
 and [Component kit](component-kit.md#formidableinputdatetvalue) for why `FormidableInputDate` in
-particular prefers this mode.
+particular prefers `OnBlur`.
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
-`Publish date` is the typed date input;
-[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows the same mode on the
+`Publish date` is the typed date input under `OnBlur`;
+[`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows `OnBlur` on the
 string-modelled pattern instead.
+
+## `WaitForSubmit` (per component, not a `FormidableOptions` property)
+
+`WaitForSubmit` holds one field's live messages until a submit or server reply has answered,
+while the field's rules still run. It is a `bool` parameter, `false` by default, on the four
+components that register a field: every kit input (through `FormidableInputBase<TValue>`),
+`FormidableField<TValue>`, `FormidableFieldAnchor<TValue>` and `FormidableCollectionMessage<TValue>`.
+
+```razor
+<FormidableInputText @bind-Value="Model.Reference"
+                     WaitForSubmit="true" />
+```
+
+It is independent of `UpdateOn`, which still decides only which event commits. So
+`UpdateOn="InputUpdateMode.OnInput"` with `WaitForSubmit="true"` is valid: every keystroke commits
+and engages the field, and its messages still wait.
+
+The field engages on a committed change as any field does, and its rules run. Its live messages stay
+off every surface (the inline message, the summary entry, the invalid class and `aria-invalid`)
+until a submit answers or `ApplyServerIssues` runs. A submit a newer submit or load displaced, or
+one whose validator threw, answers nothing, so the wait stands.
+
+`ResetAsync` or a new `Model` starts the wait again, and `DiscloseLoadedValuesAsync` engages a
+waiting field while its messages wait.
+
+While a field waits, a passing value still earns `formidable-valid` and a running async check still
+shows `formidable-pending`; a failing value wears no state class. [`IsFormValid`](#trackformvalidity)
+does not wait, so a Submit button disabled on it can refuse the one click that would show why.
+
+The wait belongs to the field. A field waits while any component registered for it asks, and a
+`KeepRegistered` component that has left counts only while nothing else is registered for the
+field. A change to the parameter applies at that component's next render, on every surface.
+
+**Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
+wait beside the three modes' behaviour table.
+**Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) sets it on Summary's
+input.
 
 ## `FormidableOptions` is read once
 

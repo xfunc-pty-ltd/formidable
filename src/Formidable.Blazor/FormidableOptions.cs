@@ -63,7 +63,7 @@ public sealed class FormidableOptions
         CssClasses = defaults.CssClasses;
     }
 
-    /// <summary>The profile a live check runs. Defaults to <see langword="null"/>, which runs whatever <see cref="SubmitProfile"/> holds, so an engaged field shows whatever would block a submit.</summary>
+    /// <summary>The profile a live check runs. Defaults to <see langword="null"/>, which runs whatever <see cref="SubmitProfile"/> holds, so an engaged field's live check covers whatever would block a submit.</summary>
     /// <remarks>
     /// Narrow it only where a submit rule is too expensive to run per change;
     /// <see cref="ValidationProfile.Draft"/> is the usual choice.
@@ -157,7 +157,8 @@ public sealed class FormidableOptions
     /// <summary>Which engaged fields' live messages show: every engaged field, or only those on screen. Defaults to <see cref="LiveIssueDisclosure.Engaged"/>.</summary>
     /// <remarks>
     /// A change reaches the engine's own reads at once and a native <c>ValidationMessage</c>
-    /// after the next check lands.
+    /// after the next check lands. Under either value, a field a component renders with
+    /// <c>WaitForSubmit</c> shows no live message until a submit or server reply answers.
     /// </remarks>
     public LiveIssueDisclosure LiveDisclosure { get; set; } = LiveIssueDisclosure.Engaged;
 

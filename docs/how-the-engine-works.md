@@ -26,7 +26,8 @@ the current pass. `ApplyServerIssues` writes synchronously on the calling thread
 departure from the page drops its live verdict the same way.
 
 What an issue read returns is computed from those sources at read time. The live view is the
-live verdicts read through the engaged set. The submit view is the last submit-profile answer
+live verdicts read through the engaged set, then through the submit hold and the disclosure policy
+([the live view](#the-live-view)). The submit view is the last submit-profile answer
 read through the reveal ledgers, merged with the server store, plus the gate issue the view
 synthesizes while the gate predicate holds.
 
@@ -292,9 +293,9 @@ throughout.
 landing calls it: a fault of any kind, or a caller's cancellation of a submit or a load, the only
 two kinds that carry an external token.
 
-The running validity probe calls it when it faults or is cancelled, and publishes as a pass's end
-does. The opening of `DiscloseLoadedValuesAsync` calls it too, declaring the model moved out from
-under everything the hold describes.
+The running validity probe calls it when it faults or is cancelled, and publishes a notification
+round, as a pass ending without landing does. The opening of `DiscloseLoadedValuesAsync` calls it
+too, declaring the model moved out from under everything the hold describes.
 
 A superseded pass is not a drop. Its end sits behind the version gate, so it never abandons, and
 the answer then stands or falls on whether its displacer, or an arm, still promises a re-answer.
@@ -411,17 +412,67 @@ stays quiet until a submit or a server apply reveals it.
 
 ### The live view
 
-The live view is the filed verdicts read through the engaged set, and engagement is the only
-predicate under the default [`LiveDisclosure`](options.md#livedisclosure). A field that has left
-the page (something registered it once and nothing renders it now) leaves the engaged set and its
-verdict goes with it. A field nothing ever registered has not left, which is the native-interop
-bridge contract.
+The live view is the filed verdicts read through the engaged set, and under the default
+[`LiveDisclosure`](options.md#livedisclosure) engagement is the only predicate besides the submit
+hold below. A field that has left the page (something registered it once and nothing renders it
+now) leaves the engaged set and its verdict goes with it. A field nothing ever registered has not
+left, which is the native-interop bridge contract.
 
-A field held by a keep-registered registration has not left either, which is what lets a
+A field a keep-registered registration retains has not left either, which is what lets a
 virtualized row scroll out of view and keep its messages.
 
 `EngagedAndVisible` additionally filters each live issue on the same override-aware visibility
 the reveal uses, uniformly across every surface, the store included.
+
+The submit hold sits ahead of either policy, in `LiveViewOf`. While `HasSubmitted` is false and a
+current registration holds the field (a component registered with `WaitForSubmit`, or, while no
+component is registered for the field, the keep-registered retention a holding one left behind),
+`LiveViewOf` answers `null`, so nothing from the field's live view shows on any surface.
+The live pass still runs and files the verdict.
+
+The first answered submit, or `ApplyServerIssues`, sets `HasSubmitted`, and the store rebuild that
+follows that write discloses the verdict with no pass of its own. A submit a newer submit or load
+superseded, or whose validator threw, never sets it, so the hold stands.
+
+The registry keeps one entry per field: how many registrations stand, how many of them hold, and
+the retention the last one left. It also counts the fields it holds, so a form that holds nothing
+answers before any lookup.
+
+A retention holds only while no component is registered for the field, and only if the registration
+that left it held as it ended. A component registered for the field says what it wants now, so a
+hold left by a departed row cannot keep its re-created, non-waiting successor quiet.
+
+A registration's hold changes in place. A component's `WaitForSubmit` reaches its registration at
+the component's next render, and moves neither the registry's version nor its `Changed` event, so no
+root reconciles for it.
+
+Whenever a field starts or stops being held (a holding registration arriving or ending, a plain one
+arriving over a holding retention, or a change of hold), the registry raises `HeldStateChanged` at
+once, from inside the render batch; a second holding registration of an already held field raises
+nothing.
+
+Before `HasSubmitted`, the engine rebuilds the store for a field's change of hold only when the
+field is engaged and its filed live verdict carries an issue of any severity. A change of hold
+moves no other field's view. A field with nothing filed, or whose rules passed, reads the same held
+or not, so its change of hold costs no render round.
+
+Warnings and infos count because a rebuild round also raises `StateChanged`, which re-renders the
+kit's surfaces that show them, though the store carries errors only. Each change of hold is
+answered on its own, so a batch that flips several such fields rebuilds once for each.
+
+A field whose last registration left with no retention has departed rather than stopped waiting,
+and the engine publishes nothing for that flip. Until the root's rendered-field-set reconcile runs,
+the field is still engaged, so a republish would show the message it was holding; the departure
+prune drops the verdict with the engagement and republishes then.
+
+The report comes from the registry rather than from a root's reconcile, so it reaches every surface
+under either root, a component a nested render mounts included.
+
+Nothing else reads the hold: `IsFieldValidating`, the submit-coverage vouch behind
+`formidable-valid` and `IsFormValid` never consult it, so a held field that passes still turns
+green, its running check still shows pending, and `IsFormValid` counts a held failure. The gate
+never meets a hold, because only an answered submit arms it, and that submit has already set
+`HasSubmitted`.
 
 ### The gate latch
 
@@ -449,9 +500,17 @@ client errors, server errors, the gate); then every engaged field's live errors 
 submit view is not already showing for that field. Advisories never enter the store, so a native
 `ValidationMessage` sees errors only.
 
-The rebuild runs at every publish point: a pass's verdict apply, a server apply, a fault report,
-a departure that dropped a filed verdict, and, under `EngagedAndVisible`, a field-set change
-with filed verdicts standing.
+The rebuild runs at every round that moves what the store projects: a pass's verdict apply, a
+server apply, a fault report, a departure that dropped a filed verdict, under `EngagedAndVisible`
+a field-set change with filed verdicts standing, and, before `HasSubmitted`, a hold starting or
+stopping on a field that is engaged, has an issue filed and has not departed
+([the live view](#the-live-view)).
+
+The gate latch, though a source, adds no round of its own: it arms and disarms only inside a
+submit's verdict apply, whose rebuild the list above already counts.
+
+A round that moves only a pass's own state or the submit coverage publishes a notification and
+rebuilds nothing.
 
 ### Read order
 

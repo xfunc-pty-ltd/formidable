@@ -9,11 +9,13 @@ sample page follows where one demonstrates it. Chasing a symptom instead of a go
 ### I want to validate while typing, on blur, or only at submit
 
 **Set:** `UpdateOn` on the input — `InputUpdateMode.OnChange` (the default),
-`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`.
+`InputUpdateMode.OnInput`, or `InputUpdateMode.OnBlur`. To hold one field's messages until
+Submit, set `WaitForSubmit` on the component that renders it.
 
 This recipe sets which event delivers a change to the form (`UpdateOn`). Holding a rule back
 until Submit takes `LiveProfile`: see **Only at submit** below, and
 [presence rules wait for submit](#i-want-presence-rules-to-wait-for-submit-while-formats-answer-live).
+Holding back one field's messages while its rules still run takes `WaitForSubmit`.
 
 ```razor
 <FormidableInputText @bind-Value="Model.Nickname"
@@ -41,6 +43,26 @@ fires more than once per logical edit (a native date input, once per segment).
                      UpdateOn="InputUpdateMode.OnBlur" />
 ```
 
+**`WaitForSubmit`** is a parameter of its own, set beside whichever mode commits the value. The
+field's rules run as they would, and its messages wait: no message, no summary entry, no invalid
+class and no `aria-invalid` until a submit or server reply has answered. From then on the field
+answers like any other, and every other field on the form answers live throughout.
+
+```razor
+<FormidableInputText @bind-Value="Model.Reference"
+                     WaitForSubmit="true" />
+```
+
+> [!NOTE]
+> `FormidableField`, `FormidableFieldAnchor` and `FormidableCollectionMessage` take `WaitForSubmit`
+> too, so a control inside `FormidableField`, or a native input beside an anchor, can wait. While a
+> field waits, a passing value still earns `formidable-valid` and a running async check still shows
+> `formidable-pending`; a failing value wears no state class.
+>
+> `IsFormValid` does not wait, so a Submit button disabled on it can block the one submit that
+> would show why. A server reply applied through `ApplyServerIssues` ends the wait as a submit
+> does, and `ResetAsync` or a new model starts it again.
+
 No `UpdateOn` mode changes what Submit, or the whole-form re-check that follows a post-submit edit,
 validates. What `UpdateOn` decides is when a commit reaches the engine; after a submit each commit
 also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
@@ -50,6 +72,7 @@ also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 | `UpdateOn="InputUpdateMode.OnChange"` (default) | On the element's `change` event: the commit starts a check and the message lands on that field. | Not before submit. At submit; then, after each commit, in the whole-form re-check 300 ms later. |
 | `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke, and you see the answer for what you last typed. | Not before submit. At submit; then in the whole-form re-check 300 ms after the typing stops. |
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change, so a multi-segment control never starts a check mid-edit; a blur with no commit before it starts nothing. | Not before submit. At submit; then, after each blur-commit, in the whole-form re-check 300 ms later. |
+| `WaitForSubmit="true"`, with any mode | Not before submit, though each commit still runs the check. At submit; then as that mode's row says. | Not before submit. At submit; then as that mode's row says. |
 
 The left column is for a `LiveDebounce` left unset. A finite wait delays each of its checks until
 the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column.
@@ -60,15 +83,19 @@ draws the line. What keeps the left column from nagging is engagement rather tha
 field you have not changed shows no live message, however loudly its rule fails (a load of values
 disclosed with `DiscloseLoadedValuesAsync` counts as a change for the fields it fills).
 
-**Only at submit** means the right-hand column for every rule. There is no switch that turns the
-live check off, though a `LiveDebounce` of `Timeout.InfiniteTimeSpan` stops every edit from starting
-one. `LiveProfile` draws the line by ruleset, so a rule the live profile does not select waits for
-Submit.
+**Only at submit** can cover the whole form or one field. For the whole form it means the
+right-hand column for every rule: `LiveProfile` draws the line by ruleset, so a rule the live
+profile does not select waits for Submit on every field. There is no switch that turns the live
+check off, though a `LiveDebounce` of `Timeout.InfiniteTimeSpan` stops every edit from starting
+one.
 
 That wait has a cost before the first submit or server reply: with `TrackFormValidity` off, an edit
 can take the green off the other fields. With it on, edits start a validity check
 `RefreshDebounce` (300 ms) after the last of them instead, which moves green and `IsFormValid`
 unless that wait never passes either ([`LiveDebounce`](options.md#livedebounce)).
+
+For one field, `WaitForSubmit` holds back that field's messages rather than its rules, which still
+run, while the rest of the form answers live.
 
 `ValidationProfile.Draft` selects the default rules, so a validator whose rules are all default rules
 gives it nothing to leave out. To hold rules back, put them in a ruleset: derive from
@@ -85,7 +112,8 @@ gives it nothing to leave out. To hold rules back, put them in a ruleset: derive
 Samples:
 
 - [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor)
-- [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor)
+- [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) (`WaitForSubmit` on Summary's
+  input, the default on Title)
 - [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`OnBlur` on the
   typed `FormidableInputDate`)
 - [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
@@ -135,7 +163,8 @@ Samples:
 - [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) does the narrowing
 - [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) and
   [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) are the contrast, left on the
-  defaults so their presence rules answer live
+  default `LiveProfile` so their presence rules run live. On `/profiles`, Summary's input sets
+  `WaitForSubmit`, so its message waits for Submit while its rule still runs.
 
 ### I want to narrow what the live channel validates
 
@@ -431,7 +460,8 @@ await _form!.DiscloseLoadedValuesAsync();
 Writing model properties notifies nothing, so without that last line a loaded form looks pristine
 however good or bad its contents are. The call confirms a good value, discloses a wrong one, and
 leaves a field holding nothing silent and unstyled; `FormidableValidator` carries the same method on
-the same terms.
+the same terms. A field set to wait for Submit (`WaitForSubmit`) keeps a wrong value's message
+back until a submit or server reply answers.
 
 **Fill the instance rather than replacing it.** A new instance reaches the form as a `Model`
 parameter, and a parameter arrives on the form's next render. The call would then run against the

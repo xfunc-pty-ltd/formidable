@@ -68,8 +68,14 @@ An engaged field's message shows on every surface, its own message component and
 `FormidableSummary` alike, and its errors reach what a native `ValidationMessage` renders, whether
 or not anything renders the field. That is deliberate: a form of plain `InputBase` inputs registers
 nothing, and its live errors still have to reach Blazor's own components.
-[`LiveDisclosure`](options.md#livedisclosure) (`Engaged` by default) is the one way to narrow that,
-and `EngagedAndVisible` narrows every surface at once.
+[`LiveDisclosure`](options.md#livedisclosure) (`Engaged` by default) is the one form-wide way to
+narrow that, and `EngagedAndVisible` narrows every surface at once.
+
+One field can be held back instead: with `WaitForSubmit="true"` on a component that renders it,
+that field's messages stay off every surface until a submit or server reply has answered, while its
+rules still run. Every other field keeps answering live.
+[The timing recipe](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) has what
+a held field still shows and what ends the hold.
 
 An edit anywhere answers every engaged field, so a message can clear, or appear, because of an
 edit to a *different* field, which keeps a cross-field rule current between submits.
@@ -77,7 +83,8 @@ edit to a *different* field, which keeps a cross-field rule current between subm
 Engagement ends when the field leaves the page: its message goes with the next change to which
 fields are on screen, one committed change away from returning. A field nothing has ever rendered
 has not left, so churn elsewhere on the page never takes its message away. Under the default, that
-is the whole of what rendering decides on this channel.
+is the whole of what rendering decides on this channel, apart from the hold `WaitForSubmit` puts on
+a field.
 
 Why: [how the engine works: the live view](how-the-engine-works.md#the-live-view).
 
@@ -368,7 +375,7 @@ anywhere on the form.
 
 What the anchor is not needed for is the live channel. Blazor's own binding notifies the form on
 every change, which engages the field, and an engaged field's live message shows on every surface
-regardless. The anchor is how the *submit* channel learns the field is on the page.
+with or without the anchor. The anchor is how the *submit* channel learns the field is on the page.
 
 Reach for `FormidableFieldAnchor` when a raw or foreign control already notifies its changes by
 some other means and only needs registering. Reach for `FormidableField` when a hand-wired control
@@ -407,9 +414,9 @@ issue from being the reason the field is watched, and no more. Once the other is
 watch, the field's answer shows whole, and the suppressed-issue diagnostic reports neither of them,
 since neither is in fact hidden.
 
-The live channel is a separate question again. Under its default policy nothing filters it, this
-override included; the [`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies the
-override there, issue by issue. Server-applied issues are the third case, and
+The live channel is a separate question again. Under its default policy this override filters
+nothing; the [`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies it there, issue
+by issue. Server-applied issues are the third case, and
 [the section above](#why-did-a-server-error-show-on-a-hidden-field) has it: only a `false` hides
 an error, while an advisory follows the client's own rule.
 

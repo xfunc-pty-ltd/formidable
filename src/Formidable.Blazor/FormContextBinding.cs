@@ -52,6 +52,10 @@ internal sealed class FormContextBinding : IDisposable
         _context = context;
     }
 
+    /// <summary>Changes the current registration's hold on its field's live messages; does nothing while the component holds no registration.</summary>
+    /// <param name="holdsLiveMessages">The hold the component asks for now.</param>
+    internal void ChangeHold(bool holdsLiveMessages) => _registration?.ChangeHold(holdsLiveMessages);
+
     private void Release()
     {
         if (_context is not null && _stateChangedHandler is not null)

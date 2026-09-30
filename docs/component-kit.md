@@ -252,6 +252,7 @@ It validates the whole model under `SubmitProfile`, then decides field by field 
 |---|---|---|
 | Holds a value no rule fails with an error | Touched and engaged | The valid class, or whichever advisory tier its warnings and infos earn |
 | Holds a value the rules do fail | Touched and engaged | Its message, inline and in the summary |
+| Holds a value, and a component renders it with `WaitForSubmit` | Touched and engaged | The valid class when no rule fails with an error, and no class otherwise. Its messages wait until a submit answers or a server reply is applied; a submit that a newer submit or load displaced, or whose validator threw, answers nothing ([the wait](options.md#waitforsubmit-per-component-not-a-formidableoptions-property)) |
 | Holds nothing: null, a blank or whitespace-only string, an empty collection, or a non-nullable value type's own default | Neither | Nothing, unstyled and silent, with any required mark it carries still standing |
 
 "Holds a value" is FluentValidation's own `NotEmpty()` negated, taken against the type the member is
@@ -287,6 +288,7 @@ Every input here takes these parameters; the input sections below list only what
 | `ValueExpression` | `Expression<Func<TValue>>?` | `null` | The accessor behind `Value`, filled in by the Razor compiler for every `@bind-Value` — the same `Value`/`ValueChanged`/`ValueExpression` triple native inputs take, so ordinary markup names the field once. Not one you write by hand. With neither this nor `For`, the input throws as its parameters are set, naming itself and both spellings. |
 | `KeepRegistered` | `bool` | `false` | Keeps the field registered after the component is disposed, for a virtualized container — see [Virtualize and `KeepRegistered`](#virtualize-and-keepregistered). |
 | `UpdateOn` | `InputUpdateMode` | `InputUpdateMode.OnChange` | Which DOM event commits the value, and whether the engine hears about it then or at the next blur ([the three modes](options.md#updateon-per-input-not-a-formidableoptions-property)). |
+| `WaitForSubmit` | `bool` | `false` | Holds the field's messages until a submit or server reply has answered, while its rules still run, whichever mode commits the value ([the wait](options.md#waitforsubmit-per-component-not-a-formidableoptions-property)). |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered element, ahead of every value the component computes. |
 
 ```razor
@@ -1091,6 +1093,7 @@ control anywhere in the form to register the path that rule reports against. Thi
 |---|---|---|---|
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the collection-level field, e.g. `() => Model.Teams`. |
 | `KeepRegistered` | `bool` | `false` | [Keeps the field registered after the component is disposed](#virtualize-and-keepregistered), for a virtualized container. |
+| `WaitForSubmit` | `bool` | `false` | [Holds the collection field's messages](options.md#waitforsubmit-per-component-not-a-formidableoptions-property) until a submit or server reply has answered, while its rule still runs. |
 | `ItemTemplate` | `RenderFragment<VisibleIssue>?` | `null` | [What each `<li>` holds](#putting-a-word-ahead-of-each-message), handed the collection-level field. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<ul>`, under [the message list's three positions](#formidablefieldmessagetvalue). |
 
@@ -1120,6 +1123,7 @@ no markup of its own: it registers its field, and hands its `ChildContent` a fre
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the field, e.g. `() => Model.Colour`. |
 | `ChildContent` | `RenderFragment<FormidableFieldContext>` | required | Your markup, handed the field's context as `context` unless a `Context="..."` renames it. |
 | `KeepRegistered` | `bool` | `false` | [Keeps the field registered after the component is disposed](#virtualize-and-keepregistered), for a virtualized container. |
+| `WaitForSubmit` | `bool` | `false` | [Holds the field's messages](options.md#waitforsubmit-per-component-not-a-formidableoptions-property) until a submit or server reply has answered: the context's `Issues`, `AriaInvalid` and invalid class stay quiet while the rules still run. |
 
 [The foreign-control pattern](#the-foreign-control-pattern) below is the worked example: a plain
 `<select>`, its label, and the change handler that commits the value.
@@ -1191,6 +1195,7 @@ registration is the gate).
 |---|---|---|---|
 | `For` | `Expression<Func<TValue>>` | required | Accessor naming the field to register, e.g. `() => Model.SubmitterName`. |
 | `KeepRegistered` | `bool` | `false` | [Keeps the field registered after the component is disposed](#virtualize-and-keepregistered), for a virtualized container. |
+| `WaitForSubmit` | `bool` | `false` | [Holds the field's messages](options.md#waitforsubmit-per-component-not-a-formidableoptions-property) until a submit or server reply has answered, on a native `ValidationMessage` and the native input's class too. |
 
 ```razor
 <FormidableFieldAnchor For="() => _report.SubmitterName" />

@@ -1,9 +1,13 @@
 namespace Formidable.Blazor;
 
 /// <summary>Which engaged fields' live messages show: every engaged field, or only those on screen. The policy behind <see cref="FormidableOptions.LiveDisclosure"/>.</summary>
+/// <remarks>
+/// Under either policy, a field a component renders with <c>WaitForSubmit</c> shows no live
+/// message until a submit or server reply answers.
+/// </remarks>
 public enum LiveIssueDisclosure
 {
-    /// <summary>An engaged field's live messages show on every surface, rendered or not, until the field leaves the page. The default.</summary>
+    /// <summary>An engaged field's live messages show on every surface, rendered or not, until the field leaves the page, unless a component renders it with <c>WaitForSubmit</c>. The default.</summary>
     Engaged,
 
     /// <summary>An engaged field's live messages show only where the field is rendered or <see cref="FormidableOptions.DisclosureOverride"/> answers yes, on every surface alike.</summary>

@@ -250,8 +250,9 @@ public class FormidableInputBindingTests : BunitContext
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
-    // Under the two combined modes the library renders no onblur of its own, so a splatted handler
-    // is the only one on the element and reaches the DOM untouched.
+    // Under every mode but OnBlur a text input commits and notifies together, and the library
+    // renders no onblur of its own, so a splatted handler is the only one on the element and
+    // reaches the DOM untouched.
     [Fact]
     public void A_splatted_onblur_passes_through_untouched_in_the_combined_modes()
     {

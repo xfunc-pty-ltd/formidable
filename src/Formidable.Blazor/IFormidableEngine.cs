@@ -92,7 +92,7 @@ public interface IFormidableEngine
     /// </remarks>
     Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid or its message, and a field holding nothing stays silent.</summary>
+    /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid, or its message unless it waits for Submit, and a field holding nothing stays silent.</summary>
     /// <param name="cancellationToken">Cancels the check; a cancelled call discloses nothing.</param>
     /// <returns>A task that completes when the fields have been marked and the check that discloses them has answered.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the whole-model check answered.</exception>
@@ -100,7 +100,9 @@ public interface IFormidableEngine
     /// Holding a value means what <c>NotEmpty()</c> means for the member's declared type, so a
     /// <see langword="false"/> in a <see langword="bool"/> is empty and one in a <c>bool?</c> is
     /// not. A validator that cannot report its rules discloses failing values and confirms none.
-    /// Call it from the renderer's synchronization context.
+    /// A field a component renders with <c>WaitForSubmit</c> keeps its message back until a
+    /// submit answers (not one displaced or faulted) or a server reply is applied; a passing value
+    /// still shows valid. Call it from the renderer's synchronization context.
     /// </remarks>
     Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default);
 

@@ -15,18 +15,33 @@ public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TV
     [Parameter]
     public bool KeepRegistered { get; set; }
 
+    /// <summary>Whether the field's messages wait for the form's first submit or server reply, while its rules still run. Defaults to <see langword="false"/>.</summary>
+    /// <remarks>
+    /// A field waits while any component registered for it sets this, and a change takes effect
+    /// at the component's next render. A kit input's
+    /// <see cref="FormidableInputBase{TValue}.UpdateOn"/> still decides which event commits the
+    /// value, and a passing value still earns the valid class.
+    /// <see cref="IFormidableEngine.IsFormValid"/> does not wait, so a Submit button disabled on it
+    /// can refuse the one click that would show why.
+    /// </remarks>
+    [Parameter]
+    public bool WaitForSubmit { get; set; }
+
     /// <summary>The markup to render, handed the field's current <see cref="FormidableFieldContext"/>. Required.</summary>
     [Parameter, EditorRequired]
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
-    /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names and its element id, and registers it with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/>.</summary>
+    /// <summary>Returns <see cref="WaitForSubmit"/>.</summary>
+    private protected override bool HoldsLiveMessages => WaitForSubmit;
+
+    /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names and its element id, and registers it with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/> and <see cref="WaitForSubmit"/>.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>
     protected override FieldRegistration? Register(FormidableFormContext context)
     {
         _field = ResolveField();
         _elementId = FormidableFieldId.For(_field);
-        return context.Registry.Register(_field, KeepRegistered);
+        return context.Registry.RegisterWithHold(_field, KeepRegistered, HoldsLiveMessages);
     }
 
     /// <summary>Renders <see cref="ChildContent"/> with a context built from the field's current state, class and issues; renders nothing before the first bind.</summary>

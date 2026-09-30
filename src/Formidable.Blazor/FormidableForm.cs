@@ -685,13 +685,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         FocusAfterServerIssues(issues);
     }
 
-    /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid or its message, and a field holding nothing stays silent.</summary>
+    /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid, or its message unless it waits for Submit, and a field holding nothing stays silent.</summary>
     /// <param name="cancellationToken">Cancels the check; a cancelled call throws and discloses nothing.</param>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
     /// The contract is <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/>'s. Call it once
     /// after filling <see cref="Model"/> from a saved draft or a loaded record; unlike a blocked
-    /// submit it moves no focus. Call it from the renderer's synchronization context.
+    /// submit it moves no focus. A field a component renders with <c>WaitForSubmit</c> keeps its
+    /// message back until a submit answers (not one displaced or faulted) or a server reply is
+    /// applied; a passing value still shows valid. Call it from the renderer's synchronization
+    /// context.
     /// </remarks>
     // Takes a token where the submit methods take none: a submit is UI-event-driven and its
     // handler holds none to pass, while this call is data-driven, and the caller that filled the

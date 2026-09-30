@@ -85,12 +85,21 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       Summary still empty
 - [ ] Clear Title and leave the field: "Title is required to submit" lands with NO submit
       anywhere — while Summary, failing its own required rule and never touched, stays silent
+- [ ] Type something into Summary and leave the field: its border turns green. Clear it and
+      leave again: no message, no summary entry, and no red border, just the neutral border,
+      in light and dark alike (Summary's input sets `WaitForSubmit`)
 - [ ] Submit: Summary speaks for the first time; the error summary now carries both
+- [ ] Type a summary back in and leave the field: its message and its summary entry clear with
+      no second submit
 - [ ] Valid submit: status line confirms
+- [ ] Then clear Summary and leave the field: "Summary is required to submit" appears at once,
+      red border included, with no submit, because the wait ended at the first Submit
 - [ ] Type into both fields, make Title 61 characters and leave the field so the format error
       is showing, then click *Reset*: the error clears and the form returns to pristine — but
       the typed values in both boxes STAY exactly as typed, over-long title included;
       `ResetAsync()` never writes model properties, and it is the SAME form, no page reload
+- [ ] After *Reset*, clear Summary and leave the field: silent again, with no red border, since
+      *Reset* starts the wait over
 
 ### Custom profiles
 
@@ -707,9 +716,9 @@ A reading check, not a browser check — do it from the repo.
       names are the ones that page sets
 - [ ] Spot-check the recipe titled **"I want to validate while typing, on blur, or only at
       submit"** — its table of `UpdateOn` against what the live channel selects matches what
-      /async and /field-state actually do, and `docs/troubleshooting.md`'s row *"A date input
-      reports impossible years while it is being typed"* matches the workout's date behaviour
-      you just walked
+      /async, /field-state and /profiles (Summary with `WaitForSubmit`) actually do, and
+      `docs/troubleshooting.md`'s row *"A date input reports impossible years while it is being
+      typed"* matches the workout's date behaviour you just walked
 - [ ] Every recipe answers with code first, then links to what explains it in full, with a
       sample page where one demonstrates it, and no recipe contradicts the pages it names
 
