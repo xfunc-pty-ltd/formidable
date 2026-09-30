@@ -516,10 +516,10 @@ the defensive gate's explanation, a validator fault, a model-level rule, or a se
 model-level issue. `SubmitOutcome.VisibleErrorSummary` lists such an error under it, and
 `VisibleIssue.DisplayName` carries it on each entry `GetVisibleIssues` returns.
 
-Both name an issue by one rule: the issue's `DisplayName` where it carries one (what `WithName(...)`
-sets), its `Path` otherwise, and this option wherever that pair leaves an empty string. A submit
-reads the option as it builds its outcome, so a `SubmitOutcome` already handed back holds the names
-it was built with. Each `GetVisibleIssues` call reads it afresh.
+Both name an issue by one rule: the issue's `DisplayName` when it has text (what `WithName(...)`
+sets), else its `Path` when that has text, else this option. A submit reads the option as it builds
+its outcome, so a `SubmitOutcome` already handed back holds the names it was built with. Each
+`GetVisibleIssues` call reads it afresh.
 
 A `FormidableSummary` entry renders its issue's `Message` until an `ItemTemplate` renders the name
 ([Deciding what an entry says](component-kit.md#deciding-what-an-entry-says)).

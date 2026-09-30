@@ -8,7 +8,7 @@ namespace Formidable.Blazor;
 /// <remarks>Grows by init-only properties, never by constructor parameters, so code constructing it keeps compiling.</remarks>
 public sealed record VisibleIssue(FieldIdentifier Field, ValidationIssue Issue)
 {
-    /// <summary>The name the issue is listed under: its <see cref="ValidationIssue.DisplayName"/>, or its <see cref="ValidationIssue.Path"/> when it has none, or <see cref="FormidableOptions.ModelLevelDisplayName"/> when that is empty. <see langword="null"/> on an instance built by hand.</summary>
+    /// <summary>The name the issue is listed under: its <see cref="ValidationIssue.DisplayName"/> when that has text, else its <see cref="ValidationIssue.Path"/> when that has text, else <see cref="FormidableOptions.ModelLevelDisplayName"/>. <see langword="null"/> on an instance built by hand.</summary>
     /// <remarks>It takes no part in the record's equality, because it is derived from the issue and an option, so an instance built by hand equals the one <see cref="IFormidableEngine.GetVisibleIssues"/> returns for the same field and issue.</remarks>
     public string? DisplayName { get; init; }
 

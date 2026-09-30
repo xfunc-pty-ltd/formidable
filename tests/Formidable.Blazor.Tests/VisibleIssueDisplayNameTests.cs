@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
@@ -7,8 +8,9 @@ using Microsoft.Extensions.Time.Testing;
 namespace Formidable.Blazor.Tests;
 
 /// <summary>
-/// Pins the name every visible issue carries: the rule's display name, else the issue's path,
-/// else the model-level name the options hold at the moment of the read. The submit outcome's
+/// Pins the name every visible issue carries: the rule's display name when it has text, else the
+/// issue's path when it has text, else the model-level name the options hold at the moment of the
+/// read. The submit outcome's
 /// error summary names its entries by the same rule, so the name beside an entry and the name
 /// the count line lists it under cannot disagree.
 /// </summary>
@@ -25,6 +27,21 @@ public class VisibleIssueDisplayNameTests
         public string Requester { get; set; } = string.Empty;
 
         public string Impact { get; set; } = string.Empty;
+
+        public string Title { get; set; } = string.Empty;
+
+        public string? NickName { get; set; }
+    }
+
+    // A name computed from the model, which comes out empty while the value it reads is unset.
+    private sealed class BlankNameValidator : DraftSubmitValidator<Ticket>
+    {
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(x => x.Title).NotEmpty().WithName(x => x.NickName ?? "");
     }
 
     private sealed class TicketValidator : DraftSubmitValidator<Ticket>
@@ -107,6 +124,72 @@ public class VisibleIssueDisplayNameTests
         var entry = Assert.Single(engine.GetVisibleIssues());
         Assert.Null(entry.Issue.DisplayName);
         Assert.Equal(nameof(Ticket.Reference), entry.DisplayName);
+    }
+
+    [Fact]
+    public async Task A_blank_display_name_is_named_by_the_path()
+    {
+        // Mutation: IssueDisplayName.Resolve goes back to (DisplayName ?? Path) is { Length: > 0 },
+        // and the empty name wins over the path, so the entry and the summary read "This form".
+        var ticket = new Ticket();
+        using var engine = Build(ticket, new FluentValidationModelValidator<Ticket>(new BlankNameValidator()));
+        using var title = engine.Registry.Register(new FieldIdentifier(ticket, nameof(Ticket.Title)));
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        var entry = Assert.Single(engine.GetVisibleIssues());
+        Assert.Equal(string.Empty, entry.Issue.DisplayName);
+        Assert.Equal(nameof(Ticket.Title), entry.DisplayName);
+        Assert.Equal([nameof(Ticket.Title)], outcome.VisibleErrorSummary);
+    }
+
+    [Fact]
+    public void A_server_issue_with_an_empty_display_name_is_named_by_the_path()
+    {
+        // Mutation: IssueDisplayName.Resolve goes back to (DisplayName ?? Path) is { Length: > 0 },
+        // and both entries read "This form".
+        var ticket = new Ticket();
+        using var engine = Build(ticket, new FluentValidationModelValidator<Ticket>(new TicketValidator()));
+        using var requester = engine.Registry.Register(new FieldIdentifier(ticket, nameof(Ticket.Requester)));
+        using var impact = engine.Registry.Register(new FieldIdentifier(ticket, nameof(Ticket.Impact)));
+
+        // A body whose advisory carries an empty displayName, read the way a client reads a 400.
+        var body = JsonSerializer.Deserialize(
+            """{ "advisories": [ { "path": "Impact", "message": "Impact helps triage", "severity": "Warning", "displayName": "" } ] }""",
+            FormidableValidationProblemJsonContext.Default.FormidableValidationProblem)!;
+        var advisory = Assert.Single(body.ToIssues());
+        Assert.Equal(string.Empty, advisory.DisplayName);
+
+        // An error the page mapped from a reply of its own shape, with the same empty name.
+        engine.ApplyServerIssues(
+        [
+            new ValidationIssue(nameof(Ticket.Requester), "That requester has left", DisplayName: string.Empty),
+            advisory,
+        ]);
+
+        var entries = engine.GetVisibleIssues();
+        Assert.Equal(nameof(Ticket.Requester), Assert.Single(entries, v => v.Field.FieldName == nameof(Ticket.Requester)).DisplayName);
+        Assert.Equal(nameof(Ticket.Impact), Assert.Single(entries, v => v.Field.FieldName == nameof(Ticket.Impact)).DisplayName);
+    }
+
+    [Fact]
+    public async Task An_issue_with_neither_a_display_name_nor_a_path_is_named_by_ModelLevelDisplayName()
+    {
+        // A pin of the rule's last branch, which holds before and after the empty-name change.
+        // Mutation: IssueDisplayName.Resolve drops the model-level fallback and returns the path
+        // whenever the display name has no text, and the entry and the summary read "".
+        var ticket = new Ticket();
+        using var engine = Build(
+            ticket,
+            new FixedReportValidator(new ValidationIssue(string.Empty, "The ticket is incomplete", DisplayName: string.Empty)),
+            new FormidableOptions { ModelLevelDisplayName = ReVoicedModelLevelName });
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        Assert.Equal(ReVoicedModelLevelName, Assert.Single(engine.GetVisibleIssues()).DisplayName);
+        Assert.Equal([ReVoicedModelLevelName], outcome.VisibleErrorSummary);
     }
 
     [Fact]

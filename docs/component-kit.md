@@ -890,16 +890,17 @@ which is never `null` on an entry the summary hands over.
 </FormidableSummary>
 ```
 
-The name is the issue's own `Issue.DisplayName` where it has one
+The name is the issue's own `Issue.DisplayName` when it has text
 ([Profiles](profiles.md#where-do-display-names-and-localized-messages-come-from) has where that name
-comes from), else its `Path`, else [`ModelLevelDisplayName`](options.md#modelleveldisplayname).
+comes from), else its `Path` when that has text, else
+[`ModelLevelDisplayName`](options.md#modelleveldisplayname).
 `SubmitOutcome.VisibleErrorSummary` names its errors by the same rule, so an error it lists reads
 the same there as beside its summary entry.
 
 | When | What `entry.DisplayName` reads |
 |---|---|
-| The rule named its field (`WithName(...)`, or FluentValidation's own name) | That name. |
-| The issue has a path but no `Issue.DisplayName` | The path. A [response-body error](server-integration.md#the-wire-contract) carries none, and a server advisory carries one only where the response supplied it. |
+| The rule named its field (`WithName(...)`, or FluentValidation's own name) | That name, unless it is empty. |
+| The issue has a path but no `Issue.DisplayName`, or an empty one | The path. A [response-body error](server-integration.md#the-wire-contract) carries none, and a server advisory carries one only where the response supplied it. |
 | The issue names no field of its own | `ModelLevelDisplayName`. The gate's explanation and a validator fault carry no `Issue.DisplayName` and no path. |
 | You built the `VisibleIssue` yourself | `null`. The name stays out of the record's equality, so your instance equals the summary's entry for the same field and issue. |
 

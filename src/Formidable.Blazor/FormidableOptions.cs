@@ -229,7 +229,7 @@ public sealed class FormidableOptions
     public string DefensiveGateMessage { get; set; } =
         "The form cannot be submitted because information that is not currently displayed is invalid.";
 
-    /// <summary>The name an issue is given when it names no field of its own (the gate's explanation, a validation fault, a model-level rule, a server reply's model-level issue), in <see cref="VisibleIssue.DisplayName"/> and <see cref="SubmitOutcome.VisibleErrorSummary"/>. Defaults to <c>"This form"</c>.</summary>
+    /// <summary>The name an issue is given when neither its display name nor its path has text (the gate's explanation, a validation fault, a model-level rule, a server reply's model-level issue), in <see cref="VisibleIssue.DisplayName"/> and <see cref="SubmitOutcome.VisibleErrorSummary"/>. Defaults to <c>"This form"</c>.</summary>
     public string ModelLevelDisplayName { get; set; } = "This form";
 
     /// <summary>The form-level message shown when a live check or the whole-form re-check throws before finishing, which leaves what the form shows incomplete. Defaults to <c>"Validation could not run to completion; recent changes may not be fully validated."</c>.</summary>
