@@ -46,11 +46,12 @@ public interface IRuleInspectingValidator<in TModel>
     /// <returns>The declared paths, compared ordinally; empty when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
     /// <remarks>
-    /// Nested templates chain (<c>Teams[].Members[].Alias</c>). Child validators
-    /// (<c>SetValidator</c>, <c>ChildRules</c>, <c>Include</c>) are read under the selection
-    /// FluentValidation runs them under, so a child rule the profile would not run is absent, and
-    /// an <c>Include</c>d validator's rules land at the including level. A collection whose only
-    /// rules live in its elements is not listed, and a model-level rule names no field.
+    /// Nested templates chain (<c>Teams[].Members[].Alias</c>), and <c>ForEach</c> rows file as
+    /// <c>Items[].Sku</c>. Child validators (<c>SetValidator</c>, <c>ChildRules</c>, <c>Include</c>),
+    /// including one written for a base type, are read under the selection FluentValidation runs
+    /// them under, so a child rule the profile would not run is absent, and an <c>Include</c>d
+    /// validator's rules land at the including level. A collection whose only rules live in its
+    /// elements is not listed, and a model-level rule names no field.
     /// </remarks>
     IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile);
 }

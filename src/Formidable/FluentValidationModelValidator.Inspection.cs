@@ -90,8 +90,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
     /// <remarks>
-    /// Not read: a child supplied by a lambda that reads its model, the repeat of a validator that
-    /// includes itself, and <c>DependentRules</c>.
+    /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is read
+    /// like any other, and each row <c>ForEach</c> checks files under the indexed path
+    /// (<c>Items[].Sku</c>, or <c>Items[]</c> for a rule on the row itself). Not read: a child
+    /// supplied by a lambda that reads its model, the repeat of a validator that includes itself,
+    /// and <c>DependentRules</c>.
     /// </remarks>
     public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
     {
@@ -163,8 +166,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
     /// <summary>Files each selected leaf component of one validator under the path its failures carry, descending into every child validator it can resolve.</summary>
     /// <param name="validator">The validator whose rules are read; one that enumerates no rules contributes nothing.</param>
-    /// <param name="modelType">The type this validator's rules judge.</param>
-    /// <param name="prefix">The path travelled so far; a rule reaching a child adds <c>Name.</c>, or <c>Name[].</c> for a collection rule, and a rule with no property name adds nothing.</param>
+    /// <param name="modelType">The type this validator's rules are written for.</param>
+    /// <param name="prefix">The path travelled so far, empty or ending in a dot; a rule reaching a child adds <c>Name.</c>, or <c>Name[].</c> for a collection rule, a collection rule with no property name adds <c>[]</c> to the path travelled, and any other rule with no property name adds nothing.</param>
     /// <param name="conditional">Whether the walk reached this validator only through a condition.</param>
     /// <param name="selector">The selector rules are admitted by at this level.</param>
     /// <param name="selectionContext">The model-less context selection questions are asked against.</param>
@@ -200,12 +203,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 continue;
             }
 
-            var name = rule.PropertyName;
-
-            // Read once per rule: both the row-filter check below and the child prefix's
-            // Name[]-versus-Name choice ask the identical question of the identical rule, and
-            // neither needs it more than once.
+            // Read once per rule: both the row-filter check below and the paths the rule files
+            // under ask the identical question of the identical rule, and neither needs it more
+            // than once.
             var collectionRuleType = CollectionRuleTypeOf(rule, modelType);
+            var (ownPath, childPrefix) = RulePaths(prefix, rule.PropertyName, collectionRuleType is not null);
 
             // FluentValidation records a condition in one of two places depending on how it was
             // written: a When block wrapping the rule declaration marks the RULE, while a When
@@ -235,10 +237,6 @@ public sealed partial class FluentValidationModelValidator<TModel>
                         continue;
                     }
 
-                    var childPrefix = string.IsNullOrEmpty(name)
-                        ? prefix
-                        : $"{prefix}{name}{(collectionRuleType is not null ? "[]" : string.Empty)}.";
-
                     // FluentValidation's own child dispatch (ChildValidatorAdaptor.GetSelector):
                     // rulesets on the adaptor build a replacing selector — the one in force is
                     // not intersected with, and never sees the child's rules — while an adaptor
@@ -251,12 +249,13 @@ public sealed partial class FluentValidationModelValidator<TModel>
                         : selector;
 
                     WalkDeclaredRules(
-                        child.Validator, rule.TypeToValidate, childPrefix, componentConditional,
-                        childSelector, selectionContext, declared, walking);
+                        child.Validator, ValidatedModelTypeOf(child.Validator, rule.TypeToValidate),
+                        childPrefix, componentConditional, childSelector, selectionContext, declared,
+                        walking);
                     continue;
                 }
 
-                if (string.IsNullOrEmpty(name))
+                if (ownPath is null)
                 {
                     continue; // a model-level component names no field
                 }
@@ -267,18 +266,66 @@ public sealed partial class FluentValidationModelValidator<TModel>
                         ? FieldRequirement.ConditionallyRequired
                         : FieldRequirement.Required;
 
-                var path = prefix + name;
-
                 // The strongest demand any component makes wins, which is what puts an
                 // unconditional presence rule ahead of a conditional one on the same field and
                 // keeps a field with rules but no presence component in the map at all.
-                declared[path] = declared.TryGetValue(path, out var existing) && existing > demand
+                declared[ownPath] = declared.TryGetValue(ownPath, out var existing) && existing > demand
                     ? existing
                     : demand;
             }
         }
 
         walking.Remove(validator);
+    }
+
+    /// <summary>The path a rule's own components file under, and the prefix a child validator it carries is read under.</summary>
+    /// <param name="prefix">The path travelled so far, empty or ending in a dot.</param>
+    /// <param name="name">The rule's property name; <see langword="null"/> or empty for a rule that names none.</param>
+    /// <param name="isCollectionRule">Whether the rule judges each element of a collection.</param>
+    /// <returns>The components' path, or <see langword="null"/> where they name no field, and the child prefix.</returns>
+    // A named rule adds its name, and a named collection rule adds Name[] for a child it carries,
+    // whose failures carry an index there. A collection rule with no name sits in a validator for
+    // the collection itself (ForEach builds one, and RuleForEach(x => x) writes one), so the rule
+    // holding that validator has already added the name and the index is all this rule adds: to
+    // its own components (Tags[0]) and to a child it carries (Items[0].Sku) alike. On the root
+    // model nothing has been travelled, so there is no path to index and the rule files as any
+    // rule with no name does.
+    private static (string? OwnPath, string ChildPrefix) RulePaths(string prefix, string? name, bool isCollectionRule)
+    {
+        if (!string.IsNullOrEmpty(name))
+        {
+            return (prefix + name, $"{prefix}{name}{(isCollectionRule ? "[]" : string.Empty)}.");
+        }
+
+        if (isCollectionRule && prefix.Length > 0)
+        {
+            var indexed = $"{prefix[..^1]}[]";
+            return (indexed, indexed + ".");
+        }
+
+        return (null, prefix);
+    }
+
+    /// <summary>The type a validator's rules are written for: the argument of the <see cref="AbstractValidator{T}"/> it derives from, or <paramref name="fallback"/> when it derives from none.</summary>
+    /// <param name="validator">The child validator.</param>
+    /// <param name="fallback">The type to answer for a validator that derives from no <see cref="AbstractValidator{T}"/>.</param>
+    /// <returns>The type the validator's rules judge.</returns>
+    // A child validator can be written for a base type of what it validates (an
+    // AnimalValidator on a Dog, a PersonValidator included into a CustomerValidator, the
+    // IEnumerable<T> validator ForEach hands a List<T>), and its rules are typed on that base, so
+    // the walk reads them under it. The base types are walked as ClosedAdaptorTypeOf walks them,
+    // each tested against a literal typeof and nothing built.
+    private static Type ValidatedModelTypeOf(object validator, Type fallback)
+    {
+        for (var type = validator.GetType(); type is not null; type = type.BaseType)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(AbstractValidator<>))
+            {
+                return type.GetGenericArguments()[0];
+            }
+        }
+
+        return fallback;
     }
 
     /// <summary>The closed <c>ICollectionRule&lt;,&gt;</c> for the rule's model and element types, or <see langword="null"/> when the rule is not one.</summary>
@@ -402,11 +449,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
         typeof(ValidationContext<>).GetConstructor([typeof(ValidationContext<>).GetGenericArguments()[0]]);
 
     // Every closed type this touches is read off the live adaptor rather than built from type
-    // arguments. An adaptor closed over another pair than the walk carries, which is what a child
-    // met below a validator written for a base type has, is left unread: the walk tests that
-    // validator's rules against the property's type rather than the base type they were written
-    // for, so a collection rule there does not read as one and its child would be filed under
-    // the wrong path.
+    // arguments. The walk carries the type each validator's rules are written for, and the pair
+    // check holds the adaptor to the rule it sits on: one closed over another pair than that
+    // rule's model and property types is left unread, a missing mark rather than a guess. A
+    // hand-built adaptor can fail the check, since component variance lets one written for a base
+    // property type sit on a rule over a derived one.
     private static ChildReading ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
     {
         try

@@ -6,8 +6,8 @@ namespace Formidable.Tests;
 /// <summary>
 /// Which child validators the rule reading reaches. One attached through a subclass of
 /// FluentValidation's child adaptor is read like one attached the usual way. One met below a child
-/// validator written for a base type is not read, because the rules around it are tested against
-/// the property's type rather than the base type they were written for.
+/// validator written for a base type is read too, because the rules around it are read under the
+/// base type they were written for.
 /// </summary>
 public class ChildAdaptorReadingTests
 {
@@ -90,16 +90,20 @@ public class ChildAdaptorReadingTests
         public OwnerValidator() => RuleFor(o => o.Pet).SetValidator(new AnimalValidator());
     }
 
-    // The base-typed validator's own rules are read. The collection rule among them is tested
-    // against Dog, which it was not written for, so it does not read as one; the collar tag
-    // behind it would be filed as Pet.Collars.Tag rather than Pet.Collars[].Tag. Mutation this
-    // breaks: read an adaptor closed over another pair than the walk carries, and that path
-    // appears.
+    // The base-typed validator's rules are read under Animal, the type they are written for, so
+    // the collection rule among them reads as one and the collar tag behind it is filed under the
+    // path its failures carry. Mutation this breaks: walk a child under rule.TypeToValidate (Dog)
+    // instead of the type its validator is written for, and Pet.Collars[].Tag goes unread.
     [Fact]
-    public void A_child_below_a_validator_written_for_a_base_type_is_not_read()
+    public void A_child_below_a_validator_written_for_a_base_type_is_read()
     {
         var validator = new FluentValidationModelValidator<Owner>(new OwnerValidator());
 
-        Assert.Equal(["Pet.Name"], validator.GetDeclaredFieldPaths(ValidationProfile.Submit));
+        Assert.Equal(
+            ["Pet.Collars[].Tag", "Pet.Name"],
+            validator.GetDeclaredFieldPaths(ValidationProfile.Submit).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            FieldRequirement.Required,
+            validator.GetFieldRequirement("Pet.Collars[0].Tag", ValidationProfile.Submit));
     }
 }
