@@ -63,8 +63,9 @@
 
         @* The entries are field names here rather than messages. DisplayName is the name
            SubmitOutcome.VisibleErrorSummary lists the entry under, the one the line above
-           counts: the WithName(...) a rule gave, else the property path, else
-           ModelLevelDisplayName for an issue about the whole form. *@
+           counts: the rule's own name (its WithName(...), or FluentValidation's name for the
+           property), else the property path, else ModelLevelDisplayName for an issue about the
+           whole form. *@
         <FormidableSummary Show="SummaryFilter.Errors" GroupByField="true" MaxItems="4"
                            PrepareFocus="DismissAnnouncementAsync">
             <ItemTemplate Context="entry">@entry.DisplayName</ItemTemplate>

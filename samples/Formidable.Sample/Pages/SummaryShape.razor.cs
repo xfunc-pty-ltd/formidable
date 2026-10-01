@@ -16,9 +16,9 @@ public partial class SummaryShape
     // One method behind both templates, which is the point of handing the overflow fragment the
     // entries: a held-back entry is the same VisibleIssue a shown one is, so the expander renders
     // it exactly as the list would have. DisplayName is the name the summary hands every entry:
-    // the WithName(...) a rule gave, else the property path (an error from a server's
-    // ProblemDetails body has a path and no name), else ModelLevelDisplayName for an issue about
-    // the whole form.
+    // the rule's own name (its WithName(...), or FluentValidation's name for the property), else
+    // the property path (an error from a server's ProblemDetails body has a path and no name),
+    // else ModelLevelDisplayName for an issue about the whole form.
     private string? EntryText(VisibleIssue entry) =>
         _nameTheField ? entry.DisplayName : entry.Issue.Message;
 
