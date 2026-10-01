@@ -47,9 +47,9 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 |---|---|---|---|
 | [`LiveProfile`](#liveprofile) | `ValidationProfile?` | `null` (tracks `SubmitProfile`) | Which profile live checking runs. |
 | [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
-| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | After a submit, how long after an edit before the whole form is re-checked. |
+| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. Under a `LiveDebounce` that never closes, it also times the validity check. |
 | [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
-| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check. |
+| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check, which also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values. |
 | [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
 | [`ClickRecovery`](#clickrecovery) | `DisplacedClickRecovery` | `Buttons` | Whether a click the page displaced is re-delivered. |
 | [`DisclosureOverride`](#disclosureoverride) | `Func<ValidationIssue, bool?>?` | `null` | A per-issue answer to whether an issue may be shown. |
@@ -122,11 +122,17 @@ field you have engaged, and no whole-form re-check follows it. A change to which
 screen (a row leaving, a section collapsing) re-checks the whole form after the same wait at any
 point in the form's life.
 
+With `TrackFormValidity` on and a `LiveDebounce` that never passes, the same wait also times the
+validity check an edit before the first submit or server reply starts.
+
 It is a second debounce because the re-check is whole-form work, too much to repeat on every
-keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst of edits or
-field-set changes inside it is one re-check, since they share one timer. This timer and
-`LiveDebounce`'s both come from the DI container's `TimeProvider` where one is registered, so a
-test can land either window with `Advance` (see [Testing](testing.md#faking-the-clock)).
+keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst (edits or
+field-set changes each arriving inside the wait the one before it started) is one re-check, since
+they share one timer.
+
+This timer and `LiveDebounce`'s both come from the DI container's `TimeProvider` where one is
+registered, so a test can land either window with `Advance` (see
+[Testing](testing.md#faking-the-clock)).
 
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
 has what the re-check waits for. Why:
@@ -149,19 +155,28 @@ and a memo answers the expensive rule's repeat asks
 `LiveDebounce` and a memo work together: the wait cuts how often the check runs, and the memo cuts
 what asking again about the same value costs.
 
-With `TrackFormValidity` on, its validity check waits for the same window, and after a submit the
-same edit starts the whole-form re-check's own wait as well. `Timeout.InfiniteTimeSpan` is a wait
-that never passes, so no edit starts a live check; the re-check still runs on
-[`RefreshDebounce`](#refreshdebounce).
+With `TrackFormValidity` on, its validity check waits for the same window (a wait that never passes
+is the exception, below).
+
+After a submit or server reply, an edit under a finite `LiveDebounce` starts two waits. The live
+check runs when this window passes, and the whole-form re-check runs
+[`RefreshDebounce`](#refreshdebounce) after the edit. With `TrackFormValidity` on, the validity
+check runs with the live check.
+
+`Timeout.InfiniteTimeSpan` is a wait that never passes, so no edit starts a live check. With
+`TrackFormValidity` on, edits before the first submit or server reply start a validity check of
+their own instead, `RefreshDebounce` after the last of them. The whole-form re-check still runs on
+`RefreshDebounce`, and after a submit or server reply it answers in the validity check's place.
 
 Set it once for the whole app in `Program.cs`,
 `builder.Services.AddFormidableBlazor(options => options.LiveDebounce = TimeSpan.FromMilliseconds(400));`,
 or per form, on the `FormidableOptions` the form's `Options` parameter takes
 ([App-wide defaults](#app-wide-defaults)).
 
-The two waits run independently;
-[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field) has what setting one wider
-costs. Why: [how the engine works: the two timers](how-the-engine-works.md#the-five-pass-kinds).
+The two waits run independently. Setting one wider than the other changes which check lands first,
+not the cost:
+[Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
+has what you see in each order. Why: [how the engine works: the two timers](how-the-engine-works.md#the-five-pass-kinds).
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps the
 immediate default for a 400 ms window.
@@ -173,23 +188,39 @@ Submit button needs) with a whole-form validity check by the submit profile: onc
 built, then on every field change, or once per window when `LiveDebounce` is set. It shows no
 message and no "checking".
 
-Off by default because a form with nothing reading `IsFormValid` gets nothing for the work. On a
-validator the engine can take rule by rule, where every rule answers without waiting, tracking adds
-no rule executions per edit on the default profiles: whichever of the validity check and the check
-your edit started runs first has answered by the time the other looks, and the other reuses those
-answers.
+A `LiveDebounce` of `Timeout.InfiniteTimeSpan` is a window that never closes, so the check cannot
+wait for it. Before the first submit or server reply, edits start a validity check of their own
+instead, one for each burst, [`RefreshDebounce`](#refreshdebounce) (300 ms) after its last edit. A
+Submit button disabled on `IsFormValid` then follows the form as it is filled in. After a submit or
+server reply, the whole-form re-check that follows each edit answers instead.
+
+A change to which fields are on screen (a row added or removed) re-checks the whole form after the
+same wait at any point in the form's life, and that re-check moves `IsFormValid` too. With
+`RefreshDebounce` also `Timeout.InfiniteTimeSpan`, neither ever runs, so after the check at build
+`IsFormValid` moves only on a submit or a load of values.
+
+Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
+
+On a validator the engine can take rule by rule (FluentValidation's `AbstractValidator` is one
+unless you set `ClassLevelCascadeMode.Stop`, as
+[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
+says), where every rule answers without waiting, tracking adds no rule executions per edit on the
+default profiles, wherever an edit starts a live check:
+whichever of the validity check and the check your edit started runs first has answered by the time
+the other looks, and the other reuses those answers.
 
 It costs extra where `LiveProfile` narrows (the rules the live check skipped still run on every
 edit) and on any other validator, where each validity check is one whole `SubmitProfile`
-validation on top of the live check.
+validation on top of the live check. Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit
+starts a live check, so each validity check there is work of its own.
 [Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the
 async-rule cost and what happens when several validity checks overlap.
 
 No option narrows the validity check the way `LiveProfile` narrows the live check. An async rule
 it reaches (a lookup against your API, say) wants a memo (`MustAsyncMemoized`,
 [remember its answer](recipes.md#i-want-a-slow-async-check-to-remember-its-answer)). The
-alternative is a button bound to nothing, with tracking off: it stays enabled and Submit blocks on
-an error.
+alternative to tracking is a button bound to nothing, with tracking off: it stays enabled and
+Submit blocks on an error.
 
 ```razor
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
@@ -200,7 +231,8 @@ it on, `false` until a whole-form check has answered once (a validity check, a s
 whole-form re-check). Issues a server applied through `ApplyServerIssues` are not part of the answer.
 
 Tracking also feeds the `Valid` class, so it can put green on a field a narrowed live check could
-not ([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:
+not, or one edited under a window that never closes
+([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:
 [how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
 
 **Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor) — a
@@ -551,8 +583,8 @@ for that third condition and [how the five compose](css-and-accessibility.md#nee
 `FormidableInputBase<TValue>` (see
 [Component kit](component-kit.md#formidableinputtext-and-formidableinputbasetvalue)), not a member
 of `FormidableOptions`, so it is not set through `Options`. It answers the other half of "when does
-a rule get to answer": `RefreshDebounce` governs the whole-form re-check's timing, and `UpdateOn`
-governs a live check's.
+a rule get to answer": `RefreshDebounce` governs the whole-form re-check's timing, and `UpdateOn`,
+with `LiveDebounce`'s wait after it, governs a live check's.
 
 `InputUpdateMode.OnChange` (default) commits the value and notifies the engine together, on the
 element's `change` event. `InputUpdateMode.OnInput` commits the same pair on every keystroke

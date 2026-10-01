@@ -124,6 +124,10 @@ timer `TimeSpan.Zero` still fires from the timer's own callback, never inside th
 that armed it, and a fire still defers as any fire does; on the live timer it is not a spelling
 of `null`.
 
+A third timer, the validity timer, belongs to no kind. It starts the probe on `RefreshDebounce`
+for a form whose live window never closes, as
+[the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
+
 **A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
 validator that throws under either surfaces through the caller's own `try`/`catch`. A live or
 refresh pass is fire-and-forget, so its exception becomes a form-level issue carrying
@@ -244,22 +248,29 @@ The profile match guards both grounds: an answer about one selection of rules ne
 another. A served answer describes the model as it stood when the answer was computed until the
 pass behind it lands, the same lag `IsFormValid` carries on the same terms.
 
-"On its way" (`ReAnswerOnItsWay`) means one of three things. A pass is in flight whose landing
+"On its way" (`ReAnswerOnItsWay`) means one of five things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
 to the submit profile instance. A narrowed live pass promises nothing itself and counts only for
-a refresh armed behind it.
+a refresh or a validity check armed, or running, behind it.
 
-With no such pass in flight, an open live-debounce window on a submit-running channel counts,
-and so does an armed post-submit refresh, each only under a debounce that can fire
-(`Timeout.InfiniteTimeSpan` promises nothing). The probe is never consulted.
+With no such pass in flight, an open live-debounce window on a submit-running channel counts. So
+does an armed post-submit refresh, and so does an armed validity timer while `TrackFormValidity`
+is on. Each counts only under a debounce that can fire (`Timeout.InfiniteTimeSpan` promises
+nothing).
+
+The fifth is the probe a validity timer's fire started, from the fire until that probe lands,
+faults or is cancelled, whatever tracking says by then. The fire numbers it and records when it
+started, so only its own exits end it, and the bound below has a start to run from. No other
+probe is consulted: those are fire-and-forget, with no start time to bound them by.
 
 One configuration therefore blinks on an edit as a form with nothing scheduled does: a narrowed
-live channel with `TrackFormValidity` on, before any submit, re-answers only through the probe,
-and its vouch waits for that landing.
+live channel with `TrackFormValidity` on and any `LiveDebounce` but `Timeout.InfiniteTimeSpan`,
+before any submit, re-answers only through the probe, and its vouch waits for that landing.
 
 **The bound.** A pass in flight counts only while it is younger than `HeldVouchBound`, thirty
 seconds. The bound is the current pass's age, never the held answer's, and past it nothing armed
-behind the pass can stand in for it.
+behind the pass can stand in for it. The running validity probe counts under the same bound,
+measured from its fire.
 
 A hold across an edit is therefore bounded: a form whose pass hangs loses those borders at the
 next read rather than keeping them for ever, and a rule slower than the bound loses the held
@@ -269,13 +280,17 @@ Each edit against a validator that hangs again starts a fresh pass with a bound 
 the same held answer can be re-served for another bound per edit, the edited fields excluded
 throughout.
 
-**What drops the hold** is `Abandon`, reached from two places. A current pass ending without
+**What drops the hold** is `Abandon`, reached from three places. A current pass ending without
 landing calls it: a fault of any kind, or a caller's cancellation of a submit or a load, the only
-two kinds that carry an external token. The opening of `DiscloseLoadedValuesAsync` calls it too,
-declaring the model moved out from under everything the hold describes.
+two kinds that carry an external token.
+
+The running validity probe calls it when it faults or is cancelled, and publishes as a pass's end
+does. The opening of `DiscloseLoadedValuesAsync` calls it too, declaring the model moved out from
+under everything the hold describes.
 
 A superseded pass is not a drop. Its end sits behind the version gate, so it never abandons, and
 the answer then stands or falls on whether its displacer, or an arm, still promises a re-answer.
+An older validity probe ending while a newer fire's probe runs ends nothing, on the same terms.
 
 Every pass that ends while still current, landed or not, also moves the coverage version, so the
 next coverage read recomputes rather than standing on a cache that predates the end.
@@ -462,6 +477,28 @@ writes no message, and never touches the pending indicator. One probe runs at co
 pristine form answers truthfully, and one runs at the live pass's own cadence afterwards: inside
 every field-changed notification, or once per window when `LiveDebounce` is set.
 
+`Timeout.InfiniteTimeSpan` is the exception, because its window does not close. There a field
+change that arms no refresh (no `HasSubmitted`, no submit in flight) arms the validity timer at
+`RefreshDebounce` instead, one sliding window, so a burst of changes is one probe.
+
+Its fire tests for a stand-down first: the engine is disposed, tracking is off, a submit has
+answered, or an edit has armed the refresh. A server reply alone does not stand it down, since the
+reply answers nothing the probe computes.
+
+Otherwise, while a submit or a load is in flight, the fire re-arms and keeps the flag, as the live
+timer's fire does. Otherwise it clears the flag, marks the probe it starts as running, and starts
+it.
+
+The refresh an edit arms adopts `IsFormValid` for the whole model and counts as a re-answer on its
+way, so a probe beside it would only run a still-unanswered async rule a second time. That refresh
+also waits out a submit in flight and runs whether the submit answers or is cancelled, which is
+why the fire tests for it before the re-arm.
+
+After `HasSubmitted` no change arms the validity timer at all. A probe due with the refresh the
+same change armed could fire once that refresh had begun, with no armed refresh left to stand down
+for. Under a `RefreshDebounce` of `Timeout.InfiniteTimeSpan` the timer never fires, so
+`IsFormValid` moves only on a submit or a load.
+
 The probe stands down for a submit or a load in flight, which is about to compute the same
 quantity itself. On a rule-capable validator it plans against the store exactly as a pass does,
 executes the submit-selected rules with no fresh verdict at its begin stamp, and files what it
@@ -495,8 +532,12 @@ than overwrite a fresher one.
 
 Probes are never cancelled short of disposal, so under a slow async rule and no `LiveDebounce`
 several can be in flight together, each answering for the model state it started at. A probe
-that throws raises `ValidationFaulted` and nothing else: a form-level fault issue would disclose
+that throws raises `ValidationFaulted` and no form-level fault issue, which would disclose
 something an invisible probe promises never to.
+
+The running validity probe also drops the hold when it throws, as the vouch's own section says. It
+drops the hold before it raises the event (as a faulting pass publishes before it raises), so a
+handler that throws cannot leave green held on a probe that has died.
 
 ## The state classes: how `FormidableCss` computes them
 

@@ -290,8 +290,8 @@ engine without the feature would give.
 
 The clock is a fourth stand-in, beside the three seams above. It needs no Formidable interface,
 because .NET already ships the seam. The engine creates its timers from the `TimeProvider`
-registered in the container, falling back to `TimeProvider.System` when there is none. Those timers
-are the two windows, one behind [`RefreshDebounce`](options.md#refreshdebounce) and one behind
+registered in the container, falling back to `TimeProvider.System` when there is none. Each of
+those timers waits out one of the two windows, [`RefreshDebounce`](options.md#refreshdebounce) or
 [`LiveDebounce`](options.md#livedebounce).
 
 Register `Microsoft.Extensions.Time.Testing.FakeTimeProvider` as `TimeProvider` and every debounced

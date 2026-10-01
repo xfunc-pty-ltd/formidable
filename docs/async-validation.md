@@ -285,6 +285,15 @@ rules unanswered, so no field goes green on the strength of a narrowed live chec
 
 With `TrackFormValidity` on, its validity check answers the rest, so tracking can put green on a
 field a narrowed live check could not.
+
+Two more setups keep a passing check short of green. A validator the engine cannot take rule by
+rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop`, or a validator of your own)
+earns green only from a check that answers the whole model: a submit, the whole-form re-check, a
+load of values, or the validity check, never a live check.
+
+And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with tracking off, an edit before the
+first submit or server reply starts no check. Green after it comes from a submit, the whole-form
+re-check or a load of values.
 [CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field) has the whole
 condition.
 
@@ -297,9 +306,17 @@ current on every field change, or once per window when `LiveDebounce` is set, ju
 model by the submit profile. It shows no message and no "checking". `IsFormValid` answers for the
 untouched form as soon as the check started at construction lands, before anything is typed.
 
+A `LiveDebounce` of `Timeout.InfiniteTimeSpan` never closes its window, so before the first submit
+or server reply the edits start a validity check of their own instead, one for each burst,
+`RefreshDebounce` (300 ms) after its last edit. After a submit or server reply the whole-form
+re-check that follows each edit answers instead, and no validity check runs beside it, so an
+async rule is not paid twice. With `RefreshDebounce` also `Timeout.InfiniteTimeSpan`,
+`IsFormValid` moves only on a submit or a load of values.
+
 Where every rule answers without waiting, it adds no rule executions per edit on the default
-profiles: whichever of the validity check and the check your edit started runs first has answered
-by the time the other looks, and the other reuses those answers. It costs extra in two places.
+profiles, wherever an edit starts a live check: whichever of the validity check and the check your
+edit started runs first has answered by the time the other looks, and the other reuses those
+answers. It costs extra in three places.
 Narrowing `LiveProfile` does not save the work: the rules the live check skipped still run on every
 edit to keep `IsFormValid` honest.
 
@@ -309,6 +326,9 @@ reuse what the other is still computing. A memo folds the pair into one round tr
 second call joins the first. With no `LiveDebounce`, ten quick edits can mean ten validity checks
 running at once, each answering for the form as it stood when it started, and the latest one
 wins: time, never correctness.
+
+And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each
+validity check there is rule work the edits would not otherwise cost, async rules included.
 
 [Options](options.md#trackformvalidity) has the cost on a validator that cannot be taken rule by
 rule.

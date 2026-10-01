@@ -72,11 +72,17 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 
 ### Which check turns a field green?
 
-On the default profiles, with a `LiveDebounce` that can close, the live check behind a committed
-change supplies that answer on a validator the engine can take rule by rule.
-[`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the submit
-rules. One answer covers the form, not only the changed field. A submit, and the whole-form re-check
-after one, turn fields green the same way.
+On the default profiles, unless `LiveDebounce` is `Timeout.InfiniteTimeSpan`, the live check
+behind a committed change supplies that answer on a validator the engine can take rule by rule
+(FluentValidation's `AbstractValidator` is one unless you set `ClassLevelCascadeMode.Stop`, as
+[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
+says). [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the
+submit rules. One answer covers the form, not only the changed field. A submit, and the whole-form
+re-check after one, turn fields green the same way.
+
+With no `LiveDebounce`, that live check starts at the change itself. With a finite one, it starts
+once the form has gone `LiveDebounce` without a committed change, and before a submit, green
+arrives when that check lands.
 
 A validator the engine cannot take rule by rule earns green only from a check that answers the
 whole model: a submit, the whole-form re-check, a load of values, or `TrackFormValidity`, never a
@@ -85,8 +91,12 @@ left: a form that narrows `LiveProfile` past the submit rules, and a validator t
 take rule by rule. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
 itself, with no validity check needed.
 
-A `LiveDebounce` that never closes holds back the validity check too, since it waits for the same
-window. After an edit there, green comes from a submit, the whole-form re-check or a load of values.
+The validity check also covers a `LiveDebounce` of `Timeout.InfiniteTimeSpan`, a window that never
+closes and so never starts the live check. With tracking on, edits before the first submit or
+server reply start a validity check of their own, one for each burst of edits less than
+`RefreshDebounce` (300 ms) apart, that long after the burst's last edit. Green after the edits
+comes from that check. Without tracking, green after an edit comes from a submit, the
+whole-form re-check or a load of values.
 
 Why: [how the engine works: which checks count](how-the-engine-works.md#the-submit-coverage-vouch).
 
@@ -98,17 +108,27 @@ whole-form re-check that same move starts lands a fresh one. That re-check also 
 changed alongside the markup without a notification, so green describes the model, not the markup.
 
 And while a check that answers the submit rules is on its way, one edit does not blank every other
-field's confirmation border. On the default profiles, with a `LiveDebounce` that can close, every
-committed change has one on its way. Every field the edit did not touch keeps its green while that
-check is on its way, and its answer then decides. The edited field itself earns no green until its
-own answer lands.
+field's confirmation border. On the default profiles, unless `LiveDebounce` is
+`Timeout.InfiniteTimeSpan`, every committed change has one on its way. On a validator the engine can
+take rule by rule, every field the edit did not touch keeps its green while that check is on its
+way, and its answer then decides. The edited field itself earns no green until its own answer lands.
 
-Under a `LiveDebounce` that never closes, an edit before the first submit or server reply starts no
-check, so it takes the green off every other field unless another check is already on its way.
+Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with `TrackFormValidity` on, the check on its
+way is the validity check that edits before the first submit or server reply start, one for each
+burst, `RefreshDebounce` after the burst's last edit. On a validator the engine can take rule by rule,
+every other field keeps its green from the edit until that check answers, an async rule's wait
+included. The edited field earns green when the check answers, if its value passes.
+
+A `RefreshDebounce` of `Timeout.InfiniteTimeSpan` means that validity check never runs, so it holds
+no field's green.
+
+With tracking off, an edit under a window that never closes, before the first submit or server
+reply, starts no check. It takes the green off every other field unless another check is already
+on its way.
 
 The hold across an edit is bounded rather than indefinite: a check still running past thirty
-seconds loses it. A check that throws, or a submit or load its caller cancels, drops either hold
-outright. A check a newer one replaces is not a drop while a fresh answer is still on its way.
+seconds loses it. A check that throws, or a submit or load its caller cancels, drops both holds
+outright (the answer kept across a row arriving, and the green kept across an edit). A check a newer one replaces is not a drop while a fresh answer is still on its way.
 Until the check behind a held answer lands, the border describes the values that answer was
 computed from.
 

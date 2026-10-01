@@ -78,7 +78,9 @@ public sealed class FormidableOptions
     /// A change to which fields are on screen re-checks the whole form after the same wait at any
     /// point in the form's life. <see cref="TimeSpan.Zero"/> re-checks as soon as the edit is
     /// committed; only <see cref="Timeout.InfiniteTimeSpan"/> turns the re-check off. Contrast
-    /// <see cref="LiveDebounce"/>, whose <see langword="null"/> means no wait at all.
+    /// <see cref="LiveDebounce"/>, whose <see langword="null"/> means no wait at all. With
+    /// <see cref="TrackFormValidity"/> on and a <see cref="LiveDebounce"/> of
+    /// <see cref="Timeout.InfiniteTimeSpan"/>, it also times the validity check.
     /// </remarks>
     public TimeSpan RefreshDebounce { get; set; } = TimeSpan.FromMilliseconds(300);
 
@@ -87,17 +89,21 @@ public sealed class FormidableOptions
     /// A further change inside the wait restarts it. <see cref="TimeSpan.Zero"/> is a wait of no
     /// width, not a spelling of <see langword="null"/>: the check still starts from a timer rather
     /// than inside the change itself. With <see cref="TrackFormValidity"/> on, the validity check
-    /// waits for the same window.
+    /// waits for the same window, except under <see cref="Timeout.InfiniteTimeSpan"/>, where
+    /// changes before a submit or server reply run it <see cref="RefreshDebounce"/> after the last
+    /// of them.
     /// </remarks>
     public TimeSpan? LiveDebounce { get; set; }
 
-    /// <summary>Whether <see cref="IFormidableEngine.IsFormValid"/> is kept current as the visitor edits, by a whole-form check of the submit profile, so a Submit button can be disabled. Defaults to <see langword="false"/>.</summary>
+    /// <summary>Whether <see cref="IFormidableEngine.IsFormValid"/> is kept current as the visitor edits (unless <see cref="LiveDebounce"/> and <see cref="RefreshDebounce"/> both never pass), by a whole-form check of the submit profile that shows no message and no "checking", so a Submit button can be disabled. Defaults to <see langword="false"/>.</summary>
     /// <remarks>
-    /// The check runs once when the form is built and then at the live check's own cadence, once
-    /// per window under <see cref="LiveDebounce"/>; it shows no message and no "checking". Turning
-    /// it on mid-form computes nothing until the next change, submit, load or whole-form re-check.
-    /// With it off, <see cref="IFormidableEngine.IsFormValid"/> keeps its last answer,
-    /// <see langword="false"/> on a form that has never tracked.
+    /// The check runs once when the form is built, then at the live check's own cadence, once per
+    /// window under <see cref="LiveDebounce"/>. Under a <see cref="LiveDebounce"/> of
+    /// <see cref="Timeout.InfiniteTimeSpan"/>, changes before a submit or server reply run it
+    /// <see cref="RefreshDebounce"/> after the last of them, and after one the whole-form re-check
+    /// answers. Turning it on mid-form computes nothing until the next check, submit, load or
+    /// whole-form re-check. With it off, <see cref="IFormidableEngine.IsFormValid"/> keeps its last
+    /// answer, <see langword="false"/> on a form that has never tracked.
     /// </remarks>
     public bool TrackFormValidity { get; set; }
 

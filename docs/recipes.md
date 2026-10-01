@@ -51,15 +51,24 @@ also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 | `UpdateOn="InputUpdateMode.OnInput"` | On every keystroke, and you see the answer for what you last typed. | Not before submit. At submit; then in the whole-form re-check 300 ms after the typing stops. |
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change, so a multi-segment control never starts a check mid-edit; a blur with no commit before it starts nothing. | Not before submit. At submit; then, after each blur-commit, in the whole-form re-check 300 ms later. |
 
-Which column a rule falls in is a configuration choice rather than a property of the bucket it was
-declared in: [`FormidableOptions.LiveProfile`](profiles.md#which-profile-runs-when) draws the line.
-What keeps the left column from nagging is engagement rather than rule selection: a field you have
-not changed shows no live message, however loudly its rule fails (a load of values disclosed with
-`DiscloseLoadedValuesAsync` counts as a change for the fields it fills).
+The left column is for a `LiveDebounce` left unset. A finite wait delays each of its checks until
+the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column.
+
+Otherwise, which column a rule falls in is a configuration choice rather than a property of the
+bucket it was declared in: [`FormidableOptions.LiveProfile`](profiles.md#which-profile-runs-when)
+draws the line. What keeps the left column from nagging is engagement rather than rule selection: a
+field you have not changed shows no live message, however loudly its rule fails (a load of values
+disclosed with `DiscloseLoadedValuesAsync` counts as a change for the fields it fills).
 
 **Only at submit** means the right-hand column for every rule. There is no switch that turns the
-live check off. `LiveProfile` draws the line by ruleset, so a rule the live profile does not select
-waits for Submit.
+live check off, though a `LiveDebounce` of `Timeout.InfiniteTimeSpan` stops every edit from starting
+one. `LiveProfile` draws the line by ruleset, so a rule the live profile does not select waits for
+Submit.
+
+That wait has a cost before the first submit or server reply: with `TrackFormValidity` off, an edit
+can take the green off the other fields. With it on, edits start a validity check
+`RefreshDebounce` (300 ms) after the last of them instead, which moves green and `IsFormValid`
+unless that wait never passes either ([`LiveDebounce`](options.md#livedebounce)).
 
 `ValidationProfile.Draft` selects the default rules, so a validator whose rules are all default rules
 gives it nothing to leave out. To hold rules back, put them in a ruleset: derive from

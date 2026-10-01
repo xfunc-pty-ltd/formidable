@@ -28,14 +28,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // on the calling thread, which is why it and ValidateForSubmitAsync ask to be called from
     // the renderer's synchronization context. Pass bookkeeping (_version, _passCts,
     // _currentPass, _touched, _engagedFields, _pendingRefreshFields,
-    // _pendingDebouncedLiveFields) mutates synchronously on the caller's context, with these
-    // exceptions on the dispatcher: _pendingRefreshFields when a refresh snapshots and clears
-    // it at begin; _engagedFields when a rendered-field-set change prunes departed fields (a
-    // live pass snapshots the set at begin and intersects at apply, but no pass removes an
-    // entry, and a submit leaves the set standing); _touched and _engagedFields when the load's
-    // apply adopts fields; _pendingDebouncedLiveFields when the live timer fires and when a
-    // field-set change prunes it; and _currentPass, which the pass that recorded it clears
-    // beside IsValidating.
+    // _pendingDebouncedLiveFields, _validityCheckArmed) mutates synchronously on the caller's
+    // context, with these exceptions on the dispatcher: _pendingRefreshFields when a refresh
+    // snapshots and clears it at begin; _engagedFields when a rendered-field-set change prunes
+    // departed fields (a live pass snapshots the set at begin and intersects at apply, but no
+    // pass removes an entry, and a submit leaves the set standing); _touched and _engagedFields
+    // when the load's apply adopts fields; _pendingDebouncedLiveFields when the live timer fires
+    // and when a field-set change prunes it; _validityCheckArmed when the validity timer fires;
+    // and _currentPass, which the pass that recorded it clears beside IsValidating. The running
+    // validity check's marker (_validityCheckRunning, _validityCheckStartedAt) and _submitAnswered
+    // move on the dispatcher alone: the marker as the timer fires and in the probe's own exits,
+    // each dispatched, and the flag in the submit's apply.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
     // context as a probe starts, and IsFormValid is written on the dispatcher only while that
@@ -145,6 +148,26 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
 
+    // The validity check a committed change arms under a LiveDebounce that never closes, before
+    // the first submit or server reply (see ScheduleValidityCheck), and whether it is armed: set
+    // as a change arms it, cleared as it fires. ReAnswerOnItsWay counts it while armed, and then
+    // counts the probe the fire starts through the marker below.
+    private ITimer? _validityTimer;
+    private bool _validityCheckArmed;
+
+    // The probe the validity timer's fire last started, until that probe reaches one of its
+    // exits: which fire started it (zero while none is out) and when, the instant the held
+    // vouch's bound runs from. Fires are numbered so only the probe a fire started can end it;
+    // an older probe still out when a newer fire starts one ends nothing.
+    private int _validityChecksStarted;
+    private int _validityCheckRunning;
+    private long _validityCheckStartedAt;
+
+    // Whether a submit has answered: HasSubmitted less the server reply, which answers nothing
+    // IsFormValid or the vouch reads, so a check armed before a reply still has work to do until
+    // an edit arms the refresh. Read only by the validity timer's fire.
+    private bool _submitAnswered;
+
     private CancellationTokenSource? _passCts;
 
     // One token for the probe's whole fire-and-forget lifetime, not per-probe like _passCts:
@@ -207,7 +230,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="validator">The validator every pass runs; its optional seams are probed at each use.</param>
     /// <param name="introspector">Resolves an issue's or a rule's path to the object and member it names.</param>
     /// <param name="options">The options, read at each use rather than copied.</param>
-    /// <param name="timeProvider">The clock behind the two debounce timers and the held-vouch bound; <see cref="TimeProvider.System"/> when omitted.</param>
+    /// <param name="timeProvider">The clock behind the engine's timers and the held-vouch bound; <see cref="TimeProvider.System"/> when omitted.</param>
     /// <param name="renderDispatch">Runs a delegate on the renderer's dispatcher; the delegate runs inline when omitted.</param>
     /// <param name="logger">Receives the diagnostics the engine also writes to Trace; none when omitted, and the Trace lines and option callbacks still fire.</param>
     /// <exception cref="ArgumentNullException"><paramref name="model"/>, <paramref name="editContext"/>, <paramref name="validator"/>, <paramref name="introspector"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
@@ -422,12 +445,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // may swap at any moment.
     private ValidationProfile ResolvedLiveProfile => _options.LiveProfile ?? _options.SubmitProfile;
 
-    /// <summary>Whether a pass in flight or an armed timer is demonstrably about to re-answer the submit-selected rules, which is what lets the held vouch serve across an edit.</summary>
-    /// <returns><see langword="true"/> for a pass younger than <see cref="SubmitCoverageTracker.HeldVouchBound"/> whose landing answers the submit selection, or for a refresh armed by an edit or a submit-running live window, each behind a debounce that can fire; a pass past the bound answers <see langword="false"/> whatever is armed behind it.</returns>
-    // The options are read here at each ask, per their read-at-each-use contract. The probe is
-    // deliberately not consulted: it is fire-and-forget, with no descriptor to read a start time
-    // from. The serve condition itself, and the doctrine behind the age test, the narrowed-live
-    // fall-through and the arms, is on the engine page under the submit-coverage vouch.
+    /// <summary>Whether a pass in flight, an armed timer or the running validity check is demonstrably about to re-answer the submit-selected rules, which is what lets the held vouch serve across an edit.</summary>
+    /// <returns><see langword="true"/> for a pass younger than <see cref="SubmitCoverageTracker.HeldVouchBound"/> whose landing answers the submit selection; for a refresh armed by an edit, a submit-running live window, or a validity check armed while tracking is on, each behind a debounce that can fire; or for the probe a validity timer's fire started, until it ends or the bound passes; a pass past the bound answers <see langword="false"/> whatever is armed behind it.</returns>
+    // The options are read here at each ask, per their read-at-each-use contract. The validity
+    // timer is consulted while it is armed: its fire stands down once a submit has answered
+    // (which answered the selection itself) or an edit has armed the refresh (counted here in its
+    // own right), re-arms behind a submit or a load in flight, and otherwise starts the probe.
+    // That probe is consulted too, from the fire until one of its
+    // exits, under the bound a pass has, measured from the fire. No other probe is: they are
+    // fire-and-forget, with no start time to bound them by. The serve condition itself, and the
+    // doctrine behind the age test, the narrowed-live fall-through and the arms, is on the engine
+    // page under the submit-coverage vouch.
     private bool ReAnswerOnItsWay()
     {
         var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
@@ -453,19 +481,35 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
             // A narrowed live pass cannot answer the submit selection, but a submit-profile
             // refresh armed behind it will, the moment this pass ends — deferred, not absent.
-            // Fall through to the arms. Only the refresh arm can answer there: the window arm
-            // carries the same profile conjunct this branch just failed, so however many fields
-            // an edit during this flight puts back in the window, it promises another narrowed
-            // pass and counts for nothing.
+            // Fall through to the arms. Only the refresh arm and the two validity arms can
+            // answer there: the window arm carries the same profile conjunct this branch just
+            // failed, so however many fields an edit during this flight puts back in the window,
+            // it promises another narrowed pass and counts for nothing.
         }
 
         return (_pendingDebouncedLiveFields.Count > 0
                 && liveAnswersSubmit
                 && _options.LiveDebounce is { } liveDebounce
                 && liveDebounce != Timeout.InfiniteTimeSpan)
-            || (_pendingRefreshFields.Count > 0
-                && _options.RefreshDebounce != Timeout.InfiniteTimeSpan);
+            || RefreshArmedByEdit
+            // Tracking is asked again here because the fire stands down once it is off, and a
+            // promise the fire will not keep holds nothing.
+            || (_validityCheckArmed
+                && _options.TrackFormValidity
+                && _options.RefreshDebounce != Timeout.InfiniteTimeSpan)
+            // The started probe lands whatever tracking now says, so tracking is not asked here.
+            || (_validityCheckRunning != 0
+                && _timeProvider.GetElapsedTime(_validityCheckStartedAt)
+                    < SubmitCoverageTracker.HeldVouchBound);
     }
+
+    /// <summary>Whether a field change has armed the refresh behind a <see cref="FormidableOptions.RefreshDebounce"/> that fires: the refresh arm <see cref="ReAnswerOnItsWay"/> counts, and what the validity timer's fire stands down for.</summary>
+    // One predicate for both reads, so the fire never stands down for a refresh the vouch does not
+    // count: green held on the armed check's promise passes to the refresh's without a gap, and
+    // to the refresh pass itself as its begin empties the accumulator.
+    private bool RefreshArmedByEdit =>
+        _pendingRefreshFields.Count > 0
+        && _options.RefreshDebounce != Timeout.InfiniteTimeSpan;
 
     /// <summary>Whether the issues showing for <paramref name="field"/> include an error, a warning and an info, read across the live and submit views in one walk.</summary>
     /// <param name="field">The field.</param>
@@ -1212,6 +1256,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _pendingRefreshFields.Add(e.FieldIdentifier);
             ScheduleRefresh();
         }
+        else if (_options.TrackFormValidity && _options.LiveDebounce == Timeout.InfiniteTimeSpan)
+        {
+            // A window that never closes never starts the probe its fire would, so before a
+            // submit or server reply nothing this change starts would move IsFormValid or put the
+            // vouch back. After either, the refresh the branch above arms answers both. A check
+            // armed beside it would run an async rule a second time, since neither could reuse
+            // what the other was still computing. This test keeps the change from arming one: due
+            // with the refresh, its fire could follow the refresh's begin, when no refresh is
+            // armed for it to stand down for. A check an earlier change armed before a server
+            // reply or a submit fires while this refresh is still armed, and stands down for it.
+            // A null or finite window keeps the probe on its own cadence.
+            ScheduleValidityCheck();
+        }
     }
 
     /// <summary>Whether the pass in flight is a live pass, which a refresh fire stands down for.</summary>
@@ -1666,15 +1723,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips and only while this probe is the latest.</summary>
+    /// <param name="validityCheckRun">The number of the validity timer's fire that started this probe, which its exits end the running check under; zero for every other probe.</param>
     /// <remarks>
     /// Not a pass: it never calls <see cref="BeginPass"/>, discloses nothing, touches no
     /// indicator, and stands down for a submit or a load in flight. Its store filing and its
     /// sharing with the passes are on the engine page under the <c>TrackFormValidity</c> probe.
     /// </remarks>
-    private async Task ProbeFormValidityAsync()
+    private async Task ProbeFormValidityAsync(int validityCheckRun = 0)
     {
         if (SubmitInFlight || LoadInFlight)
         {
+            // A probe the validity timer's fire started never reaches here: the fire re-arms
+            // behind these two kinds instead, so this exit has no running check to end.
             return;
         }
 
@@ -1701,15 +1761,23 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         catch (OperationCanceledException)
         {
-            return; // disposed mid-probe - nothing left to write into
+            // Disposal cancels the probe's token, and then nothing is left to write into. A rule
+            // that cancels itself ends a live engine's probe with no answer just the same, so a
+            // fired validity check ends here as it would on a fault.
+            await EndValidityCheckWithoutLandingAsync(validityCheckRun).ConfigureAwait(false);
+            return;
         }
         catch (Exception exception)
         {
-            // The event and nothing else: a form-level fault issue would disclose something an
+            // The event, and no form-level fault issue: that would disclose something an
             // invisible probe promises never to. Without the event, a validator that throws on
             // the submit profile (a narrowed LiveProfile can keep a live pass from ever selecting
             // the throwing rule) would freeze IsFormValid at its last value with no diagnostic
-            // anywhere, stranding a disable-submit button in whatever state it was last in.
+            // anywhere, stranding a disable-submit button in whatever state it was last in. A
+            // fired validity check drops the hold it was carrying before the event is raised, as
+            // a pass publishes its fault before raising it, so a handler that throws cannot leave
+            // green held on a check that has already died.
+            await EndValidityCheckWithoutLandingAsync(validityCheckRun).ConfigureAwait(false);
             ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
             return;
         }
@@ -1720,6 +1788,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             {
                 return Task.CompletedTask;
             }
+
+            // The landing is a fired check's last exit: what it files below is the answer the
+            // hold was waiting for. A filing refused because an edit arrived meanwhile needs no
+            // promise from here, since that edit armed a check of its own.
+            EndValidityCheck(validityCheckRun);
 
             // The probe's stricter write gate is the store's four-argument overload:
             // generation-checked like a pass's filing, and additionally refused when an edit
@@ -1785,9 +1858,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Writes <see cref="IsFormValid"/> and raises <see cref="StateChanged"/> only when the value changes.</summary>
     /// <param name="value">The answer a probe or an adoption computed.</param>
     // Both writers recompute at their own cadence (the probe on every field-changed notification
-    // with no LiveDebounce, once per window with one), and the answer mostly comes back the
-    // same, so an unconditional notify would publish a render round for a value nothing on the
-    // page could tell from the last.
+    // with no LiveDebounce, once per window with one, and RefreshDebounce after a change under a
+    // window that never closes), and the answer mostly comes back the same, so an unconditional
+    // notify would publish a render round for a value nothing on the page could tell from the
+    // last.
     private void SetFormValidity(bool value)
     {
         if (value != IsFormValid)
@@ -2090,6 +2164,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             report =>
             {
                 HasSubmitted = true;
+                _submitAnswered = true;
 
                 // Submit takes the live channel over wholesale: every engaged field's verdict is
                 // this report's. The engaged set itself stands: a submit neither engages a field
@@ -2345,8 +2420,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // Back onto the renderer's dispatcher before engine state is touched again. The pass
         // above resumes on whatever thread its last rule completed on, and what follows reads
         // _engagedFields and then, through the live pass it starts, takes the pass bookkeeping
-        // that every pass start holds on the dispatcher alone. The two debounce timers marshal
-        // here for the same reason. The await above does not hold the caller's context, so where
+        // that every pass start holds on the dispatcher alone. The engine's timers marshal here
+        // for the same reason. The await above does not hold the caller's context, so where
         // the dispatcher queues this is a real hop rather than a free one; it costs the delegate
         // alone wherever the dispatcher runs inline, which a single-threaded WASM host, an
         // unsupplied one, and a pass that completed without leaving the dispatcher all do.
@@ -2611,6 +2686,94 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ArmTimer(ref _liveTimer, RunDebouncedLivePassAsync, debounce);
     }
 
+    /// <summary>Arms or re-arms the validity timer at <see cref="FormidableOptions.RefreshDebounce"/> for a change made under a <see cref="FormidableOptions.LiveDebounce"/> that never closes; a disposed engine arms nothing.</summary>
+    // RefreshDebounce rather than a width of its own: it is the wait the form already gives
+    // whole-form work, and the re-arm makes it a sliding window, so a burst of changes is one
+    // check. Under Timeout.InfiniteTimeSpan it never fires, and neither does the refresh.
+    private void ScheduleValidityCheck()
+    {
+        if (_disposed)
+        {
+            // A field change notification racing Dispose could still reach here.
+            return;
+        }
+
+        _validityCheckArmed = true;
+        ArmTimer(ref _validityTimer, RunValidityCheckAsync, _options.RefreshDebounce);
+    }
+
+    /// <summary>The validity timer's handler: stands down when disposed, when tracking is off, once a submit has answered or while an edit has armed the refresh; otherwise re-arms behind a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
+    /// <returns>A completed task; the probe it starts runs fire-and-forget.</returns>
+    // A stand-down leaves the timer unarmed, because what it would have answered is answered
+    // elsewhere or not wanted: an answered submit arms the refresh behind every later edit, a
+    // refresh an edit armed (after a server reply, or during a submit) adopts IsFormValid for the
+    // whole model and counts for the vouch, and with tracking off nothing reads the answer. A
+    // probe beside that refresh would run a still-unanswered async rule a second time, since
+    // neither could reuse what the other was still computing. A server reply alone is no
+    // stand-down: it answers nothing this check computes, and the edit before it would go
+    // unanswered. The refresh is tested before the re-arm below because it waits out a submit in
+    // flight too, and runs whether that submit answers or is cancelled. Behind a submit or a load
+    // in flight the timer re-arms and keeps its flag, as the live timer's fire does, because a
+    // submit that ends without answering, or a load whose answer predates the edit, leaves the
+    // edit to this check. So the probe this fire starts never meets the probe's own stand-down.
+    private Task RunValidityCheckAsync()
+    {
+        if (_disposed || !_options.TrackFormValidity || _submitAnswered || RefreshArmedByEdit)
+        {
+            _validityCheckArmed = false;
+            return Task.CompletedTask;
+        }
+
+        if (SubmitInFlight || LoadInFlight)
+        {
+            ScheduleValidityCheck();
+            return Task.CompletedTask;
+        }
+
+        _validityCheckArmed = false;
+        var run = ++_validityChecksStarted;
+        _validityCheckRunning = run;
+        _validityCheckStartedAt = _timeProvider.GetTimestamp();
+        _ = ProbeFormValidityAsync(run);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Ends the running validity check when <paramref name="run"/> is the one the latest fire started.</summary>
+    /// <param name="run">The fire number the probe carries; zero for a probe no fire started.</param>
+    /// <returns><see langword="true"/> when this ended the running check.</returns>
+    private bool EndValidityCheck(int run)
+    {
+        if (run == 0 || run != _validityCheckRunning)
+        {
+            return false;
+        }
+
+        _validityCheckRunning = 0;
+        return true;
+    }
+
+    /// <summary>Ends the running validity check from a probe exit that did not land (a fault or a cancellation) and drops the held coverage answer, as a pass ending without landing does; nothing for any other probe.</summary>
+    /// <param name="run">The fire number the probe carries; zero for a probe no fire started.</param>
+    /// <returns>The dispatch, or a completed task for a probe no fire started.</returns>
+    // On the renderer's dispatcher, because the exits it serves resume wherever the probe's last
+    // rule completed. Abandoning and publishing mirror EndPassWithoutLandingAsync: the hold was
+    // served on this probe's promise, and a surface wearing it must hear that the promise is gone.
+    private Task EndValidityCheckWithoutLandingAsync(int run) =>
+        run == 0
+            ? Task.CompletedTask
+            : _renderDispatch(() =>
+            {
+                if (!_disposed && EndValidityCheck(run))
+                {
+                    _submitCoverage.Abandon();
+                    _submitCoverage.MoveVersion();
+                    NotifyStateChanged();
+                    EditContext.NotifyValidationStateChanged();
+                }
+
+                return Task.CompletedTask;
+            });
+
     /// <summary>Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> once on the renderer's dispatcher after <paramref name="due"/>.</summary>
     /// <param name="timer">The timer field, created here on its first arming.</param>
     /// <param name="fire">The handler.</param>
@@ -2770,8 +2933,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // rule by rule it then answers from this pass's verdicts at once, so this pass is
                 // the only moment the field's check is out. Read and not cleared: the window's own
                 // fire still owns the accumulator. A window armed with Timeout.InfiniteTimeSpan
-                // never fires, so its accumulator only grows and a field in it waits on no check;
-                // it is left out.
+                // never fires, so its accumulator only grows and a field in it waits on no live
+                // check; it is left out.
                 if (_options.LiveDebounce != Timeout.InfiniteTimeSpan)
                 {
                     edited.UnionWith(_pendingDebouncedLiveFields);
@@ -2802,7 +2965,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>Unsubscribes from the edit context, stops both timers, cancels the pass and any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
+    /// <summary>Unsubscribes from the edit context, stops every timer, cancels the pass and any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -2814,6 +2977,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         EditContext.OnFieldChanged -= HandleFieldChanged;
         _refreshTimer?.Dispose();
         _liveTimer?.Dispose();
+        _validityTimer?.Dispose();
         _passCts?.Cancel();
         _passCts?.Dispose();
         _probeCts.Cancel();
