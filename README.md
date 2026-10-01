@@ -277,8 +277,11 @@ The API listens on `http://localhost:5180`; open the Blazor app at `http://local
 
 ## Live demo
 
-The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. A simulated
-in-browser API stands in for the real server; every other page behaves exactly as it does locally.
+The same sample runs on GitHub Pages, deployed from `main` by a manual workflow run. It has no
+server behind it: on the two pages that call the API (`/server` and `/workout`), an in-browser
+stand-in answers with the same validators and the same response shapes, and each page says so.
+The demo leaves the MudBlazor page to a [local run](#run-the-sample-locally) and shows a note in
+its place. Every other page behaves exactly as it does locally.
 
 **[xfunc-pty-ltd.github.io/formidable](https://xfunc-pty-ltd.github.io/formidable/)**
 

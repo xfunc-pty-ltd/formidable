@@ -6,15 +6,17 @@
     </PropertyGroup>
     <!-- Publish with -p:HostedDemo=true (build-pages.ps1 does this) to compile the hosted-demo
          message handler that answers the sample's API calls in-browser, for GitHub Pages, which
-         hosts static files only. A plain build/publish never defines HOSTED_DEMO, so ordinary
-         local runs keep talking to the real API exactly as before. -->
+         hosts static files only. The switch also leaves MudBlazor, its services and its page out
+         of that build, and a notice page takes the page's route. A plain build/publish never
+         defines HOSTED_DEMO, so ordinary local runs keep talking to the real API and keep the
+         MudBlazor page exactly as before. -->
     <PropertyGroup Condition="'$(HostedDemo)' == 'true'">
         <DefineConstants>$(DefineConstants);HOSTED_DEMO</DefineConstants>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
-        <PackageReference Include="MudBlazor" Version="9.11.0" />
+        <PackageReference Include="MudBlazor" Version="9.11.0" Condition="'$(HostedDemo)' != 'true'" />
         <ProjectReference Include="..\..\src\Formidable.Blazor\Formidable.Blazor.csproj" />
         <ProjectReference Include="..\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
     </ItemGroup>
@@ -22,5 +24,16 @@
         <EmbeddedResource Include="Pages\*.razor;Pages\*.razor.cs" />
         <EmbeddedResource Include="Components\*.razor;Components\*.razor.cs" />
         <EmbeddedResource Include="..\Formidable.Sample.Api\Controllers\OrdersController.cs" Link="ApiSource\OrdersController.cs" />
+    </ItemGroup>
+    <!-- Both pages claim /mudblazor, so each build compiles exactly one of them: the hosted demo
+         the notice page, every other build the MudBlazor page. -->
+    <ItemGroup Condition="'$(HostedDemo)' == 'true'">
+        <Content Remove="Pages\MudBlazorFitting.razor" />
+        <Compile Remove="Pages\MudBlazorFitting.razor.cs" />
+        <EmbeddedResource Remove="Pages\MudBlazorFitting.razor;Pages\MudBlazorFitting.razor.cs" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(HostedDemo)' != 'true'">
+        <Content Remove="Pages\MudBlazorNotice.razor" />
+        <EmbeddedResource Remove="Pages\MudBlazorNotice.razor" />
     </ItemGroup>
 </Project>

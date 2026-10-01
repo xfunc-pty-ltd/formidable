@@ -351,6 +351,9 @@ Work top to bottom: the steps build on each other.
 
 ### Fitting MudBlazor
 
+Walk this section on the local build. The hosted demo shows a note at `/mudblazor` instead, which
+the Hosted demo section walks.
+
 - [ ] LIGHT and DARK mode: the text field, the select and the Submit button wear MudBlazor's own
       look (an underlined field with a floating label, a filled button) in MudBlazor's palette
       for that scheme
@@ -766,15 +769,21 @@ Also reading checks, done from the repo.
 ## Hosted demo
 
 Build the Pages artifact from the repo root (`pwsh build-pages.ps1`) — this also starts a local
-static file server — then browse the two pages there. No API needs to be running — the artifact
+static file server — then walk the rows below against it. No API needs to be running — the artifact
 answers its own requests.
 
 - [ ] `/server` and `/workout` behave exactly as they do against the real API: empty submits
       land the same inline messages, `/workout`'s coupon check rejects `BOGUS` and accepts
-      `WELCOME10`, and every other page is unchanged
+      `WELCOME10`, and every other page is unchanged except `/mudblazor`, which shows a note
+      (the last row)
 - [ ] Both pages show the demo note under their heading ("This hosted demo has no server behind
       it — an in-browser handler answers with the same validators and the same response shapes
       the real API would send" — verbatim on `/server`; `/workout`'s ends "…coupon rejection
       included")
 - [ ] Both pages' *Try it* list opens with the demo variant of its first step ("No server to
       start on this hosted demo…") — the "Start the API first" step is gone, not just hidden
+- [ ] Open `/mudblazor` from the sidebar, then again by typing its address: both times the page
+      under the "Fitting MudBlazor" heading is a note, not a form. It says Formidable supports
+      MudBlazor and that the page runs when you run the sample locally, and gives the reason this
+      demo leaves it out. Its source link opens `MudBlazorFitting.razor` on GitHub, and its README
+      link opens the README's "Run the sample locally" section

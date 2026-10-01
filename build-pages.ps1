@@ -9,7 +9,9 @@
 .DESCRIPTION
     Publishes samples/Formidable.Sample with -p:HostedDemo=true (Release), which compiles in the
     in-browser handler that answers the sample's API calls (see HostedDemoApiHandler.cs) - GitHub
-    Pages hosts static files only, so the real API is not reachable from a deployed build.
+    Pages hosts static files only, so the real API is not reachable from a deployed build. The
+    switch also leaves MudBlazor, its services and its page out of the build, and a notice page
+    takes the /mudblazor route (see the HostedDemo switch in Formidable.Sample.csproj).
 
     The published wwwroot is then made GitHub Pages-ready: <base href="/"> is rewritten to
     <base href="/formidable/"> (a project page is served under that path), index.html is copied
