@@ -850,10 +850,11 @@ What the shipped component knows, yours has to know too:
 - **`GetVisibleIssues()` is the whole answer.** It is the view the kit's message components read
   per field, computed on every ask, each issue paired with the `FieldIdentifier` it resolved to,
   the model-level identifier included.
-- **Each entry's `DisplayName` is the user-facing name.** `Issue.DisplayName` is `null` for a
-  model-level issue and for an error the server sent, so the entry's name falls back to the issue's
-  `Path`, then to `ModelLevelDisplayName`. `SubmitOutcome.VisibleErrorSummary` names by the same
-  rule, so re-voicing that option changes your list and that outcome's names together.
+- **Each entry's `DisplayName` is the user-facing name.** `Issue.DisplayName` has no text for a
+  model-level issue or for an error the server sent, so the entry's name falls back to the issue's
+  `Path` where that has text, then to `ModelLevelDisplayName`. `SubmitOutcome.VisibleErrorSummary`
+  names by the same rule, so re-voicing that option changes your list and that outcome's names
+  together.
 - **The order is the page's under `FormidableForm`,** which resolves where the fields sit.
   `FormidableValidator` resolves no order, so a list inside someone else's `EditForm` arrives in
   the engine's own order ([Component kit](component-kit.md#the-order-entries-appear-in)).
