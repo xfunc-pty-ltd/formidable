@@ -108,6 +108,14 @@ The load then adopts (touched and engaged both) each field whose value reads as 
 the error sites and the fields the validator declares a rule for. A live pass follows, while
 anything is engaged, to file the verdicts that disclose what those fields earned.
 
+A list or array element is read from the collection itself, because the introspector reads
+members and an element is not one. Its declared type is the array's element type, or the type
+argument of the `List<T>` or `Collection<T>` the list is or derives from.
+
+Any other list lends the value's own type instead. There an element declared as a `Nullable<T>`,
+`object` or an interface and holding a value type's default reads as empty, and the field stays
+silent.
+
 **The two debounces are the timers behind two kinds.** [`LiveDebounce`](options.md#livedebounce)
 is `null` by default, which starts the live pass inside the notification itself. Set, it arms one
 shared timer; a further change within the window re-arms it, and the fire snapshots and clears
@@ -748,6 +756,17 @@ public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object
         return new FieldIdentifier(rootModel, originalPath);
     }
 
+    // A list or array element is the field Blazor names by the collection and the index, so
+    // the brackets go. Only a list or array counts: FluentValidation numbers a dictionary's
+    // entries by position, while Blazor names an entry by its key, so an entry keeps its
+    // brackets rather than meet another entry's input.
+    if (field.Owner is IList
+        && field.PropertyName is ['[', .., ']'] name
+        && int.TryParse(name.AsSpan(1, name.Length - 2), NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+    {
+        return new FieldIdentifier(field.Owner, index.ToString(CultureInfo.InvariantCulture));
+    }
+
     return new FieldIdentifier(field.Owner, field.PropertyName);
 }
 ```
@@ -759,16 +778,33 @@ ended on a struct just before the member: it keys on the root model and the path
 shape that trades row stability away. Only the owner is tested: a struct earlier on the path, with a
 class after it, keys on that class like any other owner.
 
+The list branch names an element the way Blazor does. The walk rejoins a terminal indexer segment
+as `"[0]"`, while `FieldIdentifier.Create(() => model.Tags[i])` gives the list and the index as
+`"0"`. Dropping the brackets is what lets a row with no members (a string, a number) meet the input
+bound to it.
+
+Only an `IList` owner (a list or an array) takes the branch. A dictionary entry keeps its brackets,
+because FluentValidation numbers entries by position and Blazor names one by its key.
+
 `FieldIdentifier` compares by the owner reference and the field name, so one built this way equals
 one built from the same instance and name wherever that object sits in its list. That equality is
 what keeps a stored error attached to its row through add, remove and reorder.
+
+An element's identifier is its list and its index, so a row with no members keeps its position, not
+its value. After a remove or a reorder, what the engine holds for that position (touched, engaged,
+revealed) stays there and applies to whatever value now sits in it. A filed verdict still describes
+the value that left until the next pass files the new value's own.
+
+The reveal ledger is the visible case. After a blocked submit, a failing value moved onto an index
+the submit did not reveal stays silent until the next submit, or until an edit engages that index.
 
 ### What a component registers and re-reads
 
 The component side reaches the same instance with no coordination. `FieldIdentifier.Create(For)`
 over a loop-captured closure (`() => member.Alias`) evaluates the accessor's object part, the
 `Member` the iteration captured; the walk above reaches that `Member` by index at the moment it
-runs. Both name the row object, so the two identifiers compare equal.
+runs. Both name the row object, so the two identifiers compare equal. For a row with no members,
+`() => model.Tags[index]` names the list and the index, and the list branch above names the same.
 
 A component resolves its field as it binds: `Register` calls `ResolveField()` and keeps the
 identifier it registers, and with either check on `OnParametersSet` calls it once more and keeps

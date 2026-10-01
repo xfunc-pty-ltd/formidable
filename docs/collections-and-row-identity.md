@@ -16,7 +16,9 @@ fixed looks broken again after a reorder, and the form ends up complaining about
 
 Formidable never keys by path. It resolves every failure down to the actual object sitting at that
 position and keys the error to the instance itself, so add, remove, and reorder can never separate
-an error from the row it belongs to.
+an error from the row it belongs to. A row with no members of its own (a string in a list of tags,
+a number in an array) has no object to key, so it is identified by its index, as
+[a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) shows.
 
 Here is one row of a list, from the moment the page adds it to the moment its messages leave with
 it:
@@ -86,6 +88,10 @@ just before the member) keys its error to the root model and the path string ins
 `FieldIdentifier` cannot hold a value-type owner. A row object is never that struct: a row is a
 reference type in any model these habits can bind at all.
 
+A row with no members (a string or a number) takes neither route. It has no object of its own, so
+its error follows its index, as
+[a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) explains.
+
 Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
 
 ## What happens when a row leaves or the list reorders?
@@ -127,6 +133,50 @@ shorter list. With nothing disclosed yet it answers in silence, keeping the `Val
 current.
 
 Why: [how the engine works: what a row leaving changes](how-the-engine-works.md#the-verdict-store).
+
+## How do I bind a list of strings or numbers?
+
+Bind each row by its index, and give each row its own message:
+
+```razor
+@for (var i = 0; i < model.Tags.Count; i++)
+{
+    var index = i;
+    <div class="field">
+        <FormidableInputText @bind-Value="model.Tags[index]" />
+        <FormidableFieldMessage For="() => model.Tags[index]" />
+    </div>
+}
+```
+
+Copy the loop variable into `index` first. A lambda that captures `i` itself reads the value the
+loop ended on, so every row would bind past the end of the list. A native `InputText` and
+`ValidationMessage` bound to the same expression work too, with the `FormidableFieldAnchor` any
+native input takes.
+
+A string or a number has no members, so there is no row object for an error to follow. Formidable
+identifies the row by its index instead, the field `FieldIdentifier.Create(() => model.Tags[index])`
+names and Blazor's own `EditContext` uses. Each row's message shows at its own input, its state
+class reads its own value, and a blocked submit's summary lists it under its display name.
+
+A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
+written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a `List<T>`
+or a `Collection<T>`, filled in means what `NotEmpty()` means. In any other list, a zero or a
+`false` held as a nullable or an `object` counts as empty, so a load leaves it silent.
+
+A presence rule written either way, such as `RuleForEach(m => m.Tags).NotEmpty()`, marks each
+row's input required. It demands nothing of the list itself, so a component bound to `m.Tags`
+carries no mark for it, and a load does not paint the list valid.
+
+The index is the row's identity, so a remove or a reorder hands each position the value that now
+sits there. Once the form re-checks, no row keeps a message that belonged to the value that left. A
+position the user has edited stays edited, so a passing value that moves into it turns green.
+
+After a blocked submit, a remove or a reorder can move a failing value onto a row that passed at
+that submit. If the user has not edited that row, the value's message shows there at the next
+submit. Until then the row stays silent, never green.
+
+Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
 
 ## Why did my message move rows?
 

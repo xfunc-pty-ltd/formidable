@@ -265,7 +265,7 @@ touched.
 | The constructor seeds a placeholder your rules reject | Rejected the moment the values load: a seeded value is a value. |
 | The constructor seeds the type's default | Silent: a default is not a value. |
 | The validator cannot report its rules | Wrong values still disclose, needing only the model; nothing is confirmed, which needs the validator's own field list. |
-| The field sits inside a collection row | Confirmed exactly as a top-level one: the confirming list is the validator's declared shape. |
+| The field is a collection row, or sits inside one | A field inside a row is confirmed exactly as a top-level one, at its own input: the confirming list is the validator's declared shape. A row that is itself a string or a number is confirmed at its own input too, and a rule on each row, such as `RuleForEach(x => x.Tags).NotEmpty()`, is answered there, not at the list's own component. In a list other than an array, a `List<T>` or a `Collection<T>`, such a row's zero or `false` held as a nullable or an `object` counts as empty, so it stays silent ([a list of strings or numbers](collections-and-row-identity.md#how-do-i-bind-a-list-of-strings-or-numbers)). |
 | A value cannot be read (a null owner on its path; a model-level failure naming no member) | Nothing is claimed: the field stays unstyled. |
 | It runs | One whole-model check, async rules included, then the check that discloses what it found. It moves no focus. |
 | A page spinner reads `IsValidating` | True for the whole check; "checking" shows on no field ([Async validation](async-validation.md#where-does-checking-show-and-where-doesnt-it)). |

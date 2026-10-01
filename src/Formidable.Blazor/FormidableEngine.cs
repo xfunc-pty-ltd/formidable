@@ -2609,12 +2609,83 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return;
             }
 
-            if (_introspector.TryReadValue(field.Model, field.FieldName, out var value, out var declaredType)
+            if (TryReadLoadedValue(field, out var value, out var declaredType)
                 && !IsEmptyValue(value, declaredType))
             {
                 adopted.Add(field);
             }
         }
+    }
+
+    /// <summary>Reads the value <paramref name="field"/> names for the load: a list or array element from the collection itself, any other member through the introspector.</summary>
+    /// <param name="field">An error site or a declared field, as <see cref="ResolvePath"/> names it.</param>
+    /// <param name="value">The value read.</param>
+    /// <param name="declaredType">The type the emptiness test reads the value as.</param>
+    /// <returns><see langword="true"/> when a value was read; <see langword="false"/> for a member or element that cannot be read.</returns>
+    // An element is named by its index (ToFieldIdentifier), and the introspector reads members,
+    // never elements (IModelIntrospector.TryReadValue reports false for an index), so the element
+    // comes from the collection itself, read through IList. Its declared type is the one
+    // DeclaredElementType finds; for any other list the value's own type stands in, which reads
+    // an element declared as a Nullable<T>, object or an interface and holding a value type's
+    // default as empty, the silent direction IsEmptyValue already errs in. A digits-only name is
+    // never a member, so no member read is displaced.
+    private bool TryReadLoadedValue(FieldIdentifier field, out object? value, out Type? declaredType)
+    {
+        if (field.Model is System.Collections.IList elements
+            && int.TryParse(field.FieldName, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index))
+        {
+            value = null;
+            declaredType = null;
+            try
+            {
+                if (index >= elements.Count)
+                {
+                    return false;
+                }
+
+                value = elements[index];
+            }
+            catch
+            {
+                // A list that refuses the read (an array of rank two, a consumer's own list)
+                // cannot be read, which claims nothing, as for a member whose getter throws.
+                value = null;
+                return false;
+            }
+
+            declaredType = DeclaredElementType(elements) ?? value?.GetType() ?? typeof(object);
+            return true;
+        }
+
+        return _introspector.TryReadValue(field.Model, field.FieldName, out value, out declaredType);
+    }
+
+    /// <summary>The element type <paramref name="elements"/> declares, where it can be read: an array's element type, or the type argument of the <see cref="List{T}"/> or <see cref="System.Collections.ObjectModel.Collection{T}"/> the list is or derives from.</summary>
+    /// <param name="elements">The list a loaded element is read from.</param>
+    /// <returns>The declared element type; <see langword="null"/> for any other list.</returns>
+    // The closed IList<T> a list implements would answer for every list, but finding it walks the
+    // type's interfaces, which the trimming analysers flag (IL2075) in this AOT-compatible package.
+    // An array's element type and a walk up the base types are both clean, and between them they
+    // cover the lists a form binds: arrays, List<T>, and Collection<T> with ObservableCollection<T>.
+    private static Type? DeclaredElementType(System.Collections.IList elements)
+    {
+        var type = elements.GetType();
+        if (type.IsArray)
+        {
+            return type.GetElementType();
+        }
+
+        for (var candidate = type; candidate is not null; candidate = candidate.BaseType)
+        {
+            if (candidate.IsGenericType
+                && (candidate.GetGenericTypeDefinition() == typeof(List<>)
+                    || candidate.GetGenericTypeDefinition() == typeof(System.Collections.ObjectModel.Collection<>)))
+            {
+                return candidate.GetGenericArguments()[0];
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The paths the validator declares for <paramref name="profile"/>, each collection template expanded to one path per row the model holds.</summary>

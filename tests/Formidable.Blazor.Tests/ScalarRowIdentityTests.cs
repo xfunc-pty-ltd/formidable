@@ -1,0 +1,484 @@
+using System.Linq.Expressions;
+using System.Collections.ObjectModel;
+using System.Runtime.CompilerServices;
+using Bunit;
+using FluentValidation;
+using Formidable.Introspection;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
+
+namespace Formidable.Blazor.Tests;
+
+/// <summary>
+/// A row with no members of its own (a string in a list or an array), bound with
+/// <c>() => model.Tags[i]</c>, is the field Blazor names by the collection and the index. These pin
+/// that the row's message, its state class, its load answer and its summary entry all reach that
+/// field, through kit inputs and native ones alike, and what a removal and a reorder then show.
+/// </summary>
+// The identity mutation every test here names: make ResolvedFieldExtensions.ToFieldIdentifier
+// return the introspector's member name unchanged, so a failure on Tags[0] files under the
+// collection and "[0]", a field no input binds.
+public class ScalarRowIdentityTests : BunitContext
+{
+    private const string MustNotBeEmpty = "'Tags' must not be empty.";
+    private const string TooLong = "The length of 'Tags' must be 5 characters or fewer. You entered 7 characters.";
+
+    private readonly FakeTimeProvider _clock = new();
+
+    public ScalarRowIdentityTests()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        Services.AddSingleton<TimeProvider>(_clock);
+        Services.AddFormidable();
+    }
+
+    public sealed class ListTags
+    {
+        public List<string?> Tags { get; set; } = [];
+    }
+
+    public sealed class ArrayTags
+    {
+        public string?[] Tags { get; set; } = [];
+    }
+
+    private sealed class ListEach : AbstractValidator<ListTags>
+    {
+        public ListEach() => RuleForEach(m => m.Tags).NotEmpty().MaximumLength(5);
+    }
+
+    private sealed class ListForEach : AbstractValidator<ListTags>
+    {
+        public ListForEach() => RuleFor(m => m.Tags).ForEach(t => t.NotEmpty().MaximumLength(5));
+    }
+
+    private sealed class ArrayEach : AbstractValidator<ArrayTags>
+    {
+        public ArrayEach() => RuleForEach(m => m.Tags).NotEmpty().MaximumLength(5);
+    }
+
+    private sealed class ArrayForEach : AbstractValidator<ArrayTags>
+    {
+        public ArrayForEach() => RuleFor(m => m.Tags).ForEach(t => t.NotEmpty().MaximumLength(5));
+    }
+
+    // Mutation that must break it: the identity mutation, and row 0 shows no message and no class
+    // (the submit reports the error against the form instead).
+    [Theory]
+    [InlineData("List", false)]
+    [InlineData("List", true)]
+    [InlineData("Array", false)]
+    [InlineData("Array", true)]
+    public void A_failing_row_shows_its_message_at_its_own_input_after_a_blocked_submit(string collection, bool native)
+    {
+        var rows = Rows(collection, native, "", "ok");
+
+        Submit(rows);
+
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+        Assert.Contains("formidable-invalid", rows.Class(0));
+        Assert.Equal("true", rows.Input(0).GetAttribute("aria-invalid"));
+        Assert.Empty(rows.Messages(1));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(1));
+    }
+
+    // Named by its display name under the rule every field's entry follows, and listed against the
+    // row's own field. Mutation that must break it: the identity mutation, and the summary reads
+    // "This form".
+    [Fact]
+    public void A_blocked_submit_names_a_failing_row_by_its_display_name()
+    {
+        SubmitOutcome? outcome = null;
+        var rows = Rows("List", native: false, ["", "ok"], onInvalid: c => outcome = c.Outcome);
+
+        Submit(rows);
+
+        Assert.NotNull(outcome);
+        Assert.Equal(["Tags"], outcome.VisibleErrorSummary);
+        var entry = Assert.Single(rows.Engine.GetVisibleIssues());
+        Assert.Equal(rows.Field(0), entry.Field);
+        Assert.Equal("Tags", entry.DisplayName);
+    }
+
+    // A value typed and then cleared is a committed empty value, which the rule fails. Mutation
+    // that must break it: the identity mutation, and the row turns formidable-valid with no
+    // message while its rule fails.
+    [Theory]
+    [InlineData("List", false)]
+    [InlineData("List", true)]
+    [InlineData("Array", false)]
+    [InlineData("Array", true)]
+    public void A_committed_empty_value_leaves_the_row_invalid_and_never_valid(string collection, bool native)
+    {
+        var rows = Rows(collection, native, "", "ok");
+
+        rows.Input(0).Change("x");
+        rows.Input(0).Change("");
+
+        rows.Cut.WaitForAssertion(() => Assert.Contains("formidable-invalid", rows.Class(0)));
+        Assert.DoesNotContain("formidable-valid", rows.Class(0));
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+        Assert.False(rows.Engine.GetFieldState(rows.Field(0)).WouldPassSubmit);
+    }
+
+    // A load considers every row of a per-row rule, in either spelling: the passing one is
+    // confirmed and the failing one, not empty, is disclosed. These rows read the ForEach
+    // spelling, and PerRowLeafRuleTests reads RuleForEach's. Mutations that must break it:
+    // the identity mutation (neither row answers), and reading a loaded value only through the
+    // introspector in AdoptLoadedValues (neither row is read, so neither answers).
+    [Theory]
+    [InlineData("List")]
+    [InlineData("Array")]
+    public async Task A_load_confirms_a_passing_row_and_discloses_a_failing_one(string collection)
+    {
+        var (engine, editContext, row0, row1) = await LoadAsync(collection, forEach: true, "toolong", "ok");
+        using var _ = engine;
+
+        Assert.Contains("formidable-invalid", editContext.FieldCssClass(row0));
+        Assert.Equal([TooLong], editContext.GetValidationMessages(row0));
+        Assert.Contains("formidable-valid", editContext.FieldCssClass(row1));
+        Assert.Empty(editContext.GetValidationMessages(row1));
+    }
+
+    // The same load under the RuleForEach spelling discloses the failing row too.
+    // Mutations that must break it: the identity mutation, and reading a loaded value only
+    // through the introspector in AdoptLoadedValues.
+    [Fact]
+    public async Task A_load_discloses_a_failing_row_under_RuleForEach()
+    {
+        var (engine, editContext, row0, _) = await LoadAsync("List", forEach: false, "toolong", "ok");
+        using var __ = engine;
+
+        Assert.Contains("formidable-invalid", editContext.FieldCssClass(row0));
+        Assert.Equal([TooLong], editContext.GetValidationMessages(row0));
+    }
+
+    public sealed class NumberRows
+    {
+        public int?[] Array { get; set; } = [0];
+
+        public List<int?> List { get; set; } = [0];
+
+        public ObservableCollection<int?> Observable { get; set; } = [0];
+
+        public List<object?> Objects { get; set; } = [0];
+
+        public List<int> Plain { get; set; } = [0];
+    }
+
+    private sealed class NumberRowsValidator : AbstractValidator<NumberRows>
+    {
+        public NumberRowsValidator()
+        {
+            RuleFor(m => m.Array).ForEach(v => v.NotNull());
+            RuleFor(m => m.List).ForEach(v => v.NotNull());
+            RuleFor(m => m.Observable).ForEach(v => v.NotNull());
+            RuleFor(m => m.Objects).ForEach(v => v.NotNull());
+            RuleFor(m => m.Plain).ForEach(v => v.GreaterThanOrEqualTo(0));
+        }
+    }
+
+    // A loaded 0 is filled in where the list declares a nullable or object element, as NotEmpty()
+    // reads it, and empty where it declares an int, so the first four rows are confirmed and the
+    // last stays silent. Mutations that must break it: read every element by the value's own type
+    // (the four rows read as empty and stay silent), and read every element as object (the int
+    // row is confirmed).
+    [Fact]
+    public async Task A_load_reads_a_zero_by_the_element_type_its_list_declares()
+    {
+        var model = new NumberRows();
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<NumberRows>(
+            model, editContext, new FluentValidationModelValidator<NumberRows>(new NumberRowsValidator()),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider());
+
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Contains("formidable-valid", editContext.FieldCssClass(FieldIdentifier.Create(() => model.Array[0])));
+        Assert.Contains("formidable-valid", editContext.FieldCssClass(FieldIdentifier.Create(() => model.List[0])));
+        Assert.Contains("formidable-valid", editContext.FieldCssClass(FieldIdentifier.Create(() => model.Observable[0])));
+        Assert.Contains("formidable-valid", editContext.FieldCssClass(FieldIdentifier.Create(() => model.Objects[0])));
+        Assert.Equal(string.Empty, editContext.FieldCssClass(FieldIdentifier.Create(() => model.Plain[0])));
+    }
+
+    // A presence rule on each row marks each row's own input required. These rows spell it with
+    // ForEach, and PerRowLeafRuleTests marks the rows under RuleForEach too. A pin of behaviour
+    // that already holds. Mutation that must break it: the identity mutation, and the
+    // requirement lands on the collection and "[0]", so neither row's input carries
+    // aria-required.
+    [Theory]
+    [InlineData("List")]
+    [InlineData("Array")]
+    public void A_presence_rule_spelled_per_row_marks_each_kit_row_required(string collection)
+    {
+        var rows = RowsForEach(collection, "", "ok");
+
+        Assert.Equal("true", rows.Input(0).GetAttribute("aria-required"));
+        Assert.Equal("true", rows.Input(1).GetAttribute("aria-required"));
+        Assert.Equal(FieldRequirement.Required, rows.Engine.GetFieldRequirement(rows.Field(0)));
+    }
+
+    // A row with no members is identified by its index, so removing the failing row 0 moves the
+    // passing value into row 0's place. Once the check the removal starts has answered, that row
+    // shows its own verdict and nothing of the removed row's. Mutations that must break it: the
+    // identity mutation (row 0 shows no message before the removal), and leaving the submit
+    // answer as the submit filed it, in both the live pass that runs the submit profile and the
+    // refresh, so that only a submit rebuilds it (the row that moved up keeps the removed row's
+    // message). Either pass alone rebuilds it, so the mutation takes both.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Removing_a_failing_row_after_a_blocked_submit_leaves_the_row_that_moves_up_clean(bool native)
+    {
+        var rows = Rows("List", native, "", "ok");
+        Submit(rows);
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.RemoveItem((ICollection<string?>)rows.Collection, ""));
+        await SettleAsync(rows);
+
+        Assert.Equal<string?>(["ok"], rows.Collection);
+        Assert.Equal("ok", rows.Input(0).GetAttribute("value"));
+        Assert.Empty(rows.Messages(0));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(0));
+        Assert.True(rows.Engine.GetFieldState(rows.Field(0)).WouldPassSubmit);
+    }
+
+    // After a blocked submit over ["ok", ""], removing the passing row 0 moves the failing value
+    // into row 0, a row that passed at that submit. Its message shows there at the next submit,
+    // and until then row 0 is silent rather than valid. A pin of behaviour that already holds.
+    // Mutations that must break it: the identity mutation (row 1 shows no message at the first
+    // submit), and revealing every field a refresh finds failing (row 0 speaks before the second
+    // submit).
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Removing_a_passing_row_moves_a_failing_value_up_and_it_speaks_at_the_next_submit(bool native)
+    {
+        var rows = Rows("List", native, "ok", "");
+        Submit(rows);
+        Assert.Equal([MustNotBeEmpty], rows.Messages(1));
+        Assert.Empty(rows.Messages(0));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.RemoveItem((ICollection<string?>)rows.Collection, "ok"));
+        await SettleAsync(rows);
+
+        Assert.Equal<string?>([""], rows.Collection);
+        Assert.Empty(rows.Messages(0));
+        Assert.DoesNotContain("formidable-valid", rows.Class(0));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(0));
+        Assert.False(rows.Engine.GetFieldState(rows.Field(0)).WouldPassSubmit);
+
+        Submit(rows);
+
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+        Assert.Contains("formidable-invalid", rows.Class(0));
+    }
+
+    // After a blocked submit, a reorder moves the failing value to row 1, a row the submit did not
+    // find failing. The value's message shows there at the next submit, and until then row 1 is
+    // silent rather than valid. Mutations that must break it: the identity mutation (no message
+    // at either submit), and revealing every field a refresh finds failing (row 1 speaks before
+    // the second submit).
+    [Theory]
+    [InlineData("List", false)]
+    [InlineData("List", true)]
+    [InlineData("Array", false)]
+    [InlineData("Array", true)]
+    public async Task A_failing_value_moved_by_a_reorder_shows_its_message_at_the_next_submit(string collection, bool native)
+    {
+        var rows = Rows(collection, native, "", "ok");
+        Submit(rows);
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.Edit(() =>
+            (rows.Collection[0], rows.Collection[1]) = (rows.Collection[1], rows.Collection[0])));
+        await SettleAsync(rows);
+
+        Assert.Empty(rows.Messages(0));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(0));
+        Assert.Empty(rows.Messages(1));
+        Assert.DoesNotContain("formidable-valid", rows.Class(1));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(1));
+        Assert.False(rows.Engine.GetFieldState(rows.Field(1)).WouldPassSubmit);
+
+        Submit(rows);
+
+        Assert.Equal([MustNotBeEmpty], rows.Messages(1));
+        Assert.Contains("formidable-invalid", rows.Class(1));
+        Assert.Empty(rows.Messages(0));
+    }
+
+    /// <summary>Submits and waits for the submit's answer to render.</summary>
+    private static void Submit(RenderedRows rows)
+    {
+        rows.Cut.Find("form").Submit();
+        rows.Cut.WaitForState(() => rows.Engine.HasSubmitted && !rows.Engine.IsValidating);
+    }
+
+    /// <summary>Lets the refresh a post-submit change arms run, then waits for every pass to land.</summary>
+    private async Task SettleAsync(RenderedRows rows)
+    {
+        rows.Cut.WaitForState(() => !rows.Engine.IsValidating);
+        await rows.Cut.InvokeAsync(() => _clock.Advance(new FormidableOptions().RefreshDebounce + TimeSpan.FromMilliseconds(1)));
+        rows.Cut.WaitForState(() => !rows.Engine.IsValidating);
+    }
+
+    private static async Task<(IDisposable Engine, EditContext EditContext, FieldIdentifier Row0, FieldIdentifier Row1)> LoadAsync(string collection, bool forEach, params string?[] values)
+    {
+        if (collection == "List")
+        {
+            var model = new ListTags { Tags = [.. values] };
+            var editContext = new EditContext(model);
+            var engine = new FormidableEngine<ListTags>(
+                model, editContext, new FluentValidationModelValidator<ListTags>(forEach ? new ListForEach() : new ListEach()),
+                new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider());
+            await engine.DiscloseLoadedValuesAsync();
+            return (engine, editContext, FieldIdentifier.Create(() => model.Tags[0]), FieldIdentifier.Create(() => model.Tags[1]));
+        }
+        else
+        {
+            var model = new ArrayTags { Tags = [.. values] };
+            var editContext = new EditContext(model);
+            var engine = new FormidableEngine<ArrayTags>(
+                model, editContext, new FluentValidationModelValidator<ArrayTags>(forEach ? new ArrayForEach() : new ArrayEach()),
+                new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider());
+            await engine.DiscloseLoadedValuesAsync();
+            return (engine, editContext, FieldIdentifier.Create(() => model.Tags[0]), FieldIdentifier.Create(() => model.Tags[1]));
+        }
+    }
+
+    private RenderedRows RowsForEach(string collection, params string?[] values)
+    {
+        if (collection == "List")
+        {
+            var model = new ListTags { Tags = [.. values] };
+            return RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ListForEach(), native: false, onInvalid: null);
+        }
+
+        var array = new ArrayTags { Tags = [.. values] };
+        return RenderRows(array, () => array.Tags, i => () => array.Tags[i], new ArrayForEach(), native: false, onInvalid: null);
+    }
+
+    private RenderedRows Rows(string collection, bool native, params string?[] values) =>
+        Rows(collection, native, values, onInvalid: null);
+
+    private RenderedRows Rows(string collection, bool native, string?[] values, Action<FormidableInvalidSubmitContext>? onInvalid)
+    {
+        if (collection == "List")
+        {
+            var model = new ListTags { Tags = [.. values] };
+            return RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ListEach(), native, onInvalid);
+        }
+
+        var array = new ArrayTags { Tags = [.. values] };
+        return RenderRows(array, () => array.Tags, i => () => array.Tags[i], new ArrayEach(), native, onInvalid);
+    }
+
+    /// <summary>Renders one unkeyed row per element inside a <c>FormidableField</c> over the collection, whose context drives the removal and the reorder.</summary>
+    private RenderedRows RenderRows<TModel, TCollection>(
+        TModel model,
+        Expression<Func<TCollection>> collection,
+        Func<int, Expression<Func<string?>>> row,
+        AbstractValidator<TModel> validator,
+        bool native,
+        Action<FormidableInvalidSubmitContext>? onInvalid)
+        where TModel : class
+        where TCollection : IList<string?>
+    {
+        var captured = new StrongBox<FormidableFieldContext>();
+        var read = collection.Compile();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<TModel>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", (IModelValidator<TModel>)new FluentValidationModelValidator<TModel>(validator));
+            if (onInvalid is not null)
+            {
+                builder.AddComponentParameter(3, "OnInvalidSubmit", EventCallback.Factory.Create(this, onInvalid));
+            }
+
+            builder.AddComponentParameter(4, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableField<TCollection>>(0);
+                inner.AddComponentParameter(1, "For", collection);
+                inner.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFieldContext>)(context => content =>
+                {
+                    captured.Value = context;
+                    var items = read();
+                    for (var i = 0; i < items.Count; i++)
+                    {
+                        RenderRow(content, items, i, row(i), native);
+                    }
+                }));
+                inner.CloseComponent();
+                inner.AddMarkupContent(3, "<button type=\"submit\">Save</button>");
+            }));
+            builder.CloseComponent();
+        });
+
+        var engine = cut.FindComponent<FormidableForm<TModel>>().Instance.Engine!;
+        return new RenderedRows(cut, engine, captured, () => read(), row);
+    }
+
+    private void RenderRow(RenderTreeBuilder builder, IList<string?> items, int index, Expression<Func<string?>> accessor, bool native)
+    {
+        builder.OpenRegion(index);
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "data-row", index);
+        if (native)
+        {
+            builder.OpenComponent<InputText>(2);
+            builder.AddComponentParameter(3, "Value", items[index]);
+            builder.AddComponentParameter(4, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => items[index] = v));
+            builder.AddComponentParameter(5, "ValueExpression", accessor);
+            builder.CloseComponent();
+            builder.OpenComponent<ValidationMessage<string?>>(6);
+            builder.AddComponentParameter(7, "For", accessor);
+            builder.CloseComponent();
+            builder.OpenComponent<FormidableFieldAnchor<string?>>(8);
+            builder.AddComponentParameter(9, "For", accessor);
+            builder.CloseComponent();
+        }
+        else
+        {
+            builder.OpenComponent<FormidableInputText>(2);
+            builder.AddComponentParameter(3, "Value", items[index]);
+            builder.AddComponentParameter(4, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => items[index] = v));
+            builder.AddComponentParameter(5, "ValueExpression", accessor);
+            builder.CloseComponent();
+            builder.OpenComponent<FormidableFieldMessage<string?>>(6);
+            builder.AddComponentParameter(7, "For", accessor);
+            builder.CloseComponent();
+        }
+
+        builder.CloseElement();
+        builder.CloseRegion();
+    }
+
+    private sealed record RenderedRows(
+        IRenderedComponent<IComponent> Cut,
+        IFormidableEngine Engine,
+        StrongBox<FormidableFieldContext> Captured,
+        Func<IList<string?>> ReadCollection,
+        Func<int, Expression<Func<string?>>> Row)
+    {
+        public FormidableFieldContext Context => Captured.Value!;
+
+        public IList<string?> Collection => ReadCollection();
+
+        public FieldIdentifier Field(int index) => FieldIdentifier.Create(Row(index));
+
+        public AngleSharp.Dom.IElement Input(int index) => Cut.Find($"[data-row=\"{index}\"] input");
+
+        public string Class(int index) => Input(index).GetAttribute("class") ?? string.Empty;
+
+        public IReadOnlyList<string> Messages(int index) =>
+            Cut.FindAll($"[data-row=\"{index}\"] li, [data-row=\"{index}\"] .validation-message")
+                .Select(e => e.TextContent.Trim())
+                .ToList();
+    }
+}
