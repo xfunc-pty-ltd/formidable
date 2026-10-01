@@ -56,6 +56,12 @@ public class RuleInspectingValidatorTests
         public CollectionRuleValidator() => RuleForEach(m => m.Tags).NotEmpty();
     }
 
+    /// <summary>The same rule spelled with <c>ForEach</c> on the collection's own rule.</summary>
+    private sealed class ForEachRuleValidator : AbstractValidator<InspectModel>
+    {
+        public ForEachRuleValidator() => RuleFor(m => m.Tags).ForEach(t => t.NotEmpty());
+    }
+
     /// <summary>
     /// One rule of every condition shape FluentValidation can express, two rules whose answer
     /// turns on where the condition landed rather than on whether one exists, and two shapes
@@ -1041,20 +1047,27 @@ public class RuleInspectingValidatorTests
 
     /// <summary>
     /// A rule declared per element of a collection whose components judge each element directly
-    /// is read under the collection's own path — there is no child validator to descend into, so
-    /// nothing about the element is declared separately. The indexed path a failure carries is
-    /// no answer for this shape either: it normalises to <c>Tags[]</c>, and no rule declares
-    /// that template.
+    /// is read under the indexed path, in either spelling. Each row's own path (<c>Tags[0]</c>)
+    /// answers from it, as a failure on that row carries it, and the collection's own path
+    /// (<c>Tags</c>) does not, because the rule demands nothing of the list itself.
     /// </summary>
-    [Fact]
-    public void A_collection_rule_answers_under_the_collection_path_not_the_indexed_one()
+    // Mutations this breaks: file a named collection rule's own components under its name
+    // rather than under Name[] (the RuleForEach row answers under Tags again), and drop the []
+    // a collection rule with no property name adds (the ForEach row answers under Tags).
+    [Theory]
+    [InlineData(nameof(CollectionRuleValidator))]
+    [InlineData(nameof(ForEachRuleValidator))]
+    public void A_per_row_rule_answers_under_the_indexed_path_in_either_spelling(string spelling)
     {
-        var adapter = new FluentValidationModelValidator<InspectModel>(new CollectionRuleValidator());
+        var adapter = new FluentValidationModelValidator<InspectModel>(spelling == nameof(CollectionRuleValidator)
+            ? new CollectionRuleValidator()
+            : new ForEachRuleValidator());
 
-        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Tags", ValidationProfile.Draft));
-        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Tags[0]", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Tags[0]", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Tags[]", ValidationProfile.Draft));
+        Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Tags", ValidationProfile.Draft));
 
-        Assert.Equal(["Tags"], adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
+        Assert.Equal(["Tags[]"], adapter.GetDeclaredFieldPaths(ValidationProfile.Draft));
     }
 
     /// <summary>

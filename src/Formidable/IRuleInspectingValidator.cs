@@ -36,8 +36,9 @@ public interface IRuleInspectingValidator<in TModel>
     /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> reads <see cref="FieldRequirement.NotRequired"/>.
     /// A demand reached only through a condition (<c>When</c>, <c>Unless</c>, their async forms, on
     /// the rule, the component or a rule above it, or a collection rule's per-row <c>Where</c>
-    /// filter) is conditional, and an unconditional demand on the same field wins. A
-    /// <c>RuleForEach(m =&gt; m.Tags).NotEmpty()</c> files under <c>Tags</c>.
+    /// filter) is conditional, and an unconditional demand on the same field wins. A per-row rule,
+    /// <c>RuleForEach(m =&gt; m.Tags).NotEmpty()</c> or its <c>ForEach</c> spelling, files under
+    /// <c>Tags[]</c>, not <c>Tags</c>.
     /// </remarks>
     FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile);
 
@@ -46,8 +47,8 @@ public interface IRuleInspectingValidator<in TModel>
     /// <returns>The declared paths, compared ordinally; empty when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
     /// <remarks>
-    /// Nested templates chain (<c>Teams[].Members[].Alias</c>), and <c>ForEach</c> rows file as
-    /// <c>Items[].Sku</c>. Child validators (<c>SetValidator</c>, <c>ChildRules</c>, <c>Include</c>),
+    /// Nested templates chain (<c>Teams[].Members[].Alias</c>), and per-row rules file as
+    /// <c>Tags[]</c>. Child validators (<c>SetValidator</c>, <c>ChildRules</c>, <c>Include</c>),
     /// including one written for a base type, are read under the selection FluentValidation runs
     /// them under, so a child rule the profile would not run is absent, and an <c>Include</c>d
     /// validator's rules land at the including level. A collection whose only rules live in its

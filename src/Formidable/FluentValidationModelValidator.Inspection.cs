@@ -91,8 +91,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
     /// <remarks>
     /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is read
-    /// like any other, and each row <c>ForEach</c> checks files under the indexed path
-    /// (<c>Items[].Sku</c>, or <c>Items[]</c> for a rule on the row itself). Not read: a child
+    /// like any other. A rule on each row of a collection property, written with <c>RuleForEach</c>
+    /// or <c>ForEach</c>, files under the indexed path (<c>Tags[]</c>, or <c>Items[].Sku</c> for
+    /// a child validator on each row), never under the collection's own path. Not read: a child
     /// supplied by a lambda that reads its model, the repeat of a validator that includes itself,
     /// and <c>DependentRules</c>.
     /// </remarks>
@@ -283,18 +284,19 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="name">The rule's property name; <see langword="null"/> or empty for a rule that names none.</param>
     /// <param name="isCollectionRule">Whether the rule judges each element of a collection.</param>
     /// <returns>The components' path, or <see langword="null"/> where they name no field, and the child prefix.</returns>
-    // A named rule adds its name, and a named collection rule adds Name[] for a child it carries,
-    // whose failures carry an index there. A collection rule with no name sits in a validator for
-    // the collection itself (ForEach builds one, and RuleForEach(x => x) writes one), so the rule
-    // holding that validator has already added the name and the index is all this rule adds: to
-    // its own components (Tags[0]) and to a child it carries (Items[0].Sku) alike. On the root
-    // model nothing has been travelled, so there is no path to index and the rule files as any
-    // rule with no name does.
+    // A named rule adds its name. A named collection rule adds Name[], for its own components
+    // (Tags[0]) and for a child it carries (Items[0].Sku) alike, because every failure it reports
+    // carries an index there; it demands nothing of the collection itself. A collection rule with
+    // no name sits in a validator for the collection itself (ForEach builds one, and
+    // RuleForEach(x => x) writes one), so the rule holding that validator has already added the
+    // name and the index is all this rule adds, the same way. On the root model nothing has been
+    // travelled, so there is no path to index and the rule files as any rule with no name does.
     private static (string? OwnPath, string ChildPrefix) RulePaths(string prefix, string? name, bool isCollectionRule)
     {
         if (!string.IsNullOrEmpty(name))
         {
-            return (prefix + name, $"{prefix}{name}{(isCollectionRule ? "[]" : string.Empty)}.");
+            var own = isCollectionRule ? $"{prefix}{name}[]" : prefix + name;
+            return (own, own + ".");
         }
 
         if (isCollectionRule && prefix.Length > 0)

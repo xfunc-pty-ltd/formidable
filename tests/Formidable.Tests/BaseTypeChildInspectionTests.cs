@@ -134,6 +134,16 @@ public class BaseTypeChildInspectionTests
         }
     }
 
+    /// <summary>Hands the model itself to a validator written for <c>Person</c>, through a model-level rule.</summary>
+    public sealed class ModelLevelCustomerValidator : AbstractValidator<Customer>
+    {
+        public ModelLevelCustomerValidator()
+        {
+            RuleFor(c => c.Code).NotEmpty();
+            RuleFor(c => c).SetValidator(new PersonValidator());
+        }
+    }
+
     /// <summary>Two row-filtered presence rules, one on the rows themselves and one inside each row's child.</summary>
     public sealed class FilteredPersonValidator : AbstractValidator<Person>
     {
@@ -252,18 +262,19 @@ public class BaseTypeChildInspectionTests
     // A row filter makes a presence rule conditional wherever it sits, including inside a
     // validator written for a base type. Mutation this breaks: walk a child under
     // rule.TypeToValidate (Customer), and the rules no longer read as collection rules, so the
-    // filter goes unseen (Tags reads Required) and the row's child goes unread (no Phones[].Number).
+    // tag rule files under Tags as a Required field and the row's child goes unread (no
+    // Phones[].Number).
     [Fact]
     public void A_row_filter_inside_an_included_validator_written_for_a_base_type_is_conditional()
     {
         var validator = new FluentValidationModelValidator<Customer>(new FilteredCustomerValidator());
 
         Assert.Equal(
-            ["Phones[].Number", "Tags"],
+            ["Phones[].Number", "Tags[]"],
             validator.GetDeclaredFieldPaths(ValidationProfile.Submit).Order(StringComparer.Ordinal));
         Assert.Equal(
             FieldRequirement.ConditionallyRequired,
-            validator.GetFieldRequirement("Tags", ValidationProfile.Submit));
+            validator.GetFieldRequirement("Tags[0]", ValidationProfile.Submit));
         Assert.Equal(
             FieldRequirement.ConditionallyRequired,
             validator.GetFieldRequirement("Phones[0].Number", ValidationProfile.Submit));
@@ -318,11 +329,8 @@ public class BaseTypeChildInspectionTests
             _ => Read(new FluentValidationModelValidator<SequenceBasket>(new SequenceBasketValidator())),
         };
 
-        Assert.Contains("Items[].Sku", declared);
-        Assert.DoesNotContain("Items.Sku", declared);
+        Assert.Equal(["Items[].Sku", "Tags[]"], declared.Order(StringComparer.Ordinal));
         Assert.Equal(FieldRequirement.Required, item);
-
-        Assert.Contains("Tags[]", declared);
         Assert.Equal(FieldRequirement.Required, tag);
 
         static (IReadOnlySet<string> Declared, FieldRequirement Item, FieldRequirement Tag) Read<T>(
@@ -330,6 +338,23 @@ public class BaseTypeChildInspectionTests
                 validator.GetDeclaredFieldPaths(ValidationProfile.Submit),
                 validator.GetFieldRequirement("Items[0].Sku", ValidationProfile.Submit),
                 validator.GetFieldRequirement("Tags[0]", ValidationProfile.Submit));
+    }
+
+    // A model-level rule hands the model to its child, which files at the root's own level and is
+    // read under Person, the type its rules are written for. A pin of behaviour that already
+    // holds. Mutation this breaks: walk a child under rule.TypeToValidate (Customer) instead of
+    // the type its validator is written for, and Address.City goes unread.
+    [Fact]
+    public void A_child_a_model_level_rule_carries_is_read_under_the_type_it_is_written_for()
+    {
+        var validator = new FluentValidationModelValidator<Customer>(new ModelLevelCustomerValidator());
+
+        Assert.Equal(
+            ["Address.City", "Code", "Name"],
+            validator.GetDeclaredFieldPaths(ValidationProfile.Submit).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            FieldRequirement.Required,
+            validator.GetFieldRequirement("Address.City", ValidationProfile.Submit));
     }
 
     // A pin: with no path travelled there is nothing to index, so such a rule on the root model
