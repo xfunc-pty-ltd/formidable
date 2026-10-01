@@ -185,21 +185,6 @@ public partial class Workout : IDisposable
         field.NotifyChanged();
     }
 
-    private void AddAttendee(FormidableFieldContext field)
-    {
-        _registration.Attendees.Add(new Attendee());
-
-        // Same reasoning as ToggleCatering: Add/Remove mutate the list directly, so the engine
-        // needs to be told the collection changed or the count-based rules go stale on screen.
-        field.NotifyChanged();
-    }
-
-    private void RemoveAttendee(Attendee attendee, FormidableFieldContext field)
-    {
-        _registration.Attendees.Remove(attendee);
-        field.NotifyChanged();
-    }
-
     private void ChangeTicketTier(ChangeEventArgs args, FormidableFieldContext field)
     {
         _registration.TicketTier = args.Value?.ToString() ?? string.Empty;

@@ -143,7 +143,7 @@
                         <label>Email <FormidableRequiredIndicator For="() => attendee.Email" /> <FormidableInputText @bind-Value="attendee.Email" /></label>
                         <FormidableFieldMessage For="() => attendee.Email" />
                         <div class="actions">
-                            <button type="button" @onclick="() => RemoveAttendee(attendee, field)">Remove</button>
+                            <button type="button" @onclick="() => field.RemoveItem(_registration.Attendees, attendee)">Remove</button>
                         </div>
                     </li>
                 }
@@ -152,7 +152,7 @@
             <FormidableCollectionMessage For="() => _registration.Attendees" />
 
             <div class="actions">
-                <button type="button" @onclick="() => AddAttendee(field)">Add attendee</button>
+                <button type="button" @onclick="() => field.AddItem(_registration.Attendees, new Attendee())">Add attendee</button>
             </div>
         </fieldset>
     </FormidableField>
