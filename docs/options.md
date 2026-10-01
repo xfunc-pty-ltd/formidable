@@ -115,7 +115,9 @@ the `Valid` class stays honest, with no second submit.
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.RefreshDebounce = TimeSpan.FromMilliseconds(500));`.
 `TimeSpan.Zero` re-checks as soon as the edit is committed; only `Timeout.InfiniteTimeSpan` turns
-the re-check off.
+the re-check off. The timer behind it takes `Timeout.InfiniteTimeSpan` or a wait from zero to just
+under 4294967295 milliseconds (about 49.7 days), and a form built with any other value logs a
+warning naming this option.
 
 Before the first submit or server reply, an edit gets at most one live check, which answers every
 field you have engaged, and no whole-form re-check follows it. A change to which fields are on
@@ -167,6 +169,10 @@ check runs with the live check.
 `TrackFormValidity` on, edits before the first submit or server reply start a validity check of
 their own instead, `RefreshDebounce` after the last of them. The whole-form re-check still runs on
 `RefreshDebounce`, and after a submit or server reply it answers in the validity check's place.
+
+The timer behind the wait takes `Timeout.InfiniteTimeSpan` or a wait from zero to just under
+4294967295 milliseconds (about 49.7 days), and a form built with any other value logs a warning
+naming this option.
 
 Set it once for the whole app in `Program.cs`,
 `builder.Services.AddFormidableBlazor(options => options.LiveDebounce = TimeSpan.FromMilliseconds(400));`,

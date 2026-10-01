@@ -1,3 +1,4 @@
+using System.Globalization;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Logging;
@@ -148,6 +149,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
 
+    // The longest due time the system timer takes, in whole milliseconds; ReportUnusableDebounce
+    // names a debounce past it.
+    private const long MaxTimerMilliseconds = uint.MaxValue - 1;
+
     // The validity check a committed change arms under a LiveDebounce that never closes, before
     // the first submit or server reply (see ScheduleValidityCheck), and whether it is armed: set
     // as a change arms it, cleared as it fires. ReAnswerOnItsWay counts it while armed, and then
@@ -273,6 +278,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         if (_validator is not IRuleInspectingValidator<TModel> { CanInspectRules: true })
         {
             ReportInspectionUnavailable();
+        }
+
+        // Once, as the engine is built. The options are read at each use, so a value set later
+        // reaches the timer unchecked.
+        ReportUnusableDebounce(nameof(FormidableOptions.RefreshDebounce), options.RefreshDebounce);
+        if (options.LiveDebounce is { } liveDebounce)
+        {
+            ReportUnusableDebounce(nameof(FormidableOptions.LiveDebounce), liveDebounce);
         }
 
         _selectSubmitRules = validator is IRuleLevelValidator<TModel> ruleLevel
@@ -1910,6 +1923,43 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             "rather than implementing IModelValidator alone; one that is not a FluentValidation " +
             "AbstractValidator has no rules Formidable can read.",
             model, validator);
+    }
+
+    /// <summary>Writes a Trace line and a logged warning when <paramref name="due"/> is negative other than <see cref="Timeout.InfiniteTimeSpan"/>, or past the longest wait the system timer takes, naming the option, its value and the range to use.</summary>
+    /// <param name="option">The option's name on <see cref="FormidableOptions"/>.</param>
+    /// <param name="due">The option's value.</param>
+    // A value past the limit, or of -2 ms or less, throws from the timer the first time its wait
+    // starts (the first render's field-set reconcile for RefreshDebounce, the first edit for
+    // LiveDebounce), with a stack that names the timer rather than the option. The timer
+    // truncates to whole milliseconds and takes the rest, but a negative value it takes still
+    // misleads. Above -2 ms and below -1 ms it never fires, while the engine treats every value
+    // but Timeout.InfiniteTimeSpan itself as a wait that passes (ReAnswerOnItsWay, the validity
+    // check's arm), so it would count a check on its way that never comes; between -1 ms and zero
+    // it fires at once. So every negative value but the infinite wait is named. The upper limit is
+    // the timer's own, in whole milliseconds, probed on TimeProvider.System.
+    private void ReportUnusableDebounce(string option, TimeSpan due)
+    {
+        var negative = due < TimeSpan.Zero && due != Timeout.InfiniteTimeSpan;
+        if (!negative && (long)due.TotalMilliseconds <= MaxTimerMilliseconds)
+        {
+            return;
+        }
+
+        var model = FriendlyTypeName.Of(typeof(TModel));
+        var value = due.ToString("c", CultureInfo.InvariantCulture);
+        FormidableDiagnostics.Warn(
+            _logger,
+            $"Formidable: FormidableOptions.{option} is {value}, which the form for {model} cannot " +
+            "use as a wait. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from " +
+            "zero up to 4294967294 milliseconds (49.17:02:47.294). A longer wait, or one of -2 " +
+            "milliseconds or less, throws the first time the wait starts; the timer reads any other " +
+            "negative value as zero or as a wait that never ends, not the wait the form counts on.",
+            "Formidable: FormidableOptions.{Option} is {Value}, which the form for {Model} cannot " +
+            "use as a wait. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from " +
+            "zero up to 4294967294 milliseconds (49.17:02:47.294). A longer wait, or one of -2 " +
+            "milliseconds or less, throws the first time the wait starts; the timer reads any other " +
+            "negative value as zero or as a wait that never ends, not the wait the form counts on.",
+            option, value, model);
     }
 
     /// <summary>Reports one suppressed issue: a Trace line, a logged warning, <see cref="FormidableOptions.SuppressedIssueDiagnostic"/>, and <see cref="FormidableOptions.NeverRegisteredFieldDiagnostic"/> for a field nothing ever registered.</summary>
