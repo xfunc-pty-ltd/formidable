@@ -10,7 +10,7 @@ namespace Formidable;
 /// <param name="Message">The message shown to the user.</param>
 /// <param name="Severity">The issue's severity. Defaults to <see cref="ValidationSeverity.Error"/>.</param>
 /// <param name="Code">The machine-readable code (FluentValidation's error code), or <see langword="null"/>.</param>
-/// <param name="DisplayName">The user-facing field name (from <c>WithName(...)</c>), or <see langword="null"/>.</param>
+/// <param name="DisplayName">The user-facing field name: a rule's <c>WithName(...)</c>, or FluentValidation's own name for the property. <see langword="null"/> for a rule on the model itself that has no <c>WithName(...)</c>, and wherever nothing supplied a name.</param>
 /// <param name="State">The caller-defined payload from FluentValidation's <c>WithState(...)</c>; <see langword="null"/> for an issue parsed from a ProblemDetails body, whose wire shape carries no state.</param>
 // The member set is deliberately complete: every member folds into the record's synthesized
 // equality, so an addition would change what Equals means for every consumer comparing,
