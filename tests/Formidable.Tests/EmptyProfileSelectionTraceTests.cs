@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using FluentValidation;
 using FluentValidation.Internal;
 using FluentValidation.Results;
+using Formidable.Tests.Fixtures;
 
 namespace Formidable.Tests;
 
@@ -34,14 +34,14 @@ public class EmptyProfileSelectionTraceTests
         // Equal to phantom by full shape (names compare case-insensitively), but its own instance.
         var equal = ValidationProfile.Named("tracedonce", includeDefaultRules: false, "tracedonceset");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await adapter.ValidateAsync(model, phantom);
             await adapter.ValidateAsync(model, phantom);
             var rules = adapter.SelectRules(equal);
             Assert.Empty(rules);
             await adapter.ValidateRulesAsync(model, equal, rules);
-        });
+        }, NamesModel);
 
         var line = Assert.Single(lines);
         Assert.Contains("'TracedOnce'", line);
@@ -57,11 +57,11 @@ public class EmptyProfileSelectionTraceTests
         var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator());
         var model = new PhantomProfileModel();
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await adapter.ValidateAsync(model, PhantomProfile("FirstOfTwo"));
             await adapter.ValidateAsync(model, PhantomProfile("SecondOfTwo"));
-        });
+        }, NamesModel);
 
         Assert.Equal(2, lines.Count);
         Assert.Contains(lines, line => line.Contains("'FirstOfTwo'"));
@@ -84,7 +84,7 @@ public class EmptyProfileSelectionTraceTests
         var model = new PhantomProfileModel();
         var phantom = PhantomProfile("Via" + member);
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             switch (member)
             {
@@ -107,7 +107,7 @@ public class EmptyProfileSelectionTraceTests
                     adapter.GetDeclaredFieldPaths(phantom);
                     break;
             }
-        });
+        }, NamesModel);
 
         Assert.Single(lines);
     }
@@ -122,11 +122,11 @@ public class EmptyProfileSelectionTraceTests
         var validator = new PlainPhantomProfileModelValidator();
         var profile = PhantomProfile("DirectCaller");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             var result = await validator.ValidateAsync(new PhantomProfileModel(), profile);
             Assert.True(result.IsValid);
-        });
+        }, NamesModel);
 
         var line = Assert.Single(lines);
         Assert.Contains("'DirectCaller'", line);
@@ -143,11 +143,11 @@ public class EmptyProfileSelectionTraceTests
         var model = new PhantomProfileModel();
         var profile = PhantomProfile("TwoAdapters");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await new FluentValidationModelValidator<PhantomProfileModel>(validator).ValidateAsync(model, profile);
             await new FluentValidationModelValidator<PhantomProfileModel>(validator).ValidateAsync(model, profile);
-        });
+        }, NamesModel);
 
         Assert.Single(lines);
     }
@@ -160,13 +160,13 @@ public class EmptyProfileSelectionTraceTests
         var model = new PhantomProfileModel();
         var profile = PhantomProfile("TwoInstances");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator())
                 .ValidateAsync(model, profile);
             await new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator())
                 .ValidateAsync(model, profile);
-        });
+        }, NamesModel);
 
         Assert.Single(lines);
     }
@@ -180,13 +180,13 @@ public class EmptyProfileSelectionTraceTests
         var model = new PhantomProfileModel();
         var profile = PhantomProfile("TwoTypes");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator())
                 .ValidateAsync(model, profile);
             await new FluentValidationModelValidator<PhantomProfileModel>(new SecondPhantomProfileModelValidator())
                 .ValidateAsync(model, profile);
-        });
+        }, NamesModel);
 
         Assert.Equal(2, lines.Count);
         Assert.Single(lines, line => line.Contains(nameof(PlainPhantomProfileModelValidator)));
@@ -200,11 +200,11 @@ public class EmptyProfileSelectionTraceTests
         var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator());
         var submitOnly = ValidationProfile.Named("SubmitOnly", includeDefaultRules: false, ValidationProfile.SubmitRuleSetName);
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await adapter.ValidateAsync(new PhantomProfileModel(), submitOnly);
             Assert.NotEmpty(adapter.SelectRules(submitOnly));
-        });
+        }, NamesModel);
 
         Assert.Empty(lines);
     }
@@ -218,11 +218,11 @@ public class EmptyProfileSelectionTraceTests
         var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new SubmitOnlyPhantomProfileModelValidator());
         var profile = ValidationProfile.Named("P", includeDefaultRules: true, "NoSuchSet");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             Assert.Empty(adapter.SelectRules(profile));
             await adapter.ValidateAsync(new PhantomProfileModel(), profile);
-        });
+        }, NamesModel);
 
         Assert.Empty(lines);
     }
@@ -240,7 +240,7 @@ public class EmptyProfileSelectionTraceTests
         const int threads = 8;
         var failures = new ConcurrentQueue<Exception>();
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             for (var round = 0; round < rounds; round++)
             {
@@ -267,7 +267,7 @@ public class EmptyProfileSelectionTraceTests
                 workers.ForEach(worker => worker.Start());
                 workers.ForEach(worker => worker.Join());
             }
-        });
+        }, NamesModel);
 
         Assert.Empty(failures);
         Assert.Equal(rounds, lines.Count);
@@ -280,9 +280,10 @@ public class EmptyProfileSelectionTraceTests
     {
         var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new ProfiledPhantomProfileModelValidator());
 
-        var lines = await CaptureTraceAsync(async () =>
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => adapter.ValidateAsync(new PhantomProfileModel(), PhantomProfile("ProfiledThrows"))));
+        var lines = await TraceCapture.RunAsync(
+            async () => await Assert.ThrowsAsync<InvalidOperationException>(
+                () => adapter.ValidateAsync(new PhantomProfileModel(), PhantomProfile("ProfiledThrows"))),
+            NamesModel);
 
         Assert.Empty(lines);
     }
@@ -296,11 +297,11 @@ public class EmptyProfileSelectionTraceTests
         var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new ProfiledPhantomProfileModelValidator());
         var emptyOnly = ValidationProfile.Named("EmptyOnly", includeDefaultRules: false, "Empty");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             Assert.Empty(adapter.SelectRules(emptyOnly));
             await adapter.ValidateAsync(new PhantomProfileModel(), emptyOnly);
-        });
+        }, NamesModel);
 
         Assert.Empty(lines);
     }
@@ -323,8 +324,9 @@ public class EmptyProfileSelectionTraceTests
             var adapter = new FluentValidationModelValidator<PhantomProfileModel>(new PlainPhantomProfileModelValidator());
 
             ValidationReport? report = null;
-            var lines = await CaptureTraceAsync(async () =>
-                report = await adapter.ValidateAsync(new PhantomProfileModel(), PhantomProfile("ModelReadingSelector")));
+            var lines = await TraceCapture.RunAsync(
+                async () => report = await adapter.ValidateAsync(new PhantomProfileModel(), PhantomProfile("ModelReadingSelector")),
+                NamesModel);
 
             Assert.NotNull(report);
             Assert.True(report.IsValid);
@@ -344,47 +346,18 @@ public class EmptyProfileSelectionTraceTests
         var model = new PhantomProfileModel();
         var profile = PhantomProfile("HandRolled");
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             await adapter.ValidateAsync(model, profile);
             adapter.Validate(model, profile);
             adapter.GetDeclaredFieldPaths(profile);
-        });
+        }, NamesModel);
 
         Assert.Empty(lines);
     }
 
-    private static List<string> CaptureTrace(Action act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.ModelLines();
-    }
-
-    private static async Task<List<string>> CaptureTraceAsync(Func<Task> act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            await act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.ModelLines();
-    }
+    /// <summary>Whether a Trace line names this class's model.</summary>
+    private static bool NamesModel(string line) => line.Contains(nameof(PhantomProfileModel));
 
     public sealed class PhantomProfileModel
     {
@@ -455,18 +428,5 @@ public class EmptyProfileSelectionTraceTests
             context is ValidationContext<PhantomProfileModel> { InstanceToValidate: null }
                 ? throw new InvalidOperationException("This selector reads the model.")
                 : stock.CanExecute(rule, propertyPath, context);
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        private readonly ConcurrentQueue<string> _lines = new();
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => _lines.Enqueue(message ?? string.Empty);
-
-        public List<string> ModelLines() => [.. _lines.Where(line => line.Contains(nameof(PhantomProfileModel)))];
     }
 }

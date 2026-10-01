@@ -875,30 +875,4 @@ public class FormidableValidatorComponentTests : BunitContext
         protected override void ConfigureSubmitRules() =>
             RuleFor(x => x.Customer).NotNull();
     }
-
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(CapturingLoggerProvider owner) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter) =>
-                owner.Entries.Add((logLevel, formatter(state, exception)));
-        }
-    }
 }

@@ -1,7 +1,6 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using Bunit;
 using FluentValidation;
+using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -26,14 +25,14 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
     {
         var logger = new CapturingLogger();
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(new FormidableOptions(), logger);
 
             // Once through the class and once through the interface a component reads.
             _ = engine.IsFormValid;
             _ = ((IFormidableEngine)engine).IsFormValid;
-        });
+        }, IsNote);
 
         var line = Assert.Single(lines);
         Assert.Contains("FormidableOptions.TrackFormValidity", line);
@@ -52,12 +51,12 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
     {
         var logger = new CapturingLogger();
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(new FormidableOptions { TrackFormValidity = true }, logger);
             _ = engine.IsFormValid;
             _ = engine.IsFormValid;
-        });
+        }, IsNote);
 
         Assert.Empty(lines);
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("IsFormValid"));
@@ -70,12 +69,12 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
     {
         var logger = new CapturingLogger();
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             using var engine = BuildEngine(new FormidableOptions { DisclosureOverride = _ => true }, logger);
             await engine.ValidateForSubmitAsync();
             await engine.DiscloseLoadedValuesAsync();
-        });
+        }, IsNote);
 
         Assert.Empty(lines);
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("IsFormValid"));
@@ -93,7 +92,7 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
         var validator = new GatedUntrackedValidityValidator();
         var options = new FormidableOptions { TrackFormValidity = true };
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             // Construction starts the first validity check, which waits on the gate.
             using var engine = BuildEngine(options, logger, validator);
@@ -105,7 +104,7 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
             // The gated rule passes, so the answer flips from false and the landing notifies.
             validator.Gate.SetResult();
             await landed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        });
+        }, IsNote);
 
         Assert.Empty(lines);
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("IsFormValid"));
@@ -136,7 +135,7 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
         var first = cut.Instance.Engine!;
         IFormidableEngine? second = null;
 
-        var lines = await CaptureTraceAsync(async () =>
+        var lines = await TraceCapture.RunAsync(async () =>
         {
             _ = first.IsFormValid;
             _ = first.IsFormValid;
@@ -145,7 +144,7 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
             second = cut.Instance.Engine!;
             _ = second.IsFormValid;
             _ = second.IsFormValid;
-        });
+        }, IsNote);
 
         Assert.NotSame(first, second);
         Assert.Equal(2, lines.Count);
@@ -171,39 +170,9 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
             logger: logger);
     }
 
-    /// <summary>Runs <paramref name="act"/> with a listener attached only for its duration and returns the note's lines for this class's model.</summary>
-    private static List<string> CaptureTrace(Action act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.NoteLines();
-    }
-
-    /// <summary>Async sibling of <see cref="CaptureTrace"/>.</summary>
-    private static async Task<List<string>> CaptureTraceAsync(Func<Task> act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            await act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.NoteLines();
-    }
+    /// <summary>Whether a Trace line is the note, written for this class's model.</summary>
+    private static bool IsNote(string line) =>
+        line.Contains(nameof(UntrackedValidityModel)) && line.Contains("IsFormValid");
 
     public sealed class UntrackedValidityModel
     {
@@ -226,51 +195,5 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
             });
 
         public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        private readonly ConcurrentQueue<string> _lines = new();
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => _lines.Enqueue(message ?? string.Empty);
-
-        public List<string> NoteLines() =>
-            [.. _lines.Where(line => line.Contains(nameof(UntrackedValidityModel)) && line.Contains("IsFormValid"))];
-    }
-
-    private sealed class CapturingLogger : ILogger
-    {
-        private readonly ConcurrentQueue<(LogLevel Level, string Message)> _entries = new();
-
-        public IReadOnlyList<(LogLevel Level, string Message)> Entries => [.. _entries];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
-            _entries.Enqueue((logLevel, formatter(state, exception)));
-    }
-
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        private readonly CapturingLogger _logger = new();
-
-        public IReadOnlyList<(LogLevel Level, string Message)> Entries => _logger.Entries;
-
-        public ILogger CreateLogger(string categoryName) => _logger;
-
-        public void Dispose()
-        {
-        }
     }
 }

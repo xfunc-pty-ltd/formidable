@@ -1,10 +1,9 @@
-using System.Diagnostics;
 using FluentValidation;
 using Formidable.Tests.Fixtures;
 
 namespace Formidable.Tests;
 
-// The pin added below attaches its own TraceListener, which is process-global state - see
+// The Trace pin below attaches a listener, which is process-global state - see
 // ProcessGlobalStateCollection for how far it reaches and who owes membership.
 [Collection(ProcessGlobalStateCollection.Name)]
 public class DraftSubmitValidatorDiagnosticTests
@@ -89,29 +88,9 @@ public class DraftSubmitValidatorDiagnosticTests
     [Fact]
     public void Default_hook_writes_the_overlap_message_to_Trace()
     {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            _ = new UnoverriddenOverlapValidator();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
+        var lines = TraceCapture.Run(() => _ = new UnoverriddenOverlapValidator());
 
-        Assert.Contains(listener.Lines, line => line.Contains("has") && line.Contains("rules in both the draft and submit axes"));
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        public List<string> Lines { get; } = [];
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
+        Assert.Contains(lines, line => line.Contains("has") && line.Contains("rules in both the draft and submit axes"));
     }
 
     private sealed class CollectionRulesValidator : RecordingValidator

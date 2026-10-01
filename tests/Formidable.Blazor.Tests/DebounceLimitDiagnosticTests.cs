@@ -1,6 +1,5 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using FluentValidation;
+using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Logging;
@@ -29,10 +28,10 @@ public class DebounceLimitDiagnosticTests
     {
         var logger = new CapturingLogger();
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(new FormidableOptions { RefreshDebounce = PastTheLimit }, logger);
-        });
+        }, IsNote);
 
         var line = Assert.Single(lines);
         AssertNames(line, "FormidableOptions.RefreshDebounce", "49.17:02:47.2950000");
@@ -48,10 +47,10 @@ public class DebounceLimitDiagnosticTests
     {
         var logger = new CapturingLogger();
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(new FormidableOptions { LiveDebounce = TimeSpan.FromDays(50) }, logger);
-        });
+        }, IsNote);
 
         var line = Assert.Single(lines);
         AssertNames(line, "FormidableOptions.LiveDebounce", "50.00:00:00");
@@ -79,10 +78,10 @@ public class DebounceLimitDiagnosticTests
         var logger = new CapturingLogger();
         var options = With(option, TimeSpan.FromTicks(ticks));
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(options, logger);
-        });
+        }, IsNote);
 
         AssertNames(Assert.Single(lines), $"FormidableOptions.{option}", rendered);
         AssertNames(
@@ -104,10 +103,10 @@ public class DebounceLimitDiagnosticTests
         var logger = new CapturingLogger();
         var options = With(option, infinite ? Timeout.InfiniteTimeSpan : AtTheLimit);
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(options, logger);
-        });
+        }, IsNote);
 
         Assert.Empty(lines);
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
@@ -125,10 +124,10 @@ public class DebounceLimitDiagnosticTests
         var logger = new CapturingLogger();
         var options = With(option, TimeSpan.FromTicks(ticks));
 
-        var lines = CaptureTrace(() =>
+        var lines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(options, logger);
-        });
+        }, IsNote);
 
         Assert.Empty(lines);
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
@@ -161,22 +160,9 @@ public class DebounceLimitDiagnosticTests
             logger: logger);
     }
 
-    /// <summary>Runs <paramref name="act"/> with a listener attached only for its duration and returns the note's lines for this class's model.</summary>
-    private static List<string> CaptureTrace(Action act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.NoteLines();
-    }
+    /// <summary>Whether a Trace line is the note, written for this class's model.</summary>
+    private static bool IsNote(string line) =>
+        line.Contains(nameof(DebounceLimitModel)) && line.Contains("cannot use as a wait");
 
     public sealed class DebounceLimitModel
     {
@@ -186,38 +172,5 @@ public class DebounceLimitDiagnosticTests
     public sealed class DebounceLimitValidator : AbstractValidator<DebounceLimitModel>
     {
         public DebounceLimitValidator() => RuleFor(x => x.Name).NotEmpty();
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        private readonly ConcurrentQueue<string> _lines = new();
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => _lines.Enqueue(message ?? string.Empty);
-
-        public List<string> NoteLines() =>
-            [.. _lines.Where(line => line.Contains(nameof(DebounceLimitModel)) && line.Contains("cannot use as a wait"))];
-    }
-
-    private sealed class CapturingLogger : ILogger
-    {
-        private readonly ConcurrentQueue<(LogLevel Level, string Message)> _entries = new();
-
-        public IReadOnlyList<(LogLevel Level, string Message)> Entries => [.. _entries];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
-            _entries.Enqueue((logLevel, formatter(state, exception)));
     }
 }

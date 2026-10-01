@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Bunit;
 using Bunit.Rendering;
 using Formidable.Blazor.Tests.Fixtures;
@@ -442,7 +441,7 @@ public class DiagnosticMessageTests : BunitContext
     {
         var logger = new CapturingLogger();
 
-        var traceLines = CaptureTrace(() =>
+        var traceLines = TraceCapture.Run(() =>
         {
             using var engine = BuildEngine(new EngineOrder(), CapabilityHidden(), logger);
         });
@@ -539,7 +538,7 @@ public class DiagnosticMessageTests : BunitContext
             new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name)),
             new FieldIdentifier(new EngineCustomer(), nameof(EngineCustomer.Name)));
 
-        var traceLines = CaptureTrace(() => ((IStaleRegistrationReporter)engine).Report(report));
+        var traceLines = TraceCapture.Run(() => ((IStaleRegistrationReporter)engine).Report(report));
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
@@ -604,52 +603,4 @@ public class DiagnosticMessageTests : BunitContext
             new FormidableOptions(),
             new FakeTimeProvider(),
             logger: logger);
-
-    /// <summary>
-    /// Runs <paramref name="act"/> with a listener attached only for its duration, so the
-    /// diagnostic's Trace channel is read without leaving a listener behind for any other test.
-    /// </summary>
-    private static List<string> CaptureTrace(Action act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.Lines;
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        public List<string> Lines { get; } = [];
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
-    }
-
-    private sealed class CapturingLogger : ILogger
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
-            Entries.Add((logLevel, formatter(state, exception)));
-    }
 }

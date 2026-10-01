@@ -12,8 +12,8 @@ namespace Formidable.Blazor.Tests;
 // FormidableFocusService directly from BunitContext.Services means the .NET DI container
 // captures it for disposal; each test still explicitly awaits Services.DisposeAsync() so the
 // container is disposed (idempotent) through the service's proper async release path before
-// BunitContext's own synchronous teardown runs. That teardown no longer THROWS on its own —
-// FormidableFocusService also implements IDisposable — but its sync Dispose() is a best-effort
+// BunitContext's own synchronous teardown runs. That teardown does not throw on its own
+// (FormidableFocusService also implements IDisposable), but its sync Dispose() is a best-effort
 // fallback (releases the JS module only when doing so needs no further await), so the explicit
 // awaited dispose here stays the more thorough choice.
 public class FocusServiceTests : BunitContext

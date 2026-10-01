@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -237,7 +236,7 @@ public class FormidableEngineHardeningTests
         // ReportSuppressed call site this pins.
         const string marker = "forged suppressed-issue log line";
         var forgedPath = $"Description\r\nFormidable: {marker}";
-        var traceLines = CaptureTrace(() =>
+        var traceLines = TraceCapture.Run(() =>
             engine.ApplyServerIssues(
                 [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
 
@@ -248,7 +247,7 @@ public class FormidableEngineHardeningTests
         Assert.DoesNotContain("\r", traceLine);
         Assert.DoesNotContain("\n", traceLine);
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain("\r", logged);
         Assert.DoesNotContain("\n", logged);
     }
@@ -267,7 +266,7 @@ public class FormidableEngineHardeningTests
 
         const string marker = "SuppressedForgedBound";
         var forgedPath = marker + new string('x', 5000);
-        var traceLines = CaptureTrace(() =>
+        var traceLines = TraceCapture.Run(() =>
             engine.ApplyServerIssues(
                 [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
 
@@ -276,7 +275,7 @@ public class FormidableEngineHardeningTests
         Assert.DoesNotContain(forgedPath, traceLine);
         Assert.Contains("more", traceLine); // the bound is a visible marker, not a silent cut
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(logger.Entries).Message;
         Assert.DoesNotContain(forgedPath, logged);
         Assert.Contains("more", logged);
     }
@@ -300,7 +299,7 @@ public class FormidableEngineHardeningTests
         // alone lets through.
         const string marker = "forged control-character log line";
         var forgedPath = $"Description\u001b[2K\u001b[1G{marker}\b\b\a\v\u007f\u009b";
-        var traceLines = CaptureTrace(() =>
+        var traceLines = TraceCapture.Run(() =>
             engine.ApplyServerIssues(
                 [new ValidationIssue(forgedPath, "server said no", ValidationSeverity.Warning)]));
 
@@ -308,7 +307,7 @@ public class FormidableEngineHardeningTests
         var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
         Assert.All(traceLine, c => Assert.False(char.IsControl(c)));
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(logger.Entries).Message;
         Assert.All(logged, c => Assert.False(char.IsControl(c)));
     }
 
@@ -330,10 +329,11 @@ public class FormidableEngineHardeningTests
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false }; // never takes focus -> the miss
-        var logger = new CapturingLogger();
-        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+        var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var services = new FakeFocusServiceProvider(focus, loggerFactory);
 
-        var traceLines = await CaptureTraceAsync(
+        var traceLines = await TraceCapture.RunAsync(
             () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
 
         // Matched by content, not by count: the suite runs other test classes concurrently, and
@@ -343,7 +343,7 @@ public class FormidableEngineHardeningTests
         Assert.DoesNotContain("\r", traceLine);
         Assert.DoesNotContain("\n", traceLine);
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(loggerProvider.Entries).Message;
         Assert.DoesNotContain("\r", logged);
         Assert.DoesNotContain("\n", logged);
     }
@@ -364,10 +364,11 @@ public class FormidableEngineHardeningTests
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false };
-        var logger = new CapturingLogger();
-        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+        var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var services = new FakeFocusServiceProvider(focus, loggerFactory);
 
-        var traceLines = await CaptureTraceAsync(
+        var traceLines = await TraceCapture.RunAsync(
             () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
 
         // Matched by content, not by count - see the sibling CRLF pin above for why.
@@ -375,7 +376,7 @@ public class FormidableEngineHardeningTests
         Assert.DoesNotContain(forgedPath, traceLine);
         Assert.Contains("more", traceLine);
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(loggerProvider.Entries).Message;
         Assert.DoesNotContain(forgedPath, logged);
         Assert.Contains("more", logged);
     }
@@ -397,97 +398,19 @@ public class FormidableEngineHardeningTests
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false };
-        var logger = new CapturingLogger();
-        var services = new FakeFocusServiceProvider(focus, new CapturingLoggerFactory(logger));
+        var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var services = new FakeFocusServiceProvider(focus, loggerFactory);
 
-        var traceLines = await CaptureTraceAsync(
+        var traceLines = await TraceCapture.RunAsync(
             () => FirstErrorFocus.MoveAsync(services, engine, fallback: null, prepare: null).AsTask());
 
         // Matched by content, not by count - see the sibling CRLF pin above for why.
         var traceLine = Assert.Single(traceLines, line => line.Contains(marker));
         Assert.All(traceLine, c => Assert.False(char.IsControl(c)));
 
-        var logged = Assert.Single(logger.Messages);
+        var logged = Assert.Single(loggerProvider.Entries).Message;
         Assert.All(logged, c => Assert.False(char.IsControl(c)));
-    }
-
-    /// <summary>
-    /// Runs <paramref name="act"/> with a listener attached only for its duration, so a forged
-    /// Trace.WriteLine call is captured without leaving a listener behind for any other test.
-    /// </summary>
-    private static List<string> CaptureTrace(Action act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.Lines;
-    }
-
-    /// <summary>Async sibling of <see cref="CaptureTrace"/>, for a call site reached only through
-    /// an awaited path.</summary>
-    private static async Task<List<string>> CaptureTraceAsync(Func<Task> act)
-    {
-        var listener = new CapturingTraceListener();
-        Trace.Listeners.Add(listener);
-        try
-        {
-            await act();
-        }
-        finally
-        {
-            Trace.Listeners.Remove(listener);
-        }
-
-        return listener.Lines;
-    }
-
-    private sealed class CapturingTraceListener : TraceListener
-    {
-        public List<string> Lines { get; } = [];
-
-        public override void Write(string? message)
-        {
-        }
-
-        public override void WriteLine(string? message) => Lines.Add(message ?? string.Empty);
-    }
-
-    private sealed class CapturingLogger : ILogger
-    {
-        public List<string> Messages { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
-            Messages.Add(formatter(state, exception));
-    }
-
-    private sealed class CapturingLoggerFactory(CapturingLogger logger) : ILoggerFactory
-    {
-        public void AddProvider(ILoggerProvider provider)
-        {
-        }
-
-        public ILogger CreateLogger(string categoryName) => logger;
-
-        public void Dispose()
-        {
-        }
     }
 
     /// <summary>

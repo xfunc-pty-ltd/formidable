@@ -15,12 +15,12 @@ namespace Formidable.Blazor.Tests;
 //    FormidableFocusService for disposal. Each test is async and explicitly awaits
 //    Services.DisposeAsync() so the container is disposed (idempotent) through the service's
 //    proper async release path before xUnit's synchronous teardown runs — see
-//    FocusServiceTests.cs for why that stays the more thorough choice even though
-//    FormidableFocusService's own sync Dispose() no longer throws there. Making the test methods
-//    async (for that trailing
-//    await) turns the existing fire-and-forget `form.InvokeAsync(() => ...SubmitAsync())` calls
-//    (unawaited by design — WaitForAssertion below polls for the eventual render) into CS4014
-//    errors under TreatWarningsAsErrors, so they are explicitly discarded with `_ = `.
+//    FocusServiceTests.cs for why that stays the more thorough choice although
+//    FormidableFocusService's own sync Dispose() does not throw there. Making the test methods
+//    async (for that trailing await) turns the fire-and-forget
+//    `form.InvokeAsync(() => ...SubmitAsync())` calls (unawaited by design — WaitForAssertion
+//    below polls for the eventual render) into CS4014 errors under TreatWarningsAsErrors, so they
+//    are explicitly discarded with `_ = `.
 public class FormidableSummaryTests : BunitContext
 {
     public FormidableSummaryTests()
