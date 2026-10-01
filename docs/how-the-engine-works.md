@@ -198,12 +198,15 @@ notification anywhere, so `OnRenderedFieldsChanged` empties the store outright a
 generation. The same call prunes departed fields from the engaged set and arms a refresh,
 whatever the form's history.
 
-The registry raises no event the engine hears, so the root makes that call: `FormidableForm` from
-its `OnAfterRenderAsync` whenever the registry's version moved, and `FormidableValidator` from a
-continuation posted past the render batch that changed a registration (`NotifyFieldSetChanged()`
-makes the same call at once). A nested component re-rendering alone moves the registry without
-bringing `FormidableForm` there, so whichever of the form's renders comes next picks the move up;
-the validator's continuation needs no render.
+The engine does not hear the registry's `Changed` event, so the root makes that call.
+`FormidableValidator` makes it from a continuation posted past the render batch that changed a
+registration (`NotifyFieldSetChanged()` makes the same call at once). `FormidableForm` makes it from
+its `OnAfterRenderAsync` whenever the registry's version moved.
+
+A nested component re-rendering alone moves the registry without bringing the form there, so the
+form posts the same continuation the validator does. While a render of the form has yet to reach
+its `OnAfterRenderAsync`, a registry change posts nothing, because that method reconciles whatever
+the registry then holds. Each root's version tracker keeps one move from being reconciled twice.
 
 A pass in flight across that move still publishes its verdict, but its store write is refused:
 `TryFile` checks the generation the pass captured at begin, so the clear cannot be undone by work
@@ -461,12 +464,23 @@ kit's surfaces that show them, though the store carries errors only. Each change
 answered on its own, so a batch that flips several such fields rebuilds once for each.
 
 A field whose last registration left with no retention has departed rather than stopped waiting,
-and the engine publishes nothing for that flip. Until the root's rendered-field-set reconcile runs,
-the field is still engaged, so a republish would show the message it was holding; the departure
-prune drops the verdict with the engagement and republishes then.
+and the engine rebuilds nothing for that flip. It tells the two apart by asking the registry,
+which has seen a departed field registered and now holds nothing for it.
 
-The report comes from the registry rather than from a root's reconcile, so it reaches every surface
-under either root, a component a nested render mounts included.
+The engaged set learns of a departure only when the root's rendered-field-set reconcile runs, so
+until then a departed field is still engaged, and a rebuild would show the message it was holding.
+
+The reconcile's departure prune drops the verdict with the engagement and rebuilds the store. Each
+root runs it once the batch that removed the registration has rendered.
+
+`FormidableForm` runs the reconcile
+from its own `OnAfterRenderAsync` when the form rendered in that batch, and otherwise from a
+continuation it posts past the batch. `FormidableValidator` always runs it from the continuation it
+posts, since its own `OnAfterRenderAsync` does not reconcile
+([the verdict store](#the-verdict-store) has both paths).
+
+`HeldStateChanged` comes from the registry rather than from a root's reconcile, so a change of hold
+reaches every surface under either root, a component a nested render mounts included.
 
 Nothing else reads the hold: `IsFieldValidating`, the submit-coverage vouch behind
 `formidable-valid` and `IsFormValid` never consult it, so a held field that passes still turns
@@ -761,8 +775,9 @@ validator declaring one rule twice reaches either shape). Blazor does not reject
 keys at every render, so keying without the ordinal would paint such a pair on a blocked submit and
 then throw on the next one.
 
-The ordinal is counted on the key itself: counted on the issue record, two issues differing only in
-state would each take ordinal 0 under one key.
+The key's occurrence ordinal is counted per key, not per issue record. Counted on the record, two
+issues differing only in state would each take ordinal 0 under one key, and their keys would
+collide.
 
 Every entry also restarts its own sequence numbering from zero inside the band's region, so a
 matched entry keeps its subtree rather than rebuilding it under a surviving `<li>`.

@@ -1299,9 +1299,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // A field whose last registration left with no retention has departed rather than stopped
     // waiting, and its flip is not published here. The departure belongs to the root's
     // rendered-field-set reconcile, which drops the filed verdict with the engagement and
-    // republishes then; until it runs, the field is still engaged, so a republish here would put
-    // the message it was holding on every surface outside the departing subtree. HasDeparted is
-    // the prune's own test, so the two cannot disagree about which fields have left.
+    // republishes. Under either root it runs once the batch that removed the registration has
+    // rendered: FormidableForm runs it from its own OnAfterRenderAsync when the form rendered in
+    // that batch, and otherwise either root runs it from a continuation posted past the batch.
+    // Until it runs, the field is still engaged, so a republish here would put the message it was
+    // holding on every surface outside the departing subtree. HasDeparted is the prune's own test,
+    // so the two cannot disagree about which fields have left.
     private void OnHeldStateChanged(FieldIdentifier field)
     {
         if (_disposed || HasSubmitted || HasDeparted(field))
@@ -2267,12 +2270,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Rebuilds the <see cref="ValidationMessageStore"/> from the fault issue, the submit-error view and the live errors not already showing, then notifies.</summary>
-    // The EditContext API takes writes, so the projection runs at every publish point, and the
-    // store between rebuilds is what the views said the last time a source moved. The publish
-    // points: a pass's verdict apply, a server apply, a fault report, a departure that dropped a
-    // filed verdict, under EngagedAndVisible a field-set change with verdicts standing, and,
-    // before the first answered submit or server apply, a hold starting or stopping on a field
-    // that is engaged, has an issue filed and has not departed (OnHeldStateChanged).
+    // The EditContext API takes writes, so the projection runs at every round that moves what the
+    // store projects, and the store between rebuilds is what the views said the last time a
+    // source moved. Those rounds: a pass's verdict apply, a server apply, a fault report, a
+    // departure that dropped a filed verdict, under EngagedAndVisible a field-set change with
+    // verdicts standing, and, before the first answered submit or server apply, a hold starting
+    // or stopping on a field that is engaged, has an issue filed and has not departed
+    // (OnHeldStateChanged). A round that moves only a pass's own state or the submit coverage
+    // notifies without rebuilding (PublishPassStateAsync, and the validity probe's ends).
     private void RebuildStore()
     {
         _store.Clear();

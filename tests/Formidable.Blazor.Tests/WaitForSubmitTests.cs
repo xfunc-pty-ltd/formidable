@@ -620,10 +620,10 @@ public class WaitForSubmitTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // A nested render mounts a waiting input beside a plain one that shows an error; the form does
-    // not re-render, so no rendered-field-set reconcile runs. Mutation: drop the engine's
-    // HeldStateChanged subscription, and the native message, the inline list and the summary keep
-    // the error.
+    // A nested render mounts a waiting input beside a plain one that shows an error, and the form
+    // does not re-render. The reconcile the mount posts drops no verdict, so it publishes nothing,
+    // and the retraction is the wait's own report. Mutation: drop the engine's HeldStateChanged
+    // subscription, and the native message, the inline list and the summary keep the error.
     [Fact]
     public async Task A_held_input_mounted_by_a_nested_render_retracts_the_native_message()
     {
@@ -662,8 +662,9 @@ public class WaitForSubmitTests : BunitContext
 
     // The only waiting input for the field leaves through a nested render, so the field has
     // departed. Its wait ends on the way out, and that must not put the message it held on the
-    // summary, the inline list or a native message outside the nested component. Mutation: drop
-    // the departure test in the engine's held-state handler, and every one of them shows it.
+    // summary, the inline list or a native message outside the nested component, not even in the
+    // turn before the reconcile the removal posts drops the field. Mutation: drop the departure
+    // test in the engine's held-state handler, and the store holds the message inside that turn.
     [Fact]
     public async Task A_waiting_input_leaving_as_its_field_s_only_registration_shows_nothing()
     {
@@ -685,12 +686,60 @@ public class WaitForSubmitTests : BunitContext
         Assert.True(engine.GetFieldState(description).IsModified);
         AssertQuiet(cut, engine.EditContext, description);
 
-        nested.Render(parameters => parameters.Add(p => p.Show, false));
+        var heldInTheTurn = true;
+        await cut.InvokeAsync(() =>
+        {
+            nested.Render(parameters => parameters.Add(p => p.Show, false));
+            heldInTheTurn = !engine.EditContext.GetValidationMessages(description).Any();
+        });
         await Settle(cut);
 
+        Assert.True(heldInTheTurn);
         Assert.Empty(cut.FindAll("input"));
         Assert.False(engine.Registry.IsRegistered(description));
         AssertQuiet(cut, engine.EditContext, description);
+
+        await Services.DisposeAsync();
+    }
+
+    // The same departure, then an edit to another field, with nothing re-rendering the form. That
+    // edit's check answers every field still engaged, so a departed field the form has not yet
+    // reconciled would show the message it held on every surface outside the nested component.
+    // Mutation: drop FormidableForm's Registry.Changed subscription, and the store, the summary
+    // and the native message all show it.
+    [Fact]
+    public async Task A_waiting_input_hidden_by_a_nested_render_stays_quiet_through_an_unrelated_edit()
+    {
+        UseServices<EngineOrderValidator>();
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<NestedInputHost>(0);
+            builder.AddComponentParameter(1, nameof(NestedInputHost.Order), order);
+            builder.CloseComponent();
+        });
+        var nested = cut.FindComponent<NestedInput>();
+        var host = cut.FindComponent<NestedInputHost>().Instance;
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        nested.Render(parameters => parameters.Add(p => p.Wait, true));
+        cut.Find("input").Change(TooLong);
+        await Settle(cut);
+        AssertQuiet(cut, engine.EditContext, description);
+
+        var formRenders = host.ContentRenders;
+        nested.Render(parameters => parameters.Add(p => p.Show, false));
+        await Settle(cut);
+
+        await cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(
+            new FieldIdentifier(order, nameof(EngineOrder.Customer))));
+        await Settle(cut);
+
+        Assert.Equal(formRenders, host.ContentRenders);
+        Assert.Empty(engine.EditContext.GetValidationMessages(description));
+        Assert.DoesNotContain(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
+        Assert.DoesNotContain(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
 
         await Services.DisposeAsync();
     }
@@ -1015,6 +1064,10 @@ public class WaitForSubmitTests : BunitContext
 
         private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
 
+        // How many times the form has rendered its content, which a nested component's own render
+        // never does.
+        public int ContentRenders { get; private set; }
+
         protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             builder.OpenComponent<FormidableForm<EngineOrder>>(0);
@@ -1022,6 +1075,7 @@ public class WaitForSubmitTests : BunitContext
             builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), _options);
             builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
             {
+                ContentRenders++;
                 if (PlainOutside)
                 {
                     AddHeldInput(inner, 0, this, Order, waitForSubmit: false, dataName: "plain");

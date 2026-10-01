@@ -34,6 +34,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // that cannot answer the second must still answer the first.
     private int _renderedFieldSetVersion = -1;
 
+    // How many times ReconcileIfChanged has run the reconcile rather than skipping on the version
+    // gate. Internal for the same reason FormidableValidator keeps its own: it is the only way a
+    // test can tell a batch of registry changes that coalesced into one reconcile apart from one
+    // that reconciled once per change and reached the same state.
+    internal int ReconcileCount { get; private set; }
+
+    // Set as the form renders and cleared as its OnAfterRenderAsync starts: while it is set, an
+    // OnAfterRenderAsync of this form is still to come and reconciles whatever the registry holds
+    // by then, so a registry change posts nothing. A prerendered form never clears it, and posts
+    // nothing, as it never reconciles.
+    private bool _afterRenderPending;
+
     // Distinct from _fieldOrderVersion, which gates whether a resolve is started at all:
     // _resolveStamp arbitrates between resolves that are already in flight together. Latching a
     // new value right before every await keeps the arbitration a plain integer comparison rather
@@ -195,6 +207,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <param name="firstRender">Whether this is the component's first render; not consulted.</param>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        _afterRenderPending = false;
         if (_engine is null)
         {
             return;
@@ -202,22 +215,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
         var version = _engine.Registry.Version;
 
-        if (version != _renderedFieldSetVersion)
-        {
-            // Ahead of both gates below, and on its own tracker. A field leaving the page is the
-            // engine's business whether or not the page can also say where the remaining ones
-            // sit, so sharing a gate with the ordering resolve would leave staleness unhandled on
-            // every form with no IFormidableFieldOrderService registered. Nothing else announces
-            // the move: removing a collection row mutates the model without raising a field
-            // change, and the render that follows would otherwise redraw the verdict about a row
-            // that is gone.
-            //
-            // Recorded only once the call has returned: a throw leaves the tracker behind the
-            // registry so the next render tries again, the same retry the ordering path below
-            // reaches by clearing its own guard.
-            _engine.OnRenderedFieldsChanged();
-            _renderedFieldSetVersion = version;
-        }
+        // Ahead of both gates below, and on its own tracker, which the reconcile a registry change
+        // posts shares. A field leaving the page is the engine's business whether or not the page
+        // can also say where the remaining ones sit, so sharing a gate with the ordering resolve
+        // would leave staleness unhandled on every form with no IFormidableFieldOrderService
+        // registered. Nothing else announces the move: removing a collection row mutates the model
+        // without raising a field change, and the render that follows would otherwise redraw the
+        // verdict about a row that is gone.
+        ReconcileIfChanged();
 
         // After the reconcile above and before the ordering gate below, which is the only place
         // it can sit. It cannot go first: the reconcile is the engine's own truth and reaches it
@@ -509,7 +514,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // pointed at whatever the old context still refers to.
     private void RebuildEngine(TModel model)
     {
-        _engine?.Dispose();
+        if (_engine is not null)
+        {
+            _engine.Registry.Changed -= OnFieldRegistryChanged;
+            _engine.Dispose();
+        }
+
         _boundModel = model;
         _boundOptions = Options;
         var editContext = new EditContext(model);
@@ -529,6 +539,71 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // render after a swap would take itself for a render with nothing to do.
         _fieldOrderVersion = -1;
         _renderedFieldSetVersion = -1;
+        _engine.Registry.Changed += OnFieldRegistryChanged;
+    }
+
+    /// <summary>Defers the reconcile past the render batch that changed a registration, through the current <see cref="SynchronizationContext"/> or the thread pool where none exists, unless a render of the form is still to reach <see cref="OnAfterRenderAsync"/>.</summary>
+    // What this adds to the form is a change its own render does not cover: a nested component's
+    // render that registers or removes a field while no render of the form is waiting for its
+    // OnAfterRenderAsync. A batch the form renders in is left to that method, which reconciles as
+    // the render completes, so posting for it would only queue work that finds nothing to do and
+    // holds the dispatcher while it runs. FormidableValidator's handler of the same name gives the
+    // reasoning for the deferral itself: Changed fires from inside the batch, where the registry is
+    // still settling and InvokeAsync would run inline, so the reconcile is posted to the context
+    // (Blazor Server, bUnit) or yielded past the call stack (WebAssembly, which installs none).
+    private void OnFieldRegistryChanged()
+    {
+        if (_afterRenderPending)
+        {
+            return;
+        }
+
+        var context = SynchronizationContext.Current;
+        if (context is null)
+        {
+            _ = DeferReconcileAsync();
+            return;
+        }
+
+        context.Post(_ => ReconcileIfChanged(), null);
+    }
+
+    /// <summary>Defers <see cref="ReconcileIfChanged"/> through the thread pool on a host with no <see cref="SynchronizationContext"/>, which is WebAssembly's default.</summary>
+    // Fire-and-forget, as FormidableValidator's copy is: a fault here surfaces as an unobserved
+    // task exception rather than being caught and discarded.
+    private async Task DeferReconcileAsync()
+    {
+        await Task.Yield();
+        ReconcileIfChanged();
+    }
+
+    /// <summary>Runs the engine's rendered-field-set reconcile once per registry version, whichever of the form's render and a posted registry change reaches it first; nothing once the form is disposed.</summary>
+    // One tracker for both callers. A render of the form reconciles in its own OnAfterRenderAsync,
+    // synchronously, as it always has; a change posted before that render began finds the version
+    // recorded and skips. The posted path does the work only for a change made while no render of
+    // the form is waiting for its OnAfterRenderAsync, so a batch the form renders in keeps its
+    // timing. A render that follows later (the layout observer's, say) finds the version recorded
+    // and skips. The version is recorded only once the call has returned: a throw leaves the
+    // tracker behind the registry so the next render or post tries again, the same retry the
+    // ordering path reaches by clearing its own guard. The disposed test stops a continuation
+    // posted before Dispose from reaching the engine Dispose tore down, which the form keeps rather
+    // than clears.
+    private void ReconcileIfChanged()
+    {
+        if (_disposed || _engine is null)
+        {
+            return;
+        }
+
+        var version = _engine.Registry.Version;
+        if (version == _renderedFieldSetVersion)
+        {
+            return;
+        }
+
+        ReconcileCount++;
+        _engine.OnRenderedFieldsChanged();
+        _renderedFieldSetVersion = version;
     }
 
     /// <summary>Returns the form to pristine by rebuilding the engine over the current model, or over <paramref name="newModel"/> when <c>@bind-Model</c> is bound.</summary>
@@ -831,6 +906,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
+        // An interactive render is followed by OnAfterRenderAsync, which reconciles (see the field).
+        _afterRenderPending = true;
+
         // Keys the cascade below on _context's own identity (the same idiom EditForm itself uses
         // for EditContext) — see the trailing comment for why this region exists.
         builder.OpenRegion(_context!.GetHashCode());
@@ -907,7 +985,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         // Recorded first: a move reported between here and the observer actually going away would
         // otherwise ask a component that no longer exists to render.
         _disposed = true;
-        _engine?.Dispose();
+        if (_engine is not null)
+        {
+            _engine.Registry.Changed -= OnFieldRegistryChanged;
+            _engine.Dispose();
+        }
+
         ReleaseScriptResources();
     }
 

@@ -121,8 +121,9 @@ public sealed class FieldRegistry
     /// <remarks>
     /// Do not read the registry inside the handler, and do not defer through a component's own
     /// <c>InvokeAsync</c>, which runs inline when the caller is already on the dispatcher. Post
-    /// past the batch first, as <see cref="FormidableValidator{TModel}"/> does: through the
-    /// current <see cref="SynchronizationContext"/> where one exists, else through the thread pool.
+    /// past the batch first, as both <see cref="FormidableForm{TModel}"/> and
+    /// <see cref="FormidableValidator{TModel}"/> do: through the current
+    /// <see cref="SynchronizationContext"/> where one exists, else through the thread pool.
     /// </remarks>
     internal event Action? Changed;
 
