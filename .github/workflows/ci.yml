@@ -23,6 +23,8 @@ jobs:
 
   hosted-demo-smoke:
     runs-on: ubuntu-latest
+    env:
+      PUBLISH_DIR: artifacts/hosted-demo
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,7 +32,22 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
-      - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true
+      - run: dotnet publish samples/Formidable.Sample -c Release -p:HostedDemo=true -o "$PUBLISH_DIR"
+      - name: Check the publish leaves MudBlazor out
+        run: |
+          # The hosted demo build leaves MudBlazor out, so no visitor's first load fetches it.
+          # Published assemblies are fingerprinted (MudBlazor.<hash>.wasm), so the name is matched
+          # by prefix. The folder and the library's own assembly are checked first, so a changed
+          # publish layout fails here instead of passing with nothing to find.
+          framework="$PUBLISH_DIR/wwwroot/_framework"
+          test -d "$framework" || { echo "no $framework folder"; exit 1; }
+          test -n "$(find "$framework" -name 'Formidable.Blazor*.wasm')" || { echo "no Formidable.Blazor assembly in $framework"; exit 1; }
+          found=$(find "$framework" -name 'MudBlazor*.wasm')
+          if [ -n "$found" ]; then
+            echo "the hosted demo publish holds MudBlazor:"
+            echo "$found"
+            exit 1
+          fi
 
   # A raised framework floor fails the restore of a consumer that references that package itself
   # at a lower version. No project under samples/ or tests/ references either floored package

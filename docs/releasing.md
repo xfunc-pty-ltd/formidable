@@ -157,7 +157,10 @@ In the commands below, `X.Y.Z` stands for the version you are releasing.
 `.github/workflows/ci.yml` runs `dotnet build -c Release` + `dotnet test -c Release --no-build` on
 every push to `main` and on every pull request. Two more jobs run on the same triggers.
 `hosted-demo-smoke` publishes the sample with `-p:HostedDemo=true` (a build smoke whose output
-goes nowhere). `consumer-restore` packs the three packages to a throwaway local feed and restores
+goes nowhere) and fails if that output holds a MudBlazor assembly, since the hosted demo leaves
+MudBlazor out.
+
+`consumer-restore` packs the three packages to a throwaway local feed and restores
 them into two new consumers that between them pin both framework floors, so a raised floor fails
 there. A fourth job, `commit-style`, checks commit subjects on pull requests (Dependabot's
 excepted).
