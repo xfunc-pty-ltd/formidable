@@ -657,9 +657,9 @@ The dialog itself is yours: the library ships none, and no styling either. `Item
 an entry reads, `GroupByField` gives one entry per field, and `MaxItems` with `OverflowTemplate`
 caps the list and stands a line of your own in for the rest.
 
-**`entry.DisplayName` names every entry**, including those whose `Issue.DisplayName` is `null`: a
-model-level issue carries none, and neither does an error the server sent. The entry's name falls
-back to the issue's `Path`, and to `ModelLevelDisplayName` where there is no path.
+**`entry.DisplayName` names every entry**, including those whose `Issue.DisplayName` has no text: a
+model-level issue has none, and neither does an error the server sent. The entry's name falls back
+to the issue's `Path` where that has text, then to `ModelLevelDisplayName`.
 
 **Read more:**
 
