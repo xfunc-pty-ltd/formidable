@@ -26,6 +26,7 @@ on whichever route you used once the report has been triaged.
 ## Supported versions
 
 Formidable follows [Semantic Versioning](https://semver.org/). Security fixes ship as a patch
-release of the newest 1.x minor version. There is no long-term-support branch, so a fix is not
-backported to older minor versions. If you are on an older 1.x, upgrade to the newest; a minor
-release adds to the public API without breaking it.
+release of the newest minor version. There is no long-term-support branch, so a fix is not
+backported to older versions. If you are on an older version, upgrade to the newest; a minor
+release adds to the public API without breaking it, and only a major release can break the public
+API.
