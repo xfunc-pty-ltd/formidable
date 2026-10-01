@@ -14,9 +14,9 @@ Key an error against that path string and the mistake above stops being hypothet
 for the row that's gone shows up on the row that inherited its position, a field the user already
 fixed looks broken again after a reorder, and the form ends up complaining about the wrong line.
 
-Formidable never keys by path. It resolves every failure down to the actual object sitting at that
-position and keys the error to the instance itself, so add, remove, and reorder can never separate
-an error from the row it belongs to. A row with no members of its own (a string in a list of tags,
+Formidable never keys by path. For a row that is an object, it resolves every failure down to the
+actual object sitting at that position and keys the error to the instance itself, so add, remove,
+and reorder can never separate an error from that row. A row with no members of its own (a string in a list of tags,
 a number in an array) has no object to key, so it is identified by its index, as
 [a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) shows.
 
@@ -69,7 +69,7 @@ its focus, scroll position, and any in-progress edit travel with the row.
 the component's field and a failure reported for that row name the same `Member`. Both sides arrive
 at the same object without coordinating.
 
-### Why does an error follow the row object and not its index?
+### Why does an error on an object row follow the row and not its index?
 
 Because the error is keyed to the row object itself, not to its position. Every reported path
 resolves to an object and a member (`ResolvedField(Owner, PropertyName)`, the public record in
@@ -89,14 +89,14 @@ just before the member) keys its error to the root model and the path string ins
 reference type in any model these habits can bind at all.
 
 A row with no members (a string or a number) takes neither route. It has no object of its own, so
-its error follows its index, as
+it is identified by its index and the check answers for each position, as
 [a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) explains.
 
 Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
 
 ## What happens when a row leaves or the list reorders?
 
-Keep the rows keyed and the list is free to change. Remove a row and its messages go with it.
+Keep object rows keyed by their objects and the list is free to change. Remove a row and its messages go with it.
 Reorder the list and each row arrives in its new place still carrying whatever it was carrying.
 
 A `FormidableSummary` re-lists too. Under `FormidableForm`, entries list in the document order of
@@ -154,10 +154,19 @@ loop ended on, so every row would bind past the end of the list. A native `Input
 `ValidationMessage` bound to the same expression work too, with the `FormidableFieldAnchor` any
 native input takes.
 
+To add or remove a row, wrap the loop in `<FormidableField For="() => model.Tags" Context="tagsField">`
+and call `tagsField.AddItem` and `tagsField.RemoveItem`, as the member list above does. `RemoveItem`
+matches a string or a number by value and removes the first equal row. To remove one particular row
+of two equal values, remove it by its index: `tagsField.Edit(() => model.Tags.RemoveAt(index))`.
+
 A string or a number has no members, so there is no row object for an error to follow. Formidable
 identifies the row by its index instead, the field `FieldIdentifier.Create(() => model.Tags[index])`
 names and Blazor's own `EditContext` uses. Each row's message shows at its own input, its state
 class reads its own value, and a blocked submit's summary lists it under its display name.
+
+That holds in an array and in any list that implements the non-generic `IList`, as `List<T>` and
+`Collection<T>` do. A collection that implements only the generic `IList<T>` is the exception:
+Formidable does not identify its rows by index, so their messages never reach inputs bound that way.
 
 A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
 written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a `List<T>`
@@ -166,13 +175,18 @@ or a `Collection<T>`, filled in means what `NotEmpty()` means. In any other list
 
 A presence rule written either way, such as `RuleForEach(m => m.Tags).NotEmpty()`, marks each
 row's input required. It demands nothing of the list itself, so a component bound to `m.Tags`
-carries no mark for it, and a load does not paint the list valid.
+carries no mark for it, and a load does not paint the list valid. Rows that are objects work the
+same way: a presence rule inside `ChildRules` or a child validator marks that member's input in each
+row, and puts no mark on the list.
 
-The index is the row's identity, so a remove or a reorder hands each position the value that now
-sits there. Once the form re-checks, no row keeps a message that belonged to the value that left. A
-position the user has edited stays edited, so a passing value that moves into it turns green.
+One rule covers what a remove or a reorder does to a list of strings or numbers: the index is the
+row's identity, so the check answers per position. Each position is judged by the value that now
+sits there, and once the form re-checks, no row keeps a message that belonged to the value that
+left. What shows at a position follows that position's own history (whether the user has touched
+or edited it, and what the last submit showed there), not the value that moved in.
 
-After a blocked submit, a remove or a reorder can move a failing value onto a row that passed at
+So a position the user has edited stays edited, and a passing value that moves into it turns green.
+And after a blocked submit, a remove or a reorder can move a failing value onto a row that passed at
 that submit. If the user has not edited that row, the value's message shows there at the next
 submit. Until then the row stays silent, never green.
 
@@ -201,6 +215,11 @@ container wears that row's id.
 
 The misfiled message is a real message from a real rule. It is simply on the wrong row, and nothing
 on screen says so.
+
+A row with no members (a string or a number) has no object to key, so this fix is not one it can
+take. Such a row follows its index by design, and
+[a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) says what a remove or a
+reorder shows there.
 
 ## How do I catch a message on the wrong row?
 

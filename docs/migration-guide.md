@@ -25,7 +25,7 @@ Three pieces of the old integration layer have a direct Formidable equivalent.
 |---|---|
 | `<FluentValidationValidator />` inside an `EditForm` | `<FormidableValidator>` attaches to an `EditForm` you already own. `<FormidableForm>` renders and owns one itself. "Two ways to attach" below has the choice. |
 | RuleSet parameters selecting which rules run | A `ValidationProfile` (`ValidationProfile.Draft` / `ValidationProfile.Submit` / `ValidationProfile.Named(...)`). See [Profiles](profiles.md) |
-| `<ValidationMessage For="...">` | `<FormidableFieldMessage For="...">`. It is severity-aware, rendering warnings and infos, not just errors. The engine resolves each reported path, indexed collection items and nested-nullable properties included, to the owning object instance, so the message lands on the exact row and stays there when rows move. See [Collections and row identity](collections-and-row-identity.md) |
+| `<ValidationMessage For="...">` | `<FormidableFieldMessage For="...">`. It is severity-aware, rendering warnings and infos, not just errors. The engine resolves each reported path, indexed collection items and nested-nullable properties included, to the owning object instance, so the message lands on the exact row and stays there when rows move. A row with no members (a string or a number) follows its index instead. See [Collections and row identity](collections-and-row-identity.md) |
 
 The rest of that layer is plumbing the library owns instead, so migrating it is mostly deletion.
 

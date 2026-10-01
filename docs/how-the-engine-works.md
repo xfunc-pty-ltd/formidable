@@ -757,9 +757,10 @@ public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object
     }
 
     // A list or array element is the field Blazor names by the collection and the index, so
-    // the brackets go. Only a list or array counts: FluentValidation numbers a dictionary's
-    // entries by position, while Blazor names an entry by its key, so an entry keeps its
-    // brackets rather than meet another entry's input.
+    // the brackets go. Only a non-generic IList counts, which every array, List<T> and
+    // Collection<T> is: FluentValidation numbers a dictionary's entries by position, while
+    // Blazor names an entry by its key, so an entry keeps its brackets rather than meet another
+    // entry's input. A collection that implements only the generic IList<T> keeps them too.
     if (field.Owner is IList
         && field.PropertyName is ['[', .., ']'] name
         && int.TryParse(name.AsSpan(1, name.Length - 2), NumberStyles.None, CultureInfo.InvariantCulture, out var index))
@@ -774,21 +775,25 @@ public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object
 <!-- Source: `src/Formidable.Blazor/ResolvedFieldExtensions.cs` -->
 
 The value-type branch is a fallback for an owner `FieldIdentifier` cannot hold, the walk having
-ended on a struct just before the member: it keys on the root model and the path string, the one
-shape that trades row stability away. Only the owner is tested: a struct earlier on the path, with a
-class after it, keys on that class like any other owner.
+ended on a struct just before the member: it keys on the root model and the path string, which
+trades row stability away. A row with no members trades it too, by design (below). Only the owner
+is tested: a struct earlier on the path, with a class after it, keys on that class like any other
+owner.
 
 The list branch names an element the way Blazor does. The walk rejoins a terminal indexer segment
 as `"[0]"`, while `FieldIdentifier.Create(() => model.Tags[i])` gives the list and the index as
 `"0"`. Dropping the brackets is what lets a row with no members (a string, a number) meet the input
 bound to it.
 
-Only an `IList` owner (a list or an array) takes the branch. A dictionary entry keeps its brackets,
-because FluentValidation numbers entries by position and Blazor names one by its key.
+Only a non-generic `IList` owner (an array, a `List<T>`, a `Collection<T>`) takes the branch. A
+dictionary entry keeps its brackets, because FluentValidation numbers entries by position and Blazor
+names one by its key. An element of a collection that implements only the generic `IList<T>` keeps
+them too, so its rows' messages never reach inputs bound by index.
 
-`FieldIdentifier` compares by the owner reference and the field name, so one built this way equals
-one built from the same instance and name wherever that object sits in its list. That equality is
-what keeps a stored error attached to its row through add, remove and reorder.
+`FieldIdentifier` compares by the owner reference and the field name. For a row that is an object,
+one built this way equals one built from the same instance and name wherever that object sits in
+its list. That equality is what keeps a stored error attached to an object row through add, remove
+and reorder.
 
 An element's identifier is its list and its index, so a row with no members keeps its position, not
 its value. After a remove or a reorder, what the engine holds for that position (touched, engaged,

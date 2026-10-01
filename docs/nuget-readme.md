@@ -25,8 +25,9 @@ tests, running a real project's forms today.
   have already earned in one call. At submit, which errors show is decided by what is on screen
   at that moment, and a defensive gate catches the case where every failure would otherwise go
   unseen.
-- Collections that keep their errors — a message belongs to the row object, not to the row
-  number, so adding, removing, and reordering rows can never move an error onto the wrong line.
+- Collections that keep their errors — a message on a row object belongs to the object, not to
+  the row number, so adding, removing, and reordering rows can never move its error onto the wrong
+  line.
 
 ## Packages
 
