@@ -23,7 +23,7 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class FieldStateJourney(SampleAppFixture app)
 {
-    private static readonly Regex Valid = new(@"\bformidable-valid\b");
+    private static readonly Regex Valid = StateClass("valid");
 
     [E2EFact]
     public async Task The_visualizer_tells_the_truth_while_a_real_user_types()
@@ -71,7 +71,7 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "username"))
             .ToHaveTextAsync(["Username is required"], new() { Timeout = AsyncTimeoutMs });
         await Expect(username).ToHaveClassAsync(
-            new Regex(@"\bformidable-invalid\b"), new() { Timeout = AsyncTimeoutMs });
+            StateClass("invalid"), new() { Timeout = AsyncTimeoutMs });
 
         // Display name never takes a keystroke here, only a blur — and touched alone DOES land
         // green on this field, because nothing in the submit-selected set fails for it: no

@@ -304,8 +304,8 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
             $"(the refresh window) after the fill, but it opened {firstRealOpensAfterMs:F0} ms after");
     }
 
-    private static readonly Regex Valid = new(@"\bformidable-valid\b");
-    private static readonly Regex Pending = new(@"\bformidable-pending\b");
+    private static readonly Regex Valid = StateClass("valid");
+    private static readonly Regex Pending = StateClass("pending");
 
     // The Display name sibling of PendingScopedToUsername above, with one more conjunct:
     // Username must be wearing formidable-valid in the same frame the pending window stands

@@ -59,7 +59,7 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
         // rule lives in the always-on bucket, so the live pass that cleared the message also
         // re-answered the whole submit selection, and Colour's still-failing verdict names
         // Colour alone: this field reads fresh and clean.
-        await Expect(nickname).ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
+        await Expect(nickname).ToHaveClassAsync(StateClass("valid"));
     }
 
     /// <summary>

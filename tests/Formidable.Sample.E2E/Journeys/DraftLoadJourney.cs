@@ -15,8 +15,8 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class DraftLoadJourney(SampleAppFixture app)
 {
-    private static readonly Regex Valid = new(@"\bformidable-valid\b");
-    private static readonly Regex Invalid = new(@"\bformidable-invalid\b");
+    private static readonly Regex Valid = StateClass("valid");
+    private static readonly Regex Invalid = StateClass("invalid");
     private static readonly Regex AnyStateClass =
         new(@"\bformidable-(valid|invalid|warning|info)\b");
 

@@ -15,7 +15,7 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class MudBlazorJourney(SampleAppFixture app)
 {
-    private static readonly Regex Invalid = new(@"\bformidable-invalid\b");
+    private static readonly Regex Invalid = StateClass("invalid");
 
     // The splat puts the state class on Mud's outer wrapper and the id and aria attributes on the
     // input inside it, so both halves are asserted. aria-describedby is followed to the list it

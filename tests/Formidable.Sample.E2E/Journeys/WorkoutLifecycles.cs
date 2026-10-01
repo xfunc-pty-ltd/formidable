@@ -44,7 +44,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     // The appended marker on its own, for riding a pass through appear-and-drain: an assertion
     // that must read a pass's landing rather than the DOM as it stood before the pass waits
     // this class out on a field the pass covers.
-    private static readonly Regex Pending = new(@"\bformidable-pending\b");
+    private static readonly Regex Pending = StateClass("pending");
 
     // ItemSize is pinned to match the real row height, but scrollHeight can still shift by a
     // pixel or two as placeholder spacers are replaced by rendered rows before layout settles.
@@ -262,7 +262,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Field(page, "eventname").FillAsync("Dev Summit");
         await Field(page, "eventname").PressAsync("Tab");
         await Expect(Field(page, "eventname")).ToHaveClassAsync(
-            new Regex(@"\bformidable-valid\b"), new() { Timeout = AsyncTimeoutMs });
+            StateClass("valid"), new() { Timeout = AsyncTimeoutMs });
 
         // An error paints too, and unlike the confirmed border it is gated on nothing: a
         // malformed engaged email carries formidable-invalid. Through both of those renders the
@@ -271,7 +271,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Field(page, "contactemail").FillAsync("not-an-email");
         await Field(page, "contactemail").PressAsync("Tab");
         await Expect(Field(page, "contactemail")).ToHaveClassAsync(
-            new Regex(@"\bformidable-invalid\b"), new() { Timeout = AsyncTimeoutMs });
+            StateClass("invalid"), new() { Timeout = AsyncTimeoutMs });
         await Expect(MessagesFor(page, "eventdate")).ToHaveCountAsync(0);
         await Expect(eventDate).Not.ToHaveClassAsync(AnyStateClass);
     }

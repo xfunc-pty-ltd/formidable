@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 
 namespace Formidable.Sample.E2E;
@@ -48,6 +49,12 @@ internal static class SamplePage
     /// <summary>The same message list, inside one collection row (see <see cref="Field(ILocator, string)"/>).</summary>
     public static ILocator MessagesFor(ILocator row, string field) =>
         row.Locator($"ul[id$='-{field}-messages'] .formidable-message");
+
+    /// <summary>A field's state class, <c>formidable-</c> followed by <paramref name="state"/>
+    /// (<c>valid</c>, <c>invalid</c>, <c>warning</c>, <c>info</c> or <c>pending</c>), matched as a
+    /// whole name in the element's class list, so it never matches part of another class.</summary>
+    public static Regex StateClass(string state) =>
+        new(@"(^|\s)" + Regex.Escape("formidable-" + state) + @"(\s|$)");
 
     /// <summary>Real keystrokes into a field: click to focus, then type character by character.
     /// The typing policy's tool — fill() sets a whole value in one event and cannot exercise

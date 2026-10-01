@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Formidable.Sample.E2E.SamplePage;
 using static Microsoft.Playwright.Assertions;
@@ -97,7 +96,7 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         // while held), and this assertion fails.
         await TypeAsync(summaryInput, "A short brief");
         await TabAsync(page);
-        await Expect(summaryInput).ToHaveClassAsync(new Regex(@"\bformidable-valid\b"));
+        await Expect(summaryInput).ToHaveClassAsync(StateClass("valid"));
 
         // Title is still untouched, and silent. The check that turned Summary green answered every
         // engaged field in the same update, so if a change engaged more than its own field,
@@ -114,7 +113,7 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "title")).ToHaveTextAsync(["Title is 60 characters max"]);
 
         await Expect(MessagesFor(page, "summary")).ToHaveCountAsync(0);
-        await Expect(summaryInput).Not.ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
+        await Expect(summaryInput).Not.ToHaveClassAsync(StateClass("invalid"));
         await Expect(summaryInput).Not.ToHaveAttributeAsync("aria-invalid", "true");
         await Expect(Summary(page)).Not.ToContainTextAsync("Summary is required to submit");
 
@@ -176,11 +175,11 @@ public sealed class ProfilesJourney(SampleAppFixture app)
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(Summary(page)).ToBeVisibleAsync();
-        await Expect(title).ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
+        await Expect(title).ToHaveClassAsync(StateClass("invalid"));
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Reset", Exact = true }).ClickAsync();
 
         await Expect(SummaryBands(page)).ToHaveCountAsync(0);
-        await Expect(title).Not.ToHaveClassAsync(new Regex(@"\bformidable-invalid\b"));
+        await Expect(title).Not.ToHaveClassAsync(StateClass("invalid"));
     }
 }

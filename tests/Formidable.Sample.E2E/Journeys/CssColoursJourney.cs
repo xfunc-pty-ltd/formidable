@@ -41,7 +41,7 @@ public sealed class CssColoursJourney(SampleAppFixture app)
         await TypeAsync(Field(page, "description"), "Great synth!");
         await TabAsync(page);
 
-        await Expect(Field(page, "description")).ToHaveClassAsync(new Regex(@"\bformidable-warning\b"));
+        await Expect(Field(page, "description")).ToHaveClassAsync(StateClass("warning"));
     }
 
     // This page is where the summary's region-identity contract is browser-pinned, because it has
