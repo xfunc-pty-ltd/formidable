@@ -66,8 +66,9 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "title")).ToHaveTextAsync(["Title is required to submit"]);
 
         // Both marks are still standing over a save that just went through with Summary empty,
-        // which is what the page's own step says about them: they read the submit bucket, so
-        // nothing a draft save does — or declines to enforce — moves them.
+        // which is what the page's draft-save step shows ("still empty and still marked"), and its
+        // How it works says why: they read the submit bucket, so nothing a draft save does — or
+        // declines to enforce — moves them.
         await Expect(page.Locator("span.formidable-required")).ToHaveCountAsync(2);
 
         // And submit is what finally reaches the field the visitor never touched.
@@ -144,14 +145,14 @@ public sealed class ProfilesJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "summary")).ToHaveTextAsync(["Summary is required to submit"]);
     }
 
-    // The page's first TryIt step reads the two labels before anything is typed, and this is that
-    // step: both fields carry a mark neither the markup nor the page's code asks for, because
-    // both carry a NotEmpty() in the submit bucket. The mark is decoration and says so, while the
-    // input carries the fact — so a screen reader is told the field is required rather than read
-    // a star. The closing assert is the half that can only be checked in a browser: querying by
-    // ROLE and NAME runs the accessible-name computation itself, so it answers with the name a
-    // screen reader would announce for the input. Mutation that must break it: dropping
-    // aria-hidden from the marker, which admits the star into that name.
+    // The page's first Try it step has the visitor look at the two labels before typing anything,
+    // and this is that step: both fields carry a mark neither the markup nor the page's code asks
+    // for, because both carry a NotEmpty() in the submit bucket. The mark is decoration and says
+    // so, while the input carries the fact — so a screen reader is told the field is required
+    // rather than read a star. The closing assert is the half that can only be checked in a
+    // browser: querying by ROLE and NAME runs the accessible-name computation itself, so it
+    // answers with the name a screen reader would announce for the input. Mutation that must
+    // break it: dropping aria-hidden from the marker, which admits the star into that name.
     [E2EFact]
     public async Task Both_required_fields_are_marked_from_the_validator_alone()
     {

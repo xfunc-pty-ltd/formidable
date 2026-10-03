@@ -2,49 +2,63 @@
 
 <PageTitle>Draft vs Submit</PageTitle>
 <h1>Draft vs Submit profiles</h1>
-<p>Two profiles, one validator: <em>Save draft</em> validates leniently (format rules only), <em>Submit</em> validates for completeness. Typing follows the submit side: once you engage Title, it says whatever would block a submit. A field you have never touched stays quiet however badly its rule is failing. Summary's input waits for Submit, so Summary shows no error until you press it, engaged or not.</p>
+<p>One validator holds two profiles (named selections of its rules): <strong>Save draft</strong> checks only <strong>Title</strong>'s length, and <strong>Submit</strong> also requires both fields. So a draft saves with <strong>Summary</strong> empty, while a submit is blocked until <strong>Summary</strong> is filled in.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "DraftedBrief.cs", "Profiles.razor", "Profiles.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Title</strong>: 60 characters max. A format rule in the Draft profile: enforced always, including while drafting.</li>
-            <li><strong>Title</strong>: required. A completeness rule in the Submit profile: a draft save ignores it, and engaging the field is what puts it on screen.</li>
-            <li><strong>Summary</strong>: required. Its own completeness rule in the same profile. Its input sets <code>WaitForSubmit="true"</code>, so engaging the field runs the rule without showing a failure. A failing value gets no message, no summary entry and no red border until you press Submit, while a passing one still turns green. From then on Summary answers your edits like Title, until <em>Reset</em> starts the wait again.</li>
-            <li><strong>Required marks</strong>: the asterisk on each label is derived from the validator rather than written into the markup — <code>FormidableRequiredIndicator</code> asks what the Submit profile demands, so a rule moving between the two buckets moves the mark with it. The glyph is <code>aria-hidden</code> and the input carries <code>aria-required</code>, so a screen reader is told the field is required instead of being read a star.</li>
-            <li><strong>Reset</strong>: calls <code>_form.ResetAsync()</code> — a named verb for returning the SAME model instance to pristine: touched/modified state, messages and <code>HasSubmitted</code> all clear, without swapping to a different object.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Before typing anything, read the two labels: both carry an asterisk, because both fields have a <code>NotEmpty()</code> rule in the Submit profile. Nothing on this page declares that — the mark is read from the validator.</li>
-            <li>Type more than 60 characters into Title — the format error appears as you leave the field.</li>
-            <li>Click <em>Save draft</em> — blocked: format rules run even for drafts.</li>
-            <li>Shorten the title and <em>Save draft</em> again — it saves, even though Summary is empty and wearing a required mark. The mark reads the Submit profile; this button asks the Draft profile, which holds no presence rule at all.</li>
-            <li>Now clear Title altogether and leave the field — "Title is required to submit" appears at once, with no submit anywhere: the live channel runs the submit profile's rules, and Title is a field you have engaged. Summary is failing its own required rule and says nothing: you have never touched it.</li>
-            <li>Type something into Summary and leave the field: it turns green, because its rule has run. Clear it and leave again: no message, no summary entry, no red border. Summary's input waits for Submit, so engaging it is not enough.</li>
-            <li>Click <em>Submit</em>: Summary speaks for the first time. Title's entry was already in the error summary, so the submit is what adds the second one. From here Summary answers your edits like Title: type a summary and leave the field, and its message clears with no second submit.</li>
-            <li>Click any entry in the error summary — it focuses the offending field.</li>
-            <li>Fill everything in and submit — the status line below confirms it.</li>
-            <li>Type a 61-character title again and leave the field, so the format error is showing before you touch anything else, then click <em>Reset</em> — the error clears and the form returns to pristine, but the over-long title stays in the box: <code>ResetAsync()</code> never writes model properties.</li>
+            <li>Look at the <strong>Title</strong> and <strong>Summary</strong> labels before typing anything.<div class="teaching__result"><span class="teaching__label">You see:</span> an asterisk beside each.</div></li>
+            <li>Type more than 60 characters into <strong>Title</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is 60 characters max".</div></li>
+            <li>Click <strong>Save draft</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft blocked by format rules: Title is 60 characters max" in the status line.</div></li>
+            <li>Shorten <strong>Title</strong> to 60 characters or fewer, then click <strong>Save draft</strong> again.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft saved", with <strong>Summary</strong> still empty and still marked.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Save draft</strong> checks only the <code>Draft</code> profile, which holds no required rules.</div></li>
+            <li>Clear <strong>Title</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is required to submit", with no submit pressed, while <strong>Summary</strong> stays silent.</div></li>
+            <li>Type something into <strong>Summary</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Summary</strong> turns green.</div></li>
+            <li>Clear <strong>Summary</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Summary</strong> shows no message, no red border and no entry in the error summary.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Summary</strong>'s input sets <code>WaitForSubmit="true"</code>, so it stays quiet until you press <strong>Submit</strong>.</div></li>
+            <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Summary is required to submit" under the field, joining <strong>Title</strong>'s entry in the error summary.</div></li>
+            <li>Type something into <strong>Summary</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Summary</strong>'s message and its entry in the error summary clear, with no second submit.</div></li>
+            <li>Click an entry in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> focus moves to the field it names.</div></li>
+            <li>Fill in both fields and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line.</div></li>
+            <li>Make <strong>Title</strong> longer than 60 characters and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is 60 characters max" again.</div></li>
+            <li>Click <strong>Reset</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the message clears, but the long title stays in the box.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Reset</strong> calls <code>ResetAsync()</code>, which clears the form's state but never writes a model property.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Title</strong>: 60 characters max, even in a draft; required to submit.</li>
+            <li><strong>Summary</strong>: required to submit.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>The two buttons ask the same validator different questions:</p>
+        <ul>
+            <li>A draft save asks the <code>Draft</code> profile, which holds the format rule: <strong>Title</strong> is 60 characters max. Every check runs this rule, so a draft with a long title is blocked.</li>
+            <li>A submit asks the <code>Submit</code> profile, which adds the completeness rules: <strong>Title</strong> and <strong>Summary</strong> are required. A draft save skips them, so a draft saves with <strong>Summary</strong> empty.</li>
+        </ul>
+        <p>As you edit, the form checks your changes against the <code>Submit</code> profile's rules. <strong>Title</strong> shows its messages once you have changed it, which is why clearing it shows "Title is required to submit" with no submit pressed. A field you have never changed stays quiet however badly its rule is failing.</p>
+        <p><strong>Summary</strong>'s input sets <code>WaitForSubmit="true"</code>. Changing the field still runs its rule, so a passing value turns green. A failing value gets no message, no red border and no entry in the error summary until you press <strong>Submit</strong>. From then on <strong>Summary</strong> answers your edits like <strong>Title</strong>, until <strong>Reset</strong> starts the wait again.</p>
+        <p>The asterisk on each label comes from the validator. The page places a <code>FormidableRequiredIndicator</code> (the component that draws the mark) beside each label, but never says which fields are required. The indicator asks what the <code>Submit</code> profile demands, and both fields carry a <code>NotEmpty()</code> rule there. Remove a field's <code>NotEmpty()</code> and its mark goes with it.</p>
+        <p>The glyph is <code>aria-hidden</code> and the input carries <code>aria-required</code>, so a screen reader is told the field is required instead of being read a star.</p>
+        <p><strong>Reset</strong> calls the form's <code>ResetAsync()</code>, which keeps the same model instance. It clears which fields you have touched and changed, every message, and the form's has-submitted flag. It never writes a model property, so whatever you typed stays in the boxes.</p>
+        <p>For a profile of your own beyond these two, see <a href="custom-profiles">Custom profiles</a>.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm @ref="_form" Model="_brief" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Title <FormidableRequiredIndicator For="() => _brief.Title" /> <FormidableInputText @bind-Value="_brief.Title" /></label>
+                <FormidableFieldMessage For="() => _brief.Title" /></div>
+            <div class="field"><label>Summary <FormidableRequiredIndicator For="() => _brief.Summary" /> <FormidableInputText @bind-Value="_brief.Summary" WaitForSubmit="true" /></label>
+                <FormidableFieldMessage For="() => _brief.Summary" /></div>
+
+            <div class="actions">
+                <button type="submit">Submit</button>
+                <button type="button" @onclick="SaveDraft">Save draft</button>
+                <button type="button" @onclick="Reset">Reset</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<FormidableForm @ref="_form" Model="_brief" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _brief.Title" /> <FormidableInputText @bind-Value="_brief.Title" /></label>
-        <FormidableFieldMessage For="() => _brief.Title" /></div>
-    <div class="field"><label>Summary <FormidableRequiredIndicator For="() => _brief.Summary" /> <FormidableInputText @bind-Value="_brief.Summary" WaitForSubmit="true" /></label>
-        <FormidableFieldMessage For="() => _brief.Summary" /></div>
-
-    <div class="actions">
-        <button type="submit">Submit</button>
-        <button type="button" @onclick="SaveDraft">Save draft</button>
-        <button type="button" @onclick="Reset">Reset</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>

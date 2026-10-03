@@ -2,36 +2,43 @@
 
 <PageTitle>Quickstart</PageTitle>
 <h1>Quickstart</h1>
-<p>One model, one plain FluentValidation validator, five components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
+<p>A complete form from one model, one plain FluentValidation validator and five components. Submit it empty and each field shows its message, with the same messages listed in the error summary above the fields.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "QuickContact.cs", "Quickstart.razor", "Quickstart.razor.cs" })">
+    <TryIt>
+        <ol>
+            <li>Click <strong>Submit</strong> with both fields empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "Name is required" and "Email is required", each under its field and both in the error summary.</div></li>
+            <li>Click "Email is required" in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> focus moves to <strong>Email</strong>.</div></li>
+            <li>Type <code>not-an-email</code> into <strong>Email</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> the message changes to "A valid email is required".</div></li>
+            <li>Fill in a name and a valid address, then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line, with a thank-you to the name you typed.</div></li>
+        </ol>
+    </TryIt>
     <Rules>
         <ul>
             <li><strong>Name</strong>: required.</li>
-            <li><strong>Email</strong>: required, and must be a valid address. The rule chain stops at the first failure, so you always see one message at a time.</li>
+            <li><strong>Email</strong>: required; a valid address.</li>
         </ul>
     </Rules>
-    <TryIt>
-        <ol>
-            <li>Submit the empty form — inline errors appear and the summary lists both.</li>
-            <li>Click "Email is required" in the summary — the email field focuses.</li>
-            <li>Type <code>not-an-email</code> and leave the field — the message changes to "A valid email is required".</li>
-            <li>Fix both fields and submit — the status line thanks you by name.</li>
-        </ol>
-    </TryIt>
+    <HowItWorks>
+        <p>Five components make the form. <code>FormidableForm</code> is the form itself and runs the validator. <code>FormidableInputText</code> draws each text box, <code>FormidableFieldMessage</code> the messages under it, and <code>FormidableRequiredIndicator</code> the asterisk beside its label. <code>FormidableSummary</code> is the error summary above the fields.</p>
+        <p>The validator is a plain <code>AbstractValidator&lt;QuickContact&gt;</code> with no profiles (named selections of its rules). The form checks it against Formidable's built-in <code>Submit</code> profile, which runs every rule a plain validator declares, so the validator works unchanged.</p>
+        <p><strong>Email</strong>'s two rules sit in one chain that stops at the first failure, so the field shows one message at a time. It reads "Email is required" while the box is empty, and "A valid email is required" once it holds something that is not an address.</p>
+        <p>Changing a field and leaving it checks that field, so its message changes or clears without another submit.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm Model="_contact" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText @bind-Value="_contact.Name" /></label>
+                <FormidableFieldMessage For="() => _contact.Name" /></div>
+            <div class="field"><label>Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText @bind-Value="_contact.Email" /></label>
+                <FormidableFieldMessage For="() => _contact.Email" /></div>
+
+            <div class="actions"><button type="submit">Submit</button></div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<FormidableForm Model="_contact" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText @bind-Value="_contact.Name" /></label>
-        <FormidableFieldMessage For="() => _contact.Name" /></div>
-    <div class="field"><label>Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText @bind-Value="_contact.Email" /></label>
-        <FormidableFieldMessage For="() => _contact.Email" /></div>
-
-    <div class="actions"><button type="submit">Submit</button></div>
-</FormidableForm>
-
-<p role="status">@_status</p>

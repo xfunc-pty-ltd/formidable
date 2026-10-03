@@ -2,51 +2,62 @@
 
 <PageTitle>Loading a saved draft</PageTitle>
 <h1>Loading a saved draft</h1>
-<p>A form whose values arrive from a saved draft rather than from typing looks pristine: every border and every message waits on the visitor having changed something. One call says what the loaded values have already earned — and says three different things, because a good value, a wrong value and a field nobody has reached are three different situations.</p>
+<p>A form filled from a saved draft looks untouched until the page asks the form what the loaded values have earned. One call answers three ways: a good value turns green, a wrong value shows its message, and a field the draft left blank stays quiet.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "SavedProposal.cs", "DraftLoad.razor", "DraftLoad.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Title</strong>: required. The saved draft has one, so it is a field with nothing wrong with it.</li>
-            <li><strong>Contact email</strong>: required, and a valid address once there is anything in the box. Two rules on one field, and the saved value fails the second one — which is what makes it "this one is wrong" rather than "you have not got to this yet".</li>
-            <li><strong>Summary</strong>: required. The saved draft left it blank, so it is a field nobody has reached.</li>
-            <li><strong>Loading</strong>: <code>DiscloseLoadedValuesAsync()</code> validates the whole model under the Submit profile and then decides field by field, on whether the field holds a value. A box holding a value the rules pass is confirmed; a box holding a value they fail is engaged, so its message appears; a box holding nothing is left alone. It engages rather than merely marking touched — marking touched alone would put green on the good fields and leave the wrong value silent among them, which reads as "not filled in yet" rather than "this is wrong".</li>
-            <li><strong>Required marks</strong>: the asterisks are read from the same validator, by <code>FormidableRequiredIndicator</code>. A required field can be marked and silent at the same time, and that is the point: the mark says the value is needed, the silence says nothing is nagging you about a box you have not opened yet.</li>
-            <li><strong>"Holds a value"</strong>: exactly what <code>NotEmpty()</code> means, read against the type the property is declared as. A blank or whitespace-only string is nothing; so is an empty list; so is a non-nullable <code>int</code>, <code>bool</code> or <code>DateTime</code> sitting at its default. A <code>bool?</code> holding <code>false</code>, though, is a real saved answer and earns its border — which is why an optional value is worth declaring as <code>T?</code>.</li>
-            <li><strong>Limits, stated</strong>: a value that cannot be read claims nothing — a nested path whose owner is null, a model-level rule, which names no field. Confirming a good value needs the validator's own list of the fields it has rules for, so a validator that cannot be inspected still turns a wrong value red but confirms nothing. And a value the model's own constructor seeded is a value: seed a placeholder your rules reject and the form rejects it the moment the draft loads.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Read the form before touching anything: three empty boxes, three asterisks, no borders and no messages. Filling the model from a saved draft changes only the first of those: the values appear in the boxes and the form goes on saying nothing about them, because writing model properties notifies nothing. The button below fills the model AND makes the call that answers for what it now holds.</li>
-            <li>Click <em>Load saved draft</em>. Three saved values arrive together and three different answers arrive with them: <strong>Title</strong> takes the confirmed border, <strong>Contact email</strong> turns red and says "That is not a valid email address", and <strong>Summary</strong> — required, and blank in the save — looks exactly as it did.</li>
-            <li>Look at Summary again. It still carries its required mark and it still says nothing, and both of those are read from the same validator: the mark is what the rules demand, the silence is what disclosure has earned.</li>
-            <li>Look at the email message: it is the format rule speaking, not the required rule. The box is not empty, so what is wrong with it is the address, and that is the one the message names.</li>
-            <li>Select everything in Contact email, type <code>ada@example.com</code>, and press Tab. The message goes and the border confirms. A focused box wears the accent border whatever its verdict, so this one waits for the blur.</li>
-            <li>Type anything into Summary and press Tab — it confirms too, in the ordinary way. The load is what got the other two borders there without a keystroke.</li>
-            <li>Click <em>Submit</em> — the status line below confirms it.</li>
-            <li>Click <em>Start blank</em>: the boxes empty and all three confirmed borders clear with them, at once — nothing delays a border behind its state class. The form is pristine again. <em>Load saved draft</em> replays the whole thing.</li>
+            <li>Look at the form before touching anything.<div class="teaching__result"><span class="teaching__label">You see:</span> three empty boxes, each with an asterisk, and no borders or messages.</div></li>
+            <li>Click <strong>Load saved draft</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong> turns green, <strong>Contact email</strong> turns red with "That is not a valid email address", and <strong>Summary</strong> stays as it was.</div><div class="teaching__why"><span class="teaching__label">Why:</span> After filling the model, the button calls <code>DiscloseLoadedValuesAsync()</code> to check the loaded values.</div></li>
+            <li>Look at <strong>Summary</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> it is still marked required, and still has no message.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <code>DiscloseLoadedValuesAsync()</code> leaves an empty field alone, even one whose required rule fails.</div></li>
+            <li>Look at the message under <strong>Contact email</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "That is not a valid email address", the address-format rule's message, not the required rule's "A contact email is required".</div></li>
+            <li>Select everything in <strong>Contact email</strong>, type <code>ada@example.com</code>, and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> the message clears and the border turns green.</div></li>
+            <li>Type anything into <strong>Summary</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Summary</strong> turns green.</div></li>
+            <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line.</div></li>
+            <li>Click <strong>Start blank</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the boxes empty, and all three green borders clear at once.</div></li>
+            <li>Click <strong>Load saved draft</strong> again.<div class="teaching__result"><span class="teaching__label">You see:</span> the same three answers as in step 2.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Title</strong>: required.</li>
+            <li><strong>Contact email</strong>: required; a valid address once the box holds anything.</li>
+            <li><strong>Summary</strong>: required.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>Writing values into a model notifies nothing, so a form filled from a saved draft looks untouched: no border and no message, however good or bad the values. Unless the page asks the form about the loaded values, every border and every message waits for the visitor to change something or press <strong>Submit</strong>.</p>
+        <p><strong>Load saved draft</strong> fills the model, then calls the form's <code>DiscloseLoadedValuesAsync()</code>. That call checks the whole model against the rules a submit runs, then answers field by field on whether the field holds a value. A value that passes turns green; a value that fails shows its message; a field holding nothing is left alone.</p>
+        <p>The saved draft holds one of each. <strong>Title</strong> has a good value, <strong>Contact email</strong> a wrong one, and <strong>Summary</strong> none, so it is a field nobody has reached yet.</p>
+        <p><strong>Contact email</strong> has two rules: one requires a value, and one checks the address's format. The saved value passes the first and fails the second. A failed format rule is what marks the field as "this one is wrong" rather than "you have not got to this yet".</p>
+        <p>The call treats each field holding a value as if you had changed it. Marking a field only as touched (visited, with no change) would turn the good fields green but leave the wrong value silent among them, which reads as "not filled in yet" rather than "this is wrong".</p>
+        <p>The asterisks come from the same validator, through <code>FormidableRequiredIndicator</code> (the component that draws the mark). A required field can be marked and silent at the same time, and that is the point: the mark says the value is needed, the silence says nothing is nagging you about a box you have not opened yet.</p>
+        <p>"Holds a value" means exactly what <code>NotEmpty()</code> means for the property's declared type. A blank or whitespace-only string holds nothing; so does an empty list, and so does a non-nullable <code>int</code>, <code>bool</code> or <code>DateTime</code> at its default. A <code>bool?</code> holding <code>false</code> is a real saved answer and earns its border, which is why an optional value is worth declaring as <code>T?</code>.</p>
+        <p>The call says nothing about a value it cannot read (on a nested path whose owner is null) or about a model-level rule, which names no field. Turning a good value green needs the validator to list the fields it has rules for. A validator that cannot list its rules still turns a wrong value red but turns nothing green.</p>
+        <p>A value the model's own constructor seeded is still a value: seed a placeholder your rules reject, and the form rejects it the moment the draft loads.</p>
+        <p>A box with focus wears the blue focus border, whatever its state, so <strong>Contact email</strong> turns green only once you leave it. <strong>Summary</strong> turns green the ordinary way, when you change it. The load gave <strong>Title</strong> its green border and <strong>Contact email</strong> its red one without a keystroke.</p>
+        <p><strong>Start blank</strong> empties the three model properties itself, then calls the form's <code>ResetAsync()</code>, which clears every border and message but never writes a model property. No transition delays the borders, so all three clear at once, and the form looks untouched again.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm @ref="_form" Model="_proposal" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
+                <FormidableFieldMessage For="() => _proposal.Title" /></div>
+            <div class="field"><label>Contact email <FormidableRequiredIndicator For="() => _proposal.ContactEmail" /> <FormidableInputText @bind-Value="_proposal.ContactEmail" /></label>
+                <FormidableFieldMessage For="() => _proposal.ContactEmail" /></div>
+            <div class="field"><label>Summary <FormidableRequiredIndicator For="() => _proposal.Summary" /> <FormidableInputText @bind-Value="_proposal.Summary" /></label>
+                <FormidableFieldMessage For="() => _proposal.Summary" /></div>
+
+            <div class="actions">
+                <button type="submit">Submit</button>
+                <button type="button" @onclick="LoadSavedDraft">Load saved draft</button>
+                <button type="button" @onclick="StartBlank">Start blank</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<FormidableForm @ref="_form" Model="_proposal" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _proposal.Title" /> <FormidableInputText @bind-Value="_proposal.Title" /></label>
-        <FormidableFieldMessage For="() => _proposal.Title" /></div>
-    <div class="field"><label>Contact email <FormidableRequiredIndicator For="() => _proposal.ContactEmail" /> <FormidableInputText @bind-Value="_proposal.ContactEmail" /></label>
-        <FormidableFieldMessage For="() => _proposal.ContactEmail" /></div>
-    <div class="field"><label>Summary <FormidableRequiredIndicator For="() => _proposal.Summary" /> <FormidableInputText @bind-Value="_proposal.Summary" /></label>
-        <FormidableFieldMessage For="() => _proposal.Summary" /></div>
-
-    <div class="actions">
-        <button type="submit">Submit</button>
-        <button type="button" @onclick="LoadSavedDraft">Load saved draft</button>
-        <button type="button" @onclick="StartBlank">Start blank</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>

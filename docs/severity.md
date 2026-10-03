@@ -166,7 +166,6 @@ for). So a model that's all warnings and infos, with no errors, submits successf
 ```
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/SeverityLevels.razor` -->
-The page also carries a teaching panel above the form.
 
 The submit handler in the code-behind routes purely on `CanProceed`, and reports what got through
 without blocking:

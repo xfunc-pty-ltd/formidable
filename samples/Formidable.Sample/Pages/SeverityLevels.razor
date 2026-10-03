@@ -2,47 +2,53 @@
 
 <PageTitle>Severity levels</PageTitle>
 <h1>Severity levels</h1>
-<p>Warnings and infos render distinctly and never block submission; only errors do.</p>
+<p>Each rule has a severity (error, warning or info), and each severity shows in its own colour. Only an error blocks a submit: with a warning and an info showing, the form still goes through.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Listing.cs", "SeverityLevels.razor", "SeverityLevels.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Title</strong>: required (error severity: blocks submission).</li>
-            <li><strong>Description</strong>: an exclamation mark draws a <em>warning</em> (advisory: never blocks).</li>
-            <li><strong>Tags</strong>: more than five draws an <em>info</em> (advisory: never blocks).</li>
-            <li>A live check answers for every field you have engaged (here, every field a committed change has named) and for no others, even though checking any one of them runs the whole model to get there. Title starts required and empty, and nothing has ever engaged it: no live check has answered for it, so its error stays invisible until a submit checks every field at once.</li>
-            <li>Advisory-only submissions still announce the summary — screen readers hear the warnings and infos that did not block.</li>
-            <li>This page mounts <strong>two</strong> summaries rather than one: <code>Show="SummaryFilter.Errors"</code> lists only what blocks, and <code>Show="SummaryFilter.Advisories"</code> lists the warnings and infos that do not. A summary with nothing to show draws nothing — its wrapper and fixed-role live region stay in the page, empty, so the element a screen reader watches exists before the first issue ever lands in it. Count the panels when every severity has something to show, though, and you can see three: a summary bands its issues by severity and gives every band a panel of its own, so the advisory one draws Warnings above Info.</li>
-            <li>Two summaries are two live regions, and an issue listed by both would be read twice — which is why these two filters are chosen to be disjoint rather than one of them being left unfiltered. The bands inside a summary are not live regions of their own: the <code>role</code> sits on the fixed-role region wrapping them all, so however many panels one of these summaries draws, a screen reader hears one announcement from it.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Type <code>Great synth!</code> into Description and leave the field — the warning appears immediately, in amber.</li>
-            <li>Enter six comma-separated tags and leave the field — the info appears, in purple-blue.</li>
-            <li>With a warning and an info showing and Title still empty and untouched, look at the top of the form — the two panels standing there are the Warnings and Info bands of the advisory summary, and the error summary draws nothing: not because Title is valid, but because no live check has ever answered for it; only a submit will.</li>
-            <li>Fill Title and submit — it goes through: the status line counts the warnings and infos that did NOT block.</li>
-            <li>Clear Title and leave the field — clearing engages it, so the error arrives on that commit, before you reach the button. Submit anyway: only the error blocks, and the advisories keep their place and colour in the summary.</li>
+            <li>Type <code>Great synth!</code> into <strong>Description</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> a warning in amber, "Exclamation marks read as shouty".</div></li>
+            <li>Type six comma-separated tags into <strong>Tags</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> an info in purple-blue, "More than five tags rarely helps discovery".</div></li>
+            <li>Look at the top of the form.<div class="teaching__result"><span class="teaching__label">You see:</span> a <strong>Warnings</strong> panel above an <strong>Info</strong> panel, and nothing for <strong>Title</strong>, though it is required and empty.</div></li>
+            <li>Fill in <strong>Title</strong> and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted with 1 warning(s) and 1 info(s)" in the status line.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Warnings and infos never block a submit; only errors do.</div></li>
+            <li>Clear <strong>Title</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is required" under the field and in an <strong>Errors</strong> panel above the other two, before you press <strong>Submit</strong> again.</div></li>
+            <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Blocked by errors" in the status line, with the warning and the info still in their panels and colours.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Title</strong>: required; an error, so it blocks a submit.</li>
+            <li><strong>Description</strong>: an exclamation mark draws a warning, which never blocks.</li>
+            <li><strong>Tags</strong>: more than five draws an info, which never blocks.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>Each rule carries a severity. <strong>Title</strong>'s rule is an error, the default. <strong>Description</strong>'s rule sets <code>WithSeverity(Severity.Warning)</code> and <strong>Tags</strong>' sets <code>Severity.Info</code>. An error blocks a submit; a warning or an info shows its message in its own colour and lets the submit through.</p>
+        <p>The page places two summaries. The errors summary sets <code>Show="SummaryFilter.Errors"</code> and lists only what blocks; the advisories summary sets <code>Show="SummaryFilter.Advisories"</code> and lists the warnings and infos. Each summary groups its messages by severity, one panel per group. So the errors summary draws an Errors panel and the advisories summary draws Warnings above Info: three panels when every severity shows.</p>
+        <p>As you edit, the form shows messages only for the fields you have changed; a field you have not changed shows none. <strong>Title</strong> starts empty and required, but until you change it or press <strong>Submit</strong>, its error stays off the page. So the errors summary draws nothing at first, though <strong>Title</strong> fails its rule.</p>
+        <p>A summary with nothing to show draws nothing. Its wrapper and live region stay in the page, empty, so the element a screen reader watches exists before the first message lands in it.</p>
+        <p>Two summaries are two live regions, and a message listed in both would be read twice. So the two filters are chosen to share nothing, rather than one of them being left unfiltered. The panels inside a summary are not live regions of their own: one region wraps them all, so however many panels a summary draws, a screen reader hears one announcement from it.</p>
+        <p>A submit with only warnings and infos still announces the advisories summary, so a screen reader hears the messages that did not block.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm @ref="_form" Model="_listing">
+            <div class="summary-slot">
+                <FormidableSummary Show="SummaryFilter.Errors" ErrorsHeading="Errors" />
+            </div>
+            <div class="summary-slot">
+                <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Info" />
+            </div>
+
+            <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" /></label>
+                <FormidableFieldMessage For="() => _listing.Title" /></div>
+            <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" /></label>
+                <FormidableFieldMessage For="() => _listing.Description" /></div>
+            <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" /></label>
+                <FormidableFieldMessage For="() => _listing.Tags" /></div>
+
+            <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<FormidableForm @ref="_form" Model="_listing">
-    <div class="summary-slot">
-        <FormidableSummary Show="SummaryFilter.Errors" ErrorsHeading="Errors" />
-    </div>
-    <div class="summary-slot">
-        <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Info" />
-    </div>
-
-    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" /></label>
-        <FormidableFieldMessage For="() => _listing.Title" /></div>
-    <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" /></label>
-        <FormidableFieldMessage For="() => _listing.Description" /></div>
-    <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" /></label>
-        <FormidableFieldMessage For="() => _listing.Tags" /></div>
-
-    <div class="actions"><button type="button" class="primary" @onclick="Submit">Submit</button></div>
-</FormidableForm>
-
-<p role="status">@_status</p>

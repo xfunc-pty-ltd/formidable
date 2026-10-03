@@ -188,8 +188,9 @@ public sealed class QuickstartJourney(SampleAppFixture app)
 
     // The other direction, and the reason the guard's listeners sit on the document rather than on
     // the form: fixing the last error takes a message and the summary OFF the page, the button
-    // rises past the pointer, and the click is dispatched on <main> — outside the form entirely,
-    // where a form-scoped listener would never see it.
+    // rises past the pointer, and the click is dispatched on the lesson wrapper that holds the
+    // form and the page's panel. That is outside the form entirely, where a form-scoped listener
+    // would never see it.
     [E2EFact]
     public async Task A_submit_survives_the_summary_leaving_from_above_the_button()
     {

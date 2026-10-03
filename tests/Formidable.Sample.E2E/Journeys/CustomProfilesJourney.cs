@@ -111,9 +111,9 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
 
         await TextBox(page, "Title").FillAsync("Release notes");
 
-        // GetByText("Admin review") would also match the TryIt paragraph's own use of the same
-        // words, so the radio is addressed by its label association instead — unambiguous, and
-        // the same idiom Smoke_server already uses for a radio.
+        // GetByText("Admin review") would also match the page's own prose, whose Try it steps,
+        // rules and intro use the same words, so the radio is addressed by its label association
+        // instead: unambiguous, and the same idiom Smoke_server already uses for a radio.
         await page.GetByLabel("Admin review", new() { Exact = true }).CheckAsync();
 
         // The picker swaps Options, which only takes effect with a fresh model: the form resets.

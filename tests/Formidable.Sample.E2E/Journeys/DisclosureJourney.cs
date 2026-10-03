@@ -180,7 +180,7 @@ public sealed class DisclosureJourney(SampleAppFixture app)
     }
 
     /// <summary>
-    /// The footer under the first form ("use the Submit button rather than pressing Enter") is
+    /// The note under the first form ("Use the Submit button rather than pressing Enter") is
     /// true because of the form's shape: no submit button and, on load, exactly one text box
     /// (Destination), which is the one case where a browser submits a buttonless form on Enter.
     /// The submit runs the client's own pipeline, so the empty destination is disclosed. The
