@@ -498,6 +498,7 @@ outlines. Nor can it judge native control chrome (date pickers, `<select>` dropd
 correctly in both light and dark OS colour schemes.
 
 The [manual checklist](../samples/MANUAL-CHECKLIST.md) is the committed walkthrough for that eyes-on
-pass. It has one section per sample-page group, matching the sidebar, plus a navigation and a
-light/dark pass. It's the pre-release human gate the two automated tiers above can't replace, not a
-substitute for either of them.
+pass. It has one section per sample-page group, matching the sidebar, plus a few others, navigation
+among them. It is walked once, in either colour scheme, and each row that says "in both colour
+schemes" is checked again in the other. It's the pre-release human gate the two automated tiers
+above can't replace, not a substitute for either of them.

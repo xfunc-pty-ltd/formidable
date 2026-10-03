@@ -1,13 +1,30 @@
 # Sample walkthrough
 
-The sample app is Formidable's runnable tour, one page per feature, and the Playwright suite in
-`tests/Formidable.Sample.E2E` drives it end to end in a real browser (`FORMIDABLE_E2E=1 dotnet
-test` — see [Releasing](../docs/releasing.md)). That suite covers *behaviour*: which
-messages appear, where focus lands, what the server sends back.
+The sample app is Formidable's runnable tour, one page per feature. The Playwright suite in
+`tests/Formidable.Sample.E2E` drives it end to end in a real browser
+(`FORMIDABLE_E2E=1 dotnet test`; see [Releasing](../docs/releasing.md)). That suite covers
+*behaviour*: which messages appear, where focus lands, what the server sends back.
 
-This checklist covers what a headless browser cannot judge — colour, contrast, spacing, focus
-cues, and the chrome the browser paints for native controls. Walk it in **both light and dark OS
-colour schemes**: several checks exist only because a theme flips something.
+This checklist covers what a headless browser cannot judge: colour, contrast, spacing, focus
+cues, and the chrome the browser paints for native controls.
+
+Walk the whole list once, in either OS colour scheme. Every row that judges a colour or a look
+says "in both colour schemes": switch the scheme and check that row again. Behaviour does not
+change with the scheme, so a second full pass would mostly repeat itself. A row that names one
+scheme (LIGHT or DARK) checks what that scheme alone changes.
+
+Each sample page has a teaching panel beside or above its form, and the panel numbers its
+*Try it* steps. A row that names a step walks that step as the page words it, then checks what
+the row adds. Work each section top to bottom: a row often needs the state the row above it
+left.
+
+Most rows need only the running sample. A row that names code (a component, an option or a
+method) is saying why the check holds; the page's *Show the code* holds that code.
+
+A few rows need a tool and say so where they ask for it. The tools are a screen reader
+(Narrator or NVDA), the OS's reduce-motion setting and the browser's devtools (the elements
+panel, the network tab or the console). Firefox, PowerShell (`pwsh`) and the repository's
+source each serve a row or two.
 
 Start both servers from the repo root:
 
@@ -16,37 +33,69 @@ dotnet run --project samples/Formidable.Sample.Api
 dotnet run --project samples/Formidable.Sample
 ```
 
-Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
+Then open <http://localhost:5181>. Every page and Navigation come first; the sections from
+Start here to Workout follow the sidebar's groups; Docs and Hosted demo come last.
 
 ## Every page
 
-- [ ] Teaching panel present: the rules, numbered *Try it* steps, and a working *Show the code*
-      accordion containing the page's real source
-- [ ] Buttons sit in a spaced actions row; nothing touches a message
-- [ ] Valid submit produces a status line with breathing room below the buttons
-- [ ] A blocked submit focuses the first error IN DOCUMENT ORDER on the page — the field that
-      sits highest visually, not the field whose rule was declared first in the validator — with
-      no click needed (default `FormidableForm.FocusFirstErrorOnInvalidSubmit`; Scroll & focus is
-      the page that turns it off with that parameter, and Dialog-first submit is the page that
-      leaves it on and has its handler suppress the move for the submit that opens the dialog)
+- [ ] **The teaching panel, in both colour schemes.** Each page's panel is a box named "About this
+      page" (an `aside`, which a screen reader lists as a landmark). It reads *Try it*, then *The
+      rules*, then *How it works* and *Show the code*. The last two start closed and open on a
+      click. *Show the code* holds the page's real source files, the same as in the repository
+- [ ] **Try it steps, in both colour schemes.** Each step is one action, then its result on an
+      indented line opening "You see:". That label is semibold, in the accent colour (the sample's
+      blue). Some steps add a third line, "Why:", whose label is violet, set apart from the blue
+      and from the red, amber, purple-blue and green of the field states
+- [ ] **A wide window, in both colour schemes** (1,152 px or wider at the default text size): two
+      columns, the form on the left and the panel on the right, about three to two. The panel
+      scrolls with the page and has no scrollbar of its own, at any window height. It never
+      covers a form control
+- [ ] **Show the code on a wide window, in both colour schemes.** Open it: the panel moves above
+      the form at full width. Close it and the two columns come back
+- [ ] **A narrow window, in both colour schemes** (narrower than 1,152 px): one column, with the
+      whole panel first, its two closed sections included, then the form. Past the sidebar, Tab
+      moves down the page in the order it is drawn. It goes through the panel's links and its two
+      closed sections, then into the form
+- [ ] **The panel's colours, in both colour schemes:** its border, its headings, the "You see:"
+      and "Why:" labels and the code under *Show the code* all read well
+- [ ] In both colour schemes, buttons sit in a spaced actions row, and nothing touches a message
+- [ ] In both colour schemes, a line under an actions row has breathing room below the buttons.
+      That holds for a valid submit's status line and for the plain lines on three pages: the
+      note under Async rules' Submit, Normalize's raw values line and Localization's formatting
+      line
+- [ ] A blocked submit moves focus to the first error IN DOCUMENT ORDER, with no click needed.
+      That is the field highest in the form, not the one whose rule the validator declares
+      first (`FormidableForm.FocusFirstErrorOnInvalidSubmit`, on by default). Scroll & focus has
+      a toggle that turns it off, and Dialog-first submit suppresses the move for the submit
+      that opens its dialog
+- [ ] Two pages have no blocked submit, so the rows just above and below skip them. On
+      Field-state visualizer, *Submit* stays disabled while the form is invalid. On Server
+      round-trip, *Send to server* is an ordinary button, and step 1's rejection moves focus to
+      the first error instead
 - [ ] A blocked submit's summary slides open over roughly 0.2 s as its issues appear, rather than
-      snapping into place; with the OS's reduce-motion setting on, it appears instantly instead
-      (Dialog-first submit is the exception: its summary rides in on the dialog, which fades over
-      the same 0.2 s and appears instantly under reduce-motion)
-- [ ] Hovering a summary row tints only the entry text, a pill sized to hug it — never a
-      full-width bar across the row
-- [ ] Each field the form requires carries an asterisk beside its label (one per row in a
-      list), legible in both light and dark mode. Fitting MudBlazor is the one page without
-      marks, and a rule on that page says why
+      snapping into place. With the OS's reduce-motion setting on, it appears instantly instead.
+      Dialog-first submit is the exception: its summary rides in on the dialog, which fades
+      over the same 0.2 s and appears instantly under reduce-motion
+- [ ] In both colour schemes, hovering an entry in the error summary tints only the entry text, in
+      a pill sized to hug it. It is never a full-width bar across the row
+- [ ] Each field the form requires with no condition attached carries an asterisk beside its label
+      (one per row in a list), legible in both colour schemes. So does a field required even while
+      hidden (Full workout's Dietary notes). A field required only under a condition wears none
+      (Progressive disclosure's Type and Special requirements). Fitting MudBlazor is the one page
+      without marks, and a rule on that page says why
 
 ## Navigation
 
 - [ ] Sidebar shows seven groups in order: Start here, Core concepts, Fields & collections,
       Async & server, Presentation, Model & data, Workout
-- [ ] All twenty-three links route to a live page; the active link is highlighted
-- [ ] Group headings are legible (small caps, muted) in BOTH light and dark mode
-- [ ] Inspect a group heading and the list under it (devtools or a screen reader): the heading
-      carries an id and the list's `aria-labelledby` names it, so the group reads as one unit
+- [ ] All twenty-three links route to a live page; the active link is highlighted, legibly in both
+      colour schemes
+- [ ] Group headings are legible (small caps, muted) in both colour schemes
+- [ ] On a first load or a hard reload, the ring on the "Loading the Formidable sample" screen
+      turns until the app appears. The network tab's throttling holds that screen up long enough
+      to watch
+- [ ] Inspect a group heading and the list under it (devtools or a screen reader). The heading
+      carries an id and the list's `aria-labelledby` names it. So the group reads as one unit
       to assistive technology, not as an unrelated heading floating above a plain list
 
 ---
@@ -55,24 +104,27 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Quickstart
 
-- [ ] Empty submit: ONE message per field ("Name is required" / "Email is required")
-- [ ] `not-an-email` + blur: message becomes "A valid email is required"
-- [ ] Summary click focuses; valid submit thanks by name
-- [ ] **Slide on submit:** submit the empty form and watch Name's message arrive — it slides
-      open over roughly 0.2 s and the Email field below it eases down with it, rather than
-      jumping straight into its new position; with the OS's reduce-motion setting on, it appears
-      instantly instead
-- [ ] **Slide on clear:** type a name and tab away — Name's message eases CLOSED over roughly
-      0.2 s and the Email field eases back up with it, the same motion in reverse rather than the
-      message snapping out of existence; with reduce-motion on, it disappears instantly instead
-- [ ] **Screen reader hears the first blocked submit — no browser test can check this.** With a
-      screen reader running (Narrator: Win+Ctrl+Enter, or NVDA) and the page freshly loaded,
-      click Submit with both fields empty: the reader speaks the summary's errors — "Name is
-      required" and "Email is required" — without you moving focus anywhere. The summary's
-      alert region has been in the DOM since first paint, so this very first insertion is
-      announced, not dropped. The form's own auto-focus also lands in the Name box, so
-      expect the focused field's name and message too; what must NOT happen is silence from
-      the summary until a second submit
+- [ ] Step 1: ONE message per field, "Name is required" under Name and "Email is required"
+      under Email. Both are in the error summary too
+- [ ] Step 2: the click on "Email is required" in the error summary moves focus into Email
+- [ ] Step 3: Email's message becomes "A valid email is required" as you leave the field
+- [ ] Step 4: the status line thanks you by the name you typed
+- [ ] **Slide on submit:** reload, then submit the empty form and watch Name's message arrive.
+      It slides open over roughly 0.2 s, and the Email field below it eases down with it.
+      Nothing jumps straight into its new position. With the OS's reduce-motion setting on, it
+      appears instantly instead
+- [ ] **Slide on clear:** type a name and press Tab. Name's message eases CLOSED over roughly
+      0.2 s, and the Email field eases back up with it. It is the same motion in reverse, not a
+      message snapping out of existence. With reduce-motion on, it disappears instantly
+      instead
+- [ ] **A screen reader hears the first blocked submit (no browser test can check this).** Start
+      a screen reader (Narrator: Win+Ctrl+Enter, or NVDA), load the page fresh and submit it
+      empty. The reader speaks the summary's "Name is required" and "Email is required", with
+      no focus move from you. What must NOT happen is silence from the summary until a second
+      submit
+- [ ] On that same first submit, also expect the focused field's name and message: the form's
+      own focus move lands in the Name box. The summary's alert region has been on the page
+      since first paint, which is why even its first insertion is announced
 
 ---
 
@@ -80,129 +132,140 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Draft vs Submit
 
-- [ ] Each label's text is followed by a red asterisk — `Title *` and `Summary *` — in light and
-      dark alike, and nothing on the page declares one: the mark is read from the validator's
-      submit bucket
-- [ ] Panel states the 60-char Title rule; 61 chars shows it live
-- [ ] Save draft: blocked by format only. Shorten the title and save again: it saves with
-      Summary still empty
-- [ ] Clear Title and leave the field: "Title is required to submit" lands with NO submit
-      anywhere — while Summary, failing its own required rule and never touched, stays silent
-- [ ] Type something into Summary and leave the field: its border turns green. Clear it and
-      leave again: no message, no summary entry, and no red border, just the neutral border,
-      in light and dark alike (Summary's input sets `WaitForSubmit`)
-- [ ] Submit: Summary speaks for the first time; the error summary now carries both
-- [ ] Type a summary back in and leave the field: its message and its summary entry clear with
-      no second submit
-- [ ] Valid submit: status line confirms
-- [ ] Then clear Summary and leave the field: "Summary is required to submit" appears at once,
-      red border included, with no submit, because the wait ended at the first Submit
-- [ ] Type into both fields, make Title 61 characters and leave the field so the format error
-      is showing, then click *Reset*: the error clears and the form returns to pristine — but
-      the typed values in both boxes STAY exactly as typed, over-long title included;
-      `ResetAsync()` never writes model properties, and it is the SAME form, no page reload
-- [ ] After *Reset*, clear Summary and leave the field: silent again, with no red border, since
-      *Reset* starts the wait over
+- [ ] Step 1: each label's text is followed by a red asterisk (`Title *` and `Summary *`), in both
+      colour schemes. Nothing on the page declares one: the mark comes from the validator's Submit
+      profile (the rules a submit checks)
+- [ ] *The rules* state Title's 60-character limit. Step 2 shows "Title is 60 characters max"
+      as soon as you leave the field, with no submit
+- [ ] Steps 3 and 4: *Save draft* is blocked by the format rule only (Title's 60-character
+      limit). With the title shortened, the draft saves with Summary still empty
+- [ ] Step 5: "Title is required to submit" lands with NO submit anywhere. Summary, failing its
+      own required rule and never changed, stays silent
+- [ ] Steps 6 and 7: Summary's border turns green. Cleared again, it shows no message, no entry in
+      the error summary and no red border, just the neutral border, in both colour schemes.
+      Summary's input sets `WaitForSubmit`, which holds its error back until the first *Submit*
+- [ ] Step 8: Summary speaks for the first time, and the error summary now carries both fields
+- [ ] Step 9: Summary's message and its entry in the error summary clear with no second submit
+- [ ] Step 11: the status line confirms the submit
+- [ ] After step 11, clear Summary and leave the field. "Summary is required to submit" appears
+      at once, red border included, with no submit, because the wait ended at the first
+      *Submit*. Type a summary back in before step 12
+- [ ] Steps 12 and 13, with text in both boxes: *Reset* clears the error and returns the form to
+      pristine, with no field counted as changed and no message. The typed values in both boxes
+      STAY exactly as typed, over-long title included. `ResetAsync()` never writes model
+      properties, and it is the SAME form, with no page reload
+- [ ] After step 13, clear Summary and leave the field. It is silent again, with no red border,
+      since *Reset* starts the wait over
 
 ### Custom profiles
 
-- [ ] Before typing anything, with *Standard submit* selected: Title, Slug, Category, Read
-      minutes and Publish date each carry an asterisk, and Review note has none. Switch to
-      *Admin review*: Review note gains one. Switch back to *Standard submit* before the next row
-- [ ] With *Standard submit* selected: Title + Slug + Category + Read minutes + Publish date
-      filled, Review note empty — submit goes through
-- [ ] Switch to *Admin review*: the form RESETS. BEFORE submitting anything, type into Review
-      note and Tab out, then come back, clear it and Tab out again — "A review note is required
-      for admin review" appears on a form that has never been submitted, so only the live channel
-      can have put it there, following the profile the picker installed
-- [ ] Switch back to *Standard submit* — the form RESETS again — and repeat those two edits on
-      Review note: nothing appears at all, since that profile selects no rule for the field.
-      Switch to *Admin review* once more before the next row
-- [ ] Re-enter all five of the others (the reset emptied Title, Slug, Category, Read minutes and
-      Publish date) and submit — blocked, the review note is required here
-- [ ] Fill Review note and submit again: goes through under admin review
-- [ ] Category is a select (`FormidableInputSelect`, `UpdateOn="OnBlur"`): submit with it empty,
-      then pick a category — the "required" message stays exactly as it was until you tab away,
-      then clears
-- [ ] Read minutes is a number input (`FormidableInputNumber`): typing `0` and submitting shows
-      the range message; the native spinner chrome matches the theme in both light and dark
-- [ ] Typing `e3` into Read minutes and tabbing away clears the box — text the model never
-      accepted does not linger, and a submit's "read time is required" message sits over a box
-      that visibly agrees with it
-- [ ] Publish date is a date input (`FormidableInputDate`, `UpdateOn="OnBlur"`): typing a date and
-      tabbing away commits it with no stray validation flash mid-type; calendar picker chrome is
-      legible in dark mode
+- [ ] Step 1, with *Standard submit* selected: Title, Slug, Category, Read minutes and Publish
+      date each carry an asterisk. Review note has none
+- [ ] Steps 2 to 4: Category is a select (`FormidableInputSelect`, `UpdateOn="OnBlur"`). After
+      the empty submit, picking a category leaves "Category is required" as it was. It clears
+      only when you press Tab
+- [ ] Step 5: Read minutes is a number input (`FormidableInputNumber`). Typing `e3` and
+      pressing Tab clears the box, so text the model never accepted does not linger. The
+      submit's "Read time is required" sits over a box that visibly agrees with it
+- [ ] Before step 6, type `0` into Read minutes and click *Submit*. The range message shows: "Read
+      time must be between 1 and 180 minutes". The native spinner chrome matches the theme in both
+      colour schemes
+- [ ] Step 6, Publish date: it is a date input (`FormidableInputDate`, `UpdateOn="OnBlur"`).
+      Typing a date and pressing Tab commits it, with no stray validation flash mid-type. The
+      calendar picker chrome is legible in both colour schemes
+- [ ] Step 6, the submit: Title, Slug, Category, Read minutes and Publish date are filled, and
+      Review note is empty. The submit goes through under *Standard submit*
+- [ ] Steps 7 to 9: *Admin review* RESETS the form, and Review note gains an asterisk. Before
+      submitting anything, type into Review note and leave it, then clear it and leave it
+      again. "A review note is required for admin review" appears with no submit since the switch,
+      put there by the checks as you edit (the checks that run when you change a field), which
+      follow the picked profile
+- [ ] Steps 10 and 11: *Standard submit* RESETS the form again. Review note's message, its entry
+      and its asterisk go. Repeat the two edits and no message appears at any point. Review
+      note turns green and stays green, since that profile selects no rule for the field
+- [ ] Step 12: enter the other five fields again (each switch emptied them). The submit under
+      *Admin review* is blocked, because the review note is required here
+- [ ] Step 13: with Review note filled, the submit goes through under *Admin review*
 
 ### Progressive disclosure
 
 Work top to bottom: the steps build on each other.
 
-- [ ] *Try it* step 1 works as written (Show traveler details first; live required message on clear)
-- [ ] Hide the traveler details and submit: the traveler error lands in the diagnostic below
-      IMMEDIATELY instead of appearing inline — a collapsed section cannot show a message
-- [ ] The accommodation question is still unanswered, so its own message is on screen: it sits
-      tight under the radios, a grouping gap, because the radio labels are inline. Check it
-      here — answering the question clears it, and only a reload brings it back
-- [ ] Answer Yes: that error clears on the spot, and the Type select arrives carrying no message
-      at all, because nothing has engaged it. Submit again and Type discloses "Choose an
-      accommodation type"
-- [ ] The Type message keeps a visibly wider gap under its select than the Yes/No message did,
-      because that field's label is a block (unlike the inline radio labels) with its own
-      trailing margin — both gaps are deliberate
-- [ ] Summary click on the accommodation-type error focuses the select
-- [ ] Pick Accessible: the Type error clears on the spot, choosing being a committed change, and
-      **Special requirements** renders empty and carries NO message, though its rule applies to
-      it and is failing — nothing has engaged it. Submit and it discloses, inline and in the
+- [ ] Steps 1 to 3 work as written. Traveler name appears with no message, turns green when
+      filled, and shows its required message when cleared, with no submit
+- [ ] Step 4: the traveler error lands IMMEDIATELY in the "Suppressed-issue diagnostic" list
+      below, not inline. A collapsed section cannot show a message
+- [ ] After step 4, the accommodation question's own message is on screen. In both colour schemes,
+      it sits tight under the radios (a grouping gap: the small space that ties a message to its
+      control), because the radio labels are inline. Check it now: step 7's answer clears it, and
+      only a reload brings it back
+- [ ] Step 7: the question's message clears on the spot. The Type select arrives with no
+      message at all, because nothing has changed it. Before step 8, click *Submit*: Type now
+      shows "Choose an accommodation type"
+- [ ] In both colour schemes, Type's message keeps a visibly wider gap under its select than the
+      Yes/No message did. That field's label is a block (unlike the inline radio labels) with its
+      own trailing margin. Both gaps are deliberate
+- [ ] Clicking Type's entry in the error summary focuses the select
+- [ ] Steps 8 and 9: picking Accessible clears Type's error on the spot, since choosing is a
+      change. Special requirements arrives empty with NO message, though its rule applies and
+      is failing: nothing has changed it. The submit then shows it, inline and in the error
       summary
-- [ ] All-clear submit: fill Destination, fill Special requirements, then show the traveler
-      details and fill the name, and submit — it goes through, the status line confirms, and the
-      suppressed-issue diagnostic empties
-- [ ] **Gate entry lands:** with the traveler details still showing, clear the name and leave the
-      field, then hide the section again and submit — the submit that just went through cleared
-      what earlier submits had revealed, so nothing on screen accounts for this one and the
-      summary's form-level "not currently displayed" entry appears, and it has somewhere to go:
-      clicking it scrolls the FORM into view and focuses it. Reached from the KEYBOARD (tab to
-      the entry, Enter) the form takes a visible accent outline; reached by MOUSE it takes the
-      scroll with no outline; a stray click on the page background paints nothing
-- [ ] Show traveler details again — the field renders with no message and the form-level entry
-      stays — then submit: the traveler error lands inline and in the summary and the
+- [ ] In both colour schemes, Special requirements sits with a proper gap below the Type select
+- [ ] Step 10: the submit goes through, the status line confirms, and the diagnostic list stays
+      empty
+- [ ] **Gate entry lands.** After step 10, clear the traveler's name and leave the field. Then
+      hide the section and submit. Step 10's submit cleared what earlier submits showed, so
+      nothing on screen explains this one. The error summary shows the gate: a form-level entry,
+      "…not currently displayed is invalid", for a blocked submit that can show none of its
+      errors. Clicking it scrolls the FORM into view and focuses it
+- [ ] **Gate entry, keyboard and mouse, in both colour schemes.** Reached from the KEYBOARD (Tab
+      to the entry, Enter), the form takes a visible accent outline. Reached by MOUSE, it takes
+      the scroll with no outline. A stray click on the page background paints nothing
+- [ ] Show traveler details again: the field renders with no message, and the form-level entry
+      stays. Submit, and the traveler error lands inline and in the error summary, and the
       form-level entry gives way to it. Hide the section once more and submit: the entry stays
-      listed with the field gone — disclosed once, watched until the form passes or resets
-- [ ] Special requirements sits with a proper gap below the Type select
-- [ ] *Try it* steps 8-9 walk as written on the *Without a summary* form: the gate's explanation
-      arrives through the form-level message list under the heading, gives way to the three
-      inline messages once the trip details are shown, and the completed form (answer No)
-      confirms on its own status line
-- [ ] That form-level list occupies no visible space while it is empty — before the first
-      submit, and again once the inline messages take over — and the gate's explanation slides
-      open into it on the blocked submit the way a field's message does
-- [ ] **Required marks.** Destination wears the asterisk, and so does the accommodation question,
-      its mark trailing the legend text rather than sitting on the Yes or No label, since the
-      legend is what names that field. Accommodation type and Special requirements are both on
-      screen by now and wear none at all: their presence rules are conditional. Show the traveler
-      details once more and that label carries one too, and the *Without a summary* form below is
-      already showing the same three. In devtools both radios carry `aria-required="true"` and
-      every star carries `aria-hidden="true"`, so the accessibility pane computes the Destination
-      input's name as `Destination`, with no star in it
+      listed with the field gone. A field whose error a submit has shown stays listed until the
+      form passes or resets
+- [ ] **The second form, in both colour schemes.** *Without a summary* sits in its own bordered
+      card, with a clear gap above it and its heading inside. Its button is named *Request trip*,
+      so it stands apart from the first form's *Submit*
+- [ ] Steps 11 to 13 walk as written on the *Without a summary* form. The gate's explanation
+      arrives through the form-level message list at the top of that form, with a gap between it
+      and *Show trip details*. It gives way to the three inline messages once the trip details
+      show. The completed form (answer No) confirms on its own status line
+- [ ] In both colour schemes, that form-level list takes no visible space while it is empty:
+      before the first submit, and again once the inline messages take over. The gate's
+      explanation slides open into it on the blocked submit, the way a field's message does
+- [ ] **Required marks, in both colour schemes.** Destination wears the asterisk, and so does the
+      accommodation question. Its mark trails the legend text, which names the field, not the Yes
+      or No label. Type and Special requirements, on screen by now, wear none: their presence
+      rules are conditional. Show the traveler details once more and that label carries one too.
+      The *Without a summary* form already shows the same three
+- [ ] **Required marks, in devtools.** Both radios carry `aria-required="true"`, and every star
+      carries `aria-hidden="true"`. So the accessibility pane computes the Destination input's
+      name as `Destination`, with no star in it
 
 ### Severity levels
 
-- [ ] `Great synth!` + blur: amber warning live; 6 tags + blur: purple-blue info live
-- [ ] Submit with Title: proceeds, status counts advisories; without: only the error blocks
-- [ ] Inside the advisories block the warning is listed above the info, each link in its own
-      colour; every link in the errors block is error-coloured
-- [ ] The two summaries stack at the top of the form, errors and advisories listed separately,
-      and each bands what it holds into a panel per severity: with Title filled and the
-      warning/info showing, what stands there is the advisory summary's Warnings panel above
-      its Info panel, and the error summary shows nothing — no empty panel, no tint, and no
-      stray gap where one would sit (its wrapper and live region stay in the page for screen
-      readers, drawing nothing)
-- [ ] Nothing is listed twice: clear Title and submit so an error and both advisories show at
-      once, then read all three panels — each message appears in exactly one of them, so a
-      screen reader hears it once
-- [ ] Each severity band carries its own background tint and border-left (not one shared
-      red-tinted box): with all three severities showing at once, the info band in the advisories
-      block (the Tags message) never picks up the error's colouring, in both light and dark
+- [ ] Steps 1 and 2: `Great synth!` brings the amber warning as you leave the field, and six tags
+      bring the purple-blue info. Neither needs a submit. Judge the amber and the purple-blue in
+      both colour schemes
+- [ ] Step 3: inside the advisories block, the warning is listed above the info, each in its own
+      colour, in both colour schemes
+- [ ] Step 4, in both colour schemes: the two summaries stack at the top of the form, errors and
+      advisories listed separately. Each bands what it holds into a panel per severity. With Title
+      filled, the advisory summary shows its Warnings panel above its Info panel. The errors
+      summary shows nothing: no empty panel, no tint, and no stray gap. Its wrapper and live
+      region stay for screen readers, drawing nothing
+- [ ] Steps 4 to 6: with Title filled, the submit proceeds and the status line counts the
+      advisories. With Title cleared, only the error blocks
+- [ ] Steps 5 and 6, nothing listed twice: with the error and both advisories showing, read all
+      three panels. Each message appears in exactly one of them, so a screen reader hears it
+      once
+- [ ] Each severity panel carries its own background tint and left border, not one shared
+      red-tinted box. With all three showing, the Info panel (the Tags message) never picks up the
+      error's colouring. Every link in the Errors panel is error-coloured. Check all of it in both
+      colour schemes
 
 ---
 
@@ -210,69 +273,73 @@ Work top to bottom: the steps build on each other.
 
 ### Nested collections
 
-- [ ] Row rhythm: input / message / actions row all breathe
-- [ ] Errors glued to rows through move/remove; valid submit confirms
-- [ ] **Both container entries land:** remove every team and submit — the summary's "Add at
-      least one team" entry scrolls the teams container into view and focuses it. Then add a
-      team, remove its last member and submit — the "Every team needs at least one member"
-      entry lands on THAT team's fieldset. Keyboard-reached: accent outline on the container;
-      mouse-reached: scroll only, no outline
-- [ ] With a team's member list empty, its "needs at least one member" message reads as a
-      heading for the (empty) member list below it, NOT as an error on the team's Name field
-      above — it keeps a full field-gap above it and sits tight to the list
+- [ ] After step 2, look at the rows in both colour schemes: input, message and actions row all
+      breathe
+- [ ] Steps 3, 4 and 6: errors stay glued to their rows through the move and the remove. The
+      valid submit confirms
+- [ ] Step 5, in both colour schemes: the empty member list's "Every team needs at least one
+      member" reads as a heading for that list. It does NOT read as an error on the team's Name
+      field above. It keeps a full field-gap (the larger space between one field and the next)
+      above it and sits tight to the list
+- [ ] **Both container entries land.** After step 6, remove every team and submit. The error
+      summary's "Add at least one team" entry scrolls the teams container into view and focuses
+      it. Then click *Add team* (a new team starts with no members) and submit. The "Every team
+      needs at least one member" entry lands on THAT team's fieldset. Keyboard-reached, the
+      container shows an accent outline in both colour schemes; mouse-reached, only a scroll
 
 ### Virtualize + KeepRegistered
 
-- [ ] FIRST submit lists all 28 missing serials without scrolling
-- [ ] Far entry click: panel scrolls, row renders, focus lands
-- [ ] Fix a serial and tab out: its entry leaves the summary on that commit alone, no submit
-      needed; the other 27 stay listed. Scroll far away and submit: it stays gone, and all 27
-      of the others are still listed
-- [ ] Scroll the whole panel slowly, top to bottom: rows sit flush against each other with no
-      blank gap or overlap, whether or not the row carries a message
+- [ ] Step 1: the FIRST submit lists all 28 missing serials without scrolling
+- [ ] Step 3: clicking the last entry scrolls the list, the row renders, and focus lands in it
+- [ ] Steps 4 to 6: the fixed serial's entry leaves the error summary on that change alone, with
+      no submit. The other 27 stay listed. With the list scrolled away from that row, step 6's
+      submit keeps it gone, and all 27 others are still listed
+- [ ] Scroll the whole list slowly, top to bottom, in both colour schemes. Rows sit flush against
+      each other, with no blank gap or overlap, whether or not a row carries a message. Check it
+      on a wide window too, where the form has the narrower left column
 
 ### Wrapping a foreign control
 
-- [ ] Select styled like the inputs; the empty submit lands its own focus in the select, so tab
-      out before judging the red border — a focused box wears the accent border whatever its
-      verdict; the code panel's comparison reads well
-- [ ] **Message spacing:** with "Colour is required" showing, the message sits tight under
-      the select (a grouping gap, not a field gap) and has a full field-gap of room BELOW it —
-      it is never flush against the Submit row. Confirm the message reads as the select's
-      verdict, not as a caption for what follows
+- [ ] Steps 1 and 2, in both colour schemes: the select is styled like the inputs. The empty
+      submit lands its own focus in the select, so judge the red border only after step 2's Tab. A
+      focused box wears the accent border whatever its state
+- [ ] **Message spacing, in both colour schemes.** With "Colour is required" showing, the message
+      sits tight under the select: a grouping gap, not a field gap. It has a full field-gap of
+      room BELOW it, never flush against the *Submit* row. It reads as the select's verdict, not
+      as a caption for what follows
+- [ ] Step 6: the comparison under *Show the code* reads well
 
 ### Vanilla interop
 
-- [ ] Colour message reads "Colour is required"; submit empty, then click the page background so
-      neither box holds focus — only then do both inputs take the identical invalid border, since
-      the submit's own focus lands in Nickname and a focused box wears the accent border
-- [ ] **Nickname entry lands:** submit empty and click the summary's Nickname entry — focus
-      moves INTO the native `InputText` (the page renders it the field's id). Keyboard-reached,
-      the input shows its normal focus ring; nothing else on the page moves
-- [ ] RELOAD first: the rows above leave Nickname's error standing, and this one starts from an
-      input nothing has been asked of. Inspect it before pressing anything — it carries neither
-      `aria-invalid` nor `aria-describedby`, since the `ValidationMessage` the second would name is
-      not on the page until there is a message to put in it. Submit empty and both arrive:
-      `aria-invalid="true"`, and an `aria-describedby` naming the message below. Fill it and blur:
-      both go. `aria-required="true"` stays on the input throughout, from before the first press
-      to after the fix
+- [ ] Steps 1 and 2: Colour's message reads "Colour is required". Both inputs take the identical
+      invalid border, in both colour schemes, only once neither box has focus. The submit's own
+      focus lands in Nickname, and a focused box wears the accent border
+- [ ] Step 3: focus moves INTO the native `InputText`, which the page gives the field's id.
+      Keyboard-reached, the input shows its normal focus ring in both colour schemes, and nothing
+      else on the page moves
+- [ ] **Nickname's aria attributes, in devtools.** Reload, then inspect the input before step 1:
+      it carries neither `aria-invalid` nor `aria-describedby`. The `ValidationMessage` the
+      second would name is not on the page until it has a message. Walk steps 1 to 4 again.
+      After step 1 both have arrived: `aria-invalid="true"`, and an `aria-describedby` naming
+      the message below. After step 4 both have gone. `aria-required="true"` stays throughout
 
 ### Attaching to your own EditForm
 
-- [ ] Submit as seeded: the second expense line's message reads "Description is required" and
-      the summary lists it; "Submitted by" carries no error yet
-- [ ] Remove that line: the message leaves the row AND the summary — no second submit, no click
-      beyond the row's own Remove button, and no more than a brief pause before the summary
-      entry goes
-- [ ] Add a line and submit it blank, then tab out of the box the submit focused: the new row
-      takes the identical red border and message treatment the seeded line had at this
-      section's first step (a focused box wears the accent border whatever its verdict)
-- [ ] Clear "Submitted by" and tab out: its message appears through the native `ValidationMessage`
-      beside the input, styled identically to a Formidable message — and the summary above gains
-      an entry for it too, with no Submit press of its own — committing the change engages the
-      field, and that is what discloses it
-- [ ] Both inputs — the native "Submitted by" box and a Formidable "Description" box — take the
-      same invalid-state border in both light and dark mode
+- [ ] Step 1: the second expense line's message reads "Description is required", and the error
+      summary lists it. "Submitted by" carries no error yet
+- [ ] Step 2: the message leaves the row AND the error summary, with no second submit. Nothing
+      beyond the row's own *Remove* is clicked, and the entry goes after no more than a brief
+      pause
+- [ ] Step 3, then press Tab to leave the box the submit focused. In both colour schemes, the new
+      line takes the same red border and message the seeded line had at step 1. A focused box
+      wears the accent border whatever its state
+- [ ] Before step 4, clear "Submitted by", press Tab and click the page background. The native
+      "Submitted by" box and the new line's Formidable "Description" box wear the same invalid
+      border, in both colour schemes. Type a name back into "Submitted by" and press Tab, then
+      carry on at step 4
+- [ ] Step 5: the message appears through the native `ValidationMessage` under the input, styled
+      like a Formidable message in both colour schemes. The error summary gains an entry for it
+      too, with no submit. Changing the field is what shows it
 
 ---
 
@@ -280,62 +347,74 @@ Work top to bottom: the steps build on each other.
 
 ### Async rules
 
-- [ ] Before any submit: typing lights only the edited field's indicator
-- [ ] After a submit: typing STILL lights only the edited field's indicator (the refresh
-      reconciles quietly)
-- [ ] Submitting lights both indicators while the submit pass runs
-- [ ] After an accepted submit, type a taken value again: its verdict appears when the check
-      completes, without waiting for another submit
-- [ ] Edit Username once after a submit and pause: exactly one "checking…" cycle runs, not
-      two — the refresh that follows the live pass finds the uniqueness check already
-      answered and does not run it again
-- [ ] Type a username, then clear it: "Username is required" appears with NO submit anywhere —
-      the field is engaged, and the live channel runs the rules a submit would
-- [ ] Delay slider reads **600 ms** on load; dragging it updates the millisecond label live
-- [ ] At 2000 ms: the pending state lingers long enough to type again and watch supersession
-      cancel the stale check mid-flight — only the final value gets a verdict
-- [ ] At 0 ms: verdicts land effectively instantly and no spinner is left behind
-- [ ] Restore the slider to 600 ms before leaving the page
-- [ ] Tick *Debounce live checks* and type `formidable` quickly: no "checking…" flash appears
-      mid-keystroke — the indicator lights only once, after you pause typing
-- [ ] Untick it again and type the same word quickly: the indicator flashes on the very first
-      keystroke, back to the default (immediate, no batching)
-- [ ] **A confirmed border rides out a slow pass.** Type a free username (`tim`) and let it turn
-      green, then click into Display name and type a letter: while that field's 600 ms check
-      runs, Username's confirmation border stays green the whole time — untouched by this edit,
-      the engine keeps holding its vouch rather than dropping it for the gap. Display name
-      itself goes neutral (with the pending state showing) until its own check lands, then
-      confirms the same way
-- [ ] **Message spacing:** type `admin` into Username and let the verdict land — its message
-      sits tight under the Username box and leaves a full field-gap before the *Display name*
-      label. It must never sit flush against that label, and the "checking…" line while a pass
-      runs must not push the message off its field
+- [ ] Before step 1: the *Simulated delay* slider reads **600 ms** on load. Dragging it updates
+      the millisecond label as you drag
+- [ ] **Message spacing, in both colour schemes.** At step 1, once "That username is taken" lands,
+      it sits tight under the Username box. It leaves a full field-gap before the *Display name*
+      label, never flush against it. The "checking…" line while a check runs must not push the
+      message off its field
+- [ ] Steps 1 to 3, before any submit: typing lights only the edited field's indicator (its
+      spinner and its "checking…" line)
+- [ ] **The spinner turns, in both colour schemes.** At step 4, with the delay at 2000 ms, the
+      spinner in the box turns for the whole two seconds. It turns with the OS's reduce-motion
+      setting on, too
+- [ ] After step 4, with the delay still at 2000 ms, type two more letters a second apart.
+      "checking…" stays, no answer shows for the value you typed past, and only the final
+      value gets an answer
+- [ ] Step 5: "Username is required" appears with NO submit anywhere. You changed the field, and
+      the checks as you edit run the rules a submit would
+- [ ] Step 8, after step 6's submit: typing STILL lights only the edited field's indicator. The
+      whole-form re-check after a submit runs quietly
+- [ ] Step 9: one edit to Username after the submit, then a pause, runs exactly one "checking…"
+      cycle, not two. The whole-form re-check finds the uniqueness check already answered and
+      does not run it again
+- [ ] After step 9's accepted submit, replace Username with `admin`. "That username is taken"
+      appears once its check completes, with no second submit
+- [ ] Wait more than ten seconds after the last check, then click *Submit* with both fields
+      filled. Both fields show "checking…" while the submit's check runs. Inside ten seconds,
+      this page's memo (its validator remembers each answer for ten seconds) answers at once
+- [ ] Step 10: with *Debounce live checks* ticked, typing `formidable` quickly shows no
+      "checking…" mid-keystroke. The indicator lights only once, after you pause typing
+- [ ] Untick it again and type the same word quickly. The indicator lights on the very first
+      keystroke, as by default: a check on every keystroke
+- [ ] Drag the slider to 0 ms and type into Username: answers land effectively at once, and no
+      spinner is left behind
+- [ ] Set the slider back to 600 ms, for the next row and before leaving the page
+- [ ] **A green border rides out a slow check.** Type a free username (`tim`) and let it turn
+      green. Then click into Display name and type a letter. While that field's 600 ms check
+      runs, Username's green border stays the whole time, untouched by this edit. Display name
+      goes neutral, with "checking…" showing, until its own check lands. Then it turns green
+      the same way
 
 ### Server round-trip
 
-- [ ] Endpoint picker shows *Minimal API* selected by default, and the caption directly under
-      the radios reads `POST /api/orders/ on the API (port 5180)`
-- [ ] Click *MVC controller*: the caption rewrites to `POST /api/controller/orders` on the spot;
-      click back and it returns — the caption always names the URL the next send will use
-- [ ] Caption is legible in BOTH light and dark mode (muted, not washed out; the `<code>` chip
-      readable against the page background)
-- [ ] *Show the code* lists FOUR files and the fourth is **OrdersController.cs** — the real
-      server file, not a paraphrase (it shows the `[ApiController]`/`[HttpPost]` twin of the
-      minimal-API mapping)
-- [ ] Empty send: the 400 lands inline, one message per field; summary click focuses
-- [ ] That same empty send also moves focus on its own, no click needed — it lands on
-      Description, the first field with an error on the page
-- [ ] Fix one field, send again: every remaining error shows ONE message (no duplicates)
-- [ ] Description with a hyphen (e.g. `Q3-restock`) while a SKU line is still empty, then send:
-      the 400 carries the server's hyphen advisory as well as the SKU error, and the advisory
-      shows on Description in warning styling — no separate advisory list anywhere on the page.
-      Fill the SKU and send again: accepted — and the hyphen advisory stays, because the client's
-      own rule still fails it; this accepted send carries no error, so it moves focus nowhere.
-      Remove the hyphen too, click away from the field, and it goes
-- [ ] A whitespace-only SKU line: dropped by the pre-send Normalize; no misattributed errors
-- [ ] Switch to *MVC controller* and repeat the empty send: identical messages land on the
-      identical fields — the two filters share one mapper, so the 400's `errors` is identical,
-      and only the MVC body's extra `traceId` member differs
+- [ ] Before step 1: the *Endpoint* picker shows *Minimal API* selected. The caption directly
+      under the radios reads `POST /api/orders/ on the API (port 5180)`
+- [ ] The caption is legible in both colour schemes: muted, not washed out, with the `<code>` chip
+      readable against the page background
+- [ ] *Show the code* lists FOUR files, and the fourth is **OrdersController.cs**. It is the real
+      server file (`samples/Formidable.Sample.Api/Controllers` in the repository), not a
+      paraphrase: the `[ApiController]`/`[HttpPost]` twin of the minimal-API mapping
+- [ ] Step 1: the 400 lands inline, one message per field. The send also moves focus on its
+      own, with no click needed, to Description, the first field with an error on the page
+- [ ] Step 2: a click on an entry in the error summary focuses its field
+- [ ] Step 3: every remaining error shows ONE message, with no duplicates
+- [ ] Step 3: with `Q3-restock` in Description and the SKU line still empty, the 400 carries the
+      server's hyphen advisory as well as the SKU error. The advisory shows on Description in
+      warning styling. There is no separate advisory list anywhere on the page
+- [ ] Steps 4 and 5: the send with the SKU filled is accepted, and the hyphen advisory stays,
+      because the form's own copy of the rule still fails it. This accepted send carries no
+      error, so it moves focus nowhere. Remove the hyphen and leave the field, and the advisory
+      goes
+- [ ] Step 6: the caption rewrites to `POST /api/controller/orders` on the spot. Click
+      *Minimal API* and it returns, then click *MVC controller* again. The caption always names
+      the URL the next send will use
+- [ ] With *MVC controller* picked, empty Description and the SKU and send. The same messages land
+      on the same fields as the first empty send's. In devtools' network tab, the two 400 bodies'
+      `errors` are identical, and only the MVC body adds a `traceId`: Formidable's endpoint filter
+      and action filter share one mapper
+- [ ] After step 7, type only spaces into the new line's SKU and send. The pre-send
+      `Normalize()` drops that line, and no error lands on the wrong line
 
 ---
 
@@ -343,147 +422,160 @@ Work top to bottom: the steps build on each other.
 
 ### Fitting a UI library
 
-- [ ] DARK mode: the bordered demo box is dark too — Bootstrap's own dark palette, no light
-      island sitting in a dark shell
-- [ ] LIGHT mode: the demo box is light; the rest of the shell stays as it was
-- [ ] Flip the OS colour scheme with the page OPEN: the demo box follows immediately, no reload
-- [ ] Navigate away to another page and back, then flip again: still follows (the watcher is
-      re-registered, not doubled or lost)
-- [ ] In dark mode the site shell around the box stays dark — Bootstrap's body rule does not
-      flip the whole page light
-- [ ] Submit empty: Bootstrap's own red `is-invalid` borders appear (not the site theme's)
-- [ ] Fix a field and leave it: Bootstrap's green `is-valid` state shows
-- [ ] *Show the code*: the only Formidable-specific lines are the `Options` object and the
-      components themselves
+- [ ] Step 1, in both colour schemes: Bootstrap's own red `is-invalid` borders appear, not the
+      site theme's
+- [ ] Step 2, in both colour schemes: Bootstrap's green `is-valid` state shows on the fixed field
+- [ ] Step 4: the only Formidable-specific lines are the `Options` object and the components
+      themselves
+- [ ] Step 5, in DARK mode: the box around the form is dark too, in Bootstrap's own dark
+      palette. No light island sits in a dark shell
+- [ ] Step 5, in LIGHT mode: the box around the form is light, and the page keeps its white
+      background. Bootstrap's stylesheet styles the whole document while you are on this page, as
+      its *How it works* says. So the headings, code spans (pink) and links (Bootstrap's blue)
+      differ from other pages in both colour schemes, and in light mode the body text takes
+      Bootstrap's near-black. That is expected
+- [ ] Step 5: with the page OPEN, the box follows the OS colour scheme at once, with no reload
+- [ ] Navigate away to another page and back, then flip the scheme again. The box still
+      follows each flip, so the page's scheme watcher came back with the page
+- [ ] In dark mode the site shell around the box stays dark. Bootstrap's body rule does not flip
+      the whole page light
 
 ### Fitting MudBlazor
 
 Walk this section on the local build. The hosted demo shows a note at `/mudblazor` instead, which
 the Hosted demo section walks.
 
-- [ ] LIGHT and DARK mode: the text field, the select and the Submit button wear MudBlazor's own
-      look (an underlined field with a floating label, a filled button) in MudBlazor's palette
-      for that scheme
+- [ ] Before step 1, in both colour schemes: the text field, the select and the *Submit* button
+      wear MudBlazor's own look. That is an underlined field with a floating label and a filled
+      button, in MudBlazor's palette for that scheme
 - [ ] Flip the OS colour scheme with the page OPEN: the controls and the button follow at once,
-      no reload
-- [ ] While this page is open, the whole page (sidebar included) takes MudBlazor's fonts and
-      spacing. Open any other page and the sample's own fonts come back
-- [ ] Submit empty, in BOTH schemes: each control's underline and floating label turn
-      MudBlazor's error colour, and Formidable's message sits under the underline. No box or
-      ring is drawn round the control, and the focused Band name keeps its label in the error
-      colour rather than the accent
-- [ ] Inspect Band name in devtools: `formidable-invalid` sits on the outer `mud-input-control`
-      div, while the `id`, `aria-invalid` and `aria-describedby` sit on the `<input>` inside it
-- [ ] Fix both fields and click away: both underlines and labels turn green, in both schemes
-- [ ] Open Room: the popover lists three studios right against the select (below it, or above
-      it when the window has no room below), on MudBlazor's own surface and legible in both
-      schemes. Picking one closes it and the studio shows in the field
-- [ ] Submit with Room empty and click its summary entry: focus lands in the select with
-      MudBlazor's own focus underline, not the sample's rounded accent ring, and the popover
-      stays shut
-- [ ] Open another page from the sidebar and come back, then open Room again: the popover
-      still sits against the select, and the other page showed nothing of MudBlazor's look
+      with no reload
+- [ ] Step 1, in both colour schemes: each control's underline and floating label turn MudBlazor's
+      error colour, and Formidable's message sits under the underline. No box or ring is drawn
+      round the control. The focused Band name keeps its label in the error colour rather than the
+      accent
+- [ ] After step 1, inspect Band name in devtools. `formidable-invalid` sits on the outer
+      `mud-input-control` div. The `id`, `aria-invalid` and `aria-describedby` sit on the
+      `<input>` inside it
+- [ ] Step 2, in both colour schemes: focus lands in Room with MudBlazor's own focus underline,
+      not the sample's rounded accent ring. The popover stays shut
+- [ ] Steps 3 and 4: both underlines and labels turn green, in both colour schemes
+- [ ] Step 4: Room's popover lists three studios right against the select: below it, or above it
+      when the window has no room below. It sits on MudBlazor's own surface, legible in both
+      colour schemes. Picking one closes it and shows the studio in the field
+- [ ] In both colour schemes, while this page is open, the whole page (sidebar included) takes
+      MudBlazor's fonts and spacing. At step 6 the other page shows the sample's own fonts again
+- [ ] Steps 6 and 7, in both colour schemes: the other page showed nothing of MudBlazor's look.
+      Back here, Room's popover still sits against the select
 
 ### CSS colours
 
-- [ ] **The success colour, both schemes — do this FIRST, on a fresh load.** Type a title and
-      tab out: the border confirms in a green plainly distinct from the accent. Check it in BOTH
-      light and dark mode. This row goes first because picking any colour latches the wrapper's
-      inline style, and that style carries all five LIGHT defaults, so the dark green is gone
-      until the next load. RELOAD when you are done here: the next row needs the boxes empty
-      again, and nothing on this one clears the title you just typed
-- [ ] Submit empty, then pick a new error colour: the border, the message AND the summary's
-      left rule and entry text all recolour at once
-- [ ] Type a title and tab out, then pick a new valid colour: the confirmation border follows it
-- [ ] Pick a new accent, then click into Description: the focus ring and the border the box
-      wears while focused both follow
-- [ ] Type `!` in Description: the amber warning arrives mid-keystroke, with no blur asked for.
-      Recolour warning: message and border both follow
-- [ ] RELOAD first: the rows above leave Title filled and its error already revealed, and this
-      one needs both boxes untouched. Then type seven comma-separated tags into Tags, leaving
-      Title empty, and click Submit IMMEDIATELY with no intervening Tab: the missing-Title
-      error discloses in the summary on that first click. The "more than five tags" info commits
-      and renders WHILE you type, not at blur, so nothing shifts the Submit button out from
-      under the pointer at click time
+Every colour row here runs in both colour schemes. Reload before checking the second scheme:
+picking any colour sets the others to their light defaults until the page reloads.
+
+- [ ] **The valid colour, in both colour schemes: do this FIRST, on a fresh load.** Type a title
+      and press Tab. The border turns a green plainly distinct from the accent. Picking any colour
+      writes every colour token (the CSS custom properties the pickers set), the rest at their
+      LIGHT defaults, so the dark green is gone until reload. RELOAD when you are done: step 1
+      needs empty boxes
+- [ ] Steps 1 and 2, in both colour schemes: the border, the message AND the error summary's left
+      stripe and entry text all recolour at once
+- [ ] Steps 3 and 4, in both colour schemes: the green border follows the new valid colour
+- [ ] Step 5, in both colour schemes: the focus ring and the border the box wears while focused
+      both follow the new accent
+- [ ] Steps 6 and 7: the amber warning arrives mid-keystroke, with no Tab asked for. The message
+      and the border both follow the new warning colour, in both colour schemes
+- [ ] RELOAD first, since this row needs both boxes untouched. Type seven comma-separated tags
+      into Tags, leaving Title empty. Click *Submit* IMMEDIATELY, with no Tab between: the
+      missing-Title error shows in the error summary on that first click. The "More than five
+      tags…" info arrives WHILE you type, not when you leave the box. So nothing shifts the
+      *Submit* button out from under the pointer at click time
 
 ### Scroll & focus
 
-- [ ] Submit: a long summary appears; click the LAST entry — the page scrolls to the bottom
-      row, centred, and focuses it
-- [ ] Fix that field, submit, click another far entry: same ride back
-- [ ] No focus miss anywhere on this page (every row is in the DOM — contrast Virtualize)
-- [ ] With the toggle above the form ticked (its default): submit and focus jumps straight to
-      the first error with no click needed
-- [ ] Untick the toggle and submit again: the summary appears but focus stays put — nothing
-      moves until you click an entry yourself
+- [ ] Step 1, with the toggle above the form ticked (its default): the long error summary
+      appears. Focus jumps straight to the first error, with no click needed
+- [ ] Step 2: the page scrolls to the bottom row, centred as far as the page can scroll, and
+      focuses it
+- [ ] Steps 3 and 4: fix that field, submit, and click another far entry. It gives the same ride
+      back
+- [ ] No focus misses anywhere on this page, since every row is on the page all the time.
+      Contrast Virtualize + KeepRegistered
+- [ ] Step 5: the error summary still lists the errors, but focus stays put on *Submit*. Nothing
+      moves until you click an entry yourself (step 6)
 
 ### Shaping the summary
 
-- [ ] Submit the empty form, then flip each toggle in turn: the toggles sit ABOVE the summary, so
-      the row you are working stays put while the list grows and shrinks below it
-- [ ] **Hover, both kinds of row:** hovering an entry pills the entry text and shows a pointer;
-      hovering the expander's label shows a pointer and NO pill. One is a route into the form, the
-      other acts on the list, and the two should not read as the same kind of thing
-- [ ] With the cap on and *Reveal what the cap held back* OFF, the error band simply ends after
-      three entries — no ellipsis, no faded row, no gap where a line used to be. It should read as
-      a list that ends, not as one that was cut off
-- [ ] Turn the reveal back on and look at the hairline rule above the line, closed and then open:
-      it should read as the end of the list in both, with air on each side and the revealed names
-      clearly INSIDE what it closes off rather than beyond it. It is the same rule as the dialog
-      page's, over a different composition — an expander with a list under it rather than a bare
-      count — so both are worth a look before it ships
-- [ ] Open the expander: the revealed names sit indented under the line, quieter than the entries
-      above them, and read as a note about the list rather than as more things to click
-- [ ] **Keyboard:** Tab after the last entry reaches the expander's label, Space or Enter opens
+- [ ] **With a screen reader running**, at steps 2 to 4: the bands (the error summary's lists, one
+      per severity) are live regions, so what changed inside one is announced. Focus stays on the
+      toggle you ticked. A band whose contents did not change says nothing; at step 4, listen to
+      the warning band
+- [ ] Steps 2 to 5, in both colour schemes: the toggles sit ABOVE the error summary. So the toggle
+      you are working stays put while the list grows and shrinks below it
+- [ ] Step 5, and again at step 9, in both colour schemes: with the cap on and *Reveal what the
+      cap held back* unticked, the error band simply ends after three entries. There is no
+      ellipsis, no faded row, and no gap where a line used to be. It should read as a list that
+      ends, not as one that was cut off
+- [ ] Steps 6 and 7, in both colour schemes: look at the hairline rule above the "3 not listed"
+      line, closed and then open. It should read as the end of the list in both, with air on each
+      side, and the revealed names clearly INSIDE what it closes off. It is Dialog-first submit's
+      rule, under an expander and its list rather than a bare count, so look at both before it
+      ships
+- [ ] Step 7, in both colour schemes: the revealed names sit indented under the line, quieter than
+      the entries above them. They read as a note about the list, not as more things to click
+- [ ] **Hover, both kinds of row, in both colour schemes.** Hovering an entry pills the entry text
+      and shows a pointer. Hovering the expander's label shows a pointer and NO pill. One is a
+      route into the form and the other acts on the list, so the two should not read as the same
+      kind of thing
+- [ ] **Keyboard.** Tab after the last entry reaches the expander's label. Space or Enter opens
       and closes it, and the browser's own triangle turns with it
-- [ ] **Colour check, both schemes:** the overflow line, its label and the revealed names are all
-      legible against the error band's tint in light AND dark mode, and all of them stay visibly
-      quieter than the entries
-- [ ] **With a screen reader running:** submit, then flip a toggle. The bands are live regions, so
-      what changed inside one is announced; focus stays on the toggle you flipped, and a band
-      whose contents did not change says nothing (flip grouping and listen to the advisory band)
+- [ ] **Colour check, in both colour schemes.** The overflow line, its label and the revealed
+      names are all legible against the error band's tint. All of them stay visibly quieter than
+      the entries
 
 ### Dialog-first submit
 
-- [ ] Submit the empty form: the dialog fades in over roughly 0.2 s, the page behind it dims,
-      and the panel itself takes focus. Reach *Submit* with the keyboard and press Enter and the
-      panel shows a focus ring as well; click *Submit* with the mouse and it takes focus without
-      one, the same `:focus-visible` rule the summary's own focus landings follow
-- [ ] **With a screen reader running**, that same submit announces the dialog: the heading, the
-      count line, and the four names under it. Nothing is announced before the submit, and
-      nothing announces twice. Then close it with <kbd>Escape</kbd> and listen to where focus
-      goes: the hand-back and the page's own move are two moves, so "Submit, button" ahead of
-      "Invoice reference, edit" is what that costs — judge whether the pair is worth what it buys
-- [ ] The list reads as four field NAMES, not four sentences, with `2 more to fix` under them.
-      Hovering a name pills the name; hovering the overflow line does nothing — it is a count,
-      not something to click, and it never takes a focus ring or a pointer cursor
-- [ ] `2 more to fix` sits under a hairline rule with air on both sides of it, and its text starts
-      at exactly the same left edge as the names above it — sight down that edge; the line should
-      not sit in from them. The rule should read as the end of the list, not as a box around it
-- [ ] Click **Invoice reference**: the dialog fades OUT, and only once it has gone does the
-      caret appear in that box. Watch the box, not the dialog — nothing should flicker into
-      focus early
-- [ ] Untick *Wait for the dialog to finish closing before moving focus*, submit, click a name:
-      this time you can SEE the box take focus and then lose it as the dialog finishes closing,
-      and focus ends on the Submit button. Tick that toggle again
-- [ ] Tick *Focus the first error automatically on a blocked submit* and submit: the Invoice
-      reference box behind the overlay is already wearing the focus border, and a keystroke
-      would land in a field you cannot see. Untick that toggle again
-- [ ] <kbd>Escape</kbd> closes the dialog and the caret ends in **Invoice reference** — the first
-      thing to fix, not the button you pressed; the *Close* button ends in the same box. Neither
-      names a field, so this is the page asking for the move rather than anything in the kit
-      making it. Watch the button on the way: the dialog hands focus back to it before the page
-      moves on, and you should not see it flash a ring as that passes through. Tab from the open
-      panel reaches the names and then *Close*
-- [ ] Focus is CONTAINED while the dialog is open, which is what its `aria-modal="true"` says:
-      Tab from *Close* comes back to the first name rather than reaching the form behind it, and
-      Shift+Tab from the first name goes to *Close* rather than out of the panel. Shift+Tab
-      immediately after the dialog opens, before touching anything, stays inside as well
-- [ ] **Colour check, both schemes:** the panel, the error band inside it, the names and the
-      overflow line are all legible over the dimmed page in light AND dark mode, and the
-      panel's shadow reads as a raised surface rather than a smudge
-- [ ] **With the OS's reduce-motion setting on:** the dialog appears and goes instantly, and
-      clicking a name still lands in the field rather than anywhere else
+- [ ] Step 1, in both colour schemes: the dialog fades in over roughly 0.2 s, the page behind it
+      dims, and the dialog itself takes focus. Reach *Submit* with the keyboard and press Enter:
+      the dialog shows a focus ring as well. Press <kbd>Escape</kbd>, then click *Submit* with the
+      mouse: it takes focus without one, by the `:focus-visible` rule the summary's own landings
+      follow
+- [ ] **With a screen reader running**, step 1's submit announces the dialog: the heading, the
+      count line and the four names, nothing before the submit and nothing twice. At step 5,
+      <kbd>Escape</kbd> hands focus back to *Submit* as the dialog closes, then the page moves
+      it on: you hear "Submit, button", then "Invoice reference, edit". That order passes;
+      whether the pair is worth it is a judgement to note for Tim
+- [ ] Step 2, in both colour schemes: the list reads as four field NAMES, not four sentences, with
+      `2 more to fix` under them. Hovering a name pills the name. Hovering the overflow line does
+      nothing: it is a count, not something to click, and it never takes a focus ring or a pointer
+      cursor
+- [ ] Step 2, in both colour schemes: `2 more to fix` sits under a hairline rule with air on both
+      sides of it. Its text starts at exactly the same left edge as the names above it; sight down
+      that edge, and the line should not sit in from them. The rule should read as the end of the
+      list, not as a box around it
+- [ ] Step 3: the dialog fades OUT, and only once it has gone does the caret appear in Invoice
+      reference. Watch the box, not the dialog: nothing should flicker into focus early
+- [ ] Step 4, with *Wait for the dialog to finish closing before moving focus* unticked: you
+      can SEE the box take focus and then lose it as the dialog finishes closing. Focus ends on
+      the *Submit* button (step 5 ticks the toggle again)
+- [ ] Steps 5 and 6: <kbd>Escape</kbd> closes the dialog, and the caret ends in Invoice reference,
+      the first thing to fix, not the button you pressed. *Close* ends in the same box. Neither
+      names a field, so the page asks for the move; nothing in Formidable starts it. Watch the
+      button in both colour schemes: it takes focus back before the page moves on, and should not
+      flash a ring
+- [ ] Focus is CONTAINED while the dialog is open, which is what its `aria-modal="true"` says.
+      Tab from the open dialog reaches the names and then *Close*. Tab from *Close* comes back
+      to the first name rather than reaching the form behind it. Shift+Tab from the first name
+      goes to *Close* rather than out of the dialog. Shift+Tab straight after the dialog opens,
+      before touching anything, stays inside as well
+- [ ] Step 7, with *Focus the first error automatically on a blocked submit* ticked: the
+      Invoice reference box behind the overlay already wears the focus border. A keystroke
+      would land in a field you cannot see (step 8 unticks that toggle again)
+- [ ] **Colour check, in both colour schemes.** The dialog, the error band inside it, the names
+      and the overflow line are all legible over the dimmed page. The dialog's shadow reads as a
+      raised surface rather than a smudge
+- [ ] **With the OS's reduce-motion setting on:** the dialog appears and goes instantly.
+      Clicking a name still lands in the field rather than anywhere else
 
 ---
 
@@ -491,90 +583,96 @@ the Hosted demo section walks.
 
 ### Field-state visualizer
 
-- [ ] Tab INTO Username and straight out again without typing: Touched flips to True while
-      Modified stays False — exactly what the page's first *Try it* step claims
-- [ ] Same for Display name: blur alone touches it, no value commit needed
-- [ ] Neither blur typed anything, but only Display name takes the "confirmed" valid border:
-      Username stays unstyled — the probe's answer already carries its required-rule failure,
-      and a field the engine knows would fail submit is never styled valid. Nothing has been
-      edited yet, so this is the probe's work alone, with no live pass behind it. Type `ada`
-      into Username and tab out: its border confirms once the check lands; clear it again and tab
-      out once more — the confirmation gives way to the error border, and "Username is required"
-      lands with it — the field is engaged now, and the live channel runs the rules a submit
-      would
-- [ ] The panel's Rules bullet explains why (the page wires `field.MarkTouched()` to `onblur`;
-      the built-in inputs touch on value commit) — read it and confirm it matches what you saw
-- [ ] Type `admin`: Modified and Validating flip True, then Errors flips once the check lands
-- [ ] After a submit, type `admin` again: Errors flips once that check completes, without
-      waiting for another submit
-- [ ] Submit: BOTH rows' Validating flip together — submit is a form-wide pass
-- [ ] **Message spacing:** Username's message sits tight under its box and clear of the
-      *Display name* label — never flush against it
-- [ ] Load the page fresh: Submit is DISABLED and the readout above it reads "Form valid: No" —
-      the empty model already fails the required-Username rule, before anything is typed
-- [ ] Type `admin`: Submit stays disabled once the check lands (Form valid stays "No") — a
-      taken username still fails
-- [ ] Clear Username and type `ada` instead: once the check clears, the readout flips to
-      "Form valid: Yes" and Submit enables itself with no click needed
+- [ ] Step 1, on a fresh load: Submit is DISABLED, and the readout above it reads "Form valid:
+      No". The empty model already fails the required-Username rule, before anything is typed
+- [ ] **The disabled Submit, in both colour schemes.** It is grey with muted text, the pointer
+      over it shows a not-allowed sign, and hovering it changes nothing. Once step 6 enables
+      it, it turns orange
+- [ ] Step 2: Touched flips to True while Modified stays False, exactly as the step says
+- [ ] Step 2's Why line and *How it works* explain it: the page wires `field.MarkTouched()` to
+      `onblur`, while Formidable's own inputs touch a field only when a change reaches the form.
+      Read them and confirm they match what you saw
+- [ ] Step 3: the same for Display name. Leaving the box touches it, with no value change needed
+- [ ] Step 3: neither visit typed anything, but only Display name takes the green border. Username
+      stays uncoloured: the form checks itself as it opens, through the `TrackFormValidity` check
+      and a re-check it runs with or without that option, so it already knows the required rule
+      fails. A field that would fail a submit is never green. Nothing has been changed yet, so
+      those two opening checks alone decide it
+- [ ] Step 4: Modified and Validating flip True, then Errors flips once the check lands
+- [ ] Step 4: once that check lands, Submit stays disabled and Form valid stays "No". A taken
+      username still fails
+- [ ] **Message spacing, in both colour schemes.** Username's message sits tight under its box and
+      clear of the *Display name* label, never flush against it
+- [ ] Steps 5 and 6: once `ada`'s check clears, the readout flips to "Form valid: Yes". Submit
+      enables itself with no click needed
+- [ ] After step 7, clear Username and press Tab. The green gives way to the error border, and
+      "Username is required" lands with it. You changed the field, and the checks as you edit
+      run the rules a submit would. Type `ada` back in and press Tab before step 8
+- [ ] Step 8: BOTH rows' Validating flip together, since a submit checks the whole form
+- [ ] After step 8, replace Username with `admin`. Errors flips once that check completes,
+      without waiting for another submit
 
 ### Loading a saved draft
 
-- [ ] Fresh page: three empty boxes, three asterisks, and no borders or messages anywhere
-- [ ] *Load saved draft*: all three values arrive at once and three different answers arrive
-      with them — Title takes the green confirmed border, Contact email takes the red one and
-      says "That is not a valid email address", and Summary looks exactly as it did
-- [ ] Summary is still marked required AND still silent: the mark is what the rules demand, the
-      silence is what disclosure has earned — a required field nobody has reached says nothing
-- [ ] The email message is the FORMAT rule's, not the required rule's: the box is not empty, so
-      what is wrong with it is the address
-- [ ] Select all in Contact email, type `ada@example.com`, Tab: the message goes and the border
-      confirms, with no submit anywhere
-- [ ] Type anything into Summary and Tab: it confirms too, the ordinary way
-- [ ] Submit: the status line confirms it
-- [ ] *Start blank*: the boxes empty and all three confirmed borders — Title's, Contact email's
-      and Summary's — clear with them at once, nothing delaying a border behind its state class.
-      *Load saved draft* then replays the whole thing
-- [ ] **Colour check, both schemes:** the confirmed border on Title and the error border on
-      Contact email are legible side by side in light AND dark mode
+- [ ] Step 1: three empty boxes, three asterisks, and no borders or messages anywhere
+- [ ] Step 2: all three values arrive at once, and three different answers arrive with them.
+      Title takes the green border. Contact email takes the red one and says "That is not a
+      valid email address". Summary looks exactly as it did
+- [ ] Step 3: Summary is still marked required AND still silent. The mark is what the rules
+      demand. The silence is because nobody has reached the field, and a required field nobody
+      has reached says nothing. Read the step's Why line and confirm it matches what you saw
+- [ ] Step 4: the email message is the FORMAT rule's, not the required rule's. The box is not
+      empty, so what is wrong with it is the address
+- [ ] Step 5: the message goes and the border turns green, with no submit anywhere
+- [ ] Step 6: Summary turns green too, the ordinary way
+- [ ] Step 7: the status line confirms the submit
+- [ ] Steps 8 and 9: *Start blank* empties the boxes, and all three green borders clear with them
+      at once: Title's, Contact email's and Summary's. None lingers after its box empties.
+      *Load saved draft* then replays the whole of step 2
+- [ ] **Colour check, in both colour schemes.** After step 9, Title's green border and Contact
+      email's error border are legible side by side
 
 ### Normalize
 
-- [ ] `spaced   out  title` with two spaces before and after it + *Normalize now*: the raw value
-      line below snaps clean AND the INPUT BOX itself loses its spaces — box and model can never
-      show different text
-- [ ] Pad Title with spaces past 40 characters: "Title is 40 characters max" appears live;
-      *Normalize now* trims under the limit and the message clears AT ONCE — no tab-through or
-      submit needed
-- [ ] *Try it* step 3 verbatim — four spaces, `Meeting notes about the Q3 rollout`, four more
-      (42 raw, 34 trimmed) + *Normalize + submit*: trimming runs BEFORE validation, the 40-char
-      rule judges the cleaned value, and the submit SUCCEEDS (status line confirms)
-- [ ] All-spaces Title + *Normalize + submit*: trims to empty and ONLY "Title is required"
-      shows — no length message stacked alongside it, whatever the number of spaces
-- [ ] All three buttons fire on the FIRST click every time — no mid-click layout shift
-      swallowing the press
-- [ ] Body is a textarea; chrome and focus ring match the other fields, light + dark
-- [ ] Tick *Normalize automatically on submit*, type four spaces,
-      `Meeting notes about the Q3 rollout` and four more (42 raw, 34 trimmed), and click plain
-      *Submit* (not *Normalize + submit*): it succeeds with no manual step — the option trimmed it
-      first
-- [ ] Untick the box, replace Title with the same raw text, and click *Submit* again: BLOCKED
-      — "Title is 40 characters max" — the raw 42-character value is judged as typed, since
-      nothing trimmed it
+- [ ] Step 1: type `spaced   out  title` with two spaces before and after it, then click
+      *Normalize now*. The raw value line below snaps clean AND the Title box itself loses its
+      spaces. Box and model can never show different text
+- [ ] Steps 2 and 3: padding Title with spaces past 40 characters brings "Title is 40
+      characters max" as you type. *Normalize now* trims it under the limit, and the message
+      clears AT ONCE, with no Tab or submit needed
+- [ ] Steps 4 and 5: type exactly what step 4 gives (four spaces,
+      `Meeting notes about the Q3 rollout`, four more: 42 raw, 34 trimmed), then click
+      *Normalize + submit*. Trimming runs BEFORE validation, so the 40-character rule judges
+      the cleaned value. The submit SUCCEEDS, and the status line confirms it
+- [ ] Steps 6 and 7: an all-spaces Title plus *Normalize + submit* trims to empty. ONLY "Title
+      is required" shows, with no length message stacked beside it, whatever the number of
+      spaces
+- [ ] All three buttons fire on the FIRST click every time. No layout shift mid-click swallows
+      the press
+- [ ] Body is a textarea; its chrome and focus ring match the other fields in both colour schemes
+- [ ] Step 8: with *Normalize automatically on submit* ticked, four spaces,
+      `Meeting notes about the Q3 rollout` and four more (42 raw, 34 trimmed) go through on a
+      plain *Submit*. That is *Submit*, not *Normalize + submit*, with no manual step: the
+      option trimmed it first
+- [ ] Step 9: with the box unticked, the same raw text is BLOCKED by "Title is 40 characters
+      max". The raw 42-character value is judged as typed, since nothing trimmed it
 
 ### Localization
 
-- [ ] Empty submit in English: FluentValidation's own default answers for Full Name
-      ("'Full Name' must not be empty."), the resx message answers for Age
-- [ ] Switch to *Deutsch* — the page reloads — then submit empty: BOTH messages arrive in
-      German (FluentValidation's built-in default AND the resx `AgeRange` message)
-- [ ] `30` in Age and Tab: the range message clears on that commit alone. Replace it with `12`
-      and Tab again: it returns, in the active language
-- [ ] The line under the form reformats the long date and the grouped number per culture
-- [ ] After the reload the culture select PRESELECTS the stored culture (it does not snap
-      back to English)
-- [ ] Full cycle: store Deutsch → reload → switch back to English → reload — the choice
-      sticks each way, no stuck culture
-- [ ] Dark mode: the culture select's chrome (background, text, dropdown arrow) matches the
+- [ ] Watch the line under the form at steps 1, 3 and 7: it writes the long date and the
+      grouped number in each culture's own format
+- [ ] Step 2, in English: FluentValidation's own default answers for Full Name ("'Full Name'
+      must not be empty."). The resx message answers for Age
+- [ ] Steps 3 and 4: picking *Deutsch (Deutschland)* reloads the page. The empty submit then
+      brings BOTH messages in German: FluentValidation's built-in default AND the resx
+      `AgeRange` message
+- [ ] At step 3's reload, and again at step 7's, the *Messages and formats* picker PRESELECTS
+      the stored culture. It does not snap back to English
+- [ ] Steps 5 and 6: `30` in Age and Tab clears the range message on that change alone. `12`
+      and Tab brings it back, in the active language
+- [ ] Step 7 completes the full cycle: Deutsch stored at step 3, a reload, English stored, a
+      reload. The choice sticks each way, with no stuck culture
+- [ ] In both colour schemes, the picker's chrome (background, text, dropdown arrow) matches the
       other controls on the page
 
 ---
@@ -583,150 +681,189 @@ the Hosted demo section walks.
 
 ### Full workout
 
-One check per *Try it* step of the page (the API must be running). Work top to bottom: the
-steps build on each other.
+The API must be running. Walk the tour first, on a fresh load: it is the page's *Try it*, eleven
+steps in eight groups. Then reload and walk the full set below it, top to bottom. Those rows
+build on each other and check what the tour leaves to *How it works*.
+
+The tour:
+
+- [ ] *Try it* opens with the line about starting the API. Eight group headings follow, each over
+      its steps, numbered 1 to 11. They read "Save draft: the draft rules", "Contact email: an
+      async check", "Coupon code: the server's answer", "Catering: hidden fields", "Attendees: a
+      warning", "Sessions: a long list", "Ticket tier: a plain select" and "Venue region: Blazor's
+      own input". All read as small group titles in both colour schemes
+- [ ] **Save draft (step 1):** the status line names Dietary notes alone, though four other
+      required boxes are empty
+- [ ] **Contact email (step 2), in both colour schemes:** the spinner sits inside the box and
+      turns while "checking…" shows under it, then the message lands
+- [ ] **Coupon code (steps 3 and 4):** `BOGUS` puts the server's message on Coupon code alone.
+      `WELCOME10` clears it as the registration goes through
+- [ ] **Catering (steps 5 and 6):** the blocked submit names the form, not a field, in the error
+      summary. Ticking the box brings Dietary notes back empty and quiet until the submit shows
+      its message
+- [ ] **Attendees (step 7):** the warning appears below the list with the eleventh row, not
+      before
+- [ ] **Sessions (steps 8 and 9):** Session 150's message appears on the first Tab. The click on
+      its entry scrolls the list back to the row and lands focus in its box
+- [ ] **Ticket tier (step 10):** the message and the entry arrive as you pick, before any Tab
+- [ ] **Venue region (step 11):** the native message appears on Tab with no submit, and the
+      click lands focus back in the box
+- [ ] Each step ends with a "More on" link on its own indented line, in both colour schemes. After
+      step 11, follow each one and come back with the browser's Back button. Each opens the page
+      it names inside the app: Draft vs Submit, Async rules, Server round-trip, Progressive
+      disclosure, Severity levels, Virtualize + KeepRegistered, Wrapping a foreign control or
+      Vanilla interop
+
+The full set:
 
 - [ ] Load the page: **Ticket tier** already reads *General admission* (not *Choose…*), and
-      **Include catering** is already ticked — a first submit never complains about a decision
+      **Include catering** is already ticked. A first submit never complains about a decision
       the visitor was not asked to make
 - [ ] **Required marks at load.** Contact email, Event name, Event date, Dietary notes, Ticket
-      tier and Venue region wear the asterisk; Early-bird deadline, Description, Coupon code and
-      Catering headcount do not — every one of those labels carries the same indicator
+      tier and Venue region wear the asterisk. Early-bird deadline, Description, Coupon code and
+      Catering headcount do not. Every one of those labels carries the same required-mark
       component, so the rules alone decide the difference
-- [ ] Submit without filling anything in (step 2): every presence rule whose field is empty
-      answers at once — contact email, event name, event date, **dietary notes** and venue
-      region, five fields — and the summary lists them all
-- [ ] **Every summary entry lands.** Click each in turn: entries naming a Formidable input
-      focus that input; the **venue-region** entry focuses the NATIVE input (see the venue
-      checks below); and the **attendee** advisory focuses the Attendees fieldset, which owns
-      no input of its own. Nothing in the summary is a click that goes nowhere. (The form-level
-      gate entry is one more kind — step 7 raises it, and it is checked there)
-- [ ] **Keyboard vs mouse landing.** Tab to a summary entry and press Enter: the container that
-      takes the focus (Attendees fieldset, the form) shows an accent outline. Click the SAME
-      entry with the mouse: it scrolls and takes focus with NO outline — the cue is the scroll.
-      Then click stray page background or a fieldset's padding: nothing paints an outline
-- [ ] `taken@example.com` in Contact email: every keystroke commits, so each one hands the
-      check an address it has never seen — "checking…" sits on that field for ~300 ms, then
-      "That email is already registered" lands. Clear the box and type the same address again:
-      the other messages come and go as before, but NO "checking…" appears, since the memo
-      already holds an answer for every address you typed through (the page's memo keeps an
-      answer for five minutes; retype an address after that and "checking…" returns)
+- [ ] Submit without filling anything in: every presence rule whose field is empty answers at
+      once. That is five fields: contact email, event name, event date, **dietary notes** and
+      venue region. The error summary lists them all
+- [ ] **Every summary entry lands.** Click each in turn. Entries naming a Formidable input focus
+      that input. The **venue-region** entry focuses the NATIVE input (see the venue checks
+      below). The **attendees** info entry focuses the Attendees fieldset, which owns no input
+      of its own. Nothing in the error summary is a click that goes nowhere. The form-level gate
+      entry is one more kind; the gate rows below raise it and check it
+- [ ] **Keyboard vs mouse landing.** Tab to the attendees info entry in the error summary and
+      press Enter. The Attendees fieldset takes the focus and shows an accent outline in both
+      colour schemes; the form's entry comes with the gate rows. Click the SAME entry with the
+      mouse: it scrolls and takes focus with NO outline. Then click stray page background or a
+      fieldset's padding: nothing paints an outline
+- [ ] `taken@example.com` in Contact email (the tour's step 2): each keystroke asks about a new
+      address. "checking…" shows for about 300 ms, then "That email is already registered".
+      Clear the box and type it again: the other messages come and go, but NO "checking…"
+      appears. This page's memo keeps each address's answer for five minutes (Async rules' memo
+      keeps its own for ten seconds), so only a retype after that brings "checking…" back
 - [ ] **A click that Submit's own blur displaces still lands.** Put the cursor in a field whose
-      message will appear ABOVE the button, leave it invalid, and click *Submit* without tabbing
-      out: the message appears, the button moves down under a still pointer, and the submit
-      still happens (the blocked-submit summary lists everything). The guard re-delivers a click
-      whose press and release drifted up to 6 px; a deliberate drag of more than that is left
-      alone, and `ClickRecovery = DisplacedClickRecovery.None` turns the guard off
+      message will appear ABOVE the button, and leave it invalid. Click *Submit registration*
+      without pressing Tab first. The message appears and the button moves down under a still
+      pointer, but the submit still happens: the error summary lists everything
+- [ ] **The displaced-click guard's limits.** The guard (Formidable's re-delivery of a click
+      the moving button lost) re-delivers one whose press and release drifted up to 6 px. A
+      deliberate drag of more than that is left alone. Turning the guard off
+      (`ClickRecovery = DisplacedClickRecovery.None`) takes a code change, so that half is
+      optional
 - [ ] **Dates commit on blur, not per keystroke.** In **Event date**, type the year segment
       SLOWLY (`2`, `0`, `2`, `6`): no message appears while you are mid-year. Tab out: only
       then does the field get a verdict, and a complete date passes cleanly
 - [ ] **A pure tab-through shows nothing.** Tab into **Event date** and straight out again
-      without typing: no message, no state class on the box, no pending flash — a blur with no
-      committed change behind it never notifies the engine, in this mode like every other
+      without typing. No message appears, the box's border does not change, and no "checking…"
+      flashes. Leaving a box with no change behind it tells the form nothing, here as everywhere
 - [ ] Now type a deliberately garbled year (e.g. `0019`) and tab out: it is REJECTED as not a
       real date (the 1900–2100 range), not silently accepted. Fix it and the message goes
-- [ ] Set **Early-bird deadline** AFTER **Event date** and tab out: the cross-field rule
-      objects; move it back on or before the event date and it clears — the rule runs only once
-      both dates parse
-- [ ] Step 4: replace Contact email with a fresh address, fill **Event name**, **Event date**,
-      **Dietary notes** and **Venue region** (five fields with Contact email), then submit with
-      coupon `BOGUS`. The coupon verdict always arrives LAST by design — the POST happens only
-      after a valid client submit — so the server's 400 lands inline on Coupon code with the
-      rest of the form already clean. Change to `WELCOME10` and resubmit: the new verdict
-      REPLACES the old one (no stale coupon error) and the registration is accepted
-- [ ] Step 5: with everything else valid, clear Dietary notes and tab out — "Dietary notes are
-      required for catering" answers your edit as soon as that edit's live pass does
-- [ ] Step 6: untick *Include catering* — the field leaves and takes the message with it,
-      inline and summary alike
-- [ ] Step 7: submit — the form blocks with "information that is not currently displayed is
-      invalid": the one rule that can block has nowhere to show, and the submit that went
-      through at step 4 cleared what earlier submits had revealed, so nothing on screen
-      explains it
-- [ ] **The gate survives editing (step 8).** While the form stays blocked, type into
-      Description and Tab: the box takes the confirmed border, which is the sign a pass has
-      answered for it — and the form-level entry is still in the summary above. No refresh can
-      retire the gate; an error reaching the screen does, and Description has no rule of its own to
-      put one there. A submit that can show the error, or one that passes, re-decides it
+- [ ] Set **Early-bird deadline** AFTER **Event date** and tab out: the cross-field rule objects.
+      Move it back on or before the event date and it clears. The rule runs only once both
+      dates are real dates
+- [ ] The tour's step 3: replace Contact email with a fresh address. Fill **Event name**,
+      **Event date**, **Dietary notes** and **Venue region** (five fields with Contact email),
+      then submit with coupon `BOGUS`. The coupon's answer always arrives LAST by design, since
+      the page posts only after a submit finds nothing to block it. So the server's 400 lands
+      inline on Coupon code with the rest of the form already clean
+- [ ] The tour's step 4: change to `WELCOME10` and resubmit. The new answer REPLACES the old one,
+      with no stale coupon error, and the registration is accepted
+- [ ] With everything else valid, clear Dietary notes and press Tab. "Dietary notes are required
+      for catering" answers your edit as soon as its check does, with no submit
+- [ ] Untick *Include catering*: the field leaves and takes its message with it, under the box
+      and in the error summary alike
+- [ ] Submit: the form blocks with "information that is not currently displayed is invalid"
+      (the tour's step 5). The one rule that can block has nowhere to show. The accepted submit
+      above cleared what earlier submits had shown, so nothing on screen explains it
+- [ ] **The gate survives editing.** While the form stays blocked, type into Description and
+      press Tab. The box turns green, the sign a check answered for it, yet the form-level entry
+      stays in the error summary. No re-check retires the gate; an error reaching the screen
+      does, and Description has no rule to put one there. A submit that can show the error, or
+      one that passes, decides it again
 - [ ] **The gate entry lands too.** Click that form-level entry: the FORM scrolls into view and
-      takes focus. From the KEYBOARD it shows the accent outline; by MOUSE, the scroll alone
-- [ ] **Disclosure (steps 9-10).** Re-tick *Include catering* — the note renders empty and stays
-      quiet — and submit: its message appears inline and in the summary and the form-level line
-      gives way to it
-- [ ] **Union (steps 11-13).** Untick once more: the field goes and takes its inline message
-      with it, but the summary keeps the entry. Submit again and it is still listed — once a
-      submit has shown a field's error, its entry stands until the answer comes clean, and the
-      field stays watched until the form passes or resets. Click that entry: the field it names
-      is off the page, so focus lands on **Include catering** instead, the checkbox whose state
-      is the reason the field is gone. Re-tick and fill in a note before moving on
-- [ ] `nope@` in Contact email + *Save draft*: the draft answers about the always-on bucket
-      only, and the malformed address is what it names — the note is back in. Now clear **Event
-      name** and Tab: "Event name is required" lands as soon as that edit's live pass does,
-      because you engaged that field. Save the draft again and the status line still never
-      mentions it, since a draft save runs the Draft profile and that presence rule is not in
-      it. Type Event name back in
-- [ ] *Add attendee*: the row appears with the required mark on Name and none on Email — both
-      carry the indicator; the rules decide — and stays silent even though Name's rule is
-      already failing: a mark is not a message, and nothing has engaged the row yet. Type a
-      name and Tab, then come back, clear it and Tab again: "Attendee name is required" appears as
-      soon as that edit's live pass does, inline and in the summary, with NO submit; clicking that
-      entry focuses that row's Name
-- [ ] Fill that Name, then add ten more named rows: past ten the warning "More than 10
-      attendees needs approval — submission is not blocked" appears below the list
-- [ ] With 11 rows the Attendees fieldset is tall: click the summary's attendee warning entry —
-      the page scrolls so the warning message itself lands in view, roughly centred in the
-      viewport, rather than aligning the tall fieldset's top and leaving the message off-screen
+      takes focus. From the KEYBOARD it shows the accent outline in both colour schemes; by MOUSE,
+      the scroll alone
+- [ ] **Disclosure (the tour's step 6).** Re-tick *Include catering*: the note comes back empty
+      and stays quiet. Submit, and its message appears inline and in the error summary, and the
+      form-level line gives way to it
+- [ ] **A shown error stays listed.** Untick once more: the field goes and takes its inline
+      message with it, but the error summary keeps the entry. Submit again and it is still listed.
+      Once a submit has shown a field's error, the form keeps listing it until a submit goes
+      through or the form resets
+- [ ] **Where that entry lands.** Click that entry: the field it names is off the page, so
+      focus lands on **Include catering** instead. That is the checkbox whose state is the
+      reason the field is gone. Re-tick and fill in a note before moving on
+- [ ] `nope@` in Contact email, then *Save draft* (a draft save, as in the tour's step 1). The
+      draft checks the draft rules only, and the malformed address is what it names, since the
+      note is back in
+- [ ] Now clear **Event name** and press Tab. "Event name is required" lands as soon as that
+      edit's check answers, because you changed that field. Save the draft again, and the
+      status line still never mentions it. A draft save runs the Draft profile, and that
+      presence rule is not in it. Type Event name back in
+- [ ] *Add attendee*: the row appears with the required mark on Name and none on Email; both
+      carry the mark's component, and the rules decide. It stays silent though Name's rule already
+      fails: a mark is not a message, and nothing has changed the row yet
+- [ ] Type a name into that row and press Tab, then come back, clear it and press Tab again.
+      "Attendee name is required" appears inline and in the error summary as soon as that
+      edit's check answers, with NO submit. Clicking that entry focuses that row's Name
+- [ ] Fill that Name, then add ten more named rows (the tour's step 7 adds blank ones). Past
+      ten, the warning that opens "More than 10 attendees needs approval" appears below the
+      list. It goes on to say the submission is not blocked
+- [ ] With 11 rows the Attendees fieldset is tall. Click the warning's entry in the error
+      summary: the page scrolls so the warning message itself lands in view, roughly centred in
+      the window. It does not align the tall fieldset's top and leave the message off-screen
       below
-- [ ] Contact email is still `nope@` and is the only thing left broken: put a real address back,
+- [ ] Contact email is still `nope@` and is the only thing left broken. Put a real address back,
       check catering is still ticked with a note in it and **Venue region** still filled, then
-      submit — the warning does NOT block, and the status line confirms the registration was
+      submit. The warning does NOT block, and the status line confirms the registration was
       accepted
-- [ ] *Remove* every row: the warning gives way to the info "You can add attendees now or
-      after registering"
-- [ ] Scroll the session panel to the bottom, set the last session's Seats to `900` and Tab: the
-      row objects on the **FIRST tab-out** — "Seats must be a whole number between 0 and 500"
-      appears as soon as that edit's live pass does, with no second edit needed to shake it
-      loose. Repeat on another row to be sure it is not a one-off, then set THAT row back to `0`
-      too — leaving it dirty would let its error outrank Ticket tier's in document order and
-      steal the focus at step 21
-- [ ] Scroll back to the top and submit: blocked, the summary carries the same seats message
-      for a row nowhere on screen — **and the submit's own focus reaches it too**: with no click
-      at all, the panel scrolls itself, Virtualize renders the row, and focus lands in its Seats
-      box
-- [ ] Scroll the panel back to the top, then click that summary entry: the panel scrolls
-      itself, Virtualize renders the row, focus lands in its Seats box. Set it back to `0` —
-      that edit's live pass takes both the inline message and the summary entry away
-- [ ] Set **Ticket tier** to the blank *Choose…*: choosing is a committed change, so the foreign
-      select takes the same inline message and summary entry as any wrapped input, with NO
-      submit. Tab out and the red border joins them — a focused box wears the accent border
-      whatever its verdict, so the severity one waits for the blur. Clicking that summary entry
-      moves focus INTO the select
-- [ ] Add a word to **Venue region**, which still holds what you typed earlier, and tab out: the
-      blur's own live pass is what confirms it — no submit needed first — so the native input
-      wears the same "confirmed" border a Formidable input shows. The css class provider serves
-      both kinds of input
-- [ ] Clear **Venue region** and Tab (step 23): the native `ValidationMessage` shows "Venue
-      region is required" with NO submit — the live channel's verdict reaches the EditContext's
-      own message store — the summary lists it on the same terms, and clicking THAT entry
-      **lands in the native input** — the page renders it the field's id, which is the whole of
-      what the focus service looks for. No console error, no lost scroll position
+- [ ] *Remove* every row: the warning gives way to the info "You can add attendees now or after
+      registering"
+- [ ] Scroll the Sessions list to the bottom, set the last session's Seats to `900` and press
+      Tab (the tour's step 8). The row objects on the **FIRST Tab**: "Seats must be a whole
+      number between 0 and 500" appears as soon as that edit's check answers. No second edit is
+      needed to shake it loose
+- [ ] Repeat on another row to be sure it is not a one-off, then set THAT row back to `0`. The
+      next two rows expect the last session's error alone: left failing, another row's error
+      would come first in document order and take the submit's focus
+- [ ] Scroll the list back to its top and submit. It is blocked, and the error summary carries
+      the same seats message for a row nowhere on screen. **The submit's own focus reaches it
+      too**: with no click at all, the list scrolls itself, Virtualize renders the row, and
+      focus lands in its Seats box
+- [ ] Scroll the list back to its top, then click that entry in the error summary (the tour's
+      step 9). The list scrolls itself, Virtualize renders the row, and focus lands in its Seats
+      box. Set it back to `0`: that edit's check takes both the inline message and the entry
+      away
+- [ ] Set **Ticket tier** to the blank *Choose…* (the tour's step 10). Choosing is a change, so
+      the foreign select takes the same inline message and error-summary entry as any wrapped
+      input, with NO submit. Tab out and the red border joins them: a focused box wears the
+      accent border whatever its state, so the red one waits until you leave. Clicking that
+      entry moves focus INTO the select
+- [ ] Add a word to **Venue region**, which still holds what you typed earlier, and tab out. The
+      check that change starts turns it green, with no submit needed first. So, in both colour
+      schemes, the native input wears the same green border a Formidable input shows: Formidable's
+      `FieldCssClassProvider` serves both kinds of input
+- [ ] Clear **Venue region** and press Tab (the tour's step 11). The native `ValidationMessage`
+      shows "Venue region is required" with NO submit, since Formidable writes each error into
+      the form's `EditContext`. The error summary lists it too. Clicking THAT entry **lands in
+      the native input**: the page gives it the field's id, which is all a click in the error
+      summary looks for. No error in devtools' console, no lost scroll position
 - [ ] While that error stands, inspect the native input: `aria-invalid="true"`, an
       `aria-describedby` naming the message below it, and `aria-required="true"` beside them.
-      Fill the region and blur: `aria-invalid` and `aria-describedby` both disappear (each is
-      conditional, and both stay current without a resubmit — the second names the message
-      element, which is not on the page while there is no message) while `aria-required`
-      stays: the rules demand the value whether the box is full or empty
-- [ ] **Message-bearing fields separate from the next field — both shapes.** With several
-      errors showing at once, check the two idioms side by side: a message rendered INSIDE its
-      field box (Event name, both dates, Description, Coupon code) and one rendered as the
-      field's SIBLING (Contact email, Ticket tier). In both, the message sits tight under its
-      own input and leaves a clear gap before the NEXT label — no message is ever flush against
-      the label below it, and the two shapes read alike down the form
-- [ ] Whole page in BOTH light and dark mode: fieldset legends, the scrolling session panel's
-      border/background, the foreign select's chrome, the focus outlines on the Attendees
-      fieldset and the form, and the summary's severity colours all read correctly; nothing is
-      a light island in dark mode; date inputs' calendar icons legible in dark (Firefox renders
-      picker chrome differently from Chromium — worth one glance; the Chromium-only E2E suite
-      never sees it)
+      Fill the region and tab out: `aria-invalid` and `aria-describedby` both disappear, with no
+      resubmit. Each is conditional, and the second names the message element, which is not on
+      the page while there is no message. `aria-required` stays, because the rules demand the
+      value whether the box is full or empty
+- [ ] **Message-bearing fields separate from the next field, in both shapes and both colour
+      schemes.** With several errors showing, compare two idioms. Event name, both dates,
+      Description and Coupon code render a message INSIDE the field box; Contact email and Ticket
+      tier render it as the field's SIBLING. In both, the message sits tight under its input, with
+      a clear gap, never flush, before the NEXT label. Both shapes read alike
+- [ ] Whole page, in both colour schemes: fieldset legends, the Sessions list's border and
+      background, and the foreign select's chrome read correctly. So do the focus outlines on the
+      Attendees fieldset and the form, and the summary's severity colours. Nothing is a light
+      island in dark mode. Date inputs' calendar icons are legible in dark; give Firefox one
+      glance too, since the Chromium-only E2E suite never sees its picker chrome
 
 ---
 
@@ -734,39 +871,40 @@ steps build on each other.
 
 ### Recipes
 
-A reading check, not a browser check — do it from the repo.
+A reading check, not a browser check: do it from the repo.
 
 - [ ] `README.md`'s doc table carries the row *"I want to…" answered with code, then what
-      explains it, plus a sample where one exists* linking to `docs/recipes.md`; follow the
+      explains it, plus a sample where one exists*, linking to `docs/recipes.md`. Follow the
       link and it resolves
-- [ ] `docs/recipes.md` opens with an intro pointing to Troubleshooting, then nineteen
-      unnumbered `### I want…` headings; `docs/troubleshooting.md` opens with a scope statement,
-      then a symptom table of fifteen rows
+- [ ] `docs/recipes.md` opens with an intro pointing to Troubleshooting, then twenty-one
+      unnumbered `### I want…` headings. `docs/troubleshooting.md` opens with a scope
+      statement, then a symptom table of thirty-six rows
 - [ ] Spot-check the recipe titled **"I want every summary entry to land somewhere"** against
-      what you just saw on /workout, /vanilla, /collections and /disclosure — the ids and the
+      what you just saw on /workout, /vanilla, /collections and /disclosure. The ids and the
       containers match the pages
 - [ ] Spot-check the recipe titled **"I want a modal dialog to announce a blocked submit"**
-      against what you just watched on /dialog-submit — the two rules the page's own toggles
-      break are things you saw go wrong when you flipped them, and the summary parameters it
-      names are the ones that page sets
-- [ ] Spot-check the recipe titled **"I want to validate while typing, on blur, or only at
-      submit"** — its table of `UpdateOn` against what the live channel selects matches what
-      /async, /field-state and /profiles (Summary with `WaitForSubmit`) actually do, and
-      `docs/troubleshooting.md`'s row *"A date input reports impossible years while it is being
-      typed"* matches the workout's date behaviour you just walked
+      against what you just watched on /dialog-submit. The two rules the page's own toggles
+      break are things you saw go wrong when you flipped them. The summary parameters it names
+      are the ones that page sets
+- [ ] Spot-check the recipe titled
+      **"I want to validate while typing, on blur, or only at submit"**. Its table of `UpdateOn`
+      against what the live channel selects matches what /async, /field-state and /profiles
+      (Summary with `WaitForSubmit`) actually do. And `docs/troubleshooting.md`'s row
+      *"A date input reports impossible years while it is being typed"* matches the workout's
+      date behaviour you just walked
 - [ ] Every recipe answers with code first, then links to what explains it in full, with a
-      sample page where one demonstrates it, and no recipe contradicts the pages it names
+      sample page where one demonstrates it. No recipe contradicts the pages it names
 
 ### Quickstart and testing
 
 Also reading checks, done from the repo.
 
-- [ ] `docs/quickstart.md` builds a form out of three files — one page holding the model, the
-      validator and the markup together, one `_Imports.razor` line, two `Program.cs`
-      registrations — and its Recap says when to move the model and the validator out
+- [ ] `docs/quickstart.md` builds a form out of three files: one page holding the model, the
+      validator and the markup together, one `_Imports.razor` line, and two `Program.cs`
+      registrations. Its Recap says when to move the model and the validator out
 - [ ] The README's *5-minute quickstart* teaches the same three files, in the same order, and
       links on to `docs/quickstart.md` and the sample's Quickstart page (the app's home page)
-- [ ] `docs/testing.md`'s **Testing your forms** section comes before the suite walk and covers
+- [ ] `docs/testing.md`'s **Testing your forms** section comes before the suite walk. It covers
       three things in order: validating a model with no renderer, rendering the form under bUnit
       with doubles for the focus and DOM-sync services, and waiting for a verdict that lands a
       render later
@@ -775,22 +913,28 @@ Also reading checks, done from the repo.
 
 ## Hosted demo
 
-Build the Pages artifact from the repo root (`pwsh build-pages.ps1`) — this also starts a local
-static file server — then walk the rows below against it. No API needs to be running — the artifact
-answers its own requests.
+Build the Pages artifact from the repo root (`pwsh build-pages.ps1`, which also starts a local
+static file server), then walk the rows below against <http://localhost:8080/formidable/>. No
+API needs to be running: the artifact answers its own requests.
 
-- [ ] `/server` and `/workout` behave exactly as they do against the real API: empty submits
-      land the same inline messages, `/workout`'s coupon check rejects `BOGUS` and accepts
-      `WELCOME10`, and every other page is unchanged except `/mudblazor`, which shows a note
-      (the last row)
-- [ ] Both pages show the demo note under their heading ("This hosted demo has no server behind
-      it — an in-browser handler answers with the same validators and the same response shapes
-      the real API would send" — verbatim on `/server`; `/workout`'s ends "…coupon rejection
-      included")
-- [ ] Both pages' *Try it* list opens with the demo variant of its first step ("No server to
-      start on this hosted demo…") — the "Start the API first" step is gone, not just hidden
-- [ ] Open `/mudblazor` from the sidebar, then again by typing its address: both times the page
+- [ ] `/server` and `/workout` behave exactly as they do against the real API. Empty submits
+      land the same inline messages, and `/workout`'s coupon check rejects `BOGUS` and accepts
+      `WELCOME10`. Every other page is unchanged except `/mudblazor`, which shows a note (the
+      last two rows)
+- [ ] Both pages show the demo note under their intro. On `/server` it reads, verbatim, "This
+      hosted demo has no server behind it: an in-browser handler answers with the same
+      validators and the same response shapes the real API would send". `/workout`'s ends
+      "…coupon rejection included"
+- [ ] Both pages' *Try it* opens with the demo line above the steps ("No server to start on this
+      hosted demo…"). The local line telling you to start the API is gone, not just hidden, and
+      the steps still number from 1
+- [ ] Every link from one sample page to another stays inside the demo. That covers the Full
+      workout tour's "More on" links and the links in a page's intro or *How it works*, such as
+      Draft vs Submit's link to Custom profiles. Each opens the page it names with the address
+      still under `/formidable/`, never the site's root
+- [ ] Open `/mudblazor` from the sidebar, then again by typing its address. Both times, the page
       under the "Fitting MudBlazor" heading is a note, not a form. It says Formidable supports
-      MudBlazor and that the page runs when you run the sample locally, and gives the reason this
-      demo leaves it out. Its source link opens `MudBlazorFitting.razor` on GitHub, and its README
-      link opens the README's "Run the sample locally" section
+      MudBlazor and that the page runs when you run the sample locally, and gives the reason
+      this demo leaves it out
+- [ ] The note's source link opens `MudBlazorFitting.razor` on GitHub, and its README link opens
+      the README's "Run the sample locally" section

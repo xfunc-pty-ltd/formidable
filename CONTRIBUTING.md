@@ -88,10 +88,13 @@ The API listens on `http://localhost:5180`; the Blazor app is at `http://localho
 your change touches the engine, the component kit, or the server adapters, find the sample page
 that already exercises that area (see the README's [Learn more](README.md#documentation) table for
 which doc, and therefore which sample route, covers what) and check it by hand before opening
-a PR, even if the automated tests pass. The [manual checklist](samples/MANUAL-CHECKLIST.md)
-is the committed walkthrough checklist covering every sample page in both light and dark OS
-colour schemes; [Recipes](docs/recipes.md) is a task-oriented "I want to…" index if
-you're trying to find where a particular behaviour lives before changing it.
+a PR, even if the automated tests pass.
+
+The [manual checklist](samples/MANUAL-CHECKLIST.md) is the committed walkthrough checklist
+covering every sample page. It is walked once, in either light or dark OS colour scheme, and each
+row that asks for both colour schemes is checked again in the other. [Recipes](docs/recipes.md)
+is a task-oriented "I want to…" index if you're trying to find where a particular behaviour lives
+before changing it.
 
 ## How to contribute a change
 
