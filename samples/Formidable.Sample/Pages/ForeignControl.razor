@@ -28,7 +28,7 @@
 
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
-            <label for="@field.ElementId">Colour</label>
+            <label for="@field.ElementId">Colour <FormidableRequiredIndicator For="() => _order.Colour" /></label>
             <select @attributes="field.InputAttributes"
                     value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
                 <option value="">Choose…</option>

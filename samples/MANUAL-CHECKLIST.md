@@ -35,6 +35,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
       the same 0.2 s and appears instantly under reduce-motion)
 - [ ] Hovering a summary row tints only the entry text, a pill sized to hug it — never a
       full-width bar across the row
+- [ ] Each field the form requires carries an asterisk beside its label (one per row in a
+      list), legible in both light and dark mode. Fitting MudBlazor is the one page without
+      marks, and a rule on that page says why
 
 ## Navigation
 
@@ -103,6 +106,9 @@ Then open <http://localhost:5181>. Sections follow the sidebar's grouping.
 
 ### Custom profiles
 
+- [ ] Before typing anything, with *Standard submit* selected: Title, Slug, Category, Read
+      minutes and Publish date each carry an asterisk, and Review note has none. Switch to
+      *Admin review*: Review note gains one. Switch back to *Standard submit* before the next row
 - [ ] With *Standard submit* selected: Title + Slug + Category + Read minutes + Publish date
       filled, Review note empty — submit goes through
 - [ ] Switch to *Admin review*: the form RESETS. BEFORE submitting anything, type into Review

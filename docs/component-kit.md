@@ -20,7 +20,7 @@ and the behaviour a signature does not give away.
 | [`FormidableInputDate<TValue>`](#formidableinputdatetvalue) | input | An `<input type="date">` formatted and parsed through the invariant culture. | [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`Publish date`, under `UpdateOn="OnBlur"`) |
 | [`FormidableFieldMessage<TValue>`](#formidablefieldmessagetvalue) | message | One field's current issues, any severity, as a persistent list. | [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor) |
 | [`FormidableModelMessage`](#formidablemodelmessage) | message | A message list for verdicts about the form rather than about any field. | [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) (*Without a summary*: submit with details collapsed) |
-| [`FormidableRequiredIndicator<TValue>`](#formidablerequiredindicatortvalue) | indicator | Marks a field the submit profile demands a value for. | [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (kit, foreign, native and row placements) |
+| [`FormidableRequiredIndicator<TValue>`](#formidablerequiredindicatortvalue) | indicator | Marks a field the submit profile demands a value for. | [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (kit, foreign, native and row placements); [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (the marks follow the profile the picker sets) |
 | [`FormidableSummary`](#formidablesummary) | summary | The visible issues, grouped by severity, each entry focusing its field. | [`/summary-shape`](../samples/Formidable.Sample/Pages/SummaryShape.razor) (toggles `ItemTemplate`, `GroupByField`, `MaxItems` and `OverflowTemplate`); [`/severity`](../samples/Formidable.Sample/Pages/SeverityLevels.razor) (two disjoint summaries, both with headings) |
 | [`FormidableValidator<TModel>`](#formidablevalidatortmodel-attaching-to-an-existing-form) | root | The root that attaches to an `EditForm` the page already owns. | [`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) (a plain `InputText` beside a Formidable-managed list) |
 | [`FormidableCollectionMessage<TValue>`](#formidablecollectionmessagetvalue) | message | `FormidableFieldMessage`'s sibling for a collection-level rule, registering its own path. | [`/collections`](../samples/Formidable.Sample/Pages/Collections.razor) |
@@ -94,9 +94,9 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
         <FormidableSummary />
     </div>
 
-    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+    <div class="field"><label>Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText @bind-Value="_contact.Name" /></label>
         <FormidableFieldMessage For="() => _contact.Name" /></div>
-    <div class="field"><label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
+    <div class="field"><label>Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText @bind-Value="_contact.Email" /></label>
         <FormidableFieldMessage For="() => _contact.Email" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>
@@ -292,7 +292,7 @@ Every input here takes these parameters; the input sections below list only what
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered element, ahead of every value the component computes. |
 
 ```razor
-<div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+<div class="field"><label>Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText @bind-Value="_contact.Name" /></label>
     <FormidableFieldMessage For="() => _contact.Name" /></div>
 ```
 
@@ -450,7 +450,7 @@ always a string, and the field it drives usually is not.
 
 ```razor
 <div class="field">
-    <label for="@CategoryId">Category</label>
+    <label for="@CategoryId">Category <FormidableRequiredIndicator For="() => _post.Category" /></label>
     <FormidableInputSelect @bind-Value="_post.Category" UpdateOn="InputUpdateMode.OnBlur">
         <option value="">Choose…</option>
         <option>Announcement</option>
@@ -510,7 +510,7 @@ comma-decimal culture that pairing reads `12.5` as `125` rather than failing lou
 no parameters of its own to [the shared set](#formidableinputtext-and-formidableinputbasetvalue).
 
 ```razor
-<div class="field"><label>Read minutes <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
+<div class="field"><label>Read minutes <FormidableRequiredIndicator For="() => _post.ReadMinutes" /> <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
     <FormidableFieldMessage For="() => _post.ReadMinutes" /></div>
 ```
 
@@ -548,7 +548,7 @@ format string under `CultureInfo.InvariantCulture`. It adds no parameters of its
 [the shared set](#formidableinputtext-and-formidableinputbasetvalue).
 
 ```razor
-<div class="field"><label>Publish date <FormidableInputDate @bind-Value="_post.PublishDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
+<div class="field"><label>Publish date <FormidableRequiredIndicator For="() => _post.PublishDate" /> <FormidableInputDate @bind-Value="_post.PublishDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
     <FormidableFieldMessage For="() => _post.PublishDate" /></div>
 ```
 
@@ -583,7 +583,7 @@ for this component and every other input.
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<ul>`, under the three positions below. |
 
 ```razor
-<div class="field"><label>Ticket reference <FormidableInputText @bind-Value="_ticket.Reference" /></label>
+<div class="field"><label>Ticket reference <FormidableRequiredIndicator For="() => _ticket.Reference" /> <FormidableInputText @bind-Value="_ticket.Reference" /></label>
     <FormidableFieldMessage For="() => _ticket.Reference" /></div>
 ```
 
@@ -1235,7 +1235,7 @@ know how to, wrap itself):
 
     <FormidableField For="() => _order.Colour" Context="field">
         <div class="field">
-            <label for="@field.ElementId">Colour</label>
+            <label for="@field.ElementId">Colour <FormidableRequiredIndicator For="() => _order.Colour" /></label>
             <select @attributes="field.InputAttributes"
                     value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
                 <option value="">Choose…</option>
@@ -1463,7 +1463,7 @@ by a click:
     <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
             <div class="field" @key="gadget">
-                <label>Serial
+                <label>Serial <FormidableRequiredIndicator For="() => gadget.Serial" />
                     <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FormidableFieldMessage For="() => gadget.Serial" />
@@ -1526,7 +1526,7 @@ same form:
     </div>
 
     <div class="field">
-        <label>Nickname (native InputText)
+        <label>Nickname (native InputText) <FormidableRequiredIndicator For="() => _order.Nickname" />
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
@@ -1536,7 +1536,7 @@ same form:
     </div>
 
     <div class="field">
-        <label>Colour (Formidable input)
+        <label>Colour (Formidable input) <FormidableRequiredIndicator For="() => _order.Colour" />
             <FormidableInputText @bind-Value="_order.Colour" /></label>
         <FormidableFieldMessage For="() => _order.Colour" />
     </div>

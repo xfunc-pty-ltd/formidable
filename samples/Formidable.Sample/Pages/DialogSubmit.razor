@@ -36,17 +36,17 @@
 </div>
 
 <FormidableForm @ref="_form" Model="_request" OnValidSubmit="HandleValid" OnInvalidSubmit="AnnounceAsync">
-    <div class="field"><label>Invoice reference <FormidableInputText @bind-Value="_request.Reference" /></label>
+    <div class="field"><label>Invoice reference <FormidableRequiredIndicator For="() => _request.Reference" /> <FormidableInputText @bind-Value="_request.Reference" /></label>
         <FormidableFieldMessage For="() => _request.Reference" /></div>
-    <div class="field"><label>Supplier <FormidableInputText @bind-Value="_request.SupplierName" /></label>
+    <div class="field"><label>Supplier <FormidableRequiredIndicator For="() => _request.SupplierName" /> <FormidableInputText @bind-Value="_request.SupplierName" /></label>
         <FormidableFieldMessage For="() => _request.SupplierName" /></div>
-    <div class="field"><label>Supplier email <FormidableInputText @bind-Value="_request.SupplierEmail" /></label>
+    <div class="field"><label>Supplier email <FormidableRequiredIndicator For="() => _request.SupplierEmail" /> <FormidableInputText @bind-Value="_request.SupplierEmail" /></label>
         <FormidableFieldMessage For="() => _request.SupplierEmail" /></div>
-    <div class="field"><label>Cost centre <FormidableInputText @bind-Value="_request.CostCentre" /></label>
+    <div class="field"><label>Cost centre <FormidableRequiredIndicator For="() => _request.CostCentre" /> <FormidableInputText @bind-Value="_request.CostCentre" /></label>
         <FormidableFieldMessage For="() => _request.CostCentre" /></div>
     <div class="field"><label>Amount <FormidableInputNumber @bind-Value="_request.Amount" /></label>
         <FormidableFieldMessage For="() => _request.Amount" /></div>
-    <div class="field"><label>Description <FormidableInputTextArea @bind-Value="_request.Description" /></label>
+    <div class="field"><label>Description <FormidableRequiredIndicator For="() => _request.Description" /> <FormidableInputTextArea @bind-Value="_request.Description" /></label>
         <FormidableFieldMessage For="() => _request.Description" /></div>
 
     <div class="actions">

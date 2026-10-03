@@ -32,7 +32,7 @@
     <div class="scroll-panel">
         <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
             <div class="field" @key="gadget">
-                <label>Serial
+                <label>Serial <FormidableRequiredIndicator For="() => gadget.Serial" />
                     <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
                 </label>
                 <FormidableFieldMessage For="() => gadget.Serial" />

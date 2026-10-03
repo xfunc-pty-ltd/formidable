@@ -37,7 +37,7 @@
     {
         <fieldset @key="team">
             <legend>Team</legend>
-            <div class="field"><label>Name <FormidableInputText @bind-Value="team.Name" /></label>
+            <div class="field"><label>Name <FormidableRequiredIndicator For="() => team.Name" /> <FormidableInputText @bind-Value="team.Name" /></label>
                 <FormidableFieldMessage For="() => team.Name" /></div>
 
             <FormidableCollectionMessage For="() => team.Members" />
@@ -45,7 +45,7 @@
                 @foreach (var member in team.Members)
                 {
                     <li class="field" @key="member">
-                        <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+                        <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
                         <FormidableFieldMessage For="() => member.Alias" />
                     </li>
                 }

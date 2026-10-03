@@ -42,7 +42,7 @@
         </div>
 
         <div class="field">
-            <label>Submitted by <InputText @bind-Value="_report.SubmitterName" id="@_submitterElementId" aria-describedby="@SubmitterAriaDescribedBy" aria-required="@SubmitterAriaRequired" /></label>
+            <label>Submitted by <FormidableRequiredIndicator For="() => _report.SubmitterName" /> <InputText @bind-Value="_report.SubmitterName" id="@_submitterElementId" aria-describedby="@SubmitterAriaDescribedBy" aria-required="@SubmitterAriaRequired" /></label>
             <ValidationMessage For="() => _report.SubmitterName" id="@SubmitterMessagesId" />
             <FormidableFieldAnchor For="() => _report.SubmitterName" />
         </div>
@@ -51,7 +51,7 @@
             @foreach (var line in _report.Lines)
             {
                 <li class="field" @key="line">
-                    <label>Description <FormidableInputText @bind-Value="line.Description" /></label>
+                    <label>Description <FormidableRequiredIndicator For="() => line.Description" /> <FormidableInputText @bind-Value="line.Description" /></label>
                     <FormidableFieldMessage For="() => line.Description" />
                     <div class="actions">
                         <button type="button" @onclick="() => RemoveLine(line)">Remove</button>

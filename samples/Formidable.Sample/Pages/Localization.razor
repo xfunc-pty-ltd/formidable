@@ -39,7 +39,7 @@
         <FormidableSummary />
     </div>
 
-    <div class="field"><label>Full Name <FormidableInputText @bind-Value="_profile.FullName" /></label>
+    <div class="field"><label>Full Name <FormidableRequiredIndicator For="() => _profile.FullName" /> <FormidableInputText @bind-Value="_profile.FullName" /></label>
         <FormidableFieldMessage For="() => _profile.FullName" /></div>
     <div class="field"><label>Age <FormidableInputText @bind-Value="_profile.Age" /></label>
         <FormidableFieldMessage For="() => _profile.Age" /></div>

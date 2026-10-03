@@ -33,9 +33,9 @@
             <FormidableSummary />
         </div>
 
-        <div class="mb-3"><label class="form-label">Name <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
+        <div class="mb-3"><label class="form-label">Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
             <FormidableFieldMessage For="() => _contact.Name" /></div>
-        <div class="mb-3"><label class="form-label">Email <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
+        <div class="mb-3"><label class="form-label">Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
             <FormidableFieldMessage For="() => _contact.Email" /></div>
 
         <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>

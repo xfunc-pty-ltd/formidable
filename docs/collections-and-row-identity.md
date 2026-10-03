@@ -48,7 +48,7 @@ Two habits do that, and the sample's member list carries both:
     @foreach (var member in team.Members)
     {
         <li class="field" @key="member">
-            <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+            <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
             <FormidableFieldMessage For="() => member.Alias" />
             <div class="actions">
                 <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
@@ -326,7 +326,7 @@ and register each collection that carries a rule of its own. The sample nests tw
                     <fieldset id="@membersField.ElementId" tabindex="-1">
                         <legend>Team</legend>
                         <div class="field">
-                            <label>Name <FormidableInputText @bind-Value="team.Name" /></label>
+                            <label>Name <FormidableRequiredIndicator For="() => team.Name" /> <FormidableInputText @bind-Value="team.Name" /></label>
                             <FormidableFieldMessage For="() => team.Name" />
                         </div>
 
@@ -335,7 +335,7 @@ and register each collection that carries a rule of its own. The sample nests tw
                             @foreach (var member in team.Members)
                             {
                                 <li class="field" @key="member">
-                                    <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+                                    <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
                                     <FormidableFieldMessage For="() => member.Alias" />
                                     <div class="actions">
                                         <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>

@@ -29,7 +29,7 @@
     </div>
 
     <div class="field">
-        <label>Nickname (native InputText)
+        <label>Nickname (native InputText) <FormidableRequiredIndicator For="() => _order.Nickname" />
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
@@ -39,7 +39,7 @@
     </div>
 
     <div class="field">
-        <label>Colour (Formidable input)
+        <label>Colour (Formidable input) <FormidableRequiredIndicator For="() => _order.Colour" />
             <FormidableInputText @bind-Value="_order.Colour" /></label>
         <FormidableFieldMessage For="() => _order.Colour" />
     </div>

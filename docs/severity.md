@@ -151,7 +151,7 @@ for). So a model that's all warnings and infos, with no errors, submits successf
         <FormidableSummary Show="SummaryFilter.Advisories" WarningsHeading="Warnings" InfosHeading="Info" />
     </div>
 
-    <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" /></label>
+    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" /></label>
         <FormidableFieldMessage For="() => _listing.Title" /></div>
     <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" /></label>
         <FormidableFieldMessage For="() => _listing.Description" /></div>

@@ -50,6 +50,7 @@
             <li>The binding: <code>&lt;FormidableField For="() =&gt; _booking.Room" Context="field"&gt;</code> names the field. The Mud control binds the model with <code>@@bind-Value="_booking.Room"</code>, and <code>@@bind-Value:after="field.NotifyChanged"</code> reports each change once the model holds the new value.</li>
             <li>The splat: <code>@@attributes="field.InputAttributes"</code>. MudBlazor puts the id and the aria attributes on its input, and the state class on its outer <code>mud-input-control</code> wrapper. A few lines of page CSS draw that class the way MudBlazor draws a state of its own, in the underline and the label.</li>
             <li>One message list per field: <code>FormidableFieldMessage</code>, which the input's <code>aria-describedby</code> names. The Mud controls' own <code>Error</code> and <code>ErrorText</code> stay unset, so each message shows once. Their <code>For</code> and <code>Required</code> stay unset too, so the validator's rules are the only rules on the form.</li>
+            <li><strong>No required marks</strong> on this page. Each Mud control draws its label inside itself, from the <code>Label</code> text the page passes. So the markup has no label for <code>FormidableRequiredIndicator</code> to sit beside. The controls' own <code>Required</code> stays unset, as above, which keeps the validator the only source of rules. <a href="/workout">Full workout</a>'s Ticket tier shows where a foreign control's mark goes.</li>
         </ul>
     </Rules>
     <TryIt>

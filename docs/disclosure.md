@@ -352,7 +352,7 @@ one shipped example (`/workout`'s venue region and `/attach`'s submitter name ar
 
 ```razor
 <div class="field">
-    <label>Nickname (native InputText)
+    <label>Nickname (native InputText) <FormidableRequiredIndicator For="() => _order.Nickname" />
         <InputText @bind-Value="_order.Nickname"
                    id="@NicknameId"
                    aria-invalid="@NicknameAriaInvalid"

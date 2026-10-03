@@ -48,7 +48,7 @@
            that way by default, and this page's own root renders the element it scopes to;
            committing per keystroke is the other answer, removing the shift rather than
            recovering from it. *@
-        <div class="field"><label>Title <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Title" /></div>
         <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" UpdateOn="InputUpdateMode.OnInput" /></label>
             <FormidableFieldMessage For="() => _listing.Description" /></div>

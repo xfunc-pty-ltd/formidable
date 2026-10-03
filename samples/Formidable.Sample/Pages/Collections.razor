@@ -12,6 +12,7 @@
             <li>Every team needs at least one <strong>member</strong>.</li>
             <li>Every member needs an <strong>alias</strong>.</li>
             <li>Row identity follows the object instance, not the index — that is what keeps errors glued to their rows.</li>
+            <li><strong>Required marks</strong>: each team's Name and each member's Alias carry one, row by row. The mark reads the same <code>ChildRules</code> that judge the row. The two list rules (at least one team, at least one member) have no label on this page to carry a mark.</li>
         </ul>
     </Rules>
     <TryIt>
@@ -48,7 +49,7 @@
                     <fieldset id="@membersField.ElementId" tabindex="-1">
                         <legend>Team</legend>
                         <div class="field">
-                            <label>Name <FormidableInputText @bind-Value="team.Name" /></label>
+                            <label>Name <FormidableRequiredIndicator For="() => team.Name" /> <FormidableInputText @bind-Value="team.Name" /></label>
                             <FormidableFieldMessage For="() => team.Name" />
                         </div>
 
@@ -57,7 +58,7 @@
                             @foreach (var member in team.Members)
                             {
                                 <li class="field" @key="member">
-                                    <label>Alias <FormidableInputText @bind-Value="member.Alias" /></label>
+                                    <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
                                     <FormidableFieldMessage For="() => member.Alias" />
                                     <div class="actions">
                                         <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>

@@ -114,7 +114,7 @@ Then render the pending flag, which `FormidableField`'s cascaded context exposes
 ```razor
 <FormidableField For="() => _handle.Username" Context="field">
     <div class="field">
-        <label>Username <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
+        <label>Username <FormidableRequiredIndicator For="() => _handle.Username" /> <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" /></label>
         <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
     </div>
     <FormidableFieldMessage For="() => _handle.Username" />

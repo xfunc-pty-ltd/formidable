@@ -2,7 +2,7 @@
 
 <PageTitle>Quickstart</PageTitle>
 <h1>Quickstart</h1>
-<p>One model, one plain FluentValidation validator, four components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
+<p>One model, one plain FluentValidation validator, five components. Submit empty to see inline errors and the summary; click a summary entry to focus its field.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "QuickContact.cs", "Quickstart.razor", "Quickstart.razor.cs" })">
     <Rules>
@@ -26,9 +26,9 @@
         <FormidableSummary />
     </div>
 
-    <div class="field"><label>Name <FormidableInputText @bind-Value="_contact.Name" /></label>
+    <div class="field"><label>Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText @bind-Value="_contact.Name" /></label>
         <FormidableFieldMessage For="() => _contact.Name" /></div>
-    <div class="field"><label>Email <FormidableInputText @bind-Value="_contact.Email" /></label>
+    <div class="field"><label>Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText @bind-Value="_contact.Email" /></label>
         <FormidableFieldMessage For="() => _contact.Email" /></div>
 
     <div class="actions"><button type="submit">Submit</button></div>

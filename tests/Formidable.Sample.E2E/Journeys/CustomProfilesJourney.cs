@@ -78,6 +78,31 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await Expect(MessagesFor(page, "category")).ToHaveCountAsync(0);
     }
 
+    // The mark asks the form's submit profile, and the picker is what sets it. Review note has no
+    // presence rule under Standard submit and one under Admin review, so its mark comes and goes
+    // with the pick, while Title's stands under both. Title is asserted first so the zero below is
+    // read off a rendered form rather than off a page still booting. Mutations that must break
+    // this: dropping Review note's FormidableRequiredIndicator from the page, having the engine's
+    // requirement map read the Draft profile instead of the submit profile, or marking every field.
+    [E2EFact]
+    public async Task Review_notes_required_mark_follows_the_picked_profile()
+    {
+        await using var session = await app.NewPageAsync("/custom-profiles");
+        var page = session.Page;
+        var titleMark = page.Locator("label").Filter(new() { Has = Field(page, "title") })
+            .Locator("span.formidable-required");
+        var reviewNoteMark = page.Locator("label").Filter(new() { Has = Field(page, "reviewnote") })
+            .Locator("span.formidable-required");
+
+        await Expect(titleMark).ToHaveCountAsync(1);
+        await Expect(reviewNoteMark).ToHaveCountAsync(0);
+
+        await page.GetByLabel("Admin review", new() { Exact = true }).CheckAsync();
+
+        await Expect(reviewNoteMark).ToHaveCountAsync(1);
+        await Expect(titleMark).ToHaveCountAsync(1);
+    }
+
     [E2EFact]
     public async Task Admin_review_resets_the_form_and_demands_the_note()
     {

@@ -46,19 +46,19 @@
                            OverflowTemplate="@(_reveal ? HeldBack : null)" />
     </div>
 
-    <div class="field"><label>Ticket reference <FormidableInputText @bind-Value="_ticket.Reference" /></label>
+    <div class="field"><label>Ticket reference <FormidableRequiredIndicator For="() => _ticket.Reference" /> <FormidableInputText @bind-Value="_ticket.Reference" /></label>
         <FormidableFieldMessage For="() => _ticket.Reference" /></div>
-    <div class="field"><label>Requester <FormidableInputText @bind-Value="_ticket.Requester" /></label>
+    <div class="field"><label>Requester <FormidableRequiredIndicator For="() => _ticket.Requester" /> <FormidableInputText @bind-Value="_ticket.Requester" /></label>
         <FormidableFieldMessage For="() => _ticket.Requester" /></div>
-    <div class="field"><label>Requester email <FormidableInputText @bind-Value="_ticket.RequesterEmail" /></label>
+    <div class="field"><label>Requester email <FormidableRequiredIndicator For="() => _ticket.RequesterEmail" /> <FormidableInputText @bind-Value="_ticket.RequesterEmail" /></label>
         <FormidableFieldMessage For="() => _ticket.RequesterEmail" /></div>
-    <div class="field"><label>Product <FormidableInputText @bind-Value="_ticket.Product" /></label>
+    <div class="field"><label>Product <FormidableRequiredIndicator For="() => _ticket.Product" /> <FormidableInputText @bind-Value="_ticket.Product" /></label>
         <FormidableFieldMessage For="() => _ticket.Product" /></div>
-    <div class="field"><label>Version <FormidableInputText @bind-Value="_ticket.Version" /></label>
+    <div class="field"><label>Version <FormidableRequiredIndicator For="() => _ticket.Version" /> <FormidableInputText @bind-Value="_ticket.Version" /></label>
         <FormidableFieldMessage For="() => _ticket.Version" /></div>
-    <div class="field"><label>Steps to reproduce <FormidableInputTextArea @bind-Value="_ticket.Steps" /></label>
+    <div class="field"><label>Steps to reproduce <FormidableRequiredIndicator For="() => _ticket.Steps" /> <FormidableInputTextArea @bind-Value="_ticket.Steps" /></label>
         <FormidableFieldMessage For="() => _ticket.Steps" /></div>
-    <div class="field"><label>Impact <FormidableInputText @bind-Value="_ticket.Impact" /></label>
+    <div class="field"><label>Impact <FormidableRequiredIndicator For="() => _ticket.Impact" /> <FormidableInputText @bind-Value="_ticket.Impact" /></label>
         <FormidableFieldMessage For="() => _ticket.Impact" /></div>
 
     <div class="actions">

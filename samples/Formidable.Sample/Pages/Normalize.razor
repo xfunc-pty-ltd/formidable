@@ -37,7 +37,7 @@
         <FormidableSummary />
     </div>
 
-    <div class="field"><label>Title <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _note.Title" /> <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
         <FormidableFieldMessage For="() => _note.Title" /></div>
     <div class="field"><label>Body <FormidableInputTextArea @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
         <FormidableFieldMessage For="() => _note.Body" /></div>
