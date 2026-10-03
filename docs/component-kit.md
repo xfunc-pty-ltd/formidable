@@ -1530,7 +1530,8 @@ same form:
             <InputText @bind-Value="_order.Nickname"
                        id="@NicknameId"
                        aria-invalid="@NicknameAriaInvalid"
-                       aria-describedby="@NicknameAriaDescribedBy" /></label>
+                       aria-describedby="@NicknameAriaDescribedBy"
+                       aria-required="@NicknameAriaRequired" /></label>
         <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
         <FormidableFieldAnchor For="() => _order.Nickname" />
     </div>
@@ -1562,4 +1563,4 @@ take any of them from:
 |---|---|
 | `FormidableFieldAnchor` beside the control | A submit's disclosure: a plain `InputBase` registers nothing, so without the anchor no submit reveals `Nickname` ([Disclosure](disclosure.md#formidablefieldanchor-for-raw-and-foreign-controls)). Under [`LiveIssueDisclosure.EngagedAndVisible`](options.md#livedisclosure) the live channel needs the same registration. |
 | The field's own id | Focus: a Formidable input renders `FormidableFieldId.For(field)` as its element id, and here `NicknameId` computes it. An `<input>` carrying it takes a summary's click exactly like a wrapped one ([CSS and accessibility](css-and-accessibility.md#where-does-focus-go-on-a-blocked-submit)). |
-| `aria-invalid` and `aria-describedby` | The assistive-technology half: `GetFieldState(field).HasErrors` answers the first, and `EditContext.GetValidationMessages(field)` decides whether the second names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. [CSS and accessibility](css-and-accessibility.md#why-did-my-own-aria-invalid-vanish-from-a-native-inputtext) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |
+| `aria-invalid`, `aria-describedby` and `aria-required` | The assistive-technology half. `GetFieldState(field).HasErrors` answers the first, and `GetFieldRequirement(field)` the third. `EditContext.GetValidationMessages(field)` decides whether the second names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. [CSS and accessibility](css-and-accessibility.md#why-did-my-own-aria-invalid-vanish-from-a-native-inputtext) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |

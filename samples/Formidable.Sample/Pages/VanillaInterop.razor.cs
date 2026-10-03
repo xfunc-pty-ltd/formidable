@@ -41,6 +41,12 @@ public partial class VanillaInterop : IDisposable
     private string? NicknameAriaInvalid =>
         _form?.Engine?.GetFieldState(NicknameField).HasErrors == true ? "true" : null;
 
+    // Requiredness crosses the seam the same way: a wrapped input takes aria-required from its
+    // field context, and a native one has no context to ask, so the page reads what the submit
+    // profile demands off the engine and renders the attribute the kit's inputs would.
+    private string? NicknameAriaRequired =>
+        _form?.Engine?.GetFieldRequirement(NicknameField) == FieldRequirement.Required ? "true" : null;
+
     private void HandleValid() => _status = "Submitted — native and Formidable inputs agreed.";
 
     // The engine notifies the components bound to it, not the page, so without this subscription

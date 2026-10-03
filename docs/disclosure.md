@@ -356,7 +356,8 @@ one shipped example (`/workout`'s venue region and `/attach`'s submitter name ar
         <InputText @bind-Value="_order.Nickname"
                    id="@NicknameId"
                    aria-invalid="@NicknameAriaInvalid"
-                   aria-describedby="@NicknameAriaDescribedBy" /></label>
+                   aria-describedby="@NicknameAriaDescribedBy"
+                   aria-required="@NicknameAriaRequired" /></label>
     <ValidationMessage For="() => _order.Nickname" id="@NicknameMessagesId" />
     <FormidableFieldAnchor For="() => _order.Nickname" />
 </div>
@@ -364,9 +365,9 @@ one shipped example (`/workout`'s venue region and `/attach`'s submitter name ar
 
 <!-- Source: `samples/Formidable.Sample/Pages/VanillaInterop.razor` -->
 
-The `id`, `aria-describedby` and `aria-invalid` alongside it serve click-to-focus and assistive
-technology ([CSS and accessibility](css-and-accessibility.md)); registration is the anchor's job
-alone.
+The `id`, `aria-describedby`, `aria-invalid` and `aria-required` alongside it serve click-to-focus
+and assistive technology ([CSS and accessibility](css-and-accessibility.md)); registration is the
+anchor's job alone.
 
 Without the anchor, no submit would ever reveal `Nickname`: nothing registers the field, so its
 submit errors are suppressed as unrevealed and its issues sort last in a resolved issue order. A

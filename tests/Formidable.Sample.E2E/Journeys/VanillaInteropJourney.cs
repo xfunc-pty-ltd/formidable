@@ -8,10 +8,11 @@ namespace Formidable.Sample.E2E;
 /// <summary>
 /// A hand-rolled native input carries the same contract a wrapped Formidable input gets for
 /// free: the framework's own ValidationMessage speaks the engine's verdict, the field's id is
-/// what the summary's click-to-focus looks for, and both aria attributes are conditional rather
-/// than permanent — aria-invalid on the field carrying an error, aria-describedby on the message
-/// element it names being rendered — so neither is on the input before the first message arrives,
-/// and a real fix clears them together.
+/// what the summary's click-to-focus looks for, and aria-required stands from the start because
+/// it follows the rules rather than a message. The two message-driven aria attributes are
+/// conditional rather than permanent (aria-invalid on the field carrying an error,
+/// aria-describedby on the message element it names being rendered), so neither is on the input
+/// before the first message arrives, and a real fix clears them together.
 /// </summary>
 [Collection("e2e")]
 public sealed class VanillaInteropJourney(SampleAppFixture app)
@@ -29,15 +30,21 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
         // reading a permanent one would make impossible.
         await Expect(nickname).Not.ToHaveAttributeAsync("aria-describedby", messagesId);
 
+        // aria-required follows the rules, not a message, so it is on the input before the first
+        // press and still there after the fix below. Mutation that must break this: dropping
+        // aria-required from the page's native input, or rendering it only while the field has
+        // an error.
+        await Expect(nickname).ToHaveAttributeAsync("aria-required", "true");
+
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
 
-        // Formidable's verdict rendered by the framework's own ValidationMessage, and the two aria
-        // attributes this page renders by hand on the NATIVE input: aria-invalid, which the page
-        // reads off the engine and a native InputText also answers from the field's messages, both
-        // with the same "true" or nothing; and aria-describedby (addressed through the
-        // deterministic focus-id convention), which stands only while the element it names is on
-        // the page. The page renders no aria-required, since its requirement is the one aria
-        // attribute a Formidable input answers from the rules rather than from a pass.
+        // Formidable's verdict rendered by the framework's own ValidationMessage, and the two
+        // message-driven aria attributes this page renders by hand on the NATIVE input:
+        // aria-invalid, which the page reads off the engine and a native InputText also answers
+        // from the field's messages, both with the same "true" or nothing; and aria-describedby
+        // (addressed through the deterministic focus-id convention), which stands only while the
+        // element it names is on the page. The third it renders, aria-required, is asserted
+        // before the press and after the fix instead.
         await Expect(page.Locator(".validation-message")).ToHaveTextAsync("Nickname is required");
         await Expect(nickname).ToHaveAttributeAsync("aria-invalid", "true");
         await Expect(nickname).ToHaveAttributeAsync("aria-describedby", messagesId);
@@ -45,14 +52,15 @@ public sealed class VanillaInteropJourney(SampleAppFixture app)
         await SummaryEntry(page, "Nickname is required").ClickAsync();
         await Expect(nickname).ToBeFocusedAsync();
 
-        // Real-typed fix: the message leaves and both aria attributes leave WITH it — conditional,
-        // not permanent. The message element goes with the verdict, so an aria-describedby that
-        // outlived it would name nothing.
+        // Real-typed fix: the message leaves and both message-driven aria attributes leave WITH
+        // it (conditional, not permanent), while aria-required stays. The message element goes
+        // with the verdict, so an aria-describedby that outlived it would name nothing.
         await TypeAsync(nickname, "Ada");
         await TabAsync(page);
         await Expect(page.Locator(".validation-message")).ToHaveCountAsync(0);
         await Expect(nickname).Not.ToHaveAttributeAsync("aria-invalid", "true");
         await Expect(nickname).Not.ToHaveAttributeAsync("aria-describedby", messagesId);
+        await Expect(nickname).ToHaveAttributeAsync("aria-required", "true");
 
         // The aligned provider's modified-gated leg: a native input earns formidable-valid too.
         // Green asks for fresh submit coverage on top of touched/modified — on this page every

@@ -254,7 +254,8 @@ Work top to bottom: the steps build on each other.
       `aria-invalid` nor `aria-describedby`, since the `ValidationMessage` the second would name is
       not on the page until there is a message to put in it. Submit empty and both arrive:
       `aria-invalid="true"`, and an `aria-describedby` naming the message below. Fill it and blur:
-      both go
+      both go. `aria-required="true"` stays on the input throughout, from before the first press
+      to after the fix
 
 ### Attaching to your own EditForm
 
