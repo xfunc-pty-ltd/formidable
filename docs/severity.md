@@ -23,7 +23,8 @@ Severity comes from FluentValidation's own `.WithSeverity(...)`, and it attaches
 follows rather than to the rule around it. On
 `NotEmpty().MaximumLength(2).WithSeverity(Severity.Warning)` the length failure is a warning while
 the empty one still blocks. Every component of a chain that should advise needs its own call.
-Leaving it off makes a failure an `Error`, exactly as it always was:
+Leaving it off gives a failure FluentValidation's global default, `ValidatorOptions.Global.Severity`,
+which is `Error` unless your app changes it:
 
 ```csharp
 public enum ValidationSeverity
@@ -43,10 +44,10 @@ public enum ValidationSeverity
 
 The adapter maps FluentValidation's `Severity` enum onto `ValidationSeverity` one-to-one —
 `Severity.Warning` → `ValidationSeverity.Warning`, `Severity.Info` → `ValidationSeverity.Info`, and
-everything else (including FluentValidation's own default) → `ValidationSeverity.Error`. That
-"everything else" leg includes an explicit `.WithSeverity(Severity.Error)`. Writing the default out
-by hand maps exactly the way leaving it off does, for teams that prefer every component to state its
-severity.
+everything else (including FluentValidation's stock default) → `ValidationSeverity.Error`. That
+"everything else" leg includes an explicit `.WithSeverity(Severity.Error)`. Some teams prefer every
+component to state its severity. Writing the default out by hand maps exactly the way leaving it off
+does, as long as the global default is untouched.
 
 Where the rule lives decides what a save and a submit enforce, same as any other rule. Put it in the
 common/draft bucket if a lenient draft save should answer the advisory too, in
@@ -189,6 +190,26 @@ set, warnings included, is available through `GetIssues`/`GetVisibleIssues` and
 render from.
 
 Why: [how the engine works: what the message store carries](how-the-engine-works.md#the-message-store-projection).
+
+## Does a warning presence rule mark the field required?
+
+No. The required mark and `aria-required` say a submit needs a value, and a warning or an info never
+blocks one, so `NotEmpty().WithSeverity(Severity.Warning)` draws no mark and sets no `aria-required`.
+The field still validates, and an empty one shows its warning like any other.
+
+A presence rule whose severity is decided from the model, such as `WithSeverity(x => ...)`, draws no
+mark either. Reading the rules never runs your severity code to find out which severity applies. A
+rule under `When` draws none for the same reason: reading the rules never runs its condition either.
+
+To mark either kind of field anyway (one whose presence rule is a warning or an info, or one whose
+severity the model decides), return `Required` for it from
+[`RequiredOverride`](options.md#requiredoverride). The mark is then your page's choice: a submit with
+the warning field empty still proceeds.
+
+A presence rule with no `WithSeverity` follows `ValidatorOptions.Global.Severity`. An app that sets
+that default to `Warning` gets no required mark from a presence rule that leaves severity off. A rule
+written with `.WithSeverity(Severity.Error)` keeps its mark. The required mark reads the global
+default together with the form's rules and keeps that reading, so set the default once at startup.
 
 ## Where do warnings and infos show, and how do I style them?
 

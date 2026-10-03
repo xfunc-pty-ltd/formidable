@@ -19,9 +19,10 @@ namespace Formidable.Blazor;
 // "Title star", and an aria-hidden subtree leaves the label's accessible name untouched; the
 // fact belongs on the input, where the kit's inputs and FormidableFieldContext.InputAttributes
 // put it as aria-required. Nothing is drawn for ConditionallyRequired because whether a
-// conditional presence rule applies cannot be decided without evaluating its condition against
-// the model, which inspection does not do; drawing the mark would assert a demand the library
-// cannot verify, and a validator whose presence rules are all conditional would mark every field.
+// conditional presence rule applies, or whether a severity the model decides makes one block a
+// submit, cannot be decided without evaluating it against the model, which inspection does not
+// do; drawing the mark would assert a demand the library cannot verify, and a validator whose
+// presence rules are all conditional would mark every field.
 public sealed class FormidableRequiredIndicator<TValue> : FormidableAccessorComponentBase<TValue>
 {
     private FieldIdentifier _field;

@@ -755,15 +755,17 @@ Requiredness is a three-valued answer, and only one of the three draws anything:
 
 | `FieldRequirement` | What it means | What the component draws |
 |---|---|---|
-| `Required` | The submit profile selects a presence rule for the field, and it carries no condition | `<span class="formidable-required" aria-hidden="true">` around [`RequiredIndicatorContent`](options.md#requiredindicatorcontent) — `"*"` unless you say otherwise |
-| `ConditionallyRequired` | Every presence rule the profile selects for the field is conditional | Nothing: a condition cannot be evaluated without a model instance, so the mark would assert a demand the library cannot verify. A page that wants to say something there reads `FormidableFieldContext.Requirement` from a `FormidableField` and renders its own markup |
-| `NotRequired` | No presence rule was found for the field | Nothing |
+| `Required` | The submit profile selects a presence rule for the field that carries no condition and fails as an error | `<span class="formidable-required" aria-hidden="true">` around [`RequiredIndicatorContent`](options.md#requiredindicatorcontent) — `"*"` unless you say otherwise |
+| `ConditionallyRequired` | The profile's rules demand a value only under a condition, or under a severity the model decides | Nothing: a condition, or a severity the model decides, cannot be evaluated without a model instance, so the mark would assert a demand the library cannot verify. A page that wants to say something there reads `FormidableFieldContext.Requirement` from a `FormidableField` and renders its own markup |
+| `NotRequired` | No presence rule that fails as an error was found for the field. A warning or info presence rule demands nothing, because neither blocks a submit | Nothing |
 
 What inspection reads, and where it stops — every limit costing a mark rather than inventing one:
 
 | The rule | The answer |
 |---|---|
 | `NotEmpty()` or `NotNull()` | Read as presence. On a `bool`, whose empty value is `false`, that is how "must be ticked" becomes readable as a demand. |
+| The same with `.WithSeverity(Severity.Warning)` or `Severity.Info` | `NotRequired`: a warning or an info never blocks a submit, so the rule demands nothing and draws no mark. The field still validates and its message still shows. One with no `WithSeverity` reads the same way while `ValidatorOptions.Global.Severity` is `Warning` or `Info` ([Severity levels](severity.md#does-a-warning-presence-rule-mark-the-field-required)). |
+| The same with a severity the model decides, `.WithSeverity(x => ...)`, or a severity set through `Configure` | `ConditionallyRequired`, as under a `When`: which severity a failure takes cannot be answered without a model, and reading the rules never runs your severity code to find out. |
 | A rule declared with the index left open, `Attendees[].Name` | Expanded against the rows the model holds, one answer per row under the row's own identifier, so a field inside a collection row is marked exactly as a top-level one: each attendee's Name earns its own marker and its own `aria-required`. |
 | A rule over a dictionary's entries, `RuleForEach(x => x.Prices)` or over `x.Prices.Values` | `NotRequired` for every entry, whatever the key type. FluentValidation names an entry by its position (`Prices[0].Value`), and that path reaches no entry's own field, so the mark is left off rather than guessed. [`RequiredOverride`](options.md#requiredoverride) can declare it. |
 | `Must(s => !string.IsNullOrWhiteSpace(s))`, or `Equal(true)` on that same `bool` | `NotRequired`: a predicate is indistinguishable from any other predicate, so the mark waits on [`RequiredOverride`](options.md#requiredoverride). |
@@ -773,7 +775,8 @@ What inspection reads, and where it stops — every limit costing a mark rather 
 | A rule the root does not declare for itself | Read by whichever of three routes carries it: one inside a child validator answers under the child's own path (`Address.City`), one merged in with `Include` at the including validator's level, and one inside a child a model-level rule carries at the root's own level. A validator written for a base type (an `AnimalValidator` on a `Dog` property) is read like any other on each route. |
 | A rule on each row: `RuleForEach(x => x.Tags).NotEmpty()`, or `RuleFor(x => x.Items).ForEach(...)` | Answered per row under the indexed path, so each row's input is marked and the list's own component is not: `Tags[]` for a rule on the row itself, `Items[].Sku` for a child validator on each row. |
 
-Where the rules cannot be read, the marker is what an option says instead:
+Three options change the mark. The first is asked before the rules are read, so it can mark a field
+the rules cannot, or unmark one they do:
 
 | Option | What it does to the mark |
 |---|---|
@@ -1563,4 +1566,4 @@ take any of them from:
 |---|---|
 | `FormidableFieldAnchor` beside the control | A submit's disclosure: a plain `InputBase` registers nothing, so without the anchor no submit reveals `Nickname` ([Disclosure](disclosure.md#formidablefieldanchor-for-raw-and-foreign-controls)). Under [`LiveIssueDisclosure.EngagedAndVisible`](options.md#livedisclosure) the live channel needs the same registration. |
 | The field's own id | Focus: a Formidable input renders `FormidableFieldId.For(field)` as its element id, and here `NicknameId` computes it. An `<input>` carrying it takes a summary's click exactly like a wrapped one ([CSS and accessibility](css-and-accessibility.md#where-does-focus-go-on-a-blocked-submit)). |
-| `aria-invalid`, `aria-describedby` and `aria-required` | The assistive-technology half. `GetFieldState(field).HasErrors` answers the first, and `GetFieldRequirement(field)` the third. `EditContext.GetValidationMessages(field)` decides whether the second names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. [CSS and accessibility](css-and-accessibility.md#why-did-my-own-aria-invalid-vanish-from-a-native-inputtext) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |
+| `aria-invalid`, `aria-describedby` and `aria-required` | Assistive technology: these tell a screen reader whether the field is invalid, which element holds its messages, and whether a value is required. `GetFieldState(field).HasErrors` answers `aria-invalid`. `EditContext.GetValidationMessages(field)` decides whether `aria-describedby` names the `-messages` id at all, since a native `ValidationMessage` renders no element while the field is clean. `GetFieldRequirement(field)` answers `aria-required`. [CSS and accessibility](css-and-accessibility.md#why-did-my-own-aria-invalid-vanish-from-a-native-inputtext) has what a Blazor `InputText` does with a named `aria-invalid` and with an absent one. |

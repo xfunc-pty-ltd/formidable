@@ -106,10 +106,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
     /// <summary>The one walk both readers answer from: every declared path, mapped to the presence demand the profile's rules make of it.</summary>
     /// <param name="profile">The rule selection that decides which rules are read.</param>
-    /// <returns>The map; a path with rules but no presence component is present as <see cref="FieldRequirement.NotRequired"/>.</returns>
-    // A path with rules but no presence component stays in the map because the two readers ask
-    // different questions, "is this field spoken about" and "is it demanded", and only a map that
-    // keeps both can answer them consistently.
+    /// <returns>The map; a path whose rules demand no value (no presence component, or only ones failing as a warning or info) is present as <see cref="FieldRequirement.NotRequired"/>.</returns>
+    // A path whose rules demand no value stays in the map because the two readers ask different
+    // questions, "is this field spoken about" and "is it demanded", and only a map that keeps both
+    // can answer them consistently.
     private Dictionary<string, FieldRequirement> DeclaredFields(ValidationProfile profile)
     {
         // One profile deep, and keyed by REFERENCE. Both readers are asked repeatedly for the
@@ -117,9 +117,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
         // path - and a walk allocates a dictionary and resolves every child validator it meets.
         // One entry covers that pattern exactly and cannot grow, which a per-profile map could
         // if a caller built a fresh profile per ask. Reference rather than equality as the
-        // check: the walk reads the profile's shape alone, so value-equal profiles would earn
-        // identical answers and a reference miss only ever recomputes an answer - it can never
-        // serve a wrong one.
+        // check: of what a caller passes, the walk reads the profile's shape alone, so value-equal
+        // profiles would earn identical answers and a reference miss only ever recomputes an
+        // answer - it can never serve a wrong one. The walk's one other input is FluentValidation's
+        // global default severity, read on each walk, so a snapshot keeps the default its walk
+        // read; the default is meant to be set once at startup.
         if (_declared is { } snapshot && ReferenceEquals(snapshot.Profile, profile))
         {
             return snapshot.Fields;
@@ -261,15 +263,26 @@ public sealed partial class FluentValidationModelValidator<TModel>
                     continue; // a model-level component names no field
                 }
 
+                // A presence component demands a value only when its failure blocks a submit, and
+                // only an error blocks one. So the severity grades it before the condition does: a
+                // warning or info never demands anything, conditional or not; a severity decided
+                // from the model is as undecidable here as a When, so it is conditional; an error
+                // is required, or conditional under a condition.
                 var demand = !IsPresenceComponent(component)
                     ? FieldRequirement.NotRequired
-                    : componentConditional
-                        ? FieldRequirement.ConditionallyRequired
-                        : FieldRequirement.Required;
+                    : ReadSeverity(component) switch
+                    {
+                        SeverityReading.NeverBlocks => FieldRequirement.NotRequired,
+                        SeverityReading.NeedsModel => FieldRequirement.ConditionallyRequired,
+                        _ => componentConditional
+                            ? FieldRequirement.ConditionallyRequired
+                            : FieldRequirement.Required,
+                    };
 
                 // The strongest demand any component makes wins, which is what puts an
-                // unconditional presence rule ahead of a conditional one on the same field and
-                // keeps a field with rules but no presence component in the map at all.
+                // unconditional presence rule ahead of a conditional one on the same field, and an
+                // error presence rule ahead of a warning one, and keeps a field whose rules demand
+                // no value in the map at all.
                 declared[ownPath] = declared.TryGetValue(ownPath, out var existing) && existing > demand
                     ? existing
                     : demand;
@@ -315,7 +328,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // A child validator can be written for a base type of what it validates (an
     // AnimalValidator on a Dog, a PersonValidator included into a CustomerValidator, the
     // IEnumerable<T> validator ForEach hands a List<T>), and its rules are typed on that base, so
-    // the walk reads them under it. The base types are walked as ClosedAdaptorTypeOf walks them,
+    // the walk reads them under it. The base types are walked as ClosedTypeOf walks them,
     // each tested against a literal typeof and nothing built.
     private static Type ValidatedModelTypeOf(object validator, Type fallback)
     {
@@ -460,7 +473,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     {
         try
         {
-            var adaptor = ClosedAdaptorTypeOf(component.Validator);
+            var adaptor = ClosedTypeOf(component.Validator, typeof(ChildValidatorAdaptor<,>));
             if (adaptor is null
                 || adaptor.GetGenericArguments() is not [var judged, var child]
                 || judged != modelType
@@ -501,17 +514,19 @@ public sealed partial class FluentValidationModelValidator<TModel>
         }
     }
 
-    /// <summary>The closed <c>ChildValidatorAdaptor&lt;,&gt;</c> in the validator's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
-    /// <param name="validator">The component's validator.</param>
-    /// <returns>The closed adaptor type, or <see langword="null"/>.</returns>
-    // The base types are walked because the adaptor is open to subclassing (FluentValidation's own
-    // polymorphic child validator is a subclass), and a subclass is read through the adaptor's
-    // members like the adaptor itself.
-    private static Type? ClosedAdaptorTypeOf(object validator)
+    /// <summary>The closed form of <paramref name="openType"/> in the instance's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
+    /// <param name="instance">The live object: a component's validator, or the component itself.</param>
+    /// <param name="openType">The open generic class, named by a literal <c>typeof</c> at the call site.</param>
+    /// <returns>The closed type, or <see langword="null"/>.</returns>
+    // The base types are walked because both classes read this way are open to subclassing
+    // (FluentValidation's own polymorphic child validator subclasses the adaptor, and its component
+    // for a nullable struct subclasses the component), and a subclass is read through the members
+    // of the class it derives from. Nothing is built: each type is compared to the open one.
+    private static Type? ClosedTypeOf(object instance, Type openType)
     {
-        for (var type = validator.GetType(); type is not null; type = type.BaseType)
+        for (var type = instance.GetType(); type is not null; type = type.BaseType)
         {
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ChildValidatorAdaptor<,>))
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == openType)
             {
                 return type;
             }
@@ -525,4 +540,96 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <returns><see langword="true"/> for <see cref="INotEmptyValidator"/> or <see cref="INotNullValidator"/>; <c>Null()</c>, whose marker is <see cref="INullValidator"/>, is excluded.</returns>
     private static bool IsPresenceComponent(IRuleComponent component) =>
         component.Validator is INotEmptyValidator or INotNullValidator;
+
+    /// <summary>What a presence component's severity says about blocking a submit, read without a model.</summary>
+    private enum SeverityReading
+    {
+        /// <summary>The failure is an error, which blocks a submit; also the answer when the severity cannot be read.</summary>
+        Blocks,
+
+        /// <summary>The failure is a warning or info whatever the model holds, which never blocks a submit.</summary>
+        NeverBlocks,
+
+        /// <summary>The severity is decided per model, or by code this reading does not run.</summary>
+        NeedsModel,
+    }
+
+    /// <summary>Reads the severity a presence component fails with, without a model and without running any code the rules' author wrote.</summary>
+    /// <param name="component">The presence component to read.</param>
+    /// <returns>Whether its failure blocks a submit, never does, or needs a model to say.</returns>
+    /// <remarks>
+    /// A component with no severity of its own fails with FluentValidation's global default, read
+    /// here on each walk of the rules, so an answer already held keeps the default its walk read.
+    /// </remarks>
+    // The severity sits in RuleComponent<T, TProperty>.SeverityProvider, a delegate FluentValidation
+    // calls with the context and the value when a failure is created. The surface check finds the
+    // property once, on the open type named by a literal typeof, and the reading matches it to the
+    // live component's closed type, as the child reading does with the adaptor's members.
+    // A provider whose closure is FluentValidation's own is called with a null context. The
+    // constant WithSeverity(Severity) closure ignores its arguments and answers. Each
+    // model-reading WithSeverity overload stores a FluentValidation wrapper that reads the model
+    // off the context before it calls the author's lambda, so the null context throws inside
+    // FluentValidation first, and that throw is what says the severity needs a model. A provider
+    // from anywhere else (assigned through Configure, or by an extension method) could run the
+    // author's code with no model, so it is never called and reads as needing a model.
+    // A failed read answers Blocks, an error's grade, because a failed read must never cost an
+    // unconditional rule its demand (HasRowFilter's rule). A component of another type, a property
+    // that cannot be read, and a call that fails before it reaches the closure are all failed
+    // reads. Only a throw from inside the closure says the severity needs a model, and reflection
+    // hands that one back wrapped in a TargetInvocationException.
+    private static SeverityReading ReadSeverity(IRuleComponent component)
+    {
+        Delegate? provider;
+        try
+        {
+            var closed = ClosedTypeOf(component, typeof(RuleComponent<,>));
+            if (closed is null)
+            {
+                return SeverityReading.Blocks;
+            }
+
+            // The walk runs only while the surface is intact, so the member is there. Were that
+            // ever not so, the dereference would throw into the catch below and read as Blocks.
+            var property = (PropertyInfo)closed.GetMemberWithSameMetadataDefinitionAs(
+                FluentValidationInspectionSurface.Members!.SeverityProvider);
+            provider = property.GetValue(component) as Delegate;
+        }
+        catch (Exception)
+        {
+            return SeverityReading.Blocks;
+        }
+
+        if (provider is null)
+        {
+            return Classify(ValidatorOptions.Global.Severity);
+        }
+
+        if (provider.Target?.GetType().Assembly != typeof(AbstractValidator<>).Assembly)
+        {
+            return SeverityReading.NeedsModel;
+        }
+
+        object? answer;
+        try
+        {
+            answer = provider.DynamicInvoke(null, null);
+        }
+        catch (TargetInvocationException)
+        {
+            return SeverityReading.NeedsModel;
+        }
+        catch (Exception)
+        {
+            return SeverityReading.Blocks;
+        }
+
+        return answer is Severity severity ? Classify(severity) : SeverityReading.Blocks;
+
+        // The mapping the report applies to a failure, so the reading and a run agree on which
+        // severities block.
+        static SeverityReading Classify(Severity severity) =>
+            MapSeverity(severity) == ValidationSeverity.Error
+                ? SeverityReading.Blocks
+                : SeverityReading.NeverBlocks;
+    }
 }

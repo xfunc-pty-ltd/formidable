@@ -80,6 +80,31 @@ public class FormidableRequiredIndicatorTests : BunitContext
             EngineOf(cut).GetFieldRequirement(new FieldIdentifier(model, nameof(MarkerModel.Nominee))));
     }
 
+    // Nickname's only presence rule fails as a warning, and a warning never blocks a submit, so
+    // the rules demand nothing of the field: no mark, no aria-required, and NotRequired rather
+    // than ConditionallyRequired, since the severity is fixed and needs no model to read. Name's
+    // presence rule is an error, so the same form still marks and announces it, which makes
+    // Nickname's silence a reading of the severity rather than the marker switched off. Departs
+    // from MarkerValidator for the severity, which no rule there carries. Mutation that must break
+    // this: grading a warning presence rule as an error.
+    [Fact]
+    public void A_warning_presence_rule_is_neither_marked_nor_announced_while_an_error_one_is()
+    {
+        var model = new MarkerModel();
+        var cut = RenderForm(
+            model,
+            validator: new FluentValidationModelValidator<MarkerModel>(new SeverityMarkerValidator()));
+
+        Assert.Null(MarkerFor(cut, nameof(MarkerModel.Nickname)));
+        Assert.Null(InputFor(cut, nameof(MarkerModel.Nickname)).GetAttribute("aria-required"));
+        Assert.Equal(
+            FieldRequirement.NotRequired,
+            EngineOf(cut).GetFieldRequirement(new FieldIdentifier(model, nameof(MarkerModel.Nickname))));
+
+        Assert.Equal("*", MarkerFor(cut, nameof(MarkerModel.Name))!.TextContent);
+        Assert.Equal("true", InputFor(cut, nameof(MarkerModel.Name)).GetAttribute("aria-required"));
+    }
+
     // FormidableField renders nothing of its own — every decision is the ChildContent's — but
     // its InputAttributes bundle must gate aria-required by the same FieldRequirement a wrapped
     // FormidableInputText answers from, pinned two tests up for the same three fields. Mutation
@@ -785,6 +810,16 @@ public sealed class MarkerValidator : DraftSubmitValidator<MarkerModel>
         RuleFor(m => m.Reference).NotEmpty();
         RuleFor(m => m.Handle).Must(h => !string.IsNullOrWhiteSpace(h));
         RuleFor(m => m.Nominee).NotEmpty().When(m => m.Name.Length > 0);
+    }
+}
+
+/// <summary>An error presence rule on Name beside a warning presence rule on Nickname.</summary>
+public sealed class SeverityMarkerValidator : AbstractValidator<MarkerModel>
+{
+    public SeverityMarkerValidator()
+    {
+        RuleFor(m => m.Name).NotEmpty();
+        RuleFor(m => m.Nickname).NotEmpty().WithSeverity(Severity.Warning);
     }
 }
 

@@ -316,9 +316,13 @@ Set it for the whole app with
 
 Reading rules sees presence only as FluentValidation's own `NotEmpty()` or `NotNull()`, so presence
 written as a predicate answers `FieldRequirement.NotRequired`, as does every field of an
-uninspectable validator. `NotRequired` means "not known to be required", never "proven optional".
-A presence rule under a `When` or `Unless` answers `ConditionallyRequired`, which, like
-`NotRequired`, draws no mark; return `Required` here to mark the field anyway.
+uninspectable validator. A presence rule demands a value only when it fails as an error, so a
+warning or info one answers `NotRequired` too. `NotRequired` means "not known to be required",
+never "proven optional".
+
+A presence rule under a `When` or `Unless`, or one whose severity is decided from the model,
+answers `ConditionallyRequired`, which, like `NotRequired`, draws no mark; return `Required` here
+to mark the field anyway.
 
 It declares in both directions: `Required` marks a field the rules cannot be read to demand,
 `NotRequired` unmarks one they can. The marker and `aria-required` are read from that one answer

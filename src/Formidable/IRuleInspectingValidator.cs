@@ -10,8 +10,9 @@ namespace Formidable;
 /// alone, and tests <see cref="IRuleLevelValidator{TModel}"/> apart.
 /// <see cref="FluentValidationModelValidator{TModel}"/> implements it;
 /// <see cref="DelegatingModelValidator{TModel}"/> forwards it. Both readers answer from one
-/// reading of the rules, stable for the validator's lifetime but possibly derived on every call,
-/// so a caller asking per field caches.
+/// reading of the rules, stable for the validator's lifetime (given an unchanged
+/// <c>ValidatorOptions.Global.Severity</c>) but possibly derived per call, so a caller asking per
+/// field caches.
 /// </remarks>
 // A member added later answers as an absent capability answers (a new tester reads false, a new
 // reader reports the empty answer), which is the state every caller already handles because it is
@@ -32,13 +33,12 @@ public interface IRuleInspectingValidator<in TModel>
     /// <returns>The demand; <see cref="FieldRequirement.NotRequired"/> when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
     /// <remarks>
-    /// Only <c>NotEmpty()</c> and <c>NotNull()</c> count as presence; a predicate such as
-    /// <c>Must(s =&gt; !string.IsNullOrWhiteSpace(s))</c> reads <see cref="FieldRequirement.NotRequired"/>.
-    /// A demand reached only through a condition (<c>When</c>, <c>Unless</c>, their async forms, on
-    /// the rule, the component or a rule above it, or a collection rule's per-row <c>Where</c>
-    /// filter) is conditional, and an unconditional demand on the same field wins. A per-row rule,
-    /// <c>RuleForEach(m =&gt; m.Tags).NotEmpty()</c> or its <c>ForEach</c> spelling, files under
-    /// <c>Tags[]</c>, not <c>Tags</c>.
+    /// Only a <c>NotEmpty()</c> or <c>NotNull()</c> failing as an error demands a value; a warning
+    /// or info one, or a predicate such as <c>Must(...)</c>, reads <see cref="FieldRequirement.NotRequired"/>.
+    /// A demand reached only through a condition (<c>When</c>, <c>Unless</c>, async forms, on the
+    /// rule, the component or a parent rule, or a per-row <c>Where</c>), or whose severity the
+    /// model decides, is conditional; an unconditional demand wins. A <c>RuleForEach</c> or
+    /// <c>ForEach</c> rule on <c>Tags</c> files under <c>Tags[]</c>, not <c>Tags</c>.
     /// </remarks>
     FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile);
 

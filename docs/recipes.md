@@ -515,6 +515,8 @@ rather than "proven optional", and the shapes below draw no mark:
 - Any field of a validator that cannot be inspected at all.
 - A presence rule that carries a condition (a `When`/`Unless`, or a collection rule's per-row
   `Where` filter) which answers `ConditionallyRequired`.
+- A presence rule whose severity is decided from the model, `WithSeverity(x => ...)`, which
+  answers `ConditionallyRequired` as a condition does.
 
 A child validator scoped by the `SetValidator` call itself
 (`RuleFor(x => x.Address).SetValidator(new AddressValidator(), "Admin")`) is read under the

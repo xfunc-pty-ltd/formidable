@@ -1,4 +1,5 @@
 using FluentValidation;
+using FluentValidation.Internal;
 using FluentValidation.Validators;
 using Formidable.Tests.Fixtures;
 
@@ -21,13 +22,15 @@ public class FluentValidationInspectionSurfaceTests
     }
 
     /// <summary>
-    /// The check keeps the four members it found. Each is declared on the open generic type it was
-    /// looked up on, and the child reading matches the adaptor's two to each live adaptor's closed
-    /// type instead of looking them up again.
+    /// The check keeps the five members it found. Each is declared on the open generic type it was
+    /// looked up on, and the reading matches each to the live object's closed type instead of
+    /// looking it up again: the adaptor's two to each adaptor, the severity to each component.
     /// </summary>
-    // Mutation this breaks: Verify keeps null where it found all four members, writing no Trace
+    // Mutation this breaks: Verify keeps null where it found all five members, writing no Trace
     // line. The child-reading tests in ChildAdaptorReadingTests fail with it, because a surface
-    // that keeps no members reads as not intact and the readers then claim nothing.
+    // that keeps no members reads as not intact and the readers then claim nothing. Also (executed):
+    // looking the severity up on IRuleComponent<,>, which declares it set-only, in place of
+    // RuleComponent<,>.
     [Fact]
     public void The_surface_keeps_the_members_it_verified()
     {
@@ -38,6 +41,7 @@ public class FluentValidationInspectionSurfaceTests
         Assert.Equal(typeof(ChildValidatorAdaptor<,>), members.RuleSets.DeclaringType);
         Assert.Equal(typeof(ICollectionRule<,>), members.Filter.DeclaringType);
         Assert.Equal(typeof(ICollectionRule<,>), members.AsyncFilter.DeclaringType);
+        Assert.Equal(typeof(RuleComponent<,>), members.SeverityProvider.DeclaringType);
     }
 
     /// <summary>

@@ -58,10 +58,10 @@ public interface IFormidableEngine
 
     /// <summary>How firmly the submit profile's rules demand a value in <paramref name="field"/>, as the required indicator and <c>aria-required</c> render it; <see cref="FormidableOptions.RequiredOverride"/> answers first.</summary>
     /// <param name="field">The field.</param>
-    /// <returns>The requirement; <see cref="FieldRequirement.NotRequired"/> means no presence rule was found, not that the field is proven optional.</returns>
+    /// <returns>The requirement; <see cref="FieldRequirement.NotRequired"/> means no presence rule that fails as an error was found, not that the field is proven optional.</returns>
     /// <remarks>
-    /// Presence is read from <c>NotEmpty()</c> and <c>NotNull()</c> rules; a predicate, and any
-    /// rule on a validator that cannot be inspected, leaves the field
+    /// Presence is read from <c>NotEmpty()</c> and <c>NotNull()</c> rules failing as an error; a
+    /// predicate, and any rule on a validator that cannot be inspected, leaves the field
     /// <see cref="FieldRequirement.NotRequired"/>. After the page replaces a nested object in
     /// place, the next derivation (a submit profile swap or a move in the rendered field set)
     /// files the demand under the new instance, so a component still bound to the old one reads

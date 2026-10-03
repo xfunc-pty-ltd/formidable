@@ -434,6 +434,171 @@ public class RuleInspectingValidatorTests
         public bool CanValidateInstancesOfType(Type type) => type == typeof(InspectModel);
     }
 
+    /// <summary>The fields the severity rows read: a text field, a value-type field, a child, a list, and the flag a model-decided severity reads.</summary>
+    private sealed class SeverityTicket
+    {
+        public string? Impact { get; set; }
+        public bool Urgent { get; set; }
+        public int Count { get; set; }
+        public InspectChild Address { get; set; } = new();
+        public List<string> Tags { get; set; } = [];
+    }
+
+    /// <summary>A child validator whose one presence rule fails with the severity it is built with.</summary>
+    private sealed class SeverityChildValidator : AbstractValidator<InspectChild>
+    {
+        public SeverityChildValidator(Severity severity) => RuleFor(c => c.City).NotEmpty().WithSeverity(severity);
+    }
+
+    /// <summary>Counts how often a row's own severity code runs.</summary>
+    private sealed class CallCount
+    {
+        public int Value;
+
+        public Severity Count(Severity answer)
+        {
+            Value++;
+            return answer;
+        }
+    }
+
+    /// <summary>
+    /// One severity row: a validator holding one presence rule (two for the row that pairs them)
+    /// and the path that rule files under. Every severity a row's own code decides goes through
+    /// <paramref name="calls"/>, so a test can tell whether reading the rules ran it.
+    /// </summary>
+    private static (IValidator<SeverityTicket> Validator, string Path) SeverityRow(string row, CallCount calls)
+    {
+        var validator = new InlineValidator<SeverityTicket>();
+        var path = "Impact";
+        switch (row)
+        {
+            case "a: no WithSeverity":
+                validator.RuleFor(t => t.Impact).NotEmpty();
+                break;
+            case "a2: WithSeverity(Error)":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(Severity.Error);
+                break;
+            case "b: WithSeverity(Warning)":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(Severity.Warning);
+                break;
+            case "e: WithSeverity(Info)":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(Severity.Info);
+                break;
+            case "c: WithSeverity(model => ...)":
+                validator.RuleFor(t => t.Impact).NotEmpty()
+                    .WithSeverity(t => calls.Count(t.Urgent ? Severity.Error : Severity.Warning));
+                break;
+            case "d: WithSeverity((model, value) => ...)":
+                validator.RuleFor(t => t.Impact).NotEmpty()
+                    .WithSeverity((t, _) => calls.Count(t.Urgent ? Severity.Error : Severity.Warning));
+                break;
+            case "d3: WithSeverity((model, value, context) => ...)":
+                validator.RuleFor(t => t.Impact).NotEmpty()
+                    .WithSeverity((t, _, _) => calls.Count(t.Urgent ? Severity.Error : Severity.Warning));
+                break;
+            case "d4: WithSeverity(model => Warning), the model unread":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(_ => calls.Count(Severity.Warning));
+                break;
+            case "f: a provider set through Configure that tolerates a null context":
+                validator.RuleFor(t => t.Impact).NotEmpty().Configure(rule => rule.Current.SeverityProvider =
+                    (context, _) => calls.Count(context?.InstanceToValidate?.Urgent == true ? Severity.Error : Severity.Warning));
+                break;
+            case "f2: a constant provider set through Configure":
+                validator.RuleFor(t => t.Impact).NotEmpty().Configure(rule => rule.Current.SeverityProvider =
+                    (_, _) => calls.Count(Severity.Warning));
+                break;
+            case "w: NotEmpty().When(...)":
+                validator.RuleFor(t => t.Impact).NotEmpty().When(t => t.Urgent);
+                break;
+            case "wb: WithSeverity(Warning).When(...)":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(Severity.Warning).When(t => t.Urgent);
+                break;
+            case "wc: WithSeverity(model => ...).When(...)":
+                validator.RuleFor(t => t.Impact).NotEmpty()
+                    .WithSeverity(t => calls.Count(t.Urgent ? Severity.Error : Severity.Warning))
+                    .When(t => t.Urgent);
+                break;
+            case "i: NotEmpty().MaximumLength(3).WithSeverity(Warning)":
+                validator.RuleFor(t => t.Impact).NotEmpty().MaximumLength(3).WithSeverity(Severity.Warning);
+                break;
+            case "j: a Warning NotEmpty beside a plain NotNull":
+                validator.RuleFor(t => t.Impact).NotEmpty().WithSeverity(Severity.Warning);
+                validator.RuleFor(t => t.Impact).NotNull();
+                break;
+            case "k: MaximumLength(3).WithSeverity(Warning), no presence rule":
+                validator.RuleFor(t => t.Impact).MaximumLength(3).WithSeverity(Severity.Warning);
+                break;
+            case "h: an int with WithSeverity(Warning)":
+                validator.RuleFor(t => t.Count).NotEmpty().WithSeverity(Severity.Warning);
+                path = "Count";
+                break;
+            case "h2: an int with no WithSeverity":
+                validator.RuleFor(t => t.Count).NotEmpty();
+                path = "Count";
+                break;
+            case "ch: a child validator's member with WithSeverity(Warning)":
+                validator.RuleFor(t => t.Address).SetValidator(new SeverityChildValidator(Severity.Warning));
+                path = "Address.City";
+                break;
+            case "ch2: a child validator's member with WithSeverity(Error)":
+                validator.RuleFor(t => t.Address).SetValidator(new SeverityChildValidator(Severity.Error));
+                path = "Address.City";
+                break;
+            case "rf: RuleForEach(...).NotEmpty().WithSeverity(Info)":
+                validator.RuleForEach(t => t.Tags).NotEmpty().WithSeverity(Severity.Info);
+                path = "Tags[]";
+                break;
+            case "rf2: RuleForEach(...).NotEmpty()":
+                validator.RuleForEach(t => t.Tags).NotEmpty();
+                path = "Tags[]";
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(row), row, "No such severity row.");
+        }
+
+        return (validator, path);
+    }
+
+    /// <summary>A presence rule FluentValidation never builds: its component is not one of FluentValidation's own, so its severity cannot be read.</summary>
+    private sealed class ForeignPresenceRule : IValidationRule
+    {
+        private readonly IRuleComponent[] _components = [new ForeignPresenceComponent()];
+
+        public IEnumerable<IRuleComponent> Components => _components;
+        public string[] RuleSets { get; set; } = [];
+        public string PropertyName { get; set; } = nameof(SeverityTicket.Impact);
+        public MemberInfo Member => typeof(SeverityTicket).GetProperty(nameof(SeverityTicket.Impact))!;
+        public Type TypeToValidate => typeof(string);
+        public bool HasCondition => false;
+        public bool HasAsyncCondition => false;
+        public System.Linq.Expressions.LambdaExpression Expression => throw new NotSupportedException();
+        public IEnumerable<IValidationRule> DependentRules => [];
+        public string GetDisplayName(IValidationContext context) => PropertyName;
+        public void SetDisplayName(string name) => throw new NotSupportedException();
+    }
+
+    /// <summary>A presence component that is not FluentValidation's own component type.</summary>
+    private sealed class ForeignPresenceComponent : IRuleComponent
+    {
+        public bool HasCondition => false;
+        public bool HasAsyncCondition => false;
+        public IPropertyValidator Validator { get; } = new NotEmptyValidator<SeverityTicket, string?>();
+        public string ErrorCode => "NotEmptyValidator";
+        public string GetUnformattedErrorMessage() => "'{PropertyName}' must not be empty.";
+    }
+
+    /// <summary>An AbstractValidator that hands the walk <see cref="ForeignPresenceRule"/> in place of its own rules.</summary>
+    private sealed class ForeignPresenceValidator : AbstractValidator<SeverityTicket>, IEnumerable<IValidationRule>
+    {
+        private readonly IValidationRule[] _rules = [new ForeignPresenceRule()];
+
+        IEnumerator<IValidationRule> IEnumerable<IValidationRule>.GetEnumerator() =>
+            ((IEnumerable<IValidationRule>)_rules).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _rules.GetEnumerator();
+    }
+
     /// <summary>
     /// The profile's rule selection decides the answer. DraftedBrief puts Title's length rule in
     /// the draft bucket and its presence rule in the submit bucket, so the same field answers
@@ -1161,5 +1326,109 @@ public class RuleInspectingValidatorTests
         Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
         Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Title", withSubmit));
         Assert.Equal(FieldRequirement.NotRequired, adapter.GetFieldRequirement("Title", draftOnly));
+    }
+
+    /// <summary>Every severity row with the answer the submit profile reads for it.</summary>
+    public static TheoryData<string, FieldRequirement> SeverityRows => new()
+    {
+        { "a: no WithSeverity", FieldRequirement.Required },
+        { "a2: WithSeverity(Error)", FieldRequirement.Required },
+        { "b: WithSeverity(Warning)", FieldRequirement.NotRequired },
+        { "e: WithSeverity(Info)", FieldRequirement.NotRequired },
+        { "c: WithSeverity(model => ...)", FieldRequirement.ConditionallyRequired },
+        { "d: WithSeverity((model, value) => ...)", FieldRequirement.ConditionallyRequired },
+        { "d3: WithSeverity((model, value, context) => ...)", FieldRequirement.ConditionallyRequired },
+        { "d4: WithSeverity(model => Warning), the model unread", FieldRequirement.ConditionallyRequired },
+        { "f: a provider set through Configure that tolerates a null context", FieldRequirement.ConditionallyRequired },
+        { "f2: a constant provider set through Configure", FieldRequirement.ConditionallyRequired },
+        { "w: NotEmpty().When(...)", FieldRequirement.ConditionallyRequired },
+        { "wb: WithSeverity(Warning).When(...)", FieldRequirement.NotRequired },
+        { "wc: WithSeverity(model => ...).When(...)", FieldRequirement.ConditionallyRequired },
+        { "i: NotEmpty().MaximumLength(3).WithSeverity(Warning)", FieldRequirement.Required },
+        { "j: a Warning NotEmpty beside a plain NotNull", FieldRequirement.Required },
+        { "k: MaximumLength(3).WithSeverity(Warning), no presence rule", FieldRequirement.NotRequired },
+        { "h: an int with WithSeverity(Warning)", FieldRequirement.NotRequired },
+        { "h2: an int with no WithSeverity", FieldRequirement.Required },
+        { "ch: a child validator's member with WithSeverity(Warning)", FieldRequirement.NotRequired },
+        { "ch2: a child validator's member with WithSeverity(Error)", FieldRequirement.Required },
+        { "rf: RuleForEach(...).NotEmpty().WithSeverity(Info)", FieldRequirement.NotRequired },
+        { "rf2: RuleForEach(...).NotEmpty()", FieldRequirement.Required },
+    };
+
+    /// <summary>
+    /// A presence rule demands a value only when its failure blocks a submit, and only an error
+    /// blocks one. A warning or info presence rule demands nothing, with or without a condition. A
+    /// severity decided from the model is as undecidable without one as a <c>When</c>, so it reads
+    /// conditionally required. An error is required, or conditionally required under a condition,
+    /// and the strongest grade on a field wins. The declared paths are asserted first and as the
+    /// whole set: a field whose presence rule demands nothing is still spoken about, so a load
+    /// still checks it.
+    /// </summary>
+    // Mutations this breaks (each executed): grade every constant severity as Error (rows b, e,
+    // wb, h, ch and rf read Required or ConditionallyRequired); read a throw from FluentValidation's
+    // own severity closure as Error (rows c, d, d3 and d4 read Required); call a provider that is
+    // not FluentValidation's own (row f reads NotRequired, and so does f2).
+    [Theory]
+    [MemberData(nameof(SeverityRows))]
+    public void A_presence_rule_is_graded_by_the_severity_it_fails_with(string row, FieldRequirement expected)
+    {
+        var (validator, path) = SeverityRow(row, new CallCount());
+        var adapter = new FluentValidationModelValidator<SeverityTicket>(validator);
+
+        Assert.Equal([path], adapter.GetDeclaredFieldPaths(ValidationProfile.Submit));
+        Assert.Equal(expected, adapter.GetFieldRequirement(path, ValidationProfile.Submit));
+    }
+
+    /// <summary>
+    /// Reading the rules never runs a severity the rules' own code decides. FluentValidation's
+    /// wrappers around the model-reading overloads stop at the missing model before they reach
+    /// the lambda, and a provider assigned directly is never called at all. A later
+    /// FluentValidation that passed a missing model through to the lambda fails here, at the
+    /// upgrade, rather than in a consumer's form. A pin: it would pass with no severity reading at
+    /// all, since a reading that asks no severity runs no severity code either.
+    /// </summary>
+    // Mutation this breaks (executed): call a provider that is not FluentValidation's own (rows f
+    // and f2 count one call each).
+    [Theory]
+    [InlineData("c: WithSeverity(model => ...)")]
+    [InlineData("d: WithSeverity((model, value) => ...)")]
+    [InlineData("d3: WithSeverity((model, value, context) => ...)")]
+    [InlineData("d4: WithSeverity(model => Warning), the model unread")]
+    [InlineData("wc: WithSeverity(model => ...).When(...)")]
+    [InlineData("f: a provider set through Configure that tolerates a null context")]
+    [InlineData("f2: a constant provider set through Configure")]
+    public void Reading_the_rules_never_runs_the_rules_own_severity_code(string row)
+    {
+        var calls = new CallCount();
+        var (validator, path) = SeverityRow(row, calls);
+        var adapter = new FluentValidationModelValidator<SeverityTicket>(validator);
+
+        adapter.GetFieldRequirement(path, ValidationProfile.Submit);
+        adapter.GetDeclaredFieldPaths(ValidationProfile.Submit);
+
+        Assert.Equal(0, calls.Value);
+
+        // The control: the same code does run when a model is there to validate, so the zero
+        // above is the reading's restraint rather than a counter nothing reaches. Urgent opens
+        // the condition the When row carries.
+        validator.Validate(new SeverityTicket { Urgent = true });
+        Assert.Equal(1, calls.Value);
+    }
+
+    /// <summary>
+    /// A presence component whose severity cannot be read grades as an error: a failed read never
+    /// costs an unconditional rule its demand. FluentValidation builds no such component, so the
+    /// fixture hands the walk one of its own. A pin: it would pass with no severity reading at all,
+    /// since such a reading grades every presence rule as an error.
+    /// </summary>
+    // Mutation this breaks (executed): grade a failed severity read as needing a model (the field
+    // reads ConditionallyRequired).
+    [Fact]
+    public void A_presence_rule_whose_severity_cannot_be_read_keeps_its_demand()
+    {
+        var adapter = new FluentValidationModelValidator<SeverityTicket>(new ForeignPresenceValidator());
+
+        Assert.Equal(["Impact"], adapter.GetDeclaredFieldPaths(ValidationProfile.Submit));
+        Assert.Equal(FieldRequirement.Required, adapter.GetFieldRequirement("Impact", ValidationProfile.Submit));
     }
 }

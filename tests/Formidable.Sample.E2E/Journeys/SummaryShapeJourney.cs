@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using static Formidable.Sample.E2E.SamplePage;
 using static Microsoft.Playwright.Assertions;
@@ -212,5 +213,26 @@ public sealed class SummaryShapeJourney(SampleAppFixture app)
         await Expect(ErrorEntries(page)).ToHaveCountAsync(0);
         await Expect(WarningEntries(page))
             .ToHaveTextAsync(["Without an impact this ticket queues behind everything else"]);
+    }
+
+    // Impact's only rule is a warning, and a warning never blocks a submit, so the indicator the
+    // page places in its label draws nothing and its input carries no aria-required. Ticket
+    // reference, whose presence rule is an error, is the control and is asserted first: the same
+    // page still marks and announces it, so Impact's silence is read on a page whose marks have
+    // rendered, and is the rule's severity rather than marks switched off. Mutation that must
+    // break this: grading a warning presence rule as an error.
+    [E2EFact]
+    public async Task The_warning_field_carries_no_required_mark_while_an_error_field_does()
+    {
+        await using var session = await app.NewPageAsync("/summary-shape");
+        var page = session.Page;
+
+        await Expect(page.Locator("label:has-text('Ticket reference') span.formidable-required"))
+            .ToHaveCountAsync(1);
+        await Expect(Field(page, "reference")).ToHaveAttributeAsync("aria-required", "true");
+
+        await Expect(page.Locator("label:has-text('Impact') span.formidable-required"))
+            .ToHaveCountAsync(0);
+        await Expect(Field(page, "impact")).Not.ToHaveAttributeAsync("aria-required", new Regex(".*"));
     }
 }
