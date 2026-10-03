@@ -2,97 +2,116 @@
 
 <PageTitle>Field-state visualizer</PageTitle>
 <h1>Field-state visualizer</h1>
-<p>Every CSS class and pending indicator the kit renders is a decision made from one small record: <code>FieldState</code>. This page puts it on screen directly, live, for both fields below.</p>
+<p>Each class Formidable puts on a field to show its state is decided from one small record, <code>FieldState</code>, which the table under the fields shows live for <strong>Username</strong> and <strong>Display name</strong>. Leaving a box marks its field touched here, but only a field that would pass a submit turns green.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Handle.cs", "FieldStateVisualizer.razor", "FieldStateVisualizer.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Touched</strong>: the user has interacted with the field, or a draft load decided for it.</li>
-            <li><strong>Modified</strong>: the EditContext says the value changed.</li>
-            <li><strong>Validating</strong>: a check involving this field is still running. It is scoped to the field you edited (before and after a submit alike) and form-wide for a submit, the check you asked for. A draft load stays false for every field: it answers for the whole model, so the engine's own flag is true for a page-level spinner, but no field is waiting on it.</li>
-            <li><strong>Errors</strong>: the field currently carries error-severity messages.</li>
-            <li><strong>Warnings</strong>: the field currently carries warning-severity messages.</li>
-            <li><strong>Blur</strong> has no column of its own, and no flag either: it is what marks touched on this page, wiring <code>field.MarkTouched()</code> to <code>onblur</code> — the context seam meant for custom inputs. A built-in input marks touched only when a committed value change notifies the engine, in every <code>UpdateOn</code> mode, so without this wiring, tabbing through never touches.</li>
-            <li><strong>Form valid</strong>: the readout above Submit, kept live by <code>FormidableOptions.TrackFormValidity</code>. That option runs an invisible whole-form check by the submit profile, once when the form is built and again on every change, and the check shows no message and no "checking…". Submit stays disabled until the whole form would pass.</li>
-            <li>Green means a check has answered that a submit would not fail the field, not merely that you visited it. On this page <code>TrackFormValidity</code> earns less than it sounds, because the live check behind every edit already runs the submit rules; what it adds is the answer <em>before</em> any edit: a pristine form that reports truthfully, and the "confirmed" border on a field you have only tabbed through while nothing on the form has been changed yet. A form that narrows <code>LiveProfile</code>, or a validator the engine cannot take rule by rule, needs it for much more, since there a live check alone never earns green. The docs' page <em>How the engine works</em> has the mechanism.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Tab into Username and out — Touched flips to True, Modified stays False. Nothing was typed, so nothing was committed: the blur alone touches the field, because this page wires <code>field.MarkTouched()</code> to <code>onblur</code>.</li>
-            <li>Look at Username's border now — it takes none, and Submit stays disabled with Form valid reading No. The validity check's answer already carries the required-Username failure, and a field the engine knows would fail submit is never styled valid, disclosed message or none.</li>
-            <li>Tab through Display name the same way and it DOES confirm: the same answer holds nothing against it. Nothing has been edited yet, so no live check has run for either field: this is the validity check's work alone.</li>
-            <li>Type <code>admin</code> — Modified and Validating flip to True, then Errors flips once the taken-check lands. Submit stays disabled: a taken username still fails the validity check.</li>
-            <li>Clear Username — the field is engaged now, so "Username is required" appears inline at once, from the live check rather than from any submit.</li>
-            <li>Type <code>ada</code> instead: once the async check clears, the message goes, Form valid flips to Yes and Submit enables itself with no click needed. Tab out and the border confirms too — a focused box wears the accent border whatever its verdict, so that one waits for the blur. What it confirms is that a check has answered that a submit would not fail the field, whichever of the validity check and the live check got there first.</li>
-            <li>Submit — both rows' Validating flip together: submit is a form-wide check, not a per-field one.</li>
+            <li>Look at <strong>Form valid</strong> and <strong>Submit</strong> before typing anything.<div class="teaching__result"><span class="teaching__label">You see:</span> "Form valid: No", and <strong>Submit</strong> disabled.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The form's <code>TrackFormValidity</code> option checks the whole form as it opens; <strong>Username</strong> is required.</div></li>
+            <li>Click into <strong>Username</strong>, then press Tab without typing.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Username</strong>'s row reads Touched <code>True</code> and Modified <code>False</code>, and its box stays uncoloured.</div><div class="teaching__why"><span class="teaching__label">Why:</span> This page calls <code>MarkTouched()</code> when you leave a box, even with nothing typed.</div></li>
+            <li>Press Tab again to leave <strong>Display name</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Display name</strong> turns green, and its row reads Touched <code>True</code> and Modified <code>False</code>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Green means a field would pass a submit, and nothing fails for <strong>Display name</strong>.</div></li>
+            <li>Type <code>admin</code> into <strong>Username</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Username</strong>'s row reads Modified <code>True</code> and Validating <code>True</code> while "checking…" shows, then Errors <code>True</code> with "That username is taken".</div></li>
+            <li>Clear <strong>Username</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Username is required" at once, with no submit pressed.</div></li>
+            <li>Type <code>ada</code> into <strong>Username</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "checking…", then "Username is required" clears, <strong>Form valid</strong> reads "Yes" and <strong>Submit</strong> is enabled.</div></li>
+            <li>Press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Username</strong> turns green.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A box with focus wears the blue focus border, whatever its state.</div></li>
+            <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> both rows read Validating <code>True</code> together, then "Submitted" in the status line.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A submit checks every field at once, not only the one you edited.</div></li>
         </ol>
     </TryIt>
-</TeachingPanel>
+    <Rules>
+        <ul>
+            <li><strong>Username</strong>: required; not taken (<code>admin</code>, <code>root</code> and <code>formidable</code> are).</li>
+            <li><strong>Display name</strong>: optional; if filled in, not taken (<code>Administrator</code>, <code>Root User</code> and <code>Formidable</code> are).</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>Each row of the table reads one field's <code>FieldState</code>, the record its classes are decided from:</p>
+        <ul>
+            <li>The <strong>Touched</strong> column turns <code>True</code> when a change to the field reaches the form (from the first keystroke here) or the page calls <code>MarkTouched()</code>. A load of saved values, as on the <strong>Loading a saved draft</strong> page, touches the fields it checks that hold a value and leaves empty ones alone.</li>
+            <li>The <strong>Modified</strong> column reads the form's <code>EditContext</code>: has the value changed?</li>
+            <li>The <strong>Validating</strong> column is <code>True</code> while a check of that field runs.</li>
+            <li>The <strong>Errors</strong> and <strong>Warnings</strong> columns say whether the field has an error, or a warning, showing right now.</li>
+        </ul>
+        <p>As you type, <strong>Validating</strong> turns <code>True</code> only on the field you are editing, even though one check answers every field you have changed. That holds after a submit too. A submit checks every field, so every row turns <code>True</code>. The form's invisible <code>TrackFormValidity</code> check, described below, never sets the column.</p>
+        <p>The class Formidable adds while a check runs (<code>formidable-pending</code>, which the sample draws as a spinner in the box) follows the same record's <strong>Validating</strong> flag.</p>
+        <p>Each input sits in a <code>FormidableField</code>, a component that wraps one field's markup. The <code>FormidableField</code> tells the form the field is on the page, and hands that markup the field's state and a few calls, under the name <code>field</code>.</p>
+        <p>Leaving a box has no column and no flag of its own. On this page each input sets <code>@@onblur="() =&gt; field.MarkTouched()"</code>, a call meant for custom inputs, so leaving the box marks the field touched.</p>
+        <p>A Formidable input on its own touches a field only when a change reaches the form, whether the input sends each keystroke or waits until you leave the box (its <code>UpdateOn</code> setting). So without the page's call, tabbing through a box never touches it.</p>
+        <p>Green means a field would pass a submit, not merely that you visited it. A field turns green only once its <strong>Touched</strong> or <strong>Modified</strong> column reads <code>True</code>. Tabbing through <strong>Username</strong> leaves it uncoloured: the form already knows its required rule fails, though no message shows. A field that would fail a submit is never green. A box with focus wears the blue focus border, whatever its state, so green shows once you leave the box.</p>
+        <p><strong>Form valid</strong> reads <code>IsFormValid</code> from the form's validation state, which the form's <code>TrackFormValidity</code> option keeps current. The option runs an invisible check of the whole form against the rules a submit checks: once when the form opens, and again on every change. That check shows no message and no "checking…". <strong>Submit</strong> stays disabled until the whole form would pass.</p>
+        <p>What the option adds is the <strong>Form valid</strong> answer. That is how a fresh form reads "Form valid: No" truthfully.</p>
+        <p>The option matters less for green than you might expect. Every edit's own check already runs the rules a submit checks. The form also re-checks itself against those rules when it opens and whenever a field appears or leaves the page, with or without the option. So a field you have only tabbed through turns green even with the option off.</p>
+        <p>After an edit, the option's check and the edit's own check can each turn a field green, and whichever answers first does.</p>
+        <p>A profile is a named selection of a validator's rules. <code>LiveProfile</code> is the profile the form checks as you edit, and left unset it is the submit profile (the rules a submit checks), as on this page.</p>
+        <p>A form narrows <code>LiveProfile</code> by setting a profile with fewer rules, as the <strong>Server round-trip</strong> page does. That form's checks as you edit then skip some of a submit's rules, so they cannot show that a field would pass a submit. Before the first submit, a field on such a form turns green only through a check of the whole form: the option's check, a load of saved values, or the form's own re-check.</p>
+        <p>A validator Formidable has to run whole, rather than rule by rule, is the same. A check as you edit never turns its fields green, so before a submit only those three checks of the whole form can. One example is a FluentValidation validator set to stop at its first failing rule (<code>ClassLevelCascadeMode.Stop</code>). The docs page How the engine works explains the option's invisible check.</p>
+        <p>A load of saved values (<code>DiscloseLoadedValuesAsync</code>) leaves every row's <strong>Validating</strong> <code>False</code> while it runs. A load answers for the whole form, so while it runs only the form's own <code>IsValidating</code> flag is <code>True</code>, for a page-level spinner.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm @ref="_form" Model="_handle" Options="_options" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
 
-<FormidableForm @ref="_form" Model="_handle" Options="_options" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <FormidableField For="() => _handle.Username" Context="field">
-        <div class="field">
-            <label>Username <FormidableRequiredIndicator For="() => _handle.Username" /> <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
-            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
-        </div>
-        <FormidableFieldMessage For="() => _handle.Username" />
-    </FormidableField>
-
-    <FormidableField For="() => _handle.DisplayName" Context="field">
-        <div class="field">
-            <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
-            <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
-        </div>
-        <FormidableFieldMessage For="() => _handle.DisplayName" />
-    </FormidableField>
-
-    <table class="state-table">
-        <thead>
-            <tr>
-                <th>Field</th>
-                <th>Touched</th>
-                <th>Modified</th>
-                <th>Validating</th>
-                <th>Errors</th>
-                <th>Warnings</th>
-            </tr>
-        </thead>
-        <tbody>
             <FormidableField For="() => _handle.Username" Context="field">
-                <tr>
-                    <td>Username</td>
-                    <td>@field.State.IsTouched</td>
-                    <td>@field.State.IsModified</td>
-                    <td>@field.State.IsValidating</td>
-                    <td>@field.State.HasErrors</td>
-                    <td>@field.State.HasWarnings</td>
-                </tr>
+                <div class="field">
+                    <label>Username <FormidableRequiredIndicator For="() => _handle.Username" /> <FormidableInputText @bind-Value="_handle.Username" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
+                    <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+                </div>
+                <FormidableFieldMessage For="() => _handle.Username" />
             </FormidableField>
+
             <FormidableField For="() => _handle.DisplayName" Context="field">
-                <tr>
-                    <td>Display name</td>
-                    <td>@field.State.IsTouched</td>
-                    <td>@field.State.IsModified</td>
-                    <td>@field.State.IsValidating</td>
-                    <td>@field.State.HasErrors</td>
-                    <td>@field.State.HasWarnings</td>
-                </tr>
+                <div class="field">
+                    <label>Display name <FormidableInputText @bind-Value="_handle.DisplayName" UpdateOn="InputUpdateMode.OnInput" @onblur="() => field.MarkTouched()" /></label>
+                    <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+                </div>
+                <FormidableFieldMessage For="() => _handle.DisplayName" />
             </FormidableField>
-        </tbody>
-    </table>
 
-    <p>Form valid: <strong>@(_form?.Engine?.IsFormValid == true ? "Yes" : "No")</strong></p>
+            <table class="state-table">
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Touched</th>
+                        <th>Modified</th>
+                        <th>Validating</th>
+                        <th>Errors</th>
+                        <th>Warnings</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <FormidableField For="() => _handle.Username" Context="field">
+                        <tr>
+                            <td>Username</td>
+                            <td>@field.State.IsTouched</td>
+                            <td>@field.State.IsModified</td>
+                            <td>@field.State.IsValidating</td>
+                            <td>@field.State.HasErrors</td>
+                            <td>@field.State.HasWarnings</td>
+                        </tr>
+                    </FormidableField>
+                    <FormidableField For="() => _handle.DisplayName" Context="field">
+                        <tr>
+                            <td>Display name</td>
+                            <td>@field.State.IsTouched</td>
+                            <td>@field.State.IsModified</td>
+                            <td>@field.State.IsValidating</td>
+                            <td>@field.State.HasErrors</td>
+                            <td>@field.State.HasWarnings</td>
+                        </tr>
+                    </FormidableField>
+                </tbody>
+            </table>
 
-    <div class="actions">
-        <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
-    </div>
-</FormidableForm>
+            <p>Form valid: <strong>@(_form?.Engine?.IsFormValid == true ? "Yes" : "No")</strong></p>
 
-<p role="status">@_status</p>
+            <div class="actions">
+                <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
+            </div>
+        </FormidableForm>
 
-<p><small>The table rows above are not a read-only view bolted on the side — each is its own <code>FormidableField</code>, registered with the form exactly like the inputs above it. That is why they re-render the instant a flag changes: render-registration means any markup a field renders, table row included, is the live proof of that field's state.</small></p>
+        <p role="status">@_status</p>
+
+        <p><small>The table rows above are not a read-only view added on the side. Each row is its own <code>FormidableField</code>, the component that wraps one field's markup, just as each input sits in one. A <code>FormidableField</code> tells the form its field is on the page and re-renders whenever the form's state changes, so a table row shows its field's state the moment that state changes.</small></p>
+    </Demo>
+</TeachingPanel>

@@ -2,61 +2,71 @@
 
 <PageTitle>CSS colours</PageTitle>
 <h1>CSS colours</h1>
-<p>The kit paints nothing itself — every border, message, and spinner you see reads a handful of CSS custom properties from the sample's stylesheet. Override those tokens on any ancestor and the whole validation surface recolours at once.</p>
+<p>Every colour the sample gives a field, a message or the error summary comes from a handful of CSS custom properties (tokens) in its own stylesheet, because Formidable paints nothing itself. Pick a colour above the form and every part of the form that reads that token changes at once.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Listing.cs", "CssColours.razor", "CssColours.razor.cs" })">
-    <Rules>
-        <ul>
-            <li>Everything the kit colours flows through CSS custom properties in the SAMPLE's stylesheet — invalid borders, messages, the summary accent, even the pending spinner all read the same handful of tokens.</li>
-            <li>Recolouring is overriding those tokens on any ancestor element — zero library involvement; the kit never sees a colour.</li>
-            <li>That is a different seam from renaming: the <a href="/bootstrap">Bootstrap page</a> uses <code>FormidableCssClasses</code> to remap the state class NAMES onto another library's classes. Token override recolours; class-name remap re-targets whose stylesheet applies.</li>
-            <li>A touched or modified field with no errors earns <code>formidable-warning</code> or <code>formidable-info</code> from its issues' severity — the same recolour seam as <code>formidable-invalid</code>, just reading <code>--warn</code>/<code>--info</code> instead of <code>--error</code>.</li>
-            <li><strong>Valid</strong>: the confirmation border reads <code>--valid</code>, a token of its own beside <code>--error</code>, <code>--warn</code> and <code>--info</code> — the state that says nothing is wrong recolours on exactly the terms of the three that say something is.</li>
-            <li><strong>Title</strong>: required (error).</li>
-            <li><strong>Description</strong>: an exclamation mark draws a warning.</li>
-            <li><strong>Tags</strong>: more than five draws an info. Same validator as Severity levels.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Submit with every box empty — "Title is required" lands under the field and in the summary. Pick a new error colour: the border, the message, and the summary's rule and entry text all follow it.</li>
-            <li>Type a title and tab out of the box — the error gives way to the confirmation border. Pick a new valid colour and that border follows too.</li>
-            <li>Pick a new accent, then click into Description — the focus ring follows it, and so does the border the box wears while it holds focus.</li>
-            <li>Type an exclamation mark into Description — the amber warning arrives as you type, because every input here commits on each keystroke rather than at blur. Pick a new warning colour: message and border both follow.</li>
-            <li>Type <code>a,b,c,d,e,f</code> into Tags — the info arrives the moment the comma after <code>e</code> opens a sixth tag. Pick a new info colour and the same pair follows.</li>
+            <li>Click <strong>Submit</strong> with every box empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is required" under <strong>Title</strong> and in the error summary.</div></li>
+            <li>Pick a new colour with the <strong>Error</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s border, its message, and the error summary's left stripe and entry text all take the new colour.</div></li>
+            <li>Type <code>Synth</code> into <strong>Title</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s message clears and the box takes a green border, confirming the value would pass a submit.</div></li>
+            <li>Pick a new colour with the <strong>Valid</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s green border takes the new colour.</div></li>
+            <li>Pick a new colour with the <strong>Accent</strong> picker, then click into <strong>Description</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Description</strong>'s focus ring and border take the new colour while the box has focus.</div></li>
+            <li>Type <code>Great synth!</code> into <strong>Description</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> an amber warning, "Exclamation marks read as shouty", as soon as you type the <code>!</code>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Each box sends every keystroke to the form (<code>UpdateOn="InputUpdateMode.OnInput"</code>), so each one is checked.</div></li>
+            <li>Pick a new colour with the <strong>Warning</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> the warning message and <strong>Description</strong>'s border take the new colour.</div></li>
+            <li>Type <code>a,b,c,d,e,f</code> into <strong>Tags</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> an info in purple-blue, "More than five tags rarely helps discovery", as soon as you type the comma after <code>e</code>.</div></li>
+            <li>Pick a new colour with the <strong>Info</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> the info message and <strong>Tags</strong>' border take the new colour.</div></li>
         </ol>
     </TryIt>
-</TeachingPanel>
+    <Rules>
+        <ul>
+            <li><strong>Title</strong>: required; an error, so it blocks a submit.</li>
+            <li><strong>Description</strong>: an exclamation mark draws a warning, which never blocks.</li>
+            <li><strong>Tags</strong>: more than five draws an info, which never blocks.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>Formidable paints nothing itself. It puts a class on each field for its state, and the sample's stylesheet colours those classes from a handful of tokens (CSS custom properties): <code>--error</code> and <code>--error-text</code>, <code>--warn</code>, <code>--info</code>, <code>--valid</code> and <code>--accent</code>. Borders, messages and the error summary all read them, and so does the spinner a field shows while a check runs.</p>
+        <p>Each picker writes its token onto the box around the form as an inline style (the accent also sets <code>--ring</code>, the focus ring's tint). A token set on an element applies to everything inside it, so overriding one on any ancestor recolours the whole form at once. Formidable is not involved: it never sees a colour.</p>
+        <p>Each of those classes reads its own token: <code>formidable-invalid</code> reads <code>--error</code>, <code>formidable-warning</code> reads <code>--warn</code>, <code>formidable-info</code> reads <code>--info</code> and <code>formidable-valid</code> reads <code>--valid</code>. So the valid state, which says nothing is wrong, recolours the same way as the error, warning and info states, which say something is.</p>
+        <p>An error marks its field whether or not you have changed it. Once you have changed a field with no error, it takes the warning or info class when it carries a warning or an info. A changed field with nothing against it, which would pass a submit, takes the valid class: the green border that confirms it.</p>
+        <p><code>UpdateOn</code> is the input setting for when a value reaches the form. Every box here sets it to <code>InputUpdateMode.OnInput</code>, so each keystroke is checked and a message arrives as you type, not when you leave the box.</p>
+        <p>Renaming is a different setting. The <a href="bootstrap">Fitting a UI library</a> page uses <code>FormidableCssClasses</code> to give those classes another library's names. Overriding a token recolours the sample's own rules; renaming the classes changes whose stylesheet draws the field.</p>
+        <p>The pickers start at the light scheme's colours, and the box around the form carries no style until you pick one. Picking any colour writes every token at once, so in dark mode the other states switch to their light-scheme colours until you reload the page.</p>
+        <p>The validator is the <a href="severity">Severity levels</a> page's.</p>
+    </HowItWorks>
+    <Demo>
+        <div class="field"><label>Error <input type="color" @bind="Error" @bind:event="oninput" /></label></div>
+        <div class="field"><label>Accent <input type="color" @bind="Accent" @bind:event="oninput" /></label></div>
+        <div class="field"><label>Warning <input type="color" @bind="Warn" @bind:event="oninput" /></label></div>
+        <div class="field"><label>Info <input type="color" @bind="Info" @bind:event="oninput" /></label></div>
+        <div class="field"><label>Valid <input type="color" @bind="Valid" @bind:event="oninput" /></label></div>
 
-<div class="field"><label>Error <input type="color" @bind="Error" @bind:event="oninput" /></label></div>
-<div class="field"><label>Accent <input type="color" @bind="Accent" @bind:event="oninput" /></label></div>
-<div class="field"><label>Warning <input type="color" @bind="Warn" @bind:event="oninput" /></label></div>
-<div class="field"><label>Info <input type="color" @bind="Info" @bind:event="oninput" /></label></div>
-<div class="field"><label>Valid <input type="color" @bind="Valid" @bind:event="oninput" /></label></div>
+        @* "26" is 15% alpha appended to the accent hex for the ring token; it assumes a 6-digit
+           hex, which is what <input type="color"> always produces. *@
+        <div style="@WrapperStyle">
+            <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
+                <div class="summary-slot">
+                    <FormidableSummary />
+                </div>
 
-@* "26" is 15% alpha appended to the accent hex for the ring token; it assumes a 6-digit
-   hex, which is what <input type="color"> always produces. *@
-<div style="@WrapperStyle">
-    <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
-        <div class="summary-slot">
-            <FormidableSummary />
+                @* OnInput commits each keystroke, so a message lands as it is typed rather than at
+                   blur, where inserting it would push the Submit button out from under a pointer
+                   already on its way down. FormidableOptions.ClickRecovery guards a click displaced
+                   that way by default, and this page's own root renders the element it scopes to;
+                   committing per keystroke is the other answer, removing the shift rather than
+                   recovering from it. *@
+                <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+                    <FormidableFieldMessage For="() => _listing.Title" /></div>
+                <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" UpdateOn="InputUpdateMode.OnInput" /></label>
+                    <FormidableFieldMessage For="() => _listing.Description" /></div>
+                <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" UpdateOn="InputUpdateMode.OnInput" /></label>
+                    <FormidableFieldMessage For="() => _listing.Tags" /></div>
+
+                <div class="actions"><button type="submit">Submit</button></div>
+            </FormidableForm>
         </div>
 
-        @* OnInput commits each keystroke, so a message lands as it is typed rather than at
-           blur, where inserting it would push the Submit button out from under a pointer
-           already on its way down. FormidableOptions.ClickRecovery guards a click displaced
-           that way by default, and this page's own root renders the element it scopes to;
-           committing per keystroke is the other answer, removing the shift rather than
-           recovering from it. *@
-        <div class="field"><label>Title <FormidableRequiredIndicator For="() => _listing.Title" /> <FormidableInputText @bind-Value="_listing.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
-            <FormidableFieldMessage For="() => _listing.Title" /></div>
-        <div class="field"><label>Description <FormidableInputText @bind-Value="_listing.Description" UpdateOn="InputUpdateMode.OnInput" /></label>
-            <FormidableFieldMessage For="() => _listing.Description" /></div>
-        <div class="field"><label>Tags (comma-separated) <FormidableInputText @bind-Value="_listing.Tags" UpdateOn="InputUpdateMode.OnInput" /></label>
-            <FormidableFieldMessage For="() => _listing.Tags" /></div>
-
-        <div class="actions"><button type="submit">Submit</button></div>
-    </FormidableForm>
-</div>
-
-<p role="status">@_status</p>
+        <p role="status">@_status</p>
+    </Demo>
+</TeachingPanel>

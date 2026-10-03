@@ -2,52 +2,61 @@
 
 <PageTitle>Normalize</PageTitle>
 <h1>Normalize</h1>
-<p>Normalize() is model-owned cleanup that runs before validation. The server round-trip page calls it behind the scenes; this page calls it directly so you can watch the raw values change.</p>
+<p><code>Normalize()</code> is cleanup the model owns, meant to run before validation: here it trims <strong>Title</strong> and turns each run of spaces inside it into one. This page's <strong>Normalize now</strong> and <strong>Normalize + submit</strong> buttons call it, so a title over the 40-character limit only because of its spaces passes once trimmed.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "TrimmedNote.cs", "Normalize.razor", "Normalize.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Normalize()</strong> is model-owned cleanup, not a validation rule — it trims <strong>Title</strong> and collapses runs of internal whitespace to single spaces.</li>
-            <li><strong>NotEmpty</strong> treats a value made only of whitespace as empty — that is FluentValidation's own semantics, not something Normalize() causes, so a blank-looking Title already fails presence before Normalize() ever runs.</li>
-            <li><strong>Body</strong> is a multiline field (<code>FormidableInputTextArea</code>), trimmed by <strong>Normalize()</strong> the same way.</li>
-            <li>Server filters call <code>Normalize()</code> automatically before validating (the server round-trip page relies on that).</li>
-            <li>Client code has no automatic hook unless you ask for one — a page calls <code>Normalize()</code> explicitly, and the cleaned value is only what gets judged if that call happens before validation.</li>
-            <li>The engine listens for field-change notifications, not the model itself — code that mutates the model tells the engine which fields changed (<code>EditContext.NotifyFieldChanged</code>, one call per changed field), the same wiring a foreign control uses. <em>Normalize now</em> does exactly that, so a message already on screen re-judges the cleaned value immediately.</li>
-            <li><strong>NormalizeOnSubmit</strong> is the automatic hook the bullet above says client code lacks: tick the checkbox below and the plain <em>Submit</em> button (unlike <em>Normalize now</em> and <em>Normalize + submit</em>, it never calls <code>Normalize()</code> itself) trims the model before the profile judges it.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Type <code>  spaced   out  title  </code> into Title, spaces and all, and click <em>Normalize now</em> — the raw value below collapses every run to one space.</li>
-            <li>Keep padding Title with spaces — once the raw value passes 40 characters, "Title is 40 characters max" appears as you type. <em>Normalize now</em> trims it back under the limit and the message clears at once: the notification re-judged the cleaned value.</li>
-            <li>Replace Title with <code>    Meeting notes about the Q3 rollout    </code> — 42 characters raw, 34 trimmed. Click <em>Normalize + submit</em>: trimming runs before validation, the length rule judges the cleaned value, and the submit succeeds.</li>
-            <li>Replace Title with spaces only — "Title is required" appears the moment the field is only spaces, before you touch a button, because NotEmpty already reads it as empty. Click <em>Normalize + submit</em> anyway: normalizing turns the value into a literal empty string, and the submit stays blocked by the same message.</li>
-            <li>Tick <em>Normalize automatically on submit</em>, replace Title with <code>    Meeting notes about the Q3 rollout    </code> and click plain <em>Submit</em> — the option trims it before the profile runs, with no manual call, and the submit succeeds. The box now shows the trimmed 34-character value, exactly as a manual Normalize would leave it.</li>
-            <li>Untick the box, replace Title with that same raw text again, and click <em>Submit</em> — this time the raw 42-character value fails the 40-character rule, since nothing trimmed it first.</li>
+            <li>Type <code>  spaced   out  title  </code> into <strong>Title</strong> (two spaces before, three and two between, two after), then click <strong>Normalize now</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong> and the raw value read "spaced out title".</div></li>
+            <li>Type 25 spaces at the end of <strong>Title</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is 40 characters max" on the 25th, as the raw value passes 40 characters.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Title</strong> sends every keystroke to the form (<code>UpdateOn="InputUpdateMode.OnInput"</code>), so each one is checked.</div></li>
+            <li>Click <strong>Normalize now</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the message clears at once, and the spaces leave <strong>Title</strong> and the raw value.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Normalize now</strong> tells the form <strong>Title</strong> changed, so it checks the cleaned value.</div></li>
+            <li>Replace <strong>Title</strong> with <code>    Meeting notes about the Q3 rollout    </code>, four spaces on each side.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is 40 characters max": the raw value is 42 characters.</div></li>
+            <li>Click <strong>Normalize + submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line, and <strong>Title</strong> trimmed to its 34 characters.</div></li>
+            <li>Replace <strong>Title</strong> with spaces only.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is required", before you press a button.</div></li>
+            <li>Click <strong>Normalize + submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong> empties, "Title is required" stays, and the status line reads "Blocked by errors".</div></li>
+            <li>Tick <strong>Normalize automatically on submit</strong>, replace <strong>Title</strong> with <code>    Meeting notes about the Q3 rollout    </code> again, four spaces on each side, and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" and a 34-character <strong>Title</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The checkbox sets the form's <code>NormalizeOnSubmit</code>, so a submit calls <code>Normalize()</code> first.</div></li>
+            <li>Untick <strong>Normalize automatically on submit</strong>, replace <strong>Title</strong> with the same text, spaces included, and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is 40 characters max" and "Blocked by errors".</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Title</strong>: required; 40 characters max.</li>
+            <li><strong>Body</strong>: optional, with no rules.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p><code>Normalize()</code> is the model's own cleanup method (the model implements <code>INormalizableModel</code>), not a validation rule. Here it trims <strong>Title</strong> and turns each run of spaces inside it into one. It also trims the ends of <strong>Body</strong>, a multiline box (<code>FormidableInputTextArea</code>), and leaves the spaces inside it.</p>
+        <p>Formidable never calls <code>Normalize()</code> in the browser on its own. A page calls it, or turns on <code>NormalizeOnSubmit</code>, which this page's checkbox sets. Here <strong>Normalize now</strong> calls it to clean the model, and <strong>Normalize + submit</strong> calls it, then submits. A check sees the cleaned value only if the call comes first. The line under the form shows the raw values, so you can watch them change.</p>
+        <p>The form listens for change notifications, not for changes to the model itself. Code that changes the model tells the form which fields changed with <code>EditContext.NotifyFieldChanged</code>, one call per changed field. A foreign control (one Formidable has no input component for) sends the same notification with <code>NotifyChanged()</code>. <strong>Normalize now</strong> sends it for each field it changed, so the form checks the cleaned value at once, and a message on screen changes or clears to match.</p>
+        <p>The checkbox sets the form's <code>NormalizeOnSubmit</code> option, the one automatic call: with it ticked, every submit calls <code>Normalize()</code> before checking. The plain <strong>Submit</strong> button never calls it itself, unlike the other two buttons, so the checkbox alone decides whether its submit sees the cleaned value. The submit then shows the cleaned value in <strong>Title</strong>'s box, as a manual call would.</p>
+        <p>FluentValidation's <code>NotEmpty()</code> treats a value of only spaces as empty. That is FluentValidation's own rule, not something <code>Normalize()</code> causes, so a blank-looking <strong>Title</strong> fails before you press a button. Normalizing it leaves an empty string, which fails the same rule.</p>
+        <p><strong>Title</strong>'s two rules sit in one chain that stops at the first failure, so the field shows one message at a time. A title of only spaces shows "Title is required" alone, however many spaces it holds.</p>
+        <p>Both boxes send every keystroke to the form (<code>UpdateOn="InputUpdateMode.OnInput"</code>, the input setting for when a value reaches the form), so each one is checked and a message arrives as you type.</p>
+        <p>On the server, Formidable's validation filters (the endpoint filter and the <code>[Validate]</code> attribute) call <code>Normalize()</code> before they validate. The <a href="server">Server round-trip</a> page calls it before each send as well. There it drops any order line whose SKU (stock code) box holds only spaces, and the server drops the same lines, so each message the server sends back lands under the right SKU box.</p>
+    </HowItWorks>
+    <Demo>
+        <p>
+            <label><input type="checkbox" @bind="_options.NormalizeOnSubmit" /> Normalize automatically on submit</label>
+        </p>
+
+        <FormidableForm @ref="_form" Model="_note" Options="_options">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Title <FormidableRequiredIndicator For="() => _note.Title" /> <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
+                <FormidableFieldMessage For="() => _note.Title" /></div>
+            <div class="field"><label>Body <FormidableInputTextArea @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
+                <FormidableFieldMessage For="() => _note.Body" /></div>
+
+            <div class="actions">
+                <button type="button" @onclick="NormalizeNow">Normalize now</button>
+                <button type="button" @onclick="Submit">Submit</button>
+                <button type="button" class="primary" @onclick="NormalizeAndSubmit">Normalize + submit</button>
+            </div>
+        </FormidableForm>
+
+        <p><small>Raw values (quotes show the whitespace): Title = "@_note.Title" · Body = "@_note.Body"</small></p>
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<p>
-    <label><input type="checkbox" @bind="_options.NormalizeOnSubmit" /> Normalize automatically on submit</label>
-</p>
-
-<FormidableForm @ref="_form" Model="_note" Options="_options">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Title <FormidableRequiredIndicator For="() => _note.Title" /> <FormidableInputText @bind-Value="_note.Title" UpdateOn="InputUpdateMode.OnInput" /></label>
-        <FormidableFieldMessage For="() => _note.Title" /></div>
-    <div class="field"><label>Body <FormidableInputTextArea @bind-Value="_note.Body" UpdateOn="InputUpdateMode.OnInput" /></label>
-        <FormidableFieldMessage For="() => _note.Body" /></div>
-
-    <div class="actions">
-        <button type="button" @onclick="NormalizeNow">Normalize now</button>
-        <button type="button" @onclick="Submit">Submit</button>
-        <button type="button" class="primary" @onclick="NormalizeAndSubmit">Normalize + submit</button>
-    </div>
-</FormidableForm>
-
-<p><small>Raw values — quotes show the whitespace: Title = "@_note.Title" · Body = "@_note.Body"</small></p>
-<p role="status">@_status</p>

@@ -2,50 +2,60 @@
 
 <PageTitle>Localization</PageTitle>
 <h1>Localization</h1>
-<p>Two mechanisms in one form: FluentValidation translates its own default messages by the current UI culture, and the one custom message comes from a resx pair. Switch the language and the messages, the date and the number all follow.</p>
+<p>Two mechanisms translate this form's messages: FluentValidation translates its own default messages by the current UI culture, and the one custom message comes from a pair of resource (resx) files. Switch the language and the messages, the date and the number all follow.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "LocalizedProfile.cs", "CultureBootstrap.cs", "Localization.razor", "Localization.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Full Name</strong>: required, with <em>no</em> <code>WithMessage</code>. FluentValidation carries translations of its own default messages inside its assembly and picks one by <code>CultureInfo.CurrentUICulture</code>, so a rule that keeps the default message localizes for free.</li>
-            <li><strong>Age</strong>: a whole number between 18 and 130. This message is the app's own, so it comes from <code>ValidationMessages.resx</code> (English) and <code>ValidationMessages.de.resx</code> (German). It is passed as a message <em>factory</em>, so the resx lookup happens each time the rule runs and always matches the active culture.</li>
-            <li>WebAssembly fixes the culture at startup, so switching reloads the app: <code>Program.cs</code> reads the stored choice and applies it before the host runs, which is also the moment the German satellite assembly is downloaded. That plumbing is the app's own (<code>CultureBootstrap</code> below); the library ships none of it.</li>
-            <li>FluentValidation's translated defaults still embed the property's display name in English (<code>'Full Name' darf nicht leer sein.</code>) — display-name localization is a separate concern (e.g. <code>WithName</code>) this page deliberately leaves out.</li>
-        </ul>
-    </Rules>
     <TryIt>
+        <p>Before the steps, check the <strong>Messages and formats</strong> picker under <strong>Language</strong>, which keeps your last pick. If it does not show <strong>English (Australia)</strong>, pick that first; the page reloads.</p>
         <ol>
-            <li>The language select above reflects whatever culture is stored in <code>formidable.culture</code> from a previous visit — if it is not already showing <em>English (Australia)</em>, switch to it first.</li>
-            <li>Submit the empty form in English — FluentValidation's own default answers for Full Name ("'Full Name' must not be empty."), and the resx message answers for Age.</li>
-            <li>Switch the language to <em>Deutsch</em>; the page reloads. Submit empty again — both messages arrive in German, one from FluentValidation, one from the resx.</li>
-            <li>Type <code>30</code> into Age and leave the field — the range message clears on that commit alone. Replace it with <code>12</code>, leave again, and the message returns, in whichever language is active: the resx lookup happens each time the rule runs.</li>
-            <li>Watch the line under the form: the long date and the grouped number reformat with the culture too.</li>
+            <li>Look at the line under the form.<div class="teaching__result"><span class="teaching__label">You see:</span> today's date written out in English, and the number <code>1,234.56</code>.</div></li>
+            <li>Click <strong>Submit</strong> with both boxes empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "'Full Name' must not be empty." under <strong>Full Name</strong> and "Age must be a whole number between 18 and 130" under <strong>Age</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Age</strong>'s range check fails an empty box, though it is not a required rule.</div></li>
+            <li>Pick <strong>Deutsch (Deutschland)</strong> in the picker.<div class="teaching__result"><span class="teaching__label">You see:</span> the page reloads with empty boxes, and the line under the form shows the date in German and the number as <code>1.234,56</code>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> WebAssembly fixes the culture at startup, so the page stores your pick and reloads.</div></li>
+            <li>Click <strong>Submit</strong> with both boxes empty again.<div class="teaching__result"><span class="teaching__label">You see:</span> "'Full Name' darf nicht leer sein." and "Das Alter muss eine ganze Zahl zwischen 18 und 130 sein".</div><div class="teaching__why"><span class="teaching__label">Why:</span> FluentValidation translates its messages; display names like 'Full Name' are a separate job.</div></li>
+            <li>Type <code>30</code> into <strong>Age</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> the message under <strong>Age</strong> clears.</div></li>
+            <li>Replace <strong>Age</strong> with <code>12</code> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> "Das Alter muss eine ganze Zahl zwischen 18 und 130 sein" again.</div></li>
+            <li>Pick <strong>English (Australia)</strong> in the picker.<div class="teaching__result"><span class="teaching__label">You see:</span> the page reloads, and the line under the form shows English formats again.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Full Name</strong>: required.</li>
+            <li><strong>Age</strong>: a whole number from 18 to 130.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p><strong>Full Name</strong>'s rule has no <code>WithMessage</code>, so it keeps FluentValidation's default message. FluentValidation ships translations of its default messages and picks one by <code>CultureInfo.CurrentUICulture</code>, so a rule that keeps the default message is translated for free.</p>
+        <p><strong>Age</strong>'s message is the app's own, so it comes from a resource pair: <code>ValidationMessages.resx</code> (English) and <code>ValidationMessages.de.resx</code> (German). The rule passes it as a message factory (a function), so the lookup happens each time the rule runs and always matches the culture in force.</p>
+        <p>The page places a <code>FormidableRequiredIndicator</code> (the component that draws the mark) beside <strong>Full Name</strong> only. <strong>Age</strong> has no required rule (<code>NotEmpty()</code> or <code>NotNull()</code>), only a range check written with <code>Must</code>, so a <code>FormidableRequiredIndicator</code> placed beside it would draw nothing. An empty box still fails the range check.</p>
+        <p>WebAssembly fixes the culture at startup, so switching reloads the app. The page stores your pick in the browser under <code>formidable.culture</code>, and <code>Program.cs</code> applies it before the app starts. That is also when the browser downloads the German resource assembly, once German is picked. That plumbing is the app's own (<code>CultureBootstrap</code>, under <strong>Show the code</strong>); Formidable ships none of it.</p>
+        <p>FluentValidation's translated messages still name the field in English ('Full Name' darf nicht leer sein.). Translating display names is a separate job (with <code>WithName</code>, for example), which this page leaves out.</p>
+        <p>The line under the form writes today's date in full and a number under the culture in force. The page's own text, this panel included, stays English whatever you pick; only the form's messages and that line follow the culture.</p>
+    </HowItWorks>
+    <Demo>
+        <fieldset class="culture">
+            <legend>Language</legend>
+            <label>Messages and formats
+                <select value="@Culture" @onchange="SwitchCulture">
+                    <option value="en-AU">English (Australia)</option>
+                    <option value="de-DE">Deutsch (Deutschland)</option>
+                </select>
+            </label>
+        </fieldset>
+
+        <FormidableForm Model="_profile" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Full Name <FormidableRequiredIndicator For="() => _profile.FullName" /> <FormidableInputText @bind-Value="_profile.FullName" /></label>
+                <FormidableFieldMessage For="() => _profile.FullName" /></div>
+            <div class="field"><label>Age <FormidableInputText @bind-Value="_profile.Age" /></label>
+                <FormidableFieldMessage For="() => _profile.Age" /></div>
+
+            <div class="actions"><button type="submit">Submit</button></div>
+        </FormidableForm>
+
+        <p><small>Culture-sensitive formatting under @Culture: today is @DateTime.Today.ToString("D"), and a number reads @(1234.56.ToString("N2")).</small></p>
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<fieldset class="culture">
-    <legend>Language</legend>
-    <label>Messages and formats
-        <select value="@Culture" @onchange="SwitchCulture">
-            <option value="en-AU">English (Australia)</option>
-            <option value="de-DE">Deutsch (Deutschland)</option>
-        </select>
-    </label>
-</fieldset>
-
-<FormidableForm Model="_profile" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Full Name <FormidableRequiredIndicator For="() => _profile.FullName" /> <FormidableInputText @bind-Value="_profile.FullName" /></label>
-        <FormidableFieldMessage For="() => _profile.FullName" /></div>
-    <div class="field"><label>Age <FormidableInputText @bind-Value="_profile.Age" /></label>
-        <FormidableFieldMessage For="() => _profile.Age" /></div>
-
-    <div class="actions"><button type="submit">Submit</button></div>
-</FormidableForm>
-
-<p><small>Culture-sensitive formatting under @Culture — today: @DateTime.Today.ToString("D") · a number: @(1234.56.ToString("N2"))</small></p>
-<p role="status">@_status</p>

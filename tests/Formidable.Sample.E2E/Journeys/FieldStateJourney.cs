@@ -11,14 +11,16 @@ namespace Formidable.Sample.E2E;
 /// both fields on the page are Formidable inputs, so both take the same valid rule
 /// (<c>FormidableCss.Compute</c>), the alignment the class provider shares with a native input
 /// under the same EditContext. The valid class asks for more than touched-or-modified with no
-/// message: the submit-selected coverage must be fresh and hold nothing against the field. Two
-/// things put that coverage in the store on this page — the live pass a committed change runs,
-/// and the <c>TrackFormValidity</c> probe. Neither is scoped to the field that moved: a live
-/// pass plans over its whole selection, so an edit to Username files Display name's verdicts
-/// too, and it is disclosure, not coverage, that narrows to the fields a visitor has engaged.
-/// What sets the probe apart is that it needs no edit at all — the opening reading below is its
-/// alone, since nothing has been edited yet; from the first commit onwards either may have got
-/// there first. Green follows what the store can vouch for, never the interaction alone.
+/// message: the submit-selected coverage must be fresh and hold nothing against the field. Three
+/// things put that coverage in the store on this page: the live pass a committed change runs,
+/// the refresh the first render arms, and the <c>TrackFormValidity</c> probe. None is scoped to
+/// the field that moved: a live pass plans over its whole selection, so an edit to Username files
+/// Display name's verdicts too, and it is disclosure, not coverage, that narrows to the fields a
+/// visitor has engaged. What sets the refresh and the probe apart is that neither needs an edit,
+/// so the opening reading below is theirs alone, since nothing has been edited yet. The refresh
+/// needs no probe either: with tracking off it still greens a tabbed-through Display name. From
+/// the first commit onwards any of the three may have got there first. Green follows what the
+/// store can vouch for, never the interaction alone.
 /// </summary>
 [Collection("e2e")]
 public sealed class FieldStateJourney(SampleAppFixture app)
@@ -35,11 +37,12 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         var usernameRow = page.Locator(".state-table tbody tr:has-text('Username')");
         var displayNameRow = page.Locator(".state-table tbody tr:has-text('Display name')");
 
-        // Touched flips on blur alone — the page's MarkTouched splat (its whole lesson). Touched
-        // is not green, though: nothing has been edited yet, so no live pass has run and the
-        // tracking probe is the only thing that can have answered — which it has, for the
-        // pristine model, and that fresh answer carries the required-Username failure. A field
-        // the store knows would fail submit wears no formidable-valid, disclosed message or none.
+        // Touched flips on blur alone, through the page's MarkTouched call (its second step). Touched
+        // is not green, though: nothing has been edited yet, so no live pass has run. The only
+        // answers there can be are for the pristine model, from the tracking probe the form runs as
+        // it is built and the refresh its first render arms, and either carries the
+        // required-Username failure. A field the store knows would fail submit wears no
+        // formidable-valid, disclosed message or none.
         // The row's cells sit one per line in the markup, so the assertions below tolerate the
         // whitespace a normalized read leaves between them.
         await username.PressAsync("Tab");
@@ -77,9 +80,10 @@ public sealed class FieldStateJourney(SampleAppFixture app)
         // green on this field, because nothing in the submit-selected set fails for it: no
         // presence rule names it, and its own async rule is in the always-on bucket the submit
         // profile selects too, gated off on an empty value rather than absent. The pair is the
-        // page's honest contrast — green paints the moment the store can vouch for a field and
-        // is withheld exactly where it cannot, which is what makes Username's bare box at the
-        // top of this journey a real absence rather than a page that never paints green at all.
+        // page's honest contrast, its second and third steps: green paints the moment the store
+        // can vouch for a field and is withheld exactly where it cannot, which is what makes
+        // Username's bare box at the top of this journey a real absence rather than a page that
+        // never paints green at all.
         await displayName.PressAsync("Tab");
         await Expect(displayNameRow).ToHaveTextAsync(new Regex(@"^Display name\s*True\s*False"));
         await Expect(displayName).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });

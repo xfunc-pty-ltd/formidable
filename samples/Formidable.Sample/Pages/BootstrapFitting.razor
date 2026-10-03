@@ -5,41 +5,48 @@
     <link rel="stylesheet" href="lib/bootstrap.min.css" />
 </HeadContent>
 <h1>Fitting a UI library</h1>
-<p>The same Quickstart model and validator, dressed in Bootstrap. The whole integration is one <code>Options</code> object: <code>FormidableCssClasses</code> maps the state class NAMES onto Bootstrap's, and the markup uses Bootstrap's own classes. While you are on this page Bootstrap's stylesheet is loaded globally — that is how single-page WASM head links work. In light mode that gives the rest of this page a slightly Bootstrap-flavoured look too; in dark mode the site shell holds onto its own colours. The demo below also follows your OS colour scheme — Bootstrap themes itself with one attribute, <code>data-bs-theme</code>, which a few lines of page script keep in sync.</p>
+<p>This page shows the <a href="">Quickstart</a> page's form, a name and an email address, styled by Bootstrap's stylesheet. One form setting, <code>CssClasses</code>, gives each field Bootstrap's class names for its state, so a blocked submit draws Bootstrap's red border and a fixed field its green one.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "BootstrapFitting.razor", "BootstrapFitting.razor.cs", "QuickContact.cs" })">
+    <TryIt>
+        <ol>
+            <li>Click <strong>Submit</strong> with both fields empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "Name is required" and "Email is required" under their boxes, and each box in Bootstrap's red border with Bootstrap's own invalid icon.</div></li>
+            <li>Type <code>Ada</code> into <strong>Name</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Name</strong>'s message clears, and the box takes Bootstrap's green border with a green tick.</div></li>
+            <li>Type <code>ada@example.com</code> into <strong>Email</strong> and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line, with a thank-you to the name you typed.</div></li>
+            <li>Open <strong>Show the code</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the only Formidable-specific lines are the form's settings (<code>Options</code>) and Formidable's components; the rest is Bootstrap's markup and plain page code.</div></li>
+            <li>With the page open, switch your system between light and dark mode.<div class="teaching__result"><span class="teaching__label">You see:</span> the box around the form follows at once, in Bootstrap's own light or dark look.</div></li>
+        </ol>
+    </TryIt>
     <Rules>
         <ul>
             <li><strong>Name</strong>: required.</li>
-            <li><strong>Email</strong>: required and valid (one message at a time). Identical validator to Quickstart.</li>
-            <li>The seam: <code>CssClasses = new() { Invalid = "is-invalid", Valid = "is-valid" }</code> — Formidable puts Bootstrap's own state classes on the inputs; Bootstrap's stylesheet does the rest.</li>
-            <li>Bootstrap has no warning/info tier of its own to remap onto, so <code>Warning</code> and <code>Info</code> are left at Formidable's own defaults here — invisible on this page, since neither field's validator ever raises one.</li>
-            <li>Message and summary components keep their <code>formidable-*</code> structural classes — your stylesheet styles those (here the site theme still does).</li>
-            <li>Dark mode: the wrapper's <code>data-bs-theme</code> attribute is toggled to match your OS by page script — Bootstrap's own theming hook; the kit is not involved.</li>
+            <li><strong>Email</strong>: required; a valid address.</li>
         </ul>
     </Rules>
-    <TryIt>
-        <ol>
-            <li>Submit empty — Bootstrap's red <code>is-invalid</code> borders appear, no site-theme CSS involved.</li>
-            <li>Fix a field and leave it — Bootstrap's green <code>is-valid</code> state shows.</li>
-            <li>Open <em>Show the code</em> — the only Formidable-specific lines are the <code>Options</code> object and the components themselves.</li>
-        </ol>
-    </TryIt>
-</TeachingPanel>
+    <HowItWorks>
+        <p>The form's <code>Options</code> (a <code>FormidableOptions</code>, the form's settings) sets <code>CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" }</code>. Formidable then gives a field Bootstrap's class names for those two states instead of its own, and Bootstrap's stylesheet draws them. The red and green borders are Bootstrap's. The sample's stylesheet colours a field by Formidable's default class names, which these inputs no longer wear.</p>
+        <p>The markup uses Bootstrap's classes as any Bootstrap form would (<code>form-control</code>, <code>form-label</code>, <code>btn</code>), and Formidable's inputs pass them through. The message and summary components keep their <code>formidable-*</code> classes, which the sample's own stylesheet styles, as on every other page.</p>
+        <p><code>FormidableCssClasses</code>, the type <code>CssClasses</code> takes, names five states: invalid, valid, warning, info and pending (a check is running). Bootstrap's form styles draw the first two, so the page maps those and leaves <code>Warning</code>, <code>Info</code> and <code>Pending</code> at Formidable's defaults. Neither field's rules raise a warning or an info, and neither field has an async rule, so nothing on this page wears them.</p>
+        <p>The model and validator are the <a href="">Quickstart</a> page's. <strong>Email</strong>'s two rules sit in one chain that stops at the first failure, so the field shows one message at a time. It reads "Email is required" while the box is empty, and "A valid email is required" once it holds something that is not an address.</p>
+        <p>The page puts Bootstrap's stylesheet in the document head through <code>HeadContent</code>, so while you are on this page it styles the whole document, not only the form. In light mode that gives the rest of the page a slightly Bootstrap look too. In dark mode the sample keeps its own background and text colours.</p>
+        <p>Bootstrap themes itself through one attribute, <code>data-bs-theme</code>. A few lines of page script set it on the box around the form to match your system's colour scheme, and follow a change while the page is open. Formidable is not involved.</p>
+    </HowItWorks>
+    <Demo>
+        <div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
+            <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
+                <div class="summary-slot">
+                    <FormidableSummary />
+                </div>
 
-<div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
-    <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
-        <div class="summary-slot">
-            <FormidableSummary />
+                <div class="mb-3"><label class="form-label">Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
+                    <FormidableFieldMessage For="() => _contact.Name" /></div>
+                <div class="mb-3"><label class="form-label">Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
+                    <FormidableFieldMessage For="() => _contact.Email" /></div>
+
+                <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>
+            </FormidableForm>
         </div>
 
-        <div class="mb-3"><label class="form-label">Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
-            <FormidableFieldMessage For="() => _contact.Name" /></div>
-        <div class="mb-3"><label class="form-label">Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
-            <FormidableFieldMessage For="() => _contact.Email" /></div>
-
-        <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>
-    </FormidableForm>
-</div>
-
-<p role="status">@_status</p>
+        <p role="status">@_status</p>
+    </Demo>
+</TeachingPanel>

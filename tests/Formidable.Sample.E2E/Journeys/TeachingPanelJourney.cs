@@ -20,7 +20,8 @@ public sealed class TeachingPanelJourney(SampleAppFixture app)
     public static readonly string[] LessonRoutes =
         ["/profiles", "/", "/custom-profiles", "/disclosure", "/severity", "/draft-load",
             "/collections", "/virtualized", "/foreign", "/vanilla", "/attach",
-            "/async", "/server", "/summary-shape", "/dialog-submit", "/scroll-focus"];
+            "/async", "/server", "/summary-shape", "/dialog-submit", "/scroll-focus",
+            "/bootstrap", "/mudblazor", "/css-colours", "/field-state", "/normalize", "/localization"];
 
     private const string PanelName = "About this page";
 
