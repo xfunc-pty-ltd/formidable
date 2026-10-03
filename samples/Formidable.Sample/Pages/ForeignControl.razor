@@ -2,47 +2,56 @@
 
 <PageTitle>Wrapping a foreign control</PageTitle>
 <h1>Wrapping a foreign control</h1>
-<p>The select below is "foreign" — Formidable does not wrap it. The renderless FormidableField hands its template everything needed: element id, css class, aria attributes, and change notification. This page uses <code>&lt;label for="@@field.ElementId"&gt;</code> rather than wrapping the select in a label: a label wrapping a select would fold every option's text into the label's own, which defeats exact-match label lookup in test tooling, and the id the label targets is the field context's to supply. Most pages in this sample wrap their inputs instead.</p>
+<p>A foreign control is one Formidable has no input component for, like the plain <code>&lt;select&gt;</code> on this page. Wrapped in a <code>FormidableField</code> (the component that wraps one field's markup and tells it which field it is), the select gets the message, the red border and the focus from the error summary that Formidable's own inputs get.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "ForeignControl.razor", "ForeignControl.razor.cs", "GadgetOrder.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Colour</strong>: required. A committed change to the field discloses it, no submit needed.</li>
-            <li>The select is a control Formidable does not wrap. The renderless <code>FormidableField</code> hands its template everything a wrapper would have supplied: <code>ElementId</code>, <code>CssClass</code>, aria attributes, and <code>NotifyChanged()</code>.</li>
-            <li>Compare with Quickstart: wrapped inputs label-wrap and need no id; a foreign control keeps its own element, so the label targets <code>field.ElementId</code> instead.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Submit empty — the select takes the inline message and summary entry a wrapped input gets elsewhere in this sample, even though the page renders the control itself. The submit's own focus lands in the select, so tab out and the red border joins them: a focused box wears the accent border whatever its verdict.</li>
-            <li>Click into the select and the red border gives way to the accent one on that click alone — the same rule as the step above. Now pick a colour: the message clears on the commit, with no submit.</li>
-            <li>Open <em>Show the code</em> and compare this page's select wiring with Quickstart's one-line wrapped input.</li>
+            <li>Click <strong>Submit</strong> with no colour chosen.<div class="teaching__result"><span class="teaching__label">You see:</span> "Colour is required" under the select and in the error summary, and focus in the select.</div></li>
+            <li>Press Tab to leave the select.<div class="teaching__result"><span class="teaching__label">You see:</span> its border turns red.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A box with focus wears the blue focus border, whatever its state.</div></li>
+            <li>Click "Colour is required" in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> focus moves into the select, and its border turns blue again.</div></li>
+            <li>Pick a colour.<div class="teaching__result"><span class="teaching__label">You see:</span> the message and its entry in the error summary clear, before you press <strong>Submit</strong> again.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The select's change handler calls <code>NotifyChanged()</code>, so the form checks <strong>Colour</strong>.</div></li>
+            <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line.</div></li>
+            <li>Open <strong>Show the code</strong> and compare the select with the <a href="">Quickstart</a> page's inputs.<div class="teaching__result"><span class="teaching__label">You see:</span> a <code>&lt;label for&gt;</code>, spread attributes and a change handler, against a Formidable input's one line.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Colour</strong>: required.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>The select is a control Formidable does not wrap. The <code>FormidableField</code> around it renders nothing of its own; it hands the markup inside it a field context. That context supplies everything a Formidable input would have: the element id (<code>ElementId</code>), the CSS class that shows the field's state (<code>CssClass</code>), the aria attributes, and <code>NotifyChanged()</code>.</p>
+        <p><code>@@attributes="field.InputAttributes"</code> puts the id, that class and the aria attributes on the select in one go. The change handler sets the model, then calls <code>field.NotifyChanged()</code> to report the change. So the form checks <strong>Colour</strong> as you edit, with no submit needed.</p>
+        <p>The label targets the select with <code>for="@@field.ElementId"</code> rather than wrapping it. A label wrapping a select would fold every option's text into the label's own, which defeats exact-match label lookup in test tooling. The select's id comes from the field context, so the label takes it from there too.</p>
+        <p>Most pages in this sample wrap each input in its label instead, as the <a href="">Quickstart</a> page does. A label that wraps its input needs no id to name it.</p>
+        <p>A box with focus wears the blue focus border, whatever its state. A blocked submit moves focus into the select, so its red border shows once you leave it, and clicking into it brings the blue back.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm Model="_order" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <FormidableField For="() => _order.Colour" Context="field">
+                <div class="field">
+                    <label for="@field.ElementId">Colour <FormidableRequiredIndicator For="() => _order.Colour" /></label>
+                    <select @attributes="field.InputAttributes"
+                            value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
+                        <option value="">Choose…</option>
+                        <option>Red</option>
+                        <option>Green</option>
+                        <option>Blue</option>
+                    </select>
+                </div>
+                <FormidableFieldMessage For="() => _order.Colour" />
+            </FormidableField>
+
+            <div class="actions">
+                <button type="submit">Submit</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<FormidableForm Model="_order" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <FormidableField For="() => _order.Colour" Context="field">
-        <div class="field">
-            <label for="@field.ElementId">Colour <FormidableRequiredIndicator For="() => _order.Colour" /></label>
-            <select @attributes="field.InputAttributes"
-                    value="@_order.Colour" @onchange="args => OnColourChanged(args, field)">
-                <option value="">Choose…</option>
-                <option>Red</option>
-                <option>Green</option>
-                <option>Blue</option>
-            </select>
-        </div>
-        <FormidableFieldMessage For="() => _order.Colour" />
-    </FormidableField>
-
-    <div class="actions">
-        <button type="submit">Submit</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>

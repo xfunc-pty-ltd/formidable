@@ -364,9 +364,8 @@ and register each collection that carries a rule of its own. The sample nests tw
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Collections.razor` -->
 
-The page also carries a teaching panel above the form; the `class` attributes belong to the sample
-app's own styling, since the library ships none. `Options="_options"` is how this page turns
-`VerifyRowKeys` on for itself, covered in
+The `class` attributes belong to the sample app's own styling, since the library ships none.
+`Options="_options"` is how this page turns `VerifyRowKeys` on for itself, covered in
 [the safety net](#how-do-i-catch-a-message-on-the-wrong-row) above.
 
 The `id`/`tabindex` pair on each container is what gives a collection's summary entry somewhere to

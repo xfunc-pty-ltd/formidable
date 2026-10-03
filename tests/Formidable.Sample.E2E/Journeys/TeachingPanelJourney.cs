@@ -18,7 +18,8 @@ public sealed class TeachingPanelJourney(SampleAppFixture app)
     /// <summary>The pages that set their form beside the panel. Each page joins this list when it
     /// takes the lesson layout, so every assertion below covers it from then on.</summary>
     public static readonly string[] LessonRoutes =
-        ["/profiles", "/", "/custom-profiles", "/disclosure", "/severity", "/draft-load"];
+        ["/profiles", "/", "/custom-profiles", "/disclosure", "/severity", "/draft-load",
+            "/collections", "/virtualized", "/foreign", "/vanilla", "/attach"];
 
     private const string PanelName = "About this page";
 

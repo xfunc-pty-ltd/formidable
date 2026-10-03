@@ -2,45 +2,54 @@
 
 <PageTitle>Virtualize + KeepRegistered</PageTitle>
 <h1>Virtualize + KeepRegistered</h1>
-<p>200 rows in a virtualized container. KeepRegistered keeps scrolled-away rows registered, and a DisclosureOverride reveals the whole collection — so the summary reports every row's errors from the first submit, and the focus fallback scrolls far rows into view on click.</p>
+<p>The 200 rows on this page sit in a virtualized list: Blazor's <code>Virtualize</code> renders only the rows in and near the view. The error summary still lists every row's error from the first submit, and clicking an entry for a far row scrolls the row into view and focuses it.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "Virtualized.razor", "Virtualized.razor.cs", "GadgetOrder.cs" })">
-    <Rules>
-        <ul>
-            <li>Every row's <strong>Serial</strong> is required. A committed change to the field discloses it, no submit needed. Every 7th row starts empty — 28 errors across 200 rows.</li>
-            <li>Disclosure is render-registration: a row can show issues once it has rendered. <code>KeepRegistered</code> keeps scrolled-past rows disclosed after they leave the window.</li>
-            <li>This page also sets a <code>DisclosureOverride</code> for the collection, so the summary lists every row's errors from the first submit — even rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
-            <li>Clicking a never-rendered row's entry uses the summary's <code>FocusFallback</code>: scroll the panel, let the row render, retry the focus. A blocked submit's own auto-focus uses the form's matching <code>FocusFallback</code> the same way, whenever the first error it lands on is itself off-screen.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Submit immediately — the summary lists all 28 missing serials, no scrolling required.</li>
-            <li>Click an entry near the top — it focuses directly.</li>
-            <li>Click one of the LAST entries — the panel scrolls, the row renders, and focus lands. That is the fallback at work.</li>
-            <li>Fix one of the missing serials and tab out of the box — its entry leaves the summary there and then, with no submit: committing the change engages that row, and the live channel answers for it. The other 27 stay listed.</li>
-            <li>Scroll far away from that row and submit again — its entry stays gone even with nothing on screen rendering it, and all 27 of the others are still listed.</li>
+            <li>Click <strong>Submit</strong> without scrolling.<div class="teaching__result"><span class="teaching__label">You see:</span> 28 entries in the error summary, one for each empty <strong>Serial</strong>, and focus in the first empty <strong>Serial</strong>.</div></li>
+            <li>Click the first entry in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> focus returns to the first empty <strong>Serial</strong>, with no scrolling.</div></li>
+            <li>Click the last entry in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> the list scrolls to the bottom, the row appears, and focus lands in its <strong>Serial</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The page's <code>FocusFallback</code> callback scrolls the list to the row, then the summary tries again.</div></li>
+            <li>Type a serial into that <strong>Serial</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> its entry leaves the error summary, and the other 27 stay.</div></li>
+            <li>Click <strong>Submit</strong> without scrolling the list.<div class="teaching__result"><span class="teaching__label">You see:</span> the list scrolls back up, and focus lands in the first empty <strong>Serial</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> With step 4's row fixed, no failing row is rendered, so the form's <code>FocusFallback</code> scrolls.</div></li>
+            <li>Click <strong>Submit</strong> again.<div class="teaching__result"><span class="teaching__label">You see:</span> the same 27 entries; the row you fixed has none, though the list no longer shows it.</div></li>
         </ol>
     </TryIt>
-</TeachingPanel>
-
-<FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">
-    <div class="summary-slot">
-        <FormidableSummary FocusFallback="ScrollToRowAsync" />
-    </div>
-
-    <div class="scroll-panel">
-        <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
-            <div class="field" @key="gadget">
-                <label>Serial <FormidableRequiredIndicator For="() => gadget.Serial" />
-                    <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
-                </label>
-                <FormidableFieldMessage For="() => gadget.Serial" />
+    <Rules>
+        <ul>
+            <li><strong>Serial</strong> (each of the 200 rows): required.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>Every seventh row starts empty, so 28 of the 200 rows fail at first. At any moment, only the rows <code>Virtualize</code> is rendering have an input; the rest exist only in the model.</p>
+        <p>At a submit, an error shows only for a field the form counts as on the page, and a row <code>Virtualize</code> has never rendered does not count. So the page sets a <code>DisclosureOverride</code> (a <code>FormidableOptions</code> setting that can let an error show for a field nothing has rendered) for the rows. The error summary then lists every row's error from the first submit, rows never rendered included.</p>
+        <p>The validator always checks every row in the model, rendered or not; only what shows depends on rendering. So the override costs nothing.</p>
+        <p>Each row's input sets <code>KeepRegistered="true"</code>, which keeps a row counted as on the page after it scrolls out of the list's window. A row that stops counting as on the page also stops counting as changed, and the messages your edit brought go with it.</p>
+        <p>So with the setting, a row you have changed keeps its entry in the error summary after you scroll away from it; without it, the entry would leave. A submit does not depend on the setting here, because the override already shows every row's error at a submit.</p>
+        <p>Clicking an entry for a row that is not rendered uses the summary's <code>FocusFallback</code>, a callback the page hands it for a focus that misses. It scrolls the list to the row's place and gives <code>Virtualize</code> a moment to render it, and the summary tries the focus again. The page hands the same callback to the form's own <code>FocusFallback</code>.</p>
+        <p>A blocked submit focuses the first failing row rendered at that moment, which can sit just outside the visible part of the list. When no failing row is rendered, the form's <code>FocusFallback</code> scrolls to the first one, and the form tries again.</p>
+        <p>Changing a row's <strong>Serial</strong> and leaving it checks that row as you edit, so its entry leaves the error summary without waiting for a submit. The form checks a field once you have changed it.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">
+            <div class="summary-slot">
+                <FormidableSummary FocusFallback="ScrollToRowAsync" />
             </div>
-        </Virtualize>
-    </div>
 
-    <div class="actions"><button type="submit">Submit</button></div>
-</FormidableForm>
+            <div class="scroll-panel">
+                <Virtualize Items="_order.Gadgets" ItemSize="RowHeight" Context="gadget">
+                    <div class="field" @key="gadget">
+                        <label>Serial <FormidableRequiredIndicator For="() => gadget.Serial" />
+                            <FormidableInputText @bind-Value="gadget.Serial" KeepRegistered="true" />
+                        </label>
+                        <FormidableFieldMessage For="() => gadget.Serial" />
+                    </div>
+                </Virtualize>
+            </div>
 
-<p role="status">@_status</p>
+            <div class="actions"><button type="submit">Submit</button></div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
+</TeachingPanel>

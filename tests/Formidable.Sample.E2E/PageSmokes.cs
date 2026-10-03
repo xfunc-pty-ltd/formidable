@@ -50,8 +50,10 @@ public sealed class PageSmokes(SampleAppFixture app)
     [E2EFact]
     public async Task Smoke_collections()
     {
+        // The heading is the sidebar's name for the page. Mutation that must break this: the
+        // heading given back its old subtitle.
         await using var session = await app.NewPageAsync("/collections");
-        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Nested collections — row-stable errors");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Nested collections");
     }
 
     [E2EFact]

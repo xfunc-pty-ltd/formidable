@@ -8,7 +8,7 @@ namespace Formidable.Sample.E2E;
 /// The <c>DisclosureOverride</c> makes the summary speak for rows Virtualize has never rendered —
 /// proven by counting entries against rendered inputs, not just reading one message — every
 /// rendered row occupies the same pitch regardless of whether it is showing a message, and
-/// clicking a late entry exercises <c>FocusFallback</c>: the panel scrolls, the row materializes,
+/// clicking a late entry exercises <c>FocusFallback</c>: the list scrolls, the row materializes,
 /// and the summary's retry lands focus on it.
 /// </summary>
 [Collection("e2e")]
@@ -27,7 +27,7 @@ public sealed class VirtualizedJourney(SampleAppFixture app)
         await Expect(Summary(page)).ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
         await Expect(Summary(page)).ToContainTextAsync("Serial is required");
 
-        // More entries disclosed than inputs rendered: the override's whole point. The panel is
+        // More entries disclosed than inputs rendered: the override's whole point. The list is
         // 20rem tall against a 118px row height, so only a handful of rows are ever in the DOM
         // at once — far fewer than the 28 empty serials (every 7th of 200 rows) the override
         // reveals.
