@@ -29,8 +29,9 @@ public sealed class TeachingPanelJourney(SampleAppFixture app)
     // Mutations that must break this: the component renders The rules before Try it (the heading
     // order fails); How it works rendered open (the open-property check fails, and with that check
     // taken out the hidden-body check fails on its own); the demo rendered before the aside (the
-    // document-order check fails); one listed page left without its How it works (the heading
-    // order fails on that route).
+    // document-order check fails); the component leaving its How it works section out (the heading
+    // order fails, at the first route). A page that leaves out its How it works fragment never
+    // reaches this test: the parameter is required, so the build fails first (RZ2012).
     [E2EFact]
     public async Task A_lesson_page_reads_Try_it_then_The_rules_with_How_it_works_closed()
     {

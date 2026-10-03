@@ -879,17 +879,6 @@ em[role=status] {
     border-radius: 0;
 }
 
-/* When the reader opens the code, grow the card into the empty space right of the
-   52rem column - sidebar (15rem) + main padding (4rem) + scrollbar allowance ~ 20rem.
-   Closed, every page keeps its reading measure. A lesson's panel is left out: it has a
-   column of its own, and opening its code turns the lesson into one column instead. */
-@media (min-width: 72rem) {
-    .teaching:not(.lesson > .teaching):has(.teaching__code[open]) {
-        width: calc(100vw - 20rem);
-        max-width: 80rem;
-    }
-}
-
 /* How it works holds its heading inside the summary, so a list of the page's headings reads
    Try it, The rules, How it works. On screen the heading takes the summary's look: it sits
    inline beside the marker and drops the section headings' small capitals. */
