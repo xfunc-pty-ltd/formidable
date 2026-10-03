@@ -133,12 +133,13 @@ public sealed class ServerJourney(SampleAppFixture app)
         await using var session = await app.NewPageAsync("/server");
         var page = session.Page;
 
-        // The page's own sentence: both buttons are type="button", and the form always shows at
-        // least two text boxes (the description and the first SKU line), so the browser's
-        // implicit submission has nothing to fire and no client-side submit ever runs. An
-        // implicit submission here would run the submit profile and disclose the empty
-        // description, which is what the absence below rules out. Its sibling on /disclosure
-        // is the positive case: one text box, and Enter does submit.
+        // The page's own sentence, in its How it works: both buttons are type="button", and the
+        // form opens with two text boxes (the description and the first SKU line). While it shows
+        // more than one, the browser's implicit submission has nothing to fire and no client-side
+        // submit runs. An implicit submission here would run the submit profile and disclose the
+        // empty description, which is what the absence below rules out. A send that drops every
+        // line leaves the description as the one text box, and Enter then does submit, as it
+        // does on /disclosure's one-box form.
         await Field(page, "description").FocusAsync();
         await page.Keyboard.PressAsync("Enter");
 

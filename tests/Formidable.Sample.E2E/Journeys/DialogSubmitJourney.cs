@@ -67,14 +67,14 @@ public sealed class DialogSubmitJourney(SampleAppFixture app)
         await Expect(panel).ToBeVisibleAsync();
         await Expect(panel).ToBeFocusedAsync();
 
-        // Backwards, from the panel itself, which is where focus sits the moment the dialog
-        // opens: without a cycle this reaches the form behind the overlay, and the panel's
-        // aria-modal="true" says the form is unreachable.
+        // Backwards, from the dialog's panel itself, which is where focus sits the moment the
+        // dialog opens: without a cycle this reaches the form behind the overlay, and the
+        // panel's aria-modal="true" says the form is unreachable.
         await page.Keyboard.PressAsync("Shift+Tab");
         await Expect(close).ToBeFocusedAsync();
 
-        // Forwards off the far end: Close is the last thing in the panel, so the next Tab has
-        // nowhere left inside to go.
+        // Forwards off the far end: Close is the last thing in the dialog's panel, so the next
+        // Tab has nowhere left inside to go.
         await TabAsync(page);
         await Expect(SummaryEntry(page, "Invoice reference")).ToBeFocusedAsync();
 
@@ -90,9 +90,9 @@ public sealed class DialogSubmitJourney(SampleAppFixture app)
     /// no entry was clicked — so what lands the visitor on a field is the page calling
     /// <c>FocusFirstErrorAsync()</c> once the dialog has gone, and this is the only browser test
     /// that exercises that call. Both routes are here because they run different code: the
-    /// button's click handler and the panel's key handler. The assertion discriminates on the
-    /// dialog's own hand-back: with the call absent, focus rests on the Submit button that
-    /// opened the dialog, which is a different element from the one asserted here.
+    /// button's click handler and the dialog panel's key handler. The assertion discriminates
+    /// on the dialog's own hand-back: with the call absent, focus rests on the Submit button
+    /// that opened the dialog, which is a different element from the one asserted here.
     /// </summary>
     [E2EFact]
     public async Task Closing_the_dialog_without_picking_a_name_lands_on_the_first_error()
@@ -111,8 +111,8 @@ public sealed class DialogSubmitJourney(SampleAppFixture app)
         await Expect(submit).Not.ToBeFocusedAsync();
 
         // The same landing through the key rather than the button. The containment that keeps Tab
-        // inside the panel is a Tab handler and has nothing to say about Escape, and the move
-        // itself happens after the panel is gone, so neither can reach the other.
+        // inside the dialog's panel is a Tab handler and has nothing to say about Escape, and the
+        // move itself happens after the dialog is gone, so neither can reach the other.
         await submit.ClickAsync();
         await Expect(panel).ToBeVisibleAsync();
         await Expect(panel).ToBeFocusedAsync();

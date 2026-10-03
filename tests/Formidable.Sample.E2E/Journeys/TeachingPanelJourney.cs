@@ -19,7 +19,8 @@ public sealed class TeachingPanelJourney(SampleAppFixture app)
     /// takes the lesson layout, so every assertion below covers it from then on.</summary>
     public static readonly string[] LessonRoutes =
         ["/profiles", "/", "/custom-profiles", "/disclosure", "/severity", "/draft-load",
-            "/collections", "/virtualized", "/foreign", "/vanilla", "/attach"];
+            "/collections", "/virtualized", "/foreign", "/vanilla", "/attach",
+            "/async", "/server", "/summary-shape", "/dialog-submit", "/scroll-focus"];
 
     private const string PanelName = "About this page";
 

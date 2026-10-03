@@ -1,72 +1,88 @@
 @page "/summary-shape"
 
 <PageTitle>Shaping the summary</PageTitle>
-<h1>Shaping the summary — deciding what the list says</h1>
-<p>A summary is a list, and a list has decisions in it: whether a row names the field or quotes the rule, whether a field breaking two rules gets one row or two, and what to do when there are more rows than there is room for. Four parameters on <code>FormidableSummary</code> answer those. Most pages here never touch them and take the summary as it comes; <a href="/dialog-submit">Dialog-first submit</a> sets all four at once, in the service of getting a list into a dialog. This page is about the four themselves. Submit the empty form once to put a fixed set of problems on screen, then work the toggles: the problems stay exactly where they are, and only the list changes.</p>
-<p>None of the toggles below is a wrong setting. Each one is a parameter, so every combination is one a real form could ship: what you are choosing between is a list of complaints and a list of names, a long list and a short one. That is a different kind of toggle from the ones on the dialog page, where each is a value that will not give you what you want, put there so you can watch it not work.</p>
+<h1>Shaping the summary</h1>
+<p>Four parameters on <code>FormidableSummary</code> (the error summary's component) decide what its list says: names or messages, one entry per field or per issue, and how many entries it shows. Submit the empty form once, then work the toggles: the problems on the form stay where they are, and only the list changes.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "SupportTicket.cs", "SummaryShape.razor", "SummaryShape.razor.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Ticket reference</strong>: required, and shaped like <code>TKT-0000</code>. Two rules on one field, so an empty box breaks both at once — one field, two complaints, which is the case <code>GroupByField</code> exists for.</li>
-            <li><strong>Requester</strong>, <strong>Requester email</strong>, <strong>Product</strong>, <strong>Version</strong>, <strong>Steps to reproduce</strong>: required, one rule each. <strong>Requester email</strong> also has to be an address once there is anything in it.</li>
-            <li><strong>Impact</strong>: a warning when it is empty rather than an error. It fills a second band in the summary, and it does not block a submit. Its label carries no required mark for the same reason: the mark says a submit needs a value.</li>
-            <li><strong><code>ItemTemplate</code></strong>: what an entry's button contains. Left unset (the first toggle off), an entry is the rule's message. The template this page hands it renders the field's name instead, out of the entry's <code>DisplayName</code>: the rule's own name (the <code>WithName(...)</code> the validator gave it, or FluentValidation's name for the property), else the property path for an error that arrives with no name, else <code>ModelLevelDisplayName</code> for one about the whole form.</li>
-            <li><strong><code>GroupByField</code></strong>: one entry per field instead of one per issue. It keeps each field's first issue and drops the rest, so <strong>Ticket reference</strong> is listed once rather than twice. It groups inside a band and never across the summary: a field carrying an error and a warning is listed once under each, which is one field described two ways rather than one description repeated.</li>
-            <li><strong><code>MaxItems</code></strong>: the most entries a band lists, three here. It counts entries, and an entry is an issue by default and a field under <code>GroupByField</code> — so grouping and capping together are "the first three fields with a problem", where capping alone is "the first three problems". The cap is counted per band: the error band loses rows while the advisory band, holding one entry, never reaches it.</li>
-            <li><strong><code>OverflowTemplate</code></strong>: what a capped band renders after its last shown entry. It is handed the entries the cap held back rather than their number, which is what lets the expander here name them; a line that only counted them would read <code>held.Count</code> and stop there. Leave it unset with the cap on — the last toggle off — and a capped band renders nothing at all in place of what it dropped: no element, no sentence. The wording is the page's own, because a sentence has a language and a plural rule behind it that the component cannot pick.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Click <em>Submit</em> with every box empty. Seven complaints about six fields fill the error band, and Impact's warning fills the advisory band under it.</li>
-            <li>Read the list, then tick <em>Name the field instead of showing the message</em>. The same seven entries now read as field names — and <strong>Ticket reference</strong> is in the list twice, which reads as a mistake in the list rather than a mistake in the form.</li>
-            <li>Tick <em>One entry per field instead of one per issue</em>. Six entries now, <strong>Ticket reference</strong> among them once. The warning band is untouched, having one entry and nothing to collapse.</li>
-            <li>Tick <em>Cap each band at three entries</em>. The error band stops after three and says nothing whatever about the other three. The advisory band has one entry, so the cap never reaches it.</li>
-            <li>Tick <em>Reveal what the cap held back</em>. A line appears under the third entry with a count and a disclosure triangle; open it and the three that did not fit are named. A count can tell you three were dropped — only the entries can tell you <strong>Steps to reproduce</strong> was one of them.</li>
-            <li>Untick <em>One entry per field instead of one per issue</em> with the cap still on. Still three entries, but two of them are <strong>Ticket reference</strong>, and the expander now holds four. The cap counts entries, and ungrouping made an entry of every complaint.</li>
-            <li>Untick <em>Reveal what the cap held back</em>, cap still on. The line goes and nothing stands in for it: the list just ends after three entries, which is what an unset <code>OverflowTemplate</code> looks like.</li>
-            <li>Fill it in — <code>TKT-2031</code>, a requester, an address, a product, a version, some steps — and submit. Impact can stay empty; its warning is all the summary has left, and a warning does not block. The status line says it went.</li>
+            <li>Look at the labels before typing anything.<div class="teaching__result"><span class="teaching__label">You see:</span> an asterisk beside every label but <strong>Impact</strong>'s.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Impact</strong>'s only rule is a warning, and a warning never blocks a submit.</div></li>
+            <li>Click <strong>Submit</strong> with every box empty.<div class="teaching__result"><span class="teaching__label">You see:</span> seven errors about six fields in the error summary, two on <strong>Ticket reference</strong>, and <strong>Impact</strong>'s warning listed separately under them.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The error summary lists each severity in a band, a list of its own.</div></li>
+            <li>Tick <strong>Name the field instead of showing the message</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the same seven errors and one warning now read as field names, with <strong>Ticket reference</strong> listed twice.</div></li>
+            <li>Tick <strong>One entry per field instead of one per issue</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> six entries, with <strong>Ticket reference</strong> listed once; the warning band is unchanged.</div></li>
+            <li>Tick <strong>Cap each band at three entries</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the error band stops after three entries and says nothing about the other three; the warning band keeps its one.</div></li>
+            <li>Tick <strong>Reveal what the cap held back</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "3 not listed" under the third entry, with a disclosure triangle beside it.</div></li>
+            <li>Click "3 not listed".<div class="teaching__result"><span class="teaching__label">You see:</span> the three names the cap held back: <strong>Product</strong>, <strong>Version</strong> and <strong>Steps to reproduce</strong>.</div></li>
+            <li>Untick <strong>One entry per field instead of one per issue</strong>, leaving the cap on.<div class="teaching__result"><span class="teaching__label">You see:</span> three entries, two of them <strong>Ticket reference</strong>, and "4 not listed" under them.</div></li>
+            <li>Untick <strong>Reveal what the cap held back</strong>, leaving the cap on.<div class="teaching__result"><span class="teaching__label">You see:</span> the line goes, and the error band ends after three entries with nothing in their place.</div></li>
+            <li>Fill in every box except <strong>Impact</strong> (<code>TKT-2031</code>, a valid email address, anything elsewhere) and click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line, with <strong>Impact</strong>'s warning still listed.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Ticket reference</strong>: required; shaped like <code>TKT-0000</code>.</li>
+            <li><strong>Requester</strong>: required.</li>
+            <li><strong>Requester email</strong>: required; once filled in, a valid email address.</li>
+            <li><strong>Product</strong>: required.</li>
+            <li><strong>Version</strong>: required.</li>
+            <li><strong>Steps to reproduce</strong>: required.</li>
+            <li><strong>Impact</strong>: a warning while empty, which never blocks a submit.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>A summary is a list, and a list has decisions in it: whether an entry names the field or quotes the rule, whether a field breaking two rules gets one entry or two, and what to do when there are more entries than room. Four parameters on <code>FormidableSummary</code> make them, and each toggle above the form sets one.</p>
+        <p>None of the toggles is a wrong setting: every combination is one a real form could ship. What you are choosing between is a list of complaints and a list of names, a long list and a short one.</p>
+        <p>Most sample pages leave all four unset and take the summary as it comes. The <a href="dialog-submit">Dialog-first submit</a> page sets all four at once, to fit a list into a dialog. The dialog page's toggles are a different kind: each has a setting that does not work, so you can watch the failure. This page is about the four parameters themselves.</p>
+        <p><code>ItemTemplate</code> sets what an entry's button contains. Left unset (the first toggle off), an entry shows the rule's message. The template this page passes renders the field's name instead, from the entry's <code>DisplayName</code>. That is the rule's own name: the <code>WithName(...)</code> the validator gave it, or FluentValidation's name for the property.</p>
+        <p>An error that arrives with no name, as a server's can, shows its property path instead. An issue about the whole form shows <code>ModelLevelDisplayName</code> (an option naming the form itself, "This form" by default).</p>
+        <p><code>GroupByField</code> lists one entry per field instead of one per issue. It keeps each field's first issue and drops the rest, so <strong>Ticket reference</strong> is listed once rather than twice. It groups within a band and never across the summary: a field with an error and a warning is listed once under each, one field described two ways rather than one description repeated. The warning band, holding one entry, has nothing to collapse.</p>
+        <p><strong>Ticket reference</strong> has two rules, and an empty box breaks both: one field, two complaints. Named by field without grouping, it appears twice, which reads as a mistake in the list rather than a mistake in the form; <code>GroupByField</code> lists it once.</p>
+        <p><strong>Requester email</strong> has two rules too, but its address rule applies only once the box holds something. So an empty box breaks one, and the empty form shows seven errors about six fields.</p>
+        <p><code>MaxItems</code> is the most entries a band lists, three here. It counts entries, and an entry is an issue by default or a field under <code>GroupByField</code>. So grouping and capping together list the first three fields with a problem, where capping alone lists the first three problems. The cap counts each band on its own: the error band loses entries while the warning band, holding one, never reaches it.</p>
+        <p><code>OverflowTemplate</code> sets what a capped band shows after its last entry. It is handed the entries the cap held back, not just their number, so this page's line can name them. The page's template calls that list <code>held</code>; a line that only counted the entries would read <code>held.Count</code> and stop there. A count can tell you three were dropped. Only the entries can tell you <strong>Steps to reproduce</strong> was one of them.</p>
+        <p>Leave <code>OverflowTemplate</code> unset with the cap on (the last toggle off), and a capped band shows nothing at all in place of what it dropped: no element, no sentence. The wording is the page's own, because a sentence has a language and a plural rule behind it that the component cannot pick.</p>
+        <p><strong>Impact</strong>'s rule is a warning rather than an error when the box is empty. It fills a band of its own in the error summary, and it never blocks a submit. Its label carries no required mark for the same reason: the mark says a submit needs a value. Each mark is a <code>FormidableRequiredIndicator</code> (the component that draws it), which asks the validator, not the page, whether a submit needs the field.</p>
+    </HowItWorks>
+    <Demo>
+        <div class="toggles">
+            <label><input type="checkbox" @bind="_nameTheField" /> Name the field instead of showing the message</label>
+            <label><input type="checkbox" @bind="_groupByField" /> One entry per field instead of one per issue</label>
+            <label><input type="checkbox" @bind="_capped" /> Cap each band at three entries</label>
+            <label><input type="checkbox" @bind="_reveal" /> Reveal what the cap held back</label>
+        </div>
+
+        <FormidableForm Model="_ticket" OnValidSubmit="HandleValid">
+            <div class="summary-slot">
+                <FormidableSummary GroupByField="_groupByField"
+                                   MaxItems="@(_capped ? 3 : (int?)null)"
+                                   ItemTemplate="@(_nameTheField ? FieldName : null)"
+                                   OverflowTemplate="@(_reveal ? HeldBack : null)" />
+            </div>
+
+            <div class="field"><label>Ticket reference <FormidableRequiredIndicator For="() => _ticket.Reference" /> <FormidableInputText @bind-Value="_ticket.Reference" /></label>
+                <FormidableFieldMessage For="() => _ticket.Reference" /></div>
+            <div class="field"><label>Requester <FormidableRequiredIndicator For="() => _ticket.Requester" /> <FormidableInputText @bind-Value="_ticket.Requester" /></label>
+                <FormidableFieldMessage For="() => _ticket.Requester" /></div>
+            <div class="field"><label>Requester email <FormidableRequiredIndicator For="() => _ticket.RequesterEmail" /> <FormidableInputText @bind-Value="_ticket.RequesterEmail" /></label>
+                <FormidableFieldMessage For="() => _ticket.RequesterEmail" /></div>
+            <div class="field"><label>Product <FormidableRequiredIndicator For="() => _ticket.Product" /> <FormidableInputText @bind-Value="_ticket.Product" /></label>
+                <FormidableFieldMessage For="() => _ticket.Product" /></div>
+            <div class="field"><label>Version <FormidableRequiredIndicator For="() => _ticket.Version" /> <FormidableInputText @bind-Value="_ticket.Version" /></label>
+                <FormidableFieldMessage For="() => _ticket.Version" /></div>
+            <div class="field"><label>Steps to reproduce <FormidableRequiredIndicator For="() => _ticket.Steps" /> <FormidableInputTextArea @bind-Value="_ticket.Steps" /></label>
+                <FormidableFieldMessage For="() => _ticket.Steps" /></div>
+            <div class="field"><label>Impact <FormidableRequiredIndicator For="() => _ticket.Impact" /> <FormidableInputText @bind-Value="_ticket.Impact" /></label>
+                <FormidableFieldMessage For="() => _ticket.Impact" /></div>
+
+            <div class="actions">
+                <button type="submit" class="primary">Submit</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<div class="toggles">
-    <label><input type="checkbox" @bind="_nameTheField" /> Name the field instead of showing the message</label>
-    <label><input type="checkbox" @bind="_groupByField" /> One entry per field instead of one per issue</label>
-    <label><input type="checkbox" @bind="_capped" /> Cap each band at three entries</label>
-    <label><input type="checkbox" @bind="_reveal" /> Reveal what the cap held back</label>
-</div>
-
-<FormidableForm Model="_ticket" OnValidSubmit="HandleValid">
-    <div class="summary-slot">
-        <FormidableSummary GroupByField="_groupByField"
-                           MaxItems="@(_capped ? 3 : (int?)null)"
-                           ItemTemplate="@(_nameTheField ? FieldName : null)"
-                           OverflowTemplate="@(_reveal ? HeldBack : null)" />
-    </div>
-
-    <div class="field"><label>Ticket reference <FormidableRequiredIndicator For="() => _ticket.Reference" /> <FormidableInputText @bind-Value="_ticket.Reference" /></label>
-        <FormidableFieldMessage For="() => _ticket.Reference" /></div>
-    <div class="field"><label>Requester <FormidableRequiredIndicator For="() => _ticket.Requester" /> <FormidableInputText @bind-Value="_ticket.Requester" /></label>
-        <FormidableFieldMessage For="() => _ticket.Requester" /></div>
-    <div class="field"><label>Requester email <FormidableRequiredIndicator For="() => _ticket.RequesterEmail" /> <FormidableInputText @bind-Value="_ticket.RequesterEmail" /></label>
-        <FormidableFieldMessage For="() => _ticket.RequesterEmail" /></div>
-    <div class="field"><label>Product <FormidableRequiredIndicator For="() => _ticket.Product" /> <FormidableInputText @bind-Value="_ticket.Product" /></label>
-        <FormidableFieldMessage For="() => _ticket.Product" /></div>
-    <div class="field"><label>Version <FormidableRequiredIndicator For="() => _ticket.Version" /> <FormidableInputText @bind-Value="_ticket.Version" /></label>
-        <FormidableFieldMessage For="() => _ticket.Version" /></div>
-    <div class="field"><label>Steps to reproduce <FormidableRequiredIndicator For="() => _ticket.Steps" /> <FormidableInputTextArea @bind-Value="_ticket.Steps" /></label>
-        <FormidableFieldMessage For="() => _ticket.Steps" /></div>
-    <div class="field"><label>Impact <FormidableRequiredIndicator For="() => _ticket.Impact" /> <FormidableInputText @bind-Value="_ticket.Impact" /></label>
-        <FormidableFieldMessage For="() => _ticket.Impact" /></div>
-
-    <div class="actions">
-        <button type="submit" class="primary">Submit</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>
 
 @code {
     // Razor templates rather than <ItemTemplate>/<OverflowTemplate> child elements, because both

@@ -3,69 +3,83 @@
 
 <PageTitle>Server round-trip</PageTitle>
 <h1>Server round-trip</h1>
-<p>This form deliberately skips client-side submit validation: press Send and watch the server's 400 land on the exact fields. Enter does nothing here: with no submit button and more than one text box on the form, the browser never submits it for you, so "Send to server" is the only way in.</p>
+<p>On this page the server is the judge: <strong>Send to server</strong> posts the order to the sample API, and the API's rejection (a 400 response) lands on the exact fields it names. The form counts that rejection as a submit, and no message shows before a submit.</p>
 @if (IsHostedDemo)
 {
-    <p><small>This hosted demo has no server behind it — an in-browser handler answers with the same validators and the same response shapes the real API would send.</small></p>
+    <p><small>This hosted demo has no server behind it: an in-browser handler answers with the same validators and the same response shapes the real API would send.</small></p>
 }
 
 <TeachingPanel CodeFiles="@(new[] { "RoundTripOrder.cs", "ServerRoundTrip.razor", "ServerRoundTrip.razor.cs", "OrdersController.cs" })">
-    <Rules>
-        <ul>
-            <li>This form is judged by the <strong>server</strong>: the client submit pipeline is deliberately skipped, and the API's 400 response is applied to the exact fields it names.</li>
-            <li><code>LiveProfile</code> is what buys that silence. The live channel normally evaluates whatever would block a submit, so a field you have engaged answers long before the POST goes out; this page points <code>LiveProfile</code> at <code>ValidationProfile.Draft</code> instead, and this validator's draft bucket is empty — so the live channel evaluates no rule at all, whatever you type. It is the same lever a form reaches for when one submit rule is too expensive to run on every change.</li>
-            <li>Each response <em>replaces</em> the previous server verdict — a corrected resubmission can never leave stale errors behind.</li>
-            <li>The verdict applies at the severity it carries: the response's errors block and mark their fields <code>formidable-invalid</code>, while its advisories paint <code>formidable-warning</code> or <code>formidable-info</code> once the field has been touched or modified. One call carries both — the page writes no advisory plumbing of its own.</li>
-            <li>Before sending, the page calls <code>Normalize()</code> — whitespace-only lines are dropped on both sides, so the server's line numbers always match the rows you see.</li>
-            <li>Both hosting styles validate the same way: minimal APIs through an endpoint filter, MVC through an action filter, one shared mapper building the <code>errors</code> each 400 carries. Pick Minimal API or the MVC controller above and the response's <code>errors</code> — the fields, the messages, even their order — is identical; the MVC body additionally carries a <code>traceId</code>.</li>
-            <li><code>OrdersController.cs</code> in the panel below is real server source — the MVC twin of the minimal-API mapping, behind its own action filter. <code>requests.http</code> in the API project calls both endpoints without the UI.</li>
-        </ul>
-    </Rules>
     <TryIt>
+        @if (IsHostedDemo)
+        {
+            <p>No server to start on this hosted demo: the in-browser handler answers as soon as you click <strong>Send to server</strong>.</p>
+        }
+        else
+        {
+            <p>Before the steps, start the API: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</p>
+        }
         <ol>
-            @if (IsHostedDemo)
-            {
-                <li>No server to start on this hosted demo — the in-browser handler answers as soon as you click Send.</li>
-            }
-            else
-            {
-                <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
-            }
-            <li>Click <em>Send to server</em> with everything empty — the 400 lands inline on the exact fields.</li>
-            <li>Click an entry in the summary — it focuses that field.</li>
-            <li>Fix one field and send again — the new verdict replaces the old one entirely.</li>
-            <li>Put a hyphen in the description while a SKU is still empty and send — the 400 carries the server's advisory about the hyphen alongside the SKU error, and it lands on the description as a warning that blocks nothing.</li>
-            <li>Complete the order and send — the server accepts and the status line confirms.</li>
+            <li>Click <strong>Send to server</strong> with every box empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "Description is required" and "SKU is required" under their fields and in the error summary, with focus in <strong>Description</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Applying a rejection moves focus to the first error, as a blocked submit does.</div></li>
+            <li>Click "SKU is required" in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> focus moves to <strong>SKU</strong>.</div></li>
+            <li>Type <code>Q3-restock</code> into <strong>Description</strong> and click <strong>Send to server</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> a warning replacing <strong>Description</strong>'s error, "Hyphens make order references harder to read aloud", while "SKU is required" stays.</div></li>
+            <li>Fill in <strong>SKU</strong> and click <strong>Send to server</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Server accepted the order." in the status line, with the warning still on <strong>Description</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The warning now comes from the form's own copy of the hyphen rule.</div></li>
+            <li>Remove the hyphen from <strong>Description</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> the warning clears, with no send.</div></li>
+            <li>Click <strong>MVC controller</strong> under <strong>Endpoint</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the caption under the picker changes to "POST /api/controller/orders on the API (port 5180)".</div></li>
+            <li>Click <strong>Add line</strong>, then <strong>Send to server</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "SKU is required" under the new, empty line.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li><strong>Description</strong>: required; a hyphen draws a warning, which blocks nothing.</li>
+            <li><strong>SKU</strong> (each line): required.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p><strong>Send to server</strong> is an ordinary button, not a submit button, so clicking it never runs the form's own submit. The page posts the order. When the send fails and the page can read the body, it hands the body to the form's <code>ApplyServerIssues(...)</code>, which puts each issue on the field it names and in the error summary.</p>
+        <p>An accepted order only writes the status line. A failed send whose body the page cannot read (an HTML error page, say), whatever its status, writes "Rejected" there and applies nothing.</p>
+        <p>Applying a rejection that holds an error moves focus to the first error on the page, as a blocked submit does. So the first send leaves focus in <strong>Description</strong>.</p>
+        <p>Enter does nothing while the form shows more than one text box, as it does at first. With no submit button, the browser never submits such a form. A send that drops every line (every <strong>SKU</strong> nothing but spaces) leaves <strong>Description</strong> as the only text box. Enter in it then submits the form in the browser, which checks it and sends nothing. <strong>Send to server</strong> is the only way to send the order.</p>
+        <p>A profile is a named selection of a validator's rules. <code>LiveProfile</code> is the profile the form checks as you edit, and left unset it is the submit profile (the rules a submit checks). So a field you have changed would answer long before anything is sent.</p>
+        <p>This page sets <code>LiveProfile</code> to <code>ValidationProfile.Draft</code>, the draft rules (the rules a draft save checks), and this validator has none. So before the form's first submit, no message shows as you edit. A form reaches for the same setting when one submit rule is too expensive to run on every change.</p>
+        <p>A field you have changed can still turn green before the form's first submit. The form re-checks itself against the rules a submit checks when it opens and whenever a line appears or leaves. Until a submit, that re-check shows no message.</p>
+        <p>The form counts an applied rejection as a submit. From then on, each edit re-checks the whole form in the browser against the rules a submit checks, so a field you fix loses its error with no second send.</p>
+        <p>Filling <strong>SKU</strong> is an edit, so its re-check replaces the server's answer with the form's own check. The accepted send that follows applies nothing and clears nothing. The form's copy of the hyphen rule still fails, so <strong>Description</strong>'s warning stays until the hyphen goes.</p>
+        <p>Each rejection replaces the server's previous answer instead of adding to it. With the re-check each correction makes, a corrected resend never leaves an old message behind.</p>
+        <p>A rejection applies at the severity each issue carries. Its errors block and mark their fields <code>formidable-invalid</code>. Its advisories (warnings and infos, which block nothing) mark their fields <code>formidable-warning</code> or <code>formidable-info</code> once you have visited or changed the field. One call applies both, so the page writes nothing of its own for advisories.</p>
+        <p>Before sending, the page calls the order's <code>Normalize()</code>, which drops any line whose <strong>SKU</strong> was typed but holds nothing but spaces. A line whose <strong>SKU</strong> is left empty stays, so its "SKU is required" can point at it. The API does the same before it validates, so the server's line numbers always match the rows you see.</p>
+        <p>The two endpoints validate the same way: the minimal API through an endpoint filter, the MVC controller through an action filter, and one shared mapper builds the <code>errors</code> of each 400. Whichever you pick under <strong>Endpoint</strong>, the fields, the messages and their order are identical; only the MVC body adds a <code>traceId</code>.</p>
+        <p><code>OrdersController.cs</code>, under <strong>Show the code</strong>, is real server source: the MVC twin of the minimal API's mapping, behind its own action filter. <code>requests.http</code> in the API project calls both endpoints without this page.</p>
+    </HowItWorks>
+    <Demo>
+        <fieldset>
+            <legend>Endpoint</legend>
+            <label><input type="radio" name="endpoint" checked='@(_endpoint == "/api/orders/")' @onchange='() => _endpoint = "/api/orders/"' /> Minimal API</label>
+            <label><input type="radio" name="endpoint" checked='@(_endpoint == "/api/controller/orders")' @onchange='() => _endpoint = "/api/controller/orders"' /> MVC controller</label>
+        </fieldset>
+
+        <p class="endpoint-caption"><small>POST <code>@_endpoint</code> on the API (port 5180)</small></p>
+
+        <FormidableForm @ref="_form" Model="_order" Options="_options">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+
+            <div class="field"><label>Description <FormidableRequiredIndicator For="() => _order.Description" /> <FormidableInputText @bind-Value="_order.Description" /></label>
+                <FormidableFieldMessage For="() => _order.Description" /></div>
+
+            @foreach (var line in _order.Lines)
+            {
+                <div class="field" @key="line"><label>SKU <FormidableRequiredIndicator For="() => line.Sku" /> <FormidableInputText @bind-Value="line.Sku" /></label>
+                    <FormidableFieldMessage For="() => line.Sku" /></div>
+            }
+
+            <div class="actions">
+                <button type="button" @onclick="() => _order.Lines.Add(new OrderLine())">Add line</button>
+                <button type="button" class="primary" @onclick="Send">Send to server</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<fieldset>
-    <legend>Endpoint</legend>
-    <label><input type="radio" name="endpoint" checked='@(_endpoint == "/api/orders/")' @onchange='() => _endpoint = "/api/orders/"' /> Minimal API</label>
-    <label><input type="radio" name="endpoint" checked='@(_endpoint == "/api/controller/orders")' @onchange='() => _endpoint = "/api/controller/orders"' /> MVC controller</label>
-</fieldset>
-
-<p class="endpoint-caption"><small>POST <code>@_endpoint</code> on the API (port 5180)</small></p>
-
-<FormidableForm @ref="_form" Model="_order" Options="_options">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-
-    <div class="field"><label>Description <FormidableRequiredIndicator For="() => _order.Description" /> <FormidableInputText @bind-Value="_order.Description" /></label>
-        <FormidableFieldMessage For="() => _order.Description" /></div>
-
-    @foreach (var line in _order.Lines)
-    {
-        <div class="field" @key="line"><label>SKU <FormidableRequiredIndicator For="() => line.Sku" /> <FormidableInputText @bind-Value="line.Sku" /></label>
-            <FormidableFieldMessage For="() => line.Sku" /></div>
-    }
-
-    <div class="actions">
-        <button type="button" @onclick="() => _order.Lines.Add(new OrderLine())">Add line</button>
-        <button type="button" class="primary" @onclick="Send">Send to server</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>

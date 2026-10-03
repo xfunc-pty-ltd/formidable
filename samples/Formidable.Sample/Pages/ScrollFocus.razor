@@ -1,61 +1,68 @@
 @page "/scroll-focus"
 
 <PageTitle>Scroll &amp; focus</PageTitle>
-<h1>Scroll &amp; focus — click-to-focus across a long form</h1>
-<p>Twelve teams of three members, all static — this page is about distance, not editing. Submit, then click any entry in the summary: the page scrolls the element into view, centred, and focuses it.</p>
+<h1>Scroll &amp; focus</h1>
+<p>This page shows click-to-focus across a long form: twelve teams of three members, with no row to add or remove. Submit, then click any entry in the error summary, and the page scrolls that field into view and focuses it.</p>
 
 <TeachingPanel CodeFiles="@(new[] { "ScrollFocus.razor", "ScrollFocus.razor.cs" })">
-    <Rules>
-        <ul>
-            <li>A blocked submit auto-focuses the first error by default (<code>FormidableForm.FocusFirstErrorOnInvalidSubmit</code>) — untick the toggle above the form to turn that off and choose focus yourself instead.</li>
-            <li>The summary lists every visible issue. Clicking an entry scrolls its element into view (centred) and focuses it.</li>
-            <li>The focus service reports whether the element took focus, not merely whether it found one — and every target on this page is an ordinary input that is rendered and willing, so every entry works with no fallback.</li>
-            <li>Contrast the Virtualized page: its rows leave the DOM when scrolled out of the render window, so it needs a <code>FocusFallback</code> to bring one back before focusing it. Here there is nothing to bring back.</li>
-        </ul>
-    </Rules>
     <TryIt>
         <ol>
-            <li>Submit — the summary appears and focus jumps straight to the first error, no click needed.</li>
-            <li>Click the LAST entry in the summary — the page scrolls to the bottom row and focuses it.</li>
-            <li>Fix it, submit, click another far entry — same ride back.</li>
-            <li>Untick the toggle above the form and submit again — this time focus stays put; use the summary to get there yourself.</li>
+            <li>Click <strong>Submit</strong> at the bottom.<div class="teaching__result"><span class="teaching__label">You see:</span> twelve entries in the error summary, and the page scrolls up to the second team's empty <strong>Name</strong>, with focus in it.</div></li>
+            <li>Click the last entry in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> the page scrolls to the bottom, with focus in the last team's last <strong>Alias</strong>.</div></li>
+            <li>Type an alias there, press Tab, and scroll up to the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> eleven entries: that field's entry has gone, with no second submit.</div></li>
+            <li>Click <strong>Submit</strong>, then click the last entry again.<div class="teaching__result"><span class="teaching__label">You see:</span> the page scrolls up to the second team's <strong>Name</strong>, then down to the empty <strong>Alias</strong> now last in the list.</div></li>
+            <li>Untick <strong>Focus the first error automatically on a blocked submit</strong>, then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the page stays where it is, with focus on <strong>Submit</strong>.</div></li>
+            <li>Click any entry in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> the page scrolls to that entry's field and focuses it.</div></li>
         </ol>
     </TryIt>
+    <Rules>
+        <ul>
+            <li>Every team needs a <strong>Name</strong> and at least one member, and every member an <strong>Alias</strong>.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <p>A blocked submit moves focus to the first error on the page by default, through the <code>FocusFirstErrorOnInvalidSubmit</code> parameter of <code>FormidableForm</code> (the form component). The toggle above the form sets it. Untick it and a blocked submit leaves focus where it was, for you to move yourself.</p>
+        <p>The error summary lists every message the form shows. Clicking an entry scrolls its field into view, centred as far as the page can scroll, and focuses it.</p>
+        <p>Formidable's focus service (the part that moves focus for the summary and the form) reports whether the field took focus, not merely whether it found one. Every target on this page is an ordinary input that is on the page and accepts focus, so every entry lands first time.</p>
+        <p>Compare the <a href="virtualized">Virtualize + KeepRegistered</a> page, named for <code>Virtualize</code> (Blazor's component that renders a long list a window at a time) and a setting that page explains. There, only the rows <code>Virtualize</code> is rendering have an input, so an entry for any other row needs a <code>FocusFallback</code> (a callback for a focus that misses) to bring the row back before focusing it. Here there is nothing to bring back.</p>
+        <p>The roster is fixed (no row can be added or removed) because the page is about distance, not editing. It starts with every fourth <strong>Alias</strong> and every fourth team's <strong>Name</strong> empty, the very last <strong>Alias</strong> among them. So until you fill that <strong>Alias</strong>, the last entry is the form's last field: the longest ride the page offers.</p>
+    </HowItWorks>
+    <Demo>
+        <p>
+            <label><input type="checkbox" @bind="_focusFirstError" /> Focus the first error automatically on a blocked submit</label>
+        </p>
+
+        <FormidableForm Model="_roster" OnValidSubmit="HandleValid" FocusFirstErrorOnInvalidSubmit="@_focusFirstError">
+            <div class="summary-slot">
+                <FormidableSummary />
+            </div>
+            <FormidableCollectionMessage For="() => _roster.Teams" />
+
+            @foreach (var team in _roster.Teams)
+            {
+                <fieldset @key="team">
+                    <legend>Team</legend>
+                    <div class="field"><label>Name <FormidableRequiredIndicator For="() => team.Name" /> <FormidableInputText @bind-Value="team.Name" /></label>
+                        <FormidableFieldMessage For="() => team.Name" /></div>
+
+                    <FormidableCollectionMessage For="() => team.Members" />
+                    <ul class="member-list">
+                        @foreach (var member in team.Members)
+                        {
+                            <li class="field" @key="member">
+                                <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
+                                <FormidableFieldMessage For="() => member.Alias" />
+                            </li>
+                        }
+                    </ul>
+                </fieldset>
+            }
+
+            <div class="actions">
+                <button type="submit">Submit</button>
+            </div>
+        </FormidableForm>
+
+        <p role="status">@_status</p>
+    </Demo>
 </TeachingPanel>
-
-<p>
-    <label><input type="checkbox" @bind="_focusFirstError" /> Focus the first error automatically on a blocked submit</label>
-</p>
-
-<FormidableForm Model="_roster" OnValidSubmit="HandleValid" FocusFirstErrorOnInvalidSubmit="@_focusFirstError">
-    <div class="summary-slot">
-        <FormidableSummary />
-    </div>
-    <FormidableCollectionMessage For="() => _roster.Teams" />
-
-    @foreach (var team in _roster.Teams)
-    {
-        <fieldset @key="team">
-            <legend>Team</legend>
-            <div class="field"><label>Name <FormidableRequiredIndicator For="() => team.Name" /> <FormidableInputText @bind-Value="team.Name" /></label>
-                <FormidableFieldMessage For="() => team.Name" /></div>
-
-            <FormidableCollectionMessage For="() => team.Members" />
-            <ul class="member-list">
-                @foreach (var member in team.Members)
-                {
-                    <li class="field" @key="member">
-                        <label>Alias <FormidableRequiredIndicator For="() => member.Alias" /> <FormidableInputText @bind-Value="member.Alias" /></label>
-                        <FormidableFieldMessage For="() => member.Alias" />
-                    </li>
-                }
-            </ul>
-        </fieldset>
-    }
-
-    <div class="actions">
-        <button type="submit">Submit</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>

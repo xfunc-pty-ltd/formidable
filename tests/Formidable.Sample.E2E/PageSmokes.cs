@@ -137,25 +137,28 @@ public sealed class PageSmokes(SampleAppFixture app)
     [E2EFact]
     public async Task Smoke_scroll_focus()
     {
+        // The heading is the sidebar's name for the page. Mutation that must break this: the
+        // heading given back its old subtitle.
         await using var session = await app.NewPageAsync("/scroll-focus");
-        await Expect(session.Page.Locator("h1"))
-            .ToHaveTextAsync("Scroll & focus — click-to-focus across a long form");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Scroll & focus");
     }
 
     [E2EFact]
     public async Task Smoke_summary_shape()
     {
+        // The heading is the sidebar's name for the page. Mutation that must break this: the
+        // heading given back its old subtitle.
         await using var session = await app.NewPageAsync("/summary-shape");
-        await Expect(session.Page.Locator("h1"))
-            .ToHaveTextAsync("Shaping the summary — deciding what the list says");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Shaping the summary");
     }
 
     [E2EFact]
     public async Task Smoke_dialog_submit()
     {
+        // The heading is the sidebar's name for the page. Mutation that must break this: the
+        // heading given back its old subtitle.
         await using var session = await app.NewPageAsync("/dialog-submit");
-        await Expect(session.Page.Locator("h1"))
-            .ToHaveTextAsync("Dialog-first submit — announcing a blocked submit");
+        await Expect(session.Page.Locator("h1")).ToHaveTextAsync("Dialog-first submit");
     }
 
     [E2EFact]
