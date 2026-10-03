@@ -30,7 +30,7 @@ public sealed class SeverityJourney(SampleAppFixture app)
 
         // Warnings never block: fill the field the error rule still needs, then submit goes
         // through and the advisory stays disclosed.
-        await page.GetByLabel("Title", new() { Exact = true }).FillAsync("Launch day");
+        await TextBox(page, "Title").FillAsync("Launch day");
         await TabAsync(page);
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(page.Locator(".formidable-summary__group--error")).ToHaveCountAsync(0);

@@ -41,6 +41,12 @@ internal static class SamplePage
     /// same field names, so the row — located by content of its own — is what tells them apart.</summary>
     public static ILocator Field(ILocator row, string field) => row.Locator($"[id$='-{field}']");
 
+    /// <summary>A text field, addressed by its accessible name: the label's text without the
+    /// required mark, which is <c>aria-hidden</c>. An exact <c>GetByLabel</c> reads the label's
+    /// text content, mark included, so it stops matching a field once the page marks it.</summary>
+    public static ILocator TextBox(IPage page, string name) =>
+        page.GetByRole(AriaRole.Textbox, new() { Name = name, Exact = true });
+
     /// <summary>A field's message list, addressed the way the kit builds it: the field's element
     /// id with "-messages" appended.</summary>
     public static ILocator MessagesFor(IPage page, string field) =>

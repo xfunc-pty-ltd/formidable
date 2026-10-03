@@ -26,8 +26,8 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         // Real-typed path: the number field takes keystrokes, the range rule answers at submit.
         await TypeAsync(Field(page, "readminutes"), "0");
         await TabAsync(page);
-        await page.GetByLabel("Title", new() { Exact = true }).FillAsync("Release notes");
-        await page.GetByLabel("Slug", new() { Exact = true }).FillAsync("release-notes");
+        await TextBox(page, "Title").FillAsync("Release notes");
+        await TextBox(page, "Slug").FillAsync("release-notes");
         await Field(page, "category").SelectOptionAsync("Tutorial");
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(MessagesFor(page, "readminutes"))
@@ -84,7 +84,7 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await using var session = await app.NewPageAsync("/custom-profiles");
         var page = session.Page;
 
-        await page.GetByLabel("Title", new() { Exact = true }).FillAsync("Release notes");
+        await TextBox(page, "Title").FillAsync("Release notes");
 
         // GetByText("Admin review") would also match the TryIt paragraph's own use of the same
         // words, so the radio is addressed by its label association instead — unambiguous, and
@@ -92,12 +92,12 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await page.GetByLabel("Admin review", new() { Exact = true }).CheckAsync();
 
         // The picker swaps Options, which only takes effect with a fresh model: the form resets.
-        await Expect(page.GetByLabel("Title", new() { Exact = true })).ToHaveValueAsync("");
+        await Expect(TextBox(page, "Title")).ToHaveValueAsync("");
 
         // Fill everything Standard submit needs; the third ruleset still blocks without the note.
         // (fill() is setup here; the real-typed path lives in the first test.)
-        await page.GetByLabel("Title", new() { Exact = true }).FillAsync("Release notes");
-        await page.GetByLabel("Slug", new() { Exact = true }).FillAsync("release-notes");
+        await TextBox(page, "Title").FillAsync("Release notes");
+        await TextBox(page, "Slug").FillAsync("release-notes");
         await Field(page, "category").SelectOptionAsync("Tutorial");
         await Field(page, "readminutes").FillAsync("5");
         await Field(page, "publishdate").FillAsync("2026-09-01");
@@ -105,7 +105,7 @@ public sealed class CustomProfilesJourney(SampleAppFixture app)
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(Summary(page)).ToContainTextAsync("A review note is required for admin review");
 
-        await page.GetByLabel("Review note", new() { Exact = true }).FillAsync("Checked.");
+        await TextBox(page, "Review note").FillAsync("Checked.");
         await TabAsync(page);
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(SummaryBands(page)).ToHaveCountAsync(0);

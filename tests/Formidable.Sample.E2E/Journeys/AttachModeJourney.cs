@@ -72,7 +72,7 @@ public sealed class AttachModeJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/attach");
         var page = session.Page;
-        var submitter = page.GetByLabel("Submitted by", new() { Exact = true });
+        var submitter = TextBox(page, "Submitted by");
 
         // The seeded value is non-empty, so this alone is what puts the field in a failing
         // state — no line needs touching for this test's own claim. The blur commits the change,

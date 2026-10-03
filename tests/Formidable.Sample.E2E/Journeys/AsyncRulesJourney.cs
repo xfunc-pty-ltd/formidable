@@ -60,7 +60,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         var pendingScoped = page.WaitForFunctionAsync(
             PendingScopedToUsername,
             options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
-        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "admin");
+        await TypeAsync(TextBox(page, "Username"), "admin");
         await pendingScoped;
 
         await Expect(MessagesFor(page, "username"))
@@ -73,11 +73,11 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // and the assertion waits for the indicator to close before reading the message list —
         // a regression that made "ada" wrongly taken would show up here instead of being missed
         // behind a still-in-flight check.
-        await page.GetByLabel("Username", new() { Exact = true }).FillAsync("");
+        await TextBox(page, "Username").FillAsync("");
         var pendingScopedAgain = page.WaitForFunctionAsync(
             PendingScopedToUsername,
             options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
-        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
+        await TypeAsync(TextBox(page, "Username"), "ada");
         await pendingScopedAgain;
         await TabAsync(page);
 
@@ -171,7 +171,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
 
         // An available username, checked and settled once, then submitted — the ordinary path to
         // a submitted form, not yet the edit under test.
-        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
+        await TypeAsync(TextBox(page, "Username"), "ada");
         await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(page.Locator("p[role='status']"))
@@ -181,7 +181,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // submit's own pass) is setup, not the edit under test.
         await page.EvaluateAsync(InstallCheckWindowProbe);
 
-        await page.GetByLabel("Username", new() { Exact = true }).FillAsync("adam");
+        await TextBox(page, "Username").FillAsync("adam");
 
         // Waits out the edit's own live pass, the refresh's defer-and-recheck cycle, and — were
         // the double check to return — a second full round trip, by polling rather than
@@ -251,7 +251,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         var pendingScoped = page.WaitForFunctionAsync(
             PendingScopedToUsername,
             options: new PageWaitForFunctionOptions { Timeout = AsyncTimeoutMs });
-        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "ada");
+        await TypeAsync(TextBox(page, "Username"), "ada");
         await pendingScoped;
         await Expect(page.Locator(CheckingIndicator)).ToHaveCountAsync(0, new() { Timeout = AsyncTimeoutMs });
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
@@ -269,7 +269,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         // The page's own clock, read just before the edit commits — the probe stamps openedAt
         // with performance.now() too, so the lower-bound assert below compares like with like.
         var beforeFill = await page.EvaluateAsync<double>("() => performance.now()");
-        await page.GetByLabel("Username", new() { Exact = true }).FillAsync("adam");
+        await TextBox(page, "Username").FillAsync("adam");
 
         // Waits out the refresh window and its round trip, the deferred live pass's landing
         // behind it, and — were the double check to return — a second full round trip, by polling
@@ -357,7 +357,7 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         await page.Locator("input[type=range]").FillAsync(delayMs.ToString());
 
         // Username turns green and is then left alone: every edit from here on is Display name's.
-        await TypeAsync(page.GetByLabel("Username", new() { Exact = true }), "tim");
+        await TypeAsync(TextBox(page, "Username"), "tim");
         await Expect(username).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
 
         // One committed change rather than a keystroke-by-keystroke type, so there is exactly one

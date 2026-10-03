@@ -18,7 +18,7 @@ public sealed class BootstrapJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/bootstrap");
         var page = session.Page;
-        var name = page.GetByLabel("Name", new() { Exact = true });
+        var name = TextBox(page, "Name");
 
         await page.GetByRole(AriaRole.Button, new() { Name = "Submit", Exact = true }).ClickAsync();
         await Expect(name).ToHaveClassAsync(new Regex(@"\bis-invalid\b"));

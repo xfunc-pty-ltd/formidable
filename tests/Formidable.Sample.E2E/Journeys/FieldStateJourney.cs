@@ -30,8 +30,8 @@ public sealed class FieldStateJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/field-state");
         var page = session.Page;
-        var username = page.GetByLabel("Username", new() { Exact = true });
-        var displayName = page.GetByLabel("Display name", new() { Exact = true });
+        var username = TextBox(page, "Username");
+        var displayName = TextBox(page, "Display name");
         var usernameRow = page.Locator(".state-table tbody tr:has-text('Username')");
         var displayNameRow = page.Locator(".state-table tbody tr:has-text('Display name')");
 

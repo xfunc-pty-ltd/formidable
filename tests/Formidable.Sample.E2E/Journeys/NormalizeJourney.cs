@@ -17,7 +17,7 @@ public sealed class NormalizeJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/normalize");
         var page = session.Page;
-        var title = page.GetByLabel("Title", new() { Exact = true });
+        var title = TextBox(page, "Title");
 
         // Real keystrokes under OnInput: >40 raw but <=40 trimmed, so only Normalize changes
         // the verdict. 10 spaces + 35 characters = 45 raw, 35 trimmed.
@@ -34,7 +34,7 @@ public sealed class NormalizeJourney(SampleAppFixture app)
     {
         await using var session = await app.NewPageAsync("/normalize");
         var page = session.Page;
-        var title = page.GetByLabel("Title", new() { Exact = true });
+        var title = TextBox(page, "Title");
 
         // 42 raw, 34 trimmed: trimming runs BEFORE validation and the submit succeeds.
         await title.FillAsync("    Meeting notes about the Q3 rollout    ");
