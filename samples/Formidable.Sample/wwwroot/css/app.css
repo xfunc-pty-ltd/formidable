@@ -12,6 +12,7 @@
     --border: #e5e7eb;
     --accent: #0774b8;
     --ring: rgba(7, 116, 184, .16);
+    --explain: #6d28d9;
     --error: #b91c1c;
     --error-text: #b91c1c;
     --warn: #a16207;
@@ -43,6 +44,7 @@
         --border: #3b3b63;
         --accent: #81d2f8;
         --ring: rgba(129, 210, 248, .2);
+        --explain: #c4b5fd;
         --error: #f87171;
         --error-text: #fca5a5;
         --warn: #fbbf24;
@@ -808,7 +810,31 @@ em[role=status] {
     margin: .2rem 0;
 }
 
-.teaching__code summary {
+.teaching__steps li + li {
+    margin-top: .5rem;
+}
+
+/* A Try it step's result sits under its action, indented, behind an accent "You see:" label.
+   A step whose result a reader would not expect adds a Why line under it, its label violet. */
+.teaching__result,
+.teaching__why {
+    margin: .1rem 0 0 .9rem;
+}
+
+.teaching__label {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+/* Violet marks an explanation, kept apart from the accent and the validation-state colours. */
+.teaching__why .teaching__label {
+    color: var(--explain);
+}
+
+/* The two collapsed sections share one look, so How it works reads as the same kind of
+   control as Show the code. */
+.teaching__code summary,
+.teaching__more summary {
     cursor: pointer;
     font-weight: 600;
     color: var(--accent);
@@ -845,11 +871,95 @@ em[role=status] {
 
 /* When the reader opens the code, grow the card into the empty space right of the
    52rem column - sidebar (15rem) + main padding (4rem) + scrollbar allowance ~ 20rem.
-   Closed, every page keeps its reading measure. */
+   Closed, every page keeps its reading measure. A lesson's panel is left out: it has a
+   column of its own, and opening its code turns the lesson into one column instead. */
 @media (min-width: 72rem) {
-    .teaching:has(.teaching__code[open]) {
+    .teaching:not(.lesson > .teaching):has(.teaching__code[open]) {
         width: calc(100vw - 20rem);
         max-width: 80rem;
+    }
+}
+
+/* How it works holds its heading inside the summary, so a list of the page's headings reads
+   Try it, The rules, How it works. On screen the heading takes the summary's look: it sits
+   inline beside the marker and drops the section headings' small capitals. */
+.teaching .teaching__more {
+    margin-top: .9rem;
+}
+
+.teaching__more summary h2 {
+    display: inline;
+    margin: 0;
+    font: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: inherit;
+}
+
+.teaching__more > p,
+.teaching__more > ul {
+    margin: .5rem 0 0;
+}
+
+/* ---------- lesson layout ---------- */
+
+/* A lesson page hands its form to the teaching panel, which wraps the two in .lesson, panel
+   first. Below the breakpoint the lesson is one column: the panel keeps its card above the
+   form, its sections in markup order, so the order on screen is the order Tab moves through.
+
+   From 72rem up the form sits left and the panel right, three parts to two. At 72rem the
+   content box is 72rem less the sidebar (15rem) and main's padding (4rem), so 53rem; less the
+   2rem gap, the form gets 30.6rem and the panel 20.4rem, above their 28rem and 18rem floors (a
+   drawn scrollbar takes about 1rem, leaving 30rem and 20rem). main widens to 84rem, where the
+   form column reaches 46.8rem, inside the 48rem every other page reads at. The heading and the
+   intro above the lesson keep that 48rem measure. */
+@media (min-width: 72rem) {
+    main:has(.lesson) {
+        max-width: 84rem;
+    }
+
+    main:has(.lesson) > :not(.lesson) {
+        max-width: 48rem;
+    }
+
+    .lesson {
+        display: grid;
+        grid-template-columns: minmax(28rem, 3fr) minmax(18rem, 2fr);
+        grid-template-areas: "demo panel";
+        column-gap: 2rem;
+        align-items: start;
+        margin-top: 1.1rem;
+    }
+
+    .lesson > .lesson__demo {
+        grid-area: demo;
+        min-width: 0;
+    }
+
+    /* The panel sticks near the top while a long form scrolls past it. Its height is capped to
+       the window and it scrolls inside itself, so every part of it stays in reach on a short
+       window, and its own column keeps it clear of the form. */
+    .lesson > .teaching {
+        grid-area: panel;
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        margin: 0;
+    }
+
+    /* Code needs width more than a place beside the form: with Show the code open the lesson
+       is one column, the panel above the form at the lesson's full width and not sticking. */
+    .lesson:has(.teaching__code[open]) {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "panel" "demo";
+    }
+
+    .lesson:has(.teaching__code[open]) > .teaching {
+        position: static;
+        max-height: none;
+        overflow-y: visible;
+        margin-bottom: 1.4rem;
     }
 }
 
