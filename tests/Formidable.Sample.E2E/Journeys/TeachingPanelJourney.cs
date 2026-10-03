@@ -15,13 +15,14 @@ namespace Formidable.Sample.E2E;
 [Collection("e2e")]
 public sealed class TeachingPanelJourney(SampleAppFixture app)
 {
-    /// <summary>The pages that set their form beside the panel. Each page joins this list when it
-    /// takes the lesson layout, so every assertion below covers it from then on.</summary>
+    /// <summary>The sample's lesson pages: every route in the sidebar. A page added to the sample
+    /// joins this list, so every assertion below covers it.</summary>
     public static readonly string[] LessonRoutes =
         ["/profiles", "/", "/custom-profiles", "/disclosure", "/severity", "/draft-load",
             "/collections", "/virtualized", "/foreign", "/vanilla", "/attach",
             "/async", "/server", "/summary-shape", "/dialog-submit", "/scroll-focus",
-            "/bootstrap", "/mudblazor", "/css-colours", "/field-state", "/normalize", "/localization"];
+            "/bootstrap", "/mudblazor", "/css-colours", "/field-state", "/normalize", "/localization",
+            "/workout"];
 
     private const string PanelName = "About this page";
 

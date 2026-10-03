@@ -94,9 +94,10 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await using var session = await app.NewPageAsync("/workout");
         var page = session.Page;
 
-        // Mirrors the real walkthrough this ruleset answers: an earlier, unrelated submit
-        // already went through, so what follows pins the live channel on its own rather than
-        // "nothing has ever validated this form yet" — no submit happens again anywhere below.
+        // Mirrors the page's tour, where a submit has gone through before the attendee rows: an
+        // earlier, unrelated submit is accepted, so what follows pins the live channel on its own
+        // rather than "nothing has ever validated this form yet" — no submit happens again anywhere
+        // below.
         await FillValidRegistrationAsync(page);
         await SubmitAsync(page);
         await Expect(page.Locator("p[role='status']"))

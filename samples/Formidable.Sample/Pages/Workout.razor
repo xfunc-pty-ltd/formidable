@@ -2,204 +2,262 @@
 
 <PageTitle>Full workout</PageTitle>
 <h1>Full workout</h1>
-<p>The kitchen-sink page: one registration form that exercises the library's features side by side. The details section pairs an async availability check with a cross-field date rule and a coupon only the server can judge; the catering section is gated by pure UI state while its rule stays unconditional. Two ways out: <em>Save draft</em> runs the Draft profile, and <em>Submit registration</em> runs the Submit profile and then posts to the API.</p>
+<p>This page puts most of Formidable's features into one event registration form. The steps tour it a section at a time, and each step links the page that teaches its feature on its own.</p>
 @if (IsHostedDemo)
 {
-    <p><small>This hosted demo has no server behind it — an in-browser handler answers with the same validators and the same response shapes the real API would send, coupon rejection included.</small></p>
+    <p><small>This hosted demo has no server behind it: an in-browser handler answers with the same validators and the same response shapes the real API would send, coupon rejection included.</small></p>
 }
 
 <TeachingPanel CodeFiles="@(new[] { "Workout.razor", "Workout.razor.cs", "EventRegistration.cs" })">
-    <Rules>
-        <ul>
-            <li><strong>Contact email</strong>: required to submit.</li>
-            <li><strong>Contact email</strong>: checked for a valid address. A committed change to the field discloses it, no submit needed.</li>
-            <li><strong>Contact email</strong>: checked asynchronously as you type for availability (a fixed 300&nbsp;ms delay stands in for the server call). <code>taken@@example.com</code> is already registered. The rule is written with <code>MustAsyncMemoized</code>, so one address costs one check: for as long as the memo holds that answer, a check started by an edit to any other field on the form reads it instead of queueing behind a second call.</li>
-            <li><strong>Event name</strong>: required to submit.</li>
-            <li><strong>Event date</strong>: required to submit.</li>
-            <li><strong>Event date</strong>: must be a real date. A committed change to the field discloses it, no submit needed.</li>
-            <li><strong>Early-bird deadline</strong>: must be a real date. A committed change to the field discloses it, no submit needed.</li>
-            <li>The <strong>early-bird deadline</strong> must fall on or before the <strong>event date</strong> — a cross-field rule that runs only once both parse.</li>
-            <li>Both date fields set <code>UpdateOn="InputUpdateMode.OnBlur"</code>: a native date input fires <code>change</code> per segment as you type, so the mode commits the value on every one of those but waits for the field to lose focus before notifying the engine, once the value has actually settled.</li>
-            <li>Draft and Submit stay orthogonal, and the split decides what a <em>save</em> runs rather than when a message appears: malformed-value rules (formats, ranges, the availability check) sit in the always-on bucket, presence rules in the submit bucket. <em>Save draft</em> asks the validator for the Draft profile directly, so it answers about that bucket and no other; <em>Submit registration</em> runs the form's submit pipeline. <strong>Dietary notes</strong> is the one deliberate exception, a presence rule left in the always-on bucket, so a draft save answers about it too. What makes it a suppression demo rather than a completeness one is a different property: its rule carries no <code>When()</code>, so the checkbox hides the field without touching the rule (see below).</li>
-            <li><strong>Required marks</strong>: the asterisks are derived, not declared. <code>FormidableRequiredIndicator</code> asks what the Submit profile demands, and the mark follows an unconditional presence rule — so Contact email, Event name, Event date, Dietary notes, Ticket tier and Venue region wear one, while Early-bird deadline, Description, Coupon code and Catering headcount carry the identical component and draw nothing: what rules they have are formats and ranges, never presence — and two of them, Description and Coupon code, have no client rule at all. Each attendee row's Name is marked from the same rule template that judges it, one mark per row; Email in the same row draws nothing, since no rule demands a value there. The glyph is <code>aria-hidden</code> and the input carries <code>aria-required</code> instead, so a screen reader hears the fact rather than a star.</li>
-            <li>What decides when a message appears is engagement: the live channel evaluates whatever would block a submit, and writes its verdict only for the fields you have engaged — here, the ones you have committed a change to. A field nobody has touched stays silent however badly its rule is failing; engage it — type something, or clear something that was there — and it answers until the field leaves the rendered page (the session rows below hold their registration open with <code>KeepRegistered</code>, so scrolling one out of sight does not stop it answering), re-judged by every later edit anywhere on the form, with no submit needed.</li>
-            <li><strong>Coupon code</strong>: no client rule at all — the server owns the code list, and its 400 lands on this field through <code>ApplyServerIssues</code>. Each response replaces the previous server verdict, so a corrected resubmission never leaves a stale coupon error behind.</li>
-            <li>Before posting, the page calls <code>Normalize()</code>, which trims <strong>Contact email</strong>.</li>
-            <li><code>Normalize()</code> also trims <strong>Description</strong>.</li>
-            <li><code>Normalize()</code> collapses <strong>Event name</strong>'s internal whitespace to single spaces.</li>
-            <li><code>Normalize()</code> trims and upper-cases <strong>Coupon code</strong>, so <code>welcome10</code> and the server's <code>WELCOME10</code> are the same code.</li>
-            <li><strong>Catering headcount</strong>: a whole number between 1 and 500, checked only while catering is included.</li>
-            <li><strong>Dietary notes</strong>: required, and deliberately unconditional. The checkbox gates the field's visibility, never the rule: hide the field and the rule still fails. A submit with no way to show that error blocks with a form-level explanation rather than with a message you cannot see — and once a submit has shown it, the summary keeps listing it, on screen or off, until the answer comes clean. Only a submit that goes through, or a reset, clears what earlier ones revealed, and that is what puts the explanation back in play.</li>
-            <li>Editing after a submit re-checks the whole form once you pause, while the pending indicator stays on the field you edited. Whether you see the indicator at all depends on whether anything slow is left to run: the availability check is the only rule here that takes any time, so a changed address paints an indicator, and an edit anywhere else is answered too quickly to paint one for as long as the memo still holds the current address's answer.</li>
-            <li><strong>Attendees</strong>: add and remove rows freely.</li>
-            <li>Each row's <strong>Name</strong> is required to submit, and engagement is what discloses it: a fresh row stays silent even though the rule is already failing against it, but type into Name and blur, then clear it and blur again, and "Attendee name is required" appears with no submit needed anywhere. Nothing on the page or in the validator is wired for that — an ordinary submit-bucket rule on an engaged field is what the live channel answers.</li>
-            <li>Each row's <strong>Email</strong>, when given, must be a valid address — a submit-bucket rule like the presence rules above, and disclosed the same way once you engage the field.</li>
-            <li>The attendee list itself carries a collection-level rule from the always-on bucket: more than 10 attendees draws a warning ("More than 10 attendees needs approval — submission is not blocked"). Adding or removing a row is a committed change to the list, so it answers there and then rather than waiting for submit.</li>
-            <li>The attendee list also carries a collection-level rule for having none at all: it draws an info ("You can add attendees now or after registering"), updating the same way. Both are advisories, unlike the error-severity rules above — they never block submission.</li>
-            <li><strong>Sessions</strong>: 150 rows in a virtualized panel. Each row's <strong>Seats</strong> must be a whole number between 0 and 500 — an always-on-bucket rule, which is what makes <em>Save draft</em> enforce it too. Your edit engages the field it sits on, and that is what makes the row answer you rather than wait for a submit.</li>
-            <li>Disclosure is render-registration, and virtualized rows come and go: the seats input sets <code>KeepRegistered</code>, which keeps a scrolled-past row's registration alive after it leaves the window. This page then goes further and sets a <code>DisclosureOverride</code> for the collection — an override answers before the registry is consulted, so every session row is disclosed, including rows Virtualize has never rendered. Validation always runs against the full in-memory model; only <em>visibility</em> is render-gated, so the override costs nothing.</li>
-            <li>Clicking the summary entry of a row that is not in the DOM uses the summary's <code>FocusFallback</code>: the page scrolls the panel, lets Virtualize render the row, and the summary retries the focus once. A blocked submit's own auto-focus reaches the same row the same way, through the form's own <code>FocusFallback</code> — the identical callback, so no click is needed for it either. A field can also be missing because a control un-rendered it rather than because Virtualize has not reached it yet: <strong>Dietary notes</strong> and <strong>Catering headcount</strong> leave the page the moment catering is unticked, and there the same fallback answers the click on the checkbox that governs the field's presence instead of retrying an input that will not come back.</li>
-            <li><strong>Ticket tier</strong>: a foreign control — a plain <code>&lt;select&gt;</code> this page renders itself. The renderless <code>FormidableField</code> hands it everything a wrapped input gets for nothing — element id, state class, aria attributes, and <code>NotifyChanged()</code> — so it styles, carries messages and takes focus from the summary like the rest of the form. Its presence rule sits in the submit bucket, and the form opens on <em>General admission</em>, so it stays quiet until you pick the blank option — which is a committed change, so the message follows that choice rather than waiting for a submit.</li>
-            <li><strong>Venue region</strong>: the same seam from the other side — a native <code>InputText</code> with a native <code>ValidationMessage</code>, inside a Formidable form. Its presence rule sits in the submit bucket like the ones above, and the wiring is what carries it: the engine writes error-severity issues into the EditContext's message store, so the native <code>ValidationMessage</code> speaks the verdict ("Venue region is required") without a Formidable component in sight, live check and submit alike; the engine installs a css class provider on that same EditContext, so native <code>InputBase</code> components pick up the same state classes; and a <code>FormidableFieldAnchor</code> registers a natively-rendered field so its issues disclose at submit instead of being suppressed as unrevealed.</li>
-            <li>The one thing that shared EditContext cannot carry is click-to-focus: it addresses a field by the element id Formidable's own inputs render, and a native input renders none — so this page renders it, giving the input the field's id and the native <code>ValidationMessage</code> the matching messages id. The three aria attributes cross the same way, since a wrapped input takes them from a field context and a native one has none to ask. <code>aria-required</code> stands whatever the value does, because requiredness is a property of the rules. <code>aria-invalid</code> follows the field's errors, and the page reads it off the engine; a native <code>InputText</code> answers that attribute for itself from the field's messages, with the same <code>true</code> or nothing. <code>aria-describedby</code> names that messages id only while the <code>ValidationMessage</code> is rendering a message, since that component renders nothing at all when there is none, and an <code>aria-describedby</code> naming an absent element describes nothing — a wrapped input paired with a <code>FormidableFieldMessage</code> is never asked that question, because the list renders empty and stays put.</li>
-            <li>One addition per concern is what makes the crossings the shared context cannot: <code>FormidableFieldAnchor</code> for disclosure, the id for focus, and <code>aria-describedby</code>, <code>aria-invalid</code> and <code>aria-required</code> for the screen reader.</li>
-        </ul>
-    </Rules>
     <TryIt>
+        @if (IsHostedDemo)
+        {
+            <p>No server to start on this hosted demo: the in-browser handler answers as soon as you click <strong>Submit registration</strong>, coupon rejection included.</p>
+        }
+        else
+        {
+            <p>Before the steps, start the API: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</p>
+        }
+        <h3>Save draft: the draft rules</h3>
         <ol>
-            @if (IsHostedDemo)
-            {
-                <li>No server to start on this hosted demo — the in-browser handler answers as soon as you submit, coupon rejection included.</li>
-            }
-            else
-            {
-                <li>Start the API first: <code>dotnet run --project samples/Formidable.Sample.Api</code>.</li>
-            }
-            <li>Click <em>Submit registration</em> without filling anything in — the form opens with a ticket tier already chosen, catering already ticked and all 150 sessions seated at 0, so what is still empty is the boxes you type into, and every presence rule on one of them answers at once. The summary lists them, and every entry has somewhere to land: an entry that names an input focuses that input, native ones included (step 23), and the attendee advisory focuses the Attendees group, which owns no input of its own. A group scrolls into view and takes focus quietly under the mouse; reach the same entry from the keyboard and the landing shows an accent outline as well. There is one more kind of entry, the form-level one the gate raises, and it lands on the form itself rather than on any input — step 7 is where one appears.</li>
-            <li>Type <code>taken@@example.com</code> into Contact email — every keystroke commits here, so each one hands the check an address it has never seen: "checking…" sits on that field for the 300&nbsp;ms the check takes, and then the taken message lands. Clear the box and type the same address again: the other messages come and go as before, but no "checking…" appears at all, because the memo already holds an answer for every address you typed through.</li>
-            <li>Replace Contact email with a fresh address (the one from the last step is already taken), fill in Event name, Event date, Dietary notes and <strong>Venue region</strong>, and submit with the coupon <code>BOGUS</code>. The server can only speak once the client is clean, and the POST happens only after a valid client submit — so the coupon's verdict always arrives last: the server's 400 lands inline on Coupon code. Change it to <code>WELCOME10</code> and submit again: the new verdict replaces the old one and the registration is accepted.</li>
-            <li>With everything else valid, clear <strong>Dietary notes</strong> and tab out — your edit engages the field, so the rule answers with no submit: "Dietary notes are required for catering" lands beside the box and in the summary above.</li>
-            <li>Untick <em>Include catering</em> — the field leaves the page and takes its message with it, inline and summary alike. Engagement ends when the field leaves.</li>
-            <li>Submit — the only rule that can block is the one on the field you just took off screen, and the submit that went through at step 4 cleared what earlier submits had revealed, so nothing on screen can account for it: the form blocks with "information that is not currently displayed is invalid" rather than with an entry pointing at nothing. That entry belongs to the form itself: the submit's own focus lands there, and so does a click on it.</li>
-            <li>Leave the form blocked and type an event description into <strong>Description</strong>, then tab out — the box takes the confirmed border, which shows a check has answered that a submit would not fail it, and the form-level line is still in the summary afterwards. That line lasts for as long as nothing on screen explains the block, and Description carries no rule that could put an error there; the whole-form re-check after an edit never retires it on its own.</li>
-            <li>Re-tick <em>Include catering</em> — the note comes back, empty and quiet. Nothing has engaged it, and on the submit channel disclosure is a submit's doing, so the field renders carrying no message at all.</li>
-            <li>Submit again — the note's own message appears, inline and in the summary, and the form-level line gives way to it. This is the submit the next two steps rest on: it is what puts the error on the record.</li>
-            <li>Untick <em>Include catering</em> once more — the field goes and takes its inline message with it, but this time the summary keeps the entry. Compare step 6, where the same untick took the entry with it; what changed in between is that a submit has shown this error.</li>
-            <li>Submit — the entry is still listed, with its field nowhere on the page. Once a submit has shown a field's error the entry stands until the answer comes clean, and the field stays watched until the form passes or resets. The rule never relented; only its visibility changed, and disclosure followed the submits. Click that entry now: the field it names is off the page, so the click cannot land there — focus moves to the <em>Include catering</em> checkbox instead, the control whose state is the reason the field is gone.</li>
-            <li>Re-tick <em>Include catering</em> and fill a note back in before moving on.</li>
-            <li>Put <code>nope@@</code> in Contact email and click <em>Save draft</em> — the draft answers about the always-on bucket, and the malformed address is what it names: the note you re-filled at the last step passes, and the presence rules are in the other bucket entirely. Now clear <strong>Event name</strong> and tab out: "Event name is required" lands as soon as that edit's live check does, because you have engaged that field. But save the draft again and the status line still says nothing about it, since a draft save runs the Draft profile and that presence rule is not in it. Type Event name back in before moving on.</li>
-            <li>Click <em>Add attendee</em> — a blank row appears with Name and Email fields, Name wearing the required mark from the rules alone (Email carries the same indicator component and draws nothing), and stays silent for now: a mark is not a message, and nothing has engaged the row yet, even though its rule is already failing. Type a name into it and tab out, then come back, clear it and tab out again — "Attendee name is required" appears as soon as that edit's live check does, inline and in the summary, with no submit anywhere; clicking the summary entry focuses that row's Name field.</li>
-            <li>Fill that row's Name, then click <em>Add attendee</em> ten more times, giving each a name (Email can stay blank) — once the count passes ten, the warning "More than 10 attendees needs approval — submission is not blocked" appears below the list.</li>
-            <li>Contact email is still <code>nope@@</code> from step 14, and it is the only thing left broken — replace it with a real address, then check that catering is still ticked with a note in it and that <strong>Venue region</strong> still holds a value. Submit again: the warning does not stop it, and the status line confirms the registration was accepted.</li>
-            <li>Click <em>Remove</em> on every row until none remain — the warning gives way to the info "You can add attendees now or after registering".</li>
-            <li>Scroll the session panel to the bottom, set the last session's <strong>Seats</strong> to 900 and press Tab so the edit commits (the row objects as soon as that edit's live check does), then scroll back to the top and click <em>Submit registration</em> — the submit blocks and the summary carries "Seats must be a whole number between 0 and 500" for a row that is nowhere on screen. The submit's own focus reaches it anyway: with no click at all, the panel scrolls itself, Virtualize renders the row, and focus lands in its Seats box. The <code>DisclosureOverride</code> is what lets the summary speak for that row in the first place: no registration is consulted, so it would report the issue even had you never scrolled that far.</li>
-            <li>Scroll the session panel back to the top, then click that summary entry — the panel scrolls itself, Virtualize renders the row, and focus lands in its Seats box. That is the fallback: a click reaches only an element that is rendered and will take focus, so the page makes the row renderable and the summary tries again. Put the row back to <code>0</code> and that edit's live check takes both the inline message and the summary entry away.</li>
-            <li>Set <strong>Ticket tier</strong> to the blank <em>Choose…</em> option — choosing is a committed change, so the foreign select takes the same inline message and the same summary entry as any wrapped input on this page, with no submit asked for. Tab out and the red border joins them: a focused box wears the accent border whatever its verdict, so the severity one waits for the blur. Click that summary entry and focus moves into the select. The page renders the control; <code>FormidableField</code> supplies everything the wrapper would have — then pick a tier again so later steps start clean.</li>
-            <li>Add a word to <strong>Venue region</strong>, which still holds what you typed at step 4, and tab out — the blur commits the value, and the live check it starts answers this field's submit rules along with everything else, so the native input takes on the same "confirmed" border a Formidable input shows: edited, nothing against it, and a check has answered that a submit would not fail it. Nothing was wired per field to do that: the css class provider serves both kinds of input.</li>
-            <li>Now clear <strong>Venue region</strong> and tab out — the native <code>ValidationMessage</code> shows "Venue region is required" without a submit: Formidable's verdict, reaching the EditContext's own message store from a live check, rendered by a component that knows nothing about Formidable. The summary lists it on the same terms; click that entry and focus lands in the native input, exactly as it does for the wrapped fields above: the page hands that input the same id a Formidable input would have rendered, and the id is the whole of what the focus service looks for. Inspect the input while the error stands and it also carries <code>aria-invalid="true"</code>, the <code>aria-describedby</code> naming the message below it, and the <code>aria-required="true"</code> that was already on it while the field held a value. The page renders all three, because a native input has no field context to take them from. State classes, messages, disclosure, focus and aria all cross the seam here: the first two ride the EditContext both kinds of input share, and the rest the page renders itself (the anchor, the id, and the three aria attributes).</li>
+            <li>Click <strong>Save draft</strong> with nothing filled in.<div class="teaching__result"><span class="teaching__label">You see:</span> "Draft blocked: Dietary notes are required for catering" in the status line under the buttons.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A draft save skips required rules, except the one on <strong>Dietary notes</strong>.</div><div class="teaching__page">More on <a href="profiles">Draft vs Submit</a>.</div></li>
+        </ol>
+        <h3>Contact email: an async check</h3>
+        <ol start="2">
+            <li>Type <code>taken@@example.com</code> into <strong>Contact email</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> a spinner in the box and "checking…" under it, then "That email is already registered".</div><div class="teaching__page">More on <a href="async">Async rules</a>.</div></li>
+        </ol>
+        <h3>Coupon code: the server's answer</h3>
+        <ol start="3">
+            <li>Replace <strong>Contact email</strong> with <code>ada@@example.com</code>, fill in <strong>Event name</strong>, <strong>Event date</strong>, <strong>Dietary notes</strong> and <strong>Venue region</strong>, type <code>BOGUS</code> into <strong>Coupon code</strong>, and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Coupon code is not recognised" under <strong>Coupon code</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Only the server knows the codes, and its rejection lands on the field it names.</div><div class="teaching__page">More on <a href="server">Server round-trip</a>.</div></li>
+            <li>Change <strong>Coupon code</strong> to <code>WELCOME10</code> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the coupon's message gone, and "Submitted" in the status line.</div><div class="teaching__page">More on <a href="server">Server round-trip</a>.</div></li>
+        </ol>
+        <h3>Catering: hidden fields</h3>
+        <ol start="5">
+            <li>Clear <strong>Dietary notes</strong> and press Tab, then untick <strong>Include catering</strong> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." in the error summary.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Dietary notes</strong>' rule still applies while hidden, and no error on screen explains the block.</div><div class="teaching__page">More on <a href="disclosure">Progressive disclosure</a> (which messages a form shows, and when).</div></li>
+            <li>Tick <strong>Include catering</strong> and click <strong>Submit registration</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Dietary notes are required for catering" under the box and in the error summary, replacing the message about the form.</div><div class="teaching__page">More on <a href="disclosure">Progressive disclosure</a>.</div></li>
+        </ol>
+        <h3>Attendees: a warning</h3>
+        <ol start="7">
+            <li>Click <strong>Add attendee</strong> eleven times.<div class="teaching__result"><span class="teaching__label">You see:</span> the warning "More than 10 attendees needs approval" below the list, once the eleventh row appears.</div><div class="teaching__page">More on <a href="severity">Severity levels</a>.</div></li>
+        </ol>
+        <h3>Sessions: a long list</h3>
+        <ol start="8">
+            <li>Scroll to the end of the <strong>Sessions</strong> list, replace <code>0</code> with <code>900</code> in <strong>Session 150</strong>, and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> "Seats must be a whole number between 0 and 500" under it.</div><div class="teaching__page">More on <a href="virtualized">Virtualize + KeepRegistered</a> (<code>KeepRegistered</code> is a setting that page explains).</div></li>
+            <li>Scroll the list back to its top, then click that message in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> the list scrolls back to <strong>Session 150</strong>, with focus in its box.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The list renders only the rows near its view, so the page scrolls it first.</div><div class="teaching__page">More on <a href="virtualized">Virtualize + KeepRegistered</a>.</div></li>
+        </ol>
+        <h3>Ticket tier: a plain select</h3>
+        <ol start="10">
+            <li>Pick <strong>Choose…</strong>, the blank option, in <strong>Ticket tier</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Ticket tier is required" under <strong>Ticket tier</strong> and in the error summary.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A <code>FormidableField</code> (a wrapper for one field's markup) connects this plain <code>&lt;select&gt;</code> to the form.</div><div class="teaching__page">More on <a href="foreign">Wrapping a foreign control</a>.</div></li>
+        </ol>
+        <h3>Venue region: Blazor's own input</h3>
+        <ol start="11">
+            <li>Clear <strong>Venue region</strong>, press Tab, then click "Venue region is required" in the error summary.<div class="teaching__result"><span class="teaching__label">You see:</span> that message under the box, and focus back in <strong>Venue region</strong>.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The page gives Blazor's <code>InputText</code> the field's id, so the error summary can focus it.</div><div class="teaching__page">More on <a href="vanilla">Vanilla interop</a>.</div></li>
         </ol>
     </TryIt>
-</TeachingPanel>
-
-<FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked" FocusFallback="RecoverMissedFocusAsync">
-    <div class="summary-slot">
-        <FormidableSummary FocusFallback="RecoverMissedFocusAsync" />
-    </div>
-
-    <fieldset>
-        <legend>Registration details</legend>
-
-        <FormidableField For="() => _registration.ContactEmail" Context="field">
-            <div class="field">
-                <label>Contact email <FormidableRequiredIndicator For="() => _registration.ContactEmail" /> <FormidableInputText @bind-Value="_registration.ContactEmail" UpdateOn="InputUpdateMode.OnInput" /></label>
-                <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+    <Rules>
+        <ul>
+            <li><strong>Contact email</strong>: a valid address not already registered, even in a draft; required to submit.</li>
+            <li><strong>Event name</strong>: required to submit.</li>
+            <li><strong>Event date</strong>: a real date, even in a draft; required to submit.</li>
+            <li><strong>Early-bird deadline</strong>: optional; a real date on or before <strong>Event date</strong>, even in a draft.</li>
+            <li><strong>Description</strong>: optional, with no rules.</li>
+            <li><strong>Coupon code</strong>: optional; no rule in the browser, and the server accepts only codes it knows.</li>
+            <li><strong>Catering headcount</strong>: optional; a whole number from 1 to 500 while catering is included, even in a draft.</li>
+            <li><strong>Dietary notes</strong>: required, even in a draft and even while hidden.</li>
+            <li><strong>Attendees</strong>: more than 10 draws a warning and none draws an info message; neither blocks.</li>
+            <li><strong>Name</strong> (each attendee): required to submit.</li>
+            <li><strong>Email</strong> (each attendee): optional; to submit, a valid address if filled in.</li>
+            <li><strong>Seats</strong> (the box on each session): a whole number from 0 to 500, even in a draft.</li>
+            <li><strong>Ticket tier</strong>: required to submit.</li>
+            <li><strong>Venue region</strong>: required to submit.</li>
+        </ul>
+    </Rules>
+    <HowItWorks>
+        <h3>Draft and submit</h3>
+        <p><strong>Submit registration</strong> runs the form's submit, which checks every rule, and posts the registration to the sample API when nothing blocks it. <strong>Save draft</strong> asks the validator directly for the <code>Draft</code> profile (a profile is a named selection of a validator's rules). It writes only the status line, so a draft save never changes a field's message.</p>
+        <p>The validator splits its rules in two. The draft rules (the rules a draft save checks, which a submit checks too) hold most formats and ranges, the availability check (whether the address is already registered) and the two rules on the number of attendees. The submit rules hold the required rules and each attendee's email format.</p>
+        <p><strong>Dietary notes</strong> is the one exception: its required rule is a draft rule, so a draft save answers about it as well.</p>
+        <p>That split decides what a save or a submit checks, not when a message appears. Type <code>nope@@</code> into <strong>Contact email</strong> and clear <strong>Event name</strong>, and each shows its message with no submit. <strong>Save draft</strong> then names the address but not <strong>Event name</strong>, because the rule that requires <strong>Event name</strong> is not a draft rule.</p>
+        <h3>When a message appears</h3>
+        <p>As you edit, the form checks what a submit would, and shows messages only for the fields you have changed. Until a submit, a field you have not changed stays quiet however badly its rule fails. Type into it or clear it, and it answers with no submit.</p>
+        <p>Every later edit anywhere on the form checks a changed field again, for as long as it is on the page. A field leaves the page when it stops being rendered, as a catering field does when you untick <strong>Include catering</strong>. A session row scrolled out of view is the exception: it still counts as on the page (see Sessions).</p>
+        <p>After a submit, each edit also re-checks the whole form once you pause for 300 ms, so what the submit showed stays true.</p>
+        <h3>Contact email</h3>
+        <p><strong>Contact email</strong> sends every keystroke to the form (<code>UpdateOn="InputUpdateMode.OnInput"</code>), so each keystroke asks about a new address. The availability check waits 300 ms, a fixed delay standing in for a server call, and <code>taken@@example.com</code> is the one address already registered. While it waits, the box shows a spinner and "checking…" shows under it.</p>
+        <p>The rule is written with <code>MustAsyncMemoized</code> and an <code>AsyncRuleMemo</code> (a store of answers) that keeps each answer for five minutes, so one address costs one check. Clear the box and type the same address again. The required and format messages come and go as before, but no "checking…" appears: every address you typed through already has an answer.</p>
+        <p>Once you have changed <strong>Contact email</strong>, or after a submit, an edit to any other field asks about the address again too. It gets the kept answer at once, instead of waiting on a second call.</p>
+        <p>The spinner shows only on the field you edited, however many fields a check answers. The availability check is the only rule here that takes any time. So changing the address shows the spinner, while an edit anywhere else is answered too quickly to show one, as long as the address's answer is kept.</p>
+        <h3>Dates</h3>
+        <p>Both date fields set <code>UpdateOn="InputUpdateMode.OnBlur"</code>. A native date box reports a change for each part you type (day, month or year). So each part sets the value, but the form hears about it only when you leave the field, once the date has settled.</p>
+        <p>Each date must be a real date. The early-bird deadline must also fall on or before the event date, a rule that applies only once both are real dates.</p>
+        <h3>Coupon and the server</h3>
+        <p><strong>Coupon code</strong> has no rule in the browser: the server owns the list of codes. The page posts only after a submit finds nothing to block it, so the server's answer always arrives last.</p>
+        <p>When the server rejects the registration, the page reads the reply. If it can, it hands the reply to the form's <code>ApplyServerIssues(...)</code>, which puts each issue on the field it names: here, <strong>Coupon code</strong>.</p>
+        <p>Each rejection replaces the server's previous answer instead of adding to it, so a corrected resend never leaves an old coupon message behind. Changing <strong>Coupon code</strong> clears the server's message once you leave the box, before any resend.</p>
+        <p>Before posting, the page calls the registration's <code>Normalize()</code>, the model's own cleanup. It trims <strong>Contact email</strong> and <strong>Description</strong>, turns each run of spaces inside <strong>Event name</strong> into one, and trims and upper-cases <strong>Coupon code</strong>. So <code>welcome10</code> and the server's <code>WELCOME10</code> are the same code, and the boxes show the cleaned values after the send. The <a href="normalize">Normalize</a> page shows the method on its own.</p>
+        <h3>Catering</h3>
+        <p>Catering starts ticked. Unticking it takes <strong>Catering headcount</strong> and <strong>Dietary notes</strong> off the page. The headcount's range rule carries a <code>When</code> condition (FluentValidation's condition on a rule) on the checkbox, so it applies only while catering is included.</p>
+        <p>The rule that requires <strong>Dietary notes</strong> carries no condition, so it fails whether or not the box is on the page. For that field, the checkbox decides whether it shows, never whether its rule applies.</p>
+        <p>At a submit, a field's error shows only while the field is on the page (the sessions' setting below is an exception). Once a submit has shown a field's error, under the field and in the error summary, the form keeps listing that field's errors, on the page or off, until a submit goes through or the form resets.</p>
+        <p>When a blocked submit can show none of its errors, the form adds a message about itself to the error summary, rather than an entry pointing at nothing. That entry belongs to the form: the blocked submit moves focus to the form, and a click on the entry does too.</p>
+        <p>At step 5, no submit has shown the note's error. The submit at step 4 went through, and a submit that goes through (or a reset) makes the form forget the errors earlier submits showed. So the message about the form appears.</p>
+        <p>An edit that puts no error on the page leaves that message standing. Type into <strong>Description</strong> while the form is blocked, and the box takes the green border that confirms a value would pass a submit, but the message stays. It lasts until an error on the page explains the block, and <strong>Description</strong> has no rule that could give one.</p>
+        <p>A field that leaves the page stops counting as changed. So ticking the box brings the note back empty and quiet, even after you cleared it at step 5. The next submit shows the note's error under the box and in the error summary, and the message about the form gives way to it, as step 6 shows.</p>
+        <p>Untick the box again after step 6, and the note and its message leave, but the error summary keeps the note's entry: a submit has shown its error. Another submit lists it again. The note's rule never stopped failing; only whether its error could show changed.</p>
+        <p>Step 5 went differently. Clearing the note and pressing Tab showed its message at once, under the box and in the error summary, as for any field you change. That message came from your edit, not a submit, so unticking took it away.</p>
+        <p>Click the note's entry while the note is off the page, and focus moves to <strong>Include catering</strong>, the checkbox whose state is the reason the field is gone. The page hands the form and the error summary a <code>FocusFallback</code> callback, which runs when focus misses its field. For a hidden <strong>Dietary notes</strong> or <strong>Catering headcount</strong>, it focuses the checkbox instead of retrying a box that will not come back.</p>
+        <h3>Attendees</h3>
+        <p>Rows come and go with <strong>Add attendee</strong> and each row's <strong>Remove</strong>. A new row stays quiet until you change it or submit, though its empty <strong>Name</strong> already fails its rule. Type a name, press Tab, clear it and press Tab again, and "Attendee name is required" appears under it and in the error summary, with no submit.</p>
+        <p>Nothing on the page or in the validator is set up for that: it is an ordinary required rule on a field you changed. Each row's <strong>Email</strong> answers the same way once you change it. Clicking a row's entry in the error summary moves focus to the box it names in that row.</p>
+        <p>The list itself carries two rules. More than 10 attendees draws a warning, and none draws an info message, "You can add attendees now or after registering". Adding or removing a row changes the list, so each answers at once. Both are advisories (warnings and info messages), which never block: with eleven rows and the warning showing, a submit goes through once every required box is filled in.</p>
+        <p>Remove every row and the warning gives way to the info message. Its entry in the error summary moves focus to the <strong>Attendees</strong> group, which has no box of its own.</p>
+        <h3>Sessions</h3>
+        <p>The 150 sessions sit in a virtualized list: Blazor's <code>Virtualize</code> renders only the rows in and near the view, so their boxes come and go as you scroll. The validator still checks every row in the model, rendered or not. A row's seats must be a whole number from 0 to 500, and that is a draft rule, so <strong>Save draft</strong> enforces it too.</p>
+        <p>Changing a row's seats makes that row answer as you edit. Each box sets <code>KeepRegistered="true"</code>, which keeps a row counted as on the page after it scrolls out of the list's window and stops being rendered. Without it, the row would stop counting as changed once you scrolled away, and its entry would leave the error summary.</p>
+        <p>The page also sets a <code>DisclosureOverride</code> (a <code>FormidableOptions</code> setting that can let an error show for a field nothing has rendered) for the sessions. So a submit lists every session's error, rows <code>Virtualize</code> has never rendered included, even if you never scrolled that far. The override changes only what shows. The validator checks every row either way, so it costs nothing.</p>
+        <p>Clicking the entry of a row that is not rendered uses the summary's <code>FocusFallback</code>. A click can focus only a box that is rendered, so the callback scrolls the list to the row and gives <code>Virtualize</code> a moment to render it, and the summary tries once more. Change the row back to <code>0</code> and its message and entry clear.</p>
+        <p>The page hands the same callback to the form's own <code>FocusFallback</code>. So when a blocked submit's first error sits on a row that is not rendered, the submit reaches it the same way with no click: the list scrolls itself, the row appears, and focus lands in its box.</p>
+        <h3>Ticket tier</h3>
+        <p><strong>Ticket tier</strong> is a foreign control (one Formidable has no input component for): a plain <code>&lt;select&gt;</code> the page renders itself.</p>
+        <p>A <code>FormidableField</code> (the component that wraps one field's markup) hands it what a Formidable input gets for nothing: the element id, the class that shows the field's state and the aria attributes. It also hands it <code>NotifyChanged()</code>, the call that tells the form the value changed. So it takes the same borders and messages as the rest of the form, and focus from the error summary.</p>
+        <p>Its required rule is a submit rule, and the form opens on <em>General admission</em>, so <strong>Ticket tier</strong> stays quiet until you pick the blank option. Picking is a change, so the message follows at once. A box with focus wears the blue focus border, whatever its state, so the red border shows once you leave <strong>Ticket tier</strong>. Click the entry and focus moves into <strong>Ticket tier</strong>.</p>
+        <h3>Venue region</h3>
+        <p><strong>Venue region</strong> is Blazor's own <code>InputText</code> and <code>ValidationMessage</code>, inside a Formidable form. Formidable writes each error into the form's <code>EditContext</code>, so the <code>ValidationMessage</code> shows "Venue region is required" as you edit and at a submit alike. Formidable also installs its own <code>FieldCssClassProvider</code> (Blazor's hook for the CSS classes an input wears), so the native box takes the same red and green borders as a Formidable input, with nothing set up per field.</p>
+        <p>The page adds by hand what the shared <code>EditContext</code> cannot carry, one addition per concern. A <code>FormidableFieldAnchor</code> (a component that renders nothing) tells the form the field is on the page, so a submit shows its error. The input carries the field's element id, which is all a click in the error summary looks for. And the page writes three aria attributes, which a native input has no way to ask Formidable for.</p>
+        <p><code>aria-required</code> stands whatever the box holds, because whether a field is required belongs to the rules. <code>aria-invalid</code> follows the field's errors. The page reads it from the form's validation state, and Blazor's <code>InputText</code> also writes it from the field's messages, with the same <code>true</code> or nothing.</p>
+        <p>Formidable gives the element that lists a field's messages an id of its own, the field's messages id. The page puts that id on the <code>ValidationMessage</code>, and <code>aria-describedby</code> names it, but only while a message shows. A <code>ValidationMessage</code> renders nothing when there is none, and an id naming a missing element describes nothing.</p>
+        <p>A Formidable input never has that problem: its <code>FormidableFieldMessage</code> (the component that shows one field's messages) stays on the page even when empty, so the id always names something.</p>
+        <p>With <strong>Venue region</strong> cleared, inspect the box: it carries <code>aria-invalid="true"</code>, an <code>aria-describedby</code> naming the message below it, and the <code>aria-required="true"</code> it carried while it held a value. The page re-renders whenever the form's validation state changes, so the first two leave when you fill the box again. The borders and the message ride the shared <code>EditContext</code>, and the page renders the rest: the anchor, the id and the three aria attributes.</p>
+        <h3>Required marks</h3>
+        <p>The asterisks come from the validator. Each is a <code>FormidableRequiredIndicator</code> (the component that draws the mark), which asks what a submit demands and marks a field whose required rule has no condition. So <strong>Contact email</strong>, <strong>Event name</strong>, <strong>Event date</strong>, <strong>Dietary notes</strong>, <strong>Ticket tier</strong> and <strong>Venue region</strong> each carry one.</p>
+        <p><strong>Early-bird deadline</strong>, <strong>Description</strong>, <strong>Coupon code</strong> and <strong>Catering headcount</strong> carry the same component and draw nothing: their rules check formats and ranges, never presence, and <strong>Description</strong> and <strong>Coupon code</strong> have no rule in the browser at all. Each attendee's <strong>Name</strong> is marked by the same rule that judges it, one mark per row; its <strong>Email</strong> has none.</p>
+        <p>Each mark is <code>aria-hidden</code>, and its input carries <code>aria-required</code> instead, so a screen reader hears that the field is required rather than a star. A mark is not a message: a new attendee row shows its mark and no message.</p>
+        <h3>The error summary</h3>
+        <p>A submit with nothing filled in lists five errors and the attendees' info message. The form opens with a ticket tier chosen, catering ticked and every session's seats at 0, so only the boxes you type into are empty. Focus moves to <strong>Contact email</strong>, the first error on the page.</p>
+        <p>Every entry in the error summary lands somewhere. An entry that names a box moves focus to it, native boxes included. The attendees' info message moves focus to the <strong>Attendees</strong> group, and the message about the form moves it to the form. Clicked with the mouse, a group or the form scrolls into view and takes focus quietly. Reached from the keyboard, it also shows an accent outline.</p>
+    </HowItWorks>
+    <Demo>
+        <FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked" FocusFallback="RecoverMissedFocusAsync">
+            <div class="summary-slot">
+                <FormidableSummary FocusFallback="RecoverMissedFocusAsync" />
             </div>
-            <FormidableFieldMessage For="() => _registration.ContactEmail" />
-        </FormidableField>
 
-        <div class="field"><label>Event name <FormidableRequiredIndicator For="() => _registration.EventName" /> <FormidableInputText @bind-Value="_registration.EventName" /></label>
-            <FormidableFieldMessage For="() => _registration.EventName" /></div>
-        <div class="field"><label>Event date <FormidableRequiredIndicator For="() => _registration.EventDate" /> <FormidableInputText type="date" @bind-Value="_registration.EventDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
-            <FormidableFieldMessage For="() => _registration.EventDate" /></div>
-        <div class="field"><label>Early-bird deadline <FormidableRequiredIndicator For="() => _registration.EarlyBirdDeadline" /> <FormidableInputText type="date" @bind-Value="_registration.EarlyBirdDeadline" UpdateOn="InputUpdateMode.OnBlur" /></label>
-            <FormidableFieldMessage For="() => _registration.EarlyBirdDeadline" /></div>
+            <fieldset>
+                <legend>Registration details</legend>
 
-        <div class="field"><label>Description <FormidableRequiredIndicator For="() => _registration.Description" /> <FormidableInputText @bind-Value="_registration.Description" /></label>
-            <FormidableFieldMessage For="() => _registration.Description" /></div>
-        <div class="field"><label>Coupon code <FormidableRequiredIndicator For="() => _registration.CouponCode" /> <FormidableInputText @bind-Value="_registration.CouponCode" /></label>
-            <FormidableFieldMessage For="() => _registration.CouponCode" /></div>
-    </fieldset>
+                <FormidableField For="() => _registration.ContactEmail" Context="field">
+                    <div class="field">
+                        <label>Contact email <FormidableRequiredIndicator For="() => _registration.ContactEmail" /> <FormidableInputText @bind-Value="_registration.ContactEmail" UpdateOn="InputUpdateMode.OnInput" /></label>
+                        <em role="status">@(field.State.IsValidating ? "checking…" : null)</em>
+                    </div>
+                    <FormidableFieldMessage For="() => _registration.ContactEmail" />
+                </FormidableField>
 
-    <fieldset>
-        <legend>Catering</legend>
+                <div class="field"><label>Event name <FormidableRequiredIndicator For="() => _registration.EventName" /> <FormidableInputText @bind-Value="_registration.EventName" /></label>
+                    <FormidableFieldMessage For="() => _registration.EventName" /></div>
+                <div class="field"><label>Event date <FormidableRequiredIndicator For="() => _registration.EventDate" /> <FormidableInputText type="date" @bind-Value="_registration.EventDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
+                    <FormidableFieldMessage For="() => _registration.EventDate" /></div>
+                <div class="field"><label>Early-bird deadline <FormidableRequiredIndicator For="() => _registration.EarlyBirdDeadline" /> <FormidableInputText type="date" @bind-Value="_registration.EarlyBirdDeadline" UpdateOn="InputUpdateMode.OnBlur" /></label>
+                    <FormidableFieldMessage For="() => _registration.EarlyBirdDeadline" /></div>
 
-        <FormidableField For="() => _registration.IncludeCatering" Context="field">
-            <label><input type="checkbox" id="@field.ElementId" @ref="_includeCateringInput"
-                          checked="@_registration.IncludeCatering"
-                          @onchange="args => ToggleCatering(args, field)" /> Include catering</label>
-        </FormidableField>
+                <div class="field"><label>Description <FormidableRequiredIndicator For="() => _registration.Description" /> <FormidableInputText @bind-Value="_registration.Description" /></label>
+                    <FormidableFieldMessage For="() => _registration.Description" /></div>
+                <div class="field"><label>Coupon code <FormidableRequiredIndicator For="() => _registration.CouponCode" /> <FormidableInputText @bind-Value="_registration.CouponCode" /></label>
+                    <FormidableFieldMessage For="() => _registration.CouponCode" /></div>
+            </fieldset>
 
-        <p><small>Unticking hides the catering fields but not their rules: <strong>Dietary notes</strong> is required whether or not you can see it, so a hidden empty note blocks the submit with a form-level message rather than with one you cannot reach.</small></p>
+            <fieldset>
+                <legend>Catering</legend>
 
-        @if (_registration.IncludeCatering)
-        {
-            <div class="field"><label>Catering headcount <FormidableRequiredIndicator For="() => _registration.CateringHeadcount" /> <FormidableInputText @bind-Value="_registration.CateringHeadcount" /></label>
-                <FormidableFieldMessage For="() => _registration.CateringHeadcount" /></div>
-            <div class="field"><label>Dietary notes <FormidableRequiredIndicator For="() => _registration.DietaryNotes" /> <FormidableInputText @bind-Value="_registration.DietaryNotes" /></label>
-                <FormidableFieldMessage For="() => _registration.DietaryNotes" /></div>
-        }
-    </fieldset>
+                <FormidableField For="() => _registration.IncludeCatering" Context="field">
+                    <label><input type="checkbox" id="@field.ElementId" @ref="_includeCateringInput"
+                                  checked="@_registration.IncludeCatering"
+                                  @onchange="args => ToggleCatering(args, field)" /> Include catering</label>
+                </FormidableField>
 
-    <FormidableField For="() => _registration.Attendees" Context="field">
-        <fieldset id="@field.ElementId" tabindex="-1">
-            <legend>Attendees</legend>
+                <p><small>Unticking hides both catering fields. <strong>Dietary notes</strong> stays required whether or not you can see it, so a hidden empty note still blocks a submit, and the error summary says why.</small></p>
 
-            <ul class="member-list">
-                @foreach (var attendee in _registration.Attendees)
+                @if (_registration.IncludeCatering)
                 {
-                    <li class="field" @key="attendee">
-                        <label>Name <FormidableRequiredIndicator For="() => attendee.Name" /> <FormidableInputText @bind-Value="attendee.Name" /></label>
-                        <FormidableFieldMessage For="() => attendee.Name" />
-                        <label>Email <FormidableRequiredIndicator For="() => attendee.Email" /> <FormidableInputText @bind-Value="attendee.Email" /></label>
-                        <FormidableFieldMessage For="() => attendee.Email" />
-                        <div class="actions">
-                            <button type="button" @onclick="() => field.RemoveItem(_registration.Attendees, attendee)">Remove</button>
-                        </div>
-                    </li>
+                    <div class="field"><label>Catering headcount <FormidableRequiredIndicator For="() => _registration.CateringHeadcount" /> <FormidableInputText @bind-Value="_registration.CateringHeadcount" /></label>
+                        <FormidableFieldMessage For="() => _registration.CateringHeadcount" /></div>
+                    <div class="field"><label>Dietary notes <FormidableRequiredIndicator For="() => _registration.DietaryNotes" /> <FormidableInputText @bind-Value="_registration.DietaryNotes" /></label>
+                        <FormidableFieldMessage For="() => _registration.DietaryNotes" /></div>
                 }
-            </ul>
+            </fieldset>
 
-            <FormidableCollectionMessage For="() => _registration.Attendees" />
+            <FormidableField For="() => _registration.Attendees" Context="field">
+                <fieldset id="@field.ElementId" tabindex="-1">
+                    <legend>Attendees</legend>
+
+                    <ul class="member-list">
+                        @foreach (var attendee in _registration.Attendees)
+                        {
+                            <li class="field" @key="attendee">
+                                <label>Name <FormidableRequiredIndicator For="() => attendee.Name" /> <FormidableInputText @bind-Value="attendee.Name" /></label>
+                                <FormidableFieldMessage For="() => attendee.Name" />
+                                <label>Email <FormidableRequiredIndicator For="() => attendee.Email" /> <FormidableInputText @bind-Value="attendee.Email" /></label>
+                                <FormidableFieldMessage For="() => attendee.Email" />
+                                <div class="actions">
+                                    <button type="button" @onclick="() => field.RemoveItem(_registration.Attendees, attendee)">Remove</button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+
+                    <FormidableCollectionMessage For="() => _registration.Attendees" />
+
+                    <div class="actions">
+                        <button type="button" @onclick="() => field.AddItem(_registration.Attendees, new Attendee())">Add attendee</button>
+                    </div>
+                </fieldset>
+            </FormidableField>
+
+            <fieldset>
+                <legend>Sessions</legend>
+
+                <p><small>150 sessions in a virtualized list: only the rows near the scroll position are rendered, so their boxes come and go as you scroll. A row's errors still reach the error summary while it is out of view.</small></p>
+
+                <div class="scroll-panel">
+                    <Virtualize Items="_registration.Sessions" ItemSize="SessionRowHeight" Context="session">
+                        <div class="field" @key="session">
+                            <label>@session.Title
+                                <FormidableInputText @bind-Value="session.Seats" KeepRegistered="true" />
+                            </label>
+                            <FormidableFieldMessage For="() => session.Seats" />
+                        </div>
+                    </Virtualize>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Ticket and venue</legend>
+
+                <FormidableField For="() => _registration.TicketTier" Context="field">
+                    <div class="field">
+                        <label for="@field.ElementId">Ticket tier (foreign select) <FormidableRequiredIndicator For="() => _registration.TicketTier" /></label>
+                        <select @attributes="field.InputAttributes"
+                                value="@_registration.TicketTier" @onchange="args => ChangeTicketTier(args, field)">
+                            <option value="">Choose…</option>
+                            <option>General admission</option>
+                            <option>VIP</option>
+                            <option>Speaker</option>
+                        </select>
+                    </div>
+                    <FormidableFieldMessage For="() => _registration.TicketTier" />
+                </FormidableField>
+
+                <div class="field"><label>Venue region (native InputText) <FormidableRequiredIndicator For="() => _registration.VenueRegion" /> <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@VenueRegionAriaDescribedBy" aria-required="@VenueRegionAriaRequired" /></label>
+                    <ValidationMessage For="() => _registration.VenueRegion" id="@VenueRegionMessagesId" />
+                    <FormidableFieldAnchor For="() => _registration.VenueRegion" /></div>
+            </fieldset>
 
             <div class="actions">
-                <button type="button" @onclick="() => field.AddItem(_registration.Attendees, new Attendee())">Add attendee</button>
+                <button type="button" @onclick="SaveDraft">Save draft</button>
+                <button type="submit" class="primary">Submit registration</button>
             </div>
-        </fieldset>
-    </FormidableField>
+        </FormidableForm>
 
-    <fieldset>
-        <legend>Sessions</legend>
-
-        <p><small>150 sessions in a virtualized panel: only the rows near the scroll position exist in the DOM at all, so their inputs come and go as you scroll. The wiring below keeps their issues on the books regardless.</small></p>
-
-        <div class="scroll-panel">
-            <Virtualize Items="_registration.Sessions" ItemSize="SessionRowHeight" Context="session">
-                <div class="field" @key="session">
-                    <label>@session.Title
-                        <FormidableInputText @bind-Value="session.Seats" KeepRegistered="true" />
-                    </label>
-                    <FormidableFieldMessage For="() => session.Seats" />
-                </div>
-            </Virtualize>
-        </div>
-    </fieldset>
-
-    <fieldset>
-        <legend>Ticket and venue</legend>
-
-        <FormidableField For="() => _registration.TicketTier" Context="field">
-            <div class="field">
-                <label for="@field.ElementId">Ticket tier (foreign select) <FormidableRequiredIndicator For="() => _registration.TicketTier" /></label>
-                <select @attributes="field.InputAttributes"
-                        value="@_registration.TicketTier" @onchange="args => ChangeTicketTier(args, field)">
-                    <option value="">Choose…</option>
-                    <option>General admission</option>
-                    <option>VIP</option>
-                    <option>Speaker</option>
-                </select>
-            </div>
-            <FormidableFieldMessage For="() => _registration.TicketTier" />
-        </FormidableField>
-
-        <div class="field"><label>Venue region (native InputText) <FormidableRequiredIndicator For="() => _registration.VenueRegion" /> <InputText @bind-Value="_registration.VenueRegion" id="@VenueRegionId" aria-invalid="@VenueRegionAriaInvalid" aria-describedby="@VenueRegionAriaDescribedBy" aria-required="@VenueRegionAriaRequired" /></label>
-            <ValidationMessage For="() => _registration.VenueRegion" id="@VenueRegionMessagesId" />
-            <FormidableFieldAnchor For="() => _registration.VenueRegion" /></div>
-    </fieldset>
-
-    <div class="actions">
-        <button type="button" @onclick="SaveDraft">Save draft</button>
-        <button type="submit" class="primary">Submit registration</button>
-    </div>
-</FormidableForm>
-
-<p role="status">@_status</p>
+        <p role="status">@_status</p>
+    </Demo>
+</TeachingPanel>

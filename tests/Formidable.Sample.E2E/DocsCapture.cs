@@ -86,11 +86,15 @@ public sealed class DocsCapture(SampleAppFixture app)
 
         await SubmitEmptyRegistrationAsync(page);
 
-        // The teaching panel sits between the page's own header and the form it teaches, easily
-        // several viewport heights tall — content a social-preview crop has no room for and no
-        // reason to show. Hiding it (this page only, this screenshot only) is what lets the page's
-        // "Full workout" header and the validation summary it produced land in the same 640px crop.
-        await page.AddStyleTagAsync(new PageAddStyleTagOptions { Content = ".teaching { display: none !important; }" });
+        // The teaching panel takes a column beside the form on a wide window, and on this page it is
+        // long: content a social-preview crop has no room for and no reason to show. Hiding it (this
+        // page only, this screenshot only) and collapsing the lesson to one column at the page's
+        // 48rem reading width puts the form under the "Full workout" header, so the header and the
+        // validation summary the submit produced land in the same 640px crop.
+        await page.AddStyleTagAsync(new PageAddStyleTagOptions
+        {
+            Content = ".teaching { display: none !important; } .lesson { display: block !important; max-width: 48rem; }",
+        });
         await page.EvaluateAsync("() => window.scrollTo(0, 0)");
 
         await page.ScreenshotAsync(new PageScreenshotOptions
@@ -166,13 +170,17 @@ public sealed class DocsCapture(SampleAppFixture app)
             .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
     }
 
-    // Frames the hero shots on the nav's brand block and the page header rather than on the page
-    // chrome the teaching panel would otherwise push below the fold: same technique
-    // Social_preview uses (hide .teaching, scroll to the top), applied here through its own copy
-    // so the two capture shapes stay free to diverge without either editing the other's helper.
+    // Frames the hero shots on the nav's brand block, the page header and the form, with the
+    // teaching panel's column gone: the same technique Social_preview uses (hide .teaching,
+    // collapse .lesson to one column at the 48rem reading width, scroll to the top), applied here
+    // through its own copy so the two capture shapes stay free to diverge without either editing
+    // the other's helper.
     private static async Task FrameForHeroAsync(IPage page)
     {
-        await page.AddStyleTagAsync(new PageAddStyleTagOptions { Content = ".teaching { display: none !important; }" });
+        await page.AddStyleTagAsync(new PageAddStyleTagOptions
+        {
+            Content = ".teaching { display: none !important; } .lesson { display: block !important; max-width: 48rem; }",
+        });
         await page.EvaluateAsync("() => window.scrollTo(0, 0)");
     }
 

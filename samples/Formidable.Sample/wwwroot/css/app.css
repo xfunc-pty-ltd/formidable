@@ -814,10 +814,20 @@ em[role=status] {
     margin-top: .5rem;
 }
 
+/* A long tour groups its steps under small headings, and How it works can group its
+   paragraphs the same way. */
+.teaching__steps h3,
+.teaching__more > h3 {
+    font-size: .875rem;
+    margin: .9rem 0 .3rem;
+}
+
 /* A Try it step's result sits under its action, indented, behind an accent "You see:" label.
-   A step whose result a reader would not expect adds a Why line under it, its label violet. */
+   A step whose result a reader would not expect adds a Why line under it, its label violet.
+   A link to the page that teaches the step sits last, indented the same. */
 .teaching__result,
-.teaching__why {
+.teaching__why,
+.teaching__page {
     margin: .1rem 0 0 .9rem;
 }
 

@@ -79,8 +79,8 @@ public sealed class WorkoutFocusAndAsync(SampleAppFixture app)
         await Expect(MessagesFor(row, "seats"))
             .ToHaveTextAsync(["Seats must be a whole number between 0 and 500"], new() { Timeout = AsyncTimeoutMs });
 
-        // Scroll the invalid row back out of the render window — the step-11 shape: the only error
-        // on the form sits on a row that is not in the DOM at all.
+        // Scroll the invalid row back out of the render window, so the only error on the form sits
+        // on a row that is not in the DOM at all.
         await page.EvaluateAsync("() => { document.querySelector('.scroll-panel').scrollTop = 0; }");
         await Expect(row).ToHaveCountAsync(0);
 
