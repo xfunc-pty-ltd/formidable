@@ -719,9 +719,14 @@ Place it where the mark belongs:
 A UI library's class, a `title` or a test id goes straight onto the mark, with no wrapper element of
 the page's own around it.
 
-The mark is derived from the validator's rules rather than declared on the markup, so a presence
-rule moving between profiles moves the mark with it. The submit profile is the one that decides: a
-narrowed `LiveProfile` changes when a message appears, never whether the value is demanded.
+The mark is derived from the validator's rules rather than declared on the markup. A presence rule
+(such as `NotEmpty()`) that the submit profile stops selecting takes the mark with it. Moving one
+from `ConfigureSubmitRules()` to `ConfigureDraftRules()` keeps the mark under the built-in `Submit`
+profile, which runs both ([Profiles](profiles.md#need-to-know) has the pair).
+
+The submit profile is the one that decides. A `LiveProfile` narrowed to fewer rules than a submit
+runs ([Options](options.md#liveprofile)) changes when a message appears, never whether the value is
+demanded.
 
 It is `aria-hidden`, deliberately, and it is not the accessible half of this feature: that a value
 is demanded belongs on the input as `aria-required="true"`, which the kit's inputs and
