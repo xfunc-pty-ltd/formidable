@@ -860,5 +860,7 @@ so the two 400s are traceable to their source.
 ready-made requests against both endpoints for use outside the browser.
 
 Run the API first (`dotnet run --project samples/Formidable.Sample.Api`), then open `/server` in the
-Blazor sample and press "Send to server". Pressing Enter triggers the browser's implicit form
-submission, which runs the client-side submit pipeline this page deliberately skips.
+Blazor sample and press "Send to server". Pressing Enter does nothing while the form shows more than
+one text box, as it does when it opens: it has no submit button, so the browser never submits it. A
+send that drops every line leaves one text box, and Enter in it then runs the client-side submit the
+page otherwise skips.
