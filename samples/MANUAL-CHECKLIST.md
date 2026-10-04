@@ -422,6 +422,9 @@ Work top to bottom: the steps build on each other.
 
 ### Fitting a UI library
 
+- [ ] Before step 1, in both colour schemes: *Submit* is Bootstrap's own primary button
+      (`btn btn-primary`), not the site theme's orange. It is the same Bootstrap blue in each
+      scheme, and hovering it darkens the blue
 - [ ] Step 1, in both colour schemes: Bootstrap's own red `is-invalid` borders appear, not the
       site theme's
 - [ ] Step 2, in both colour schemes: Bootstrap's green `is-valid` state shows on the fixed field
