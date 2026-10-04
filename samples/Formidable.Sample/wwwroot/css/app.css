@@ -576,6 +576,19 @@ button[type=button]:not(.primary):not(.formidable-summary__link):hover {
     border-color: var(--accent);
 }
 
+/* A disabled button reads as unavailable: a grey fill, muted text and a not-allowed pointer,
+   with no change on hover. The :not() pair gives it the weight of the secondary rules above, so
+   it wins their tie by coming later, and it leaves a Bootstrap or MudBlazor button to its own
+   library's disabled look. */
+button:disabled:not(.btn):not(.mud-button-root),
+button:disabled:not(.btn):not(.mud-button-root):hover {
+    background: var(--border);
+    color: var(--muted);
+    border-color: var(--border);
+    cursor: not-allowed;
+    filter: none;
+}
+
 button:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px var(--ring);
