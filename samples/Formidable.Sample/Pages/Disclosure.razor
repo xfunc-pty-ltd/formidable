@@ -17,9 +17,9 @@
             <li>Pick <strong>Accessible</strong> under <strong>Type</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Special requirements</strong> appears, empty, with no message and no asterisk.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Its rule applies only under a condition, which the asterisk cannot judge.</div></li>
             <li>Click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Describe the special requirements" under the box and in the error summary.</div></li>
             <li>Fill in <strong>Destination</strong>, <strong>Traveler name</strong> and <strong>Special requirements</strong>, then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line.</div></li>
-            <li>Under <strong>Without a summary</strong>, click <strong>Submit request</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." at the top of that form.</div></li>
-            <li>Click <strong>Show trip details</strong>, then click <strong>Submit request</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> three messages under the fields, and the message at the top clears.</div></li>
-            <li>Fill in <strong>Destination</strong> and <strong>Traveler name</strong>, choose <strong>No</strong>, and click <strong>Submit request</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in that form's status line.</div></li>
+            <li>Under <strong>Without a summary</strong>, click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." at the top of that form.</div></li>
+            <li>Click <strong>Show trip details</strong>, then click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> three messages under the fields, and the message at the top clears.</div></li>
+            <li>Fill in <strong>Destination</strong> and <strong>Traveler name</strong>, choose <strong>No</strong>, and click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in that form's status line.</div></li>
         </ol>
     </TryIt>
     <Rules>
@@ -134,7 +134,7 @@
             }
         </ul>
 
-        <section id="inline-only-variant">
+        <section id="inline-only-variant" class="form-card">
             <h2>Without a summary</h2>
             <p>This form renders no <code>FormidableSummary</code>. A <code>FormidableModelMessage</code> at its top, a
                 persistent list for messages about the form itself, stays empty until the form has something to say.</p>
@@ -174,7 +174,7 @@
                     </fieldset>
                 }
 
-                <div class="actions"><button type="submit" class="primary">Submit request</button></div>
+                <div class="actions"><button type="submit" class="primary">Request trip</button></div>
             </FormidableForm>
 
             <p role="status">@_inlineStatus</p>

@@ -167,14 +167,14 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         // Trip details collapsed: every failing field is hidden, so a blocked submit has nothing
         // inline to disclose and the gate's explanation lands in the form-level list.
         await Expect(modelMessages).ToHaveCountAsync(0);
-        await variant.GetByRole(AriaRole.Button, new() { Name = "Submit request", Exact = true }).ClickAsync();
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Request trip", Exact = true }).ClickAsync();
         await Expect(modelMessages).ToHaveTextAsync([HiddenIssueGate]);
 
         // Reveal the section and submit again: the inline errors take over, and the derived gate
         // dissolves — an error the visitor can see now explains the block.
         await variant.GetByRole(AriaRole.Button, new() { Name = "Show trip details", Exact = true }).ClickAsync();
         await Expect(Field(variant, "travelername")).ToBeVisibleAsync();
-        await variant.GetByRole(AriaRole.Button, new() { Name = "Submit request", Exact = true }).ClickAsync();
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Request trip", Exact = true }).ClickAsync();
         await Expect(MessagesFor(variant, "travelername")).ToHaveTextAsync([TravelerNameRequired]);
         await Expect(modelMessages).ToHaveCountAsync(0);
     }

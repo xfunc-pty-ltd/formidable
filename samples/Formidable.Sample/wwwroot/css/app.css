@@ -1160,3 +1160,34 @@ h1:focus {
     gap: .35rem;
     margin: 1rem 0 1.25rem;
 }
+
+/* ---------- a second form ---------- */
+
+/* A page's second form sits in a card of its own, with a gap above it and its heading inside,
+   so it reads as a separate form and its button is not taken for the first form's. */
+.form-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: 1rem 1.15rem;
+    margin: 2rem 0 0;
+}
+
+.form-card > h2 {
+    margin-top: 0;
+}
+
+/* The form-level message list opens the card's form, right above a button: once it holds a
+   message it keeps a gap below as well as above, and the gap opens and closes with the list. */
+.form-card form > .formidable-message-list {
+    transition: grid-template-rows .22s ease, margin-top .22s ease, margin-bottom .22s ease;
+}
+
+.form-card form > .formidable-message-list:has(.formidable-message) {
+    margin-bottom: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .form-card form > .formidable-message-list {
+        transition: none;
+    }
+}
