@@ -915,8 +915,8 @@ em[role=status] {
 
    From 72rem up the form sits left and the panel right, three parts to two. At 72rem the
    content box is 72rem less the sidebar (15rem) and main's padding (4rem), so 53rem; less the
-   2rem gap, the form gets 30.6rem and the panel 20.4rem, above their 28rem and 18rem floors (a
-   drawn scrollbar takes about 1rem, leaving 30rem and 20rem). main widens to 84rem, where the
+   2rem gap, the form gets 30.6rem and the panel 20.4rem, above their 28rem and 18rem floors (the
+   page's scrollbar takes about 1rem, leaving 30rem and 20rem). main widens to 84rem, where the
    form column reaches 46.8rem, inside the 48rem every other page reads at. The heading and the
    intro above the lesson keep that 48rem measure. */
 @media (min-width: 72rem) {
@@ -942,30 +942,19 @@ em[role=status] {
         min-width: 0;
     }
 
-    /* The panel sticks near the top while a long form scrolls past it. Its height is capped to
-       the window and it scrolls inside itself, so every part of it stays in reach on a short
-       window, and its own column keeps it clear of the form. */
+    /* The panel keeps its own column, so it never covers the form, and scrolls with the page,
+       so it has no scrollbar of its own: a long panel or a long form makes the page longer. */
     .lesson > .teaching {
         grid-area: panel;
-        position: sticky;
-        top: 1rem;
-        max-height: calc(100vh - 2rem);
-        overflow-y: auto;
         margin: 0;
     }
 
     /* Code needs width more than a place beside the form: with Show the code open the lesson
-       is one column, the panel above the form at the lesson's full width and not sticking. */
+       is one column, the panel above the form at the lesson's full width. */
     .lesson:has(.teaching__code[open]) {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas: "panel" "demo";
-    }
-
-    .lesson:has(.teaching__code[open]) > .teaching {
-        position: static;
-        max-height: none;
-        overflow-y: visible;
-        margin-bottom: 1.4rem;
+        row-gap: 1.4rem;
     }
 }
 
