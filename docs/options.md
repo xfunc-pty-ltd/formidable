@@ -764,8 +764,11 @@ A form that wants different class names assigns a new map to its own copy.
   [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) on the defaults,
   [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) pointing
   `SubmitProfile` at a profile of its own, and
-  [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) narrowing `LiveProfile` to
-  `Draft` so the server is the only judge.
+  [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor), whose validator keeps
+  every rule in `ConfigureSubmitRules()` and whose form narrows `LiveProfile` to `Draft`. Together
+  they mean no message shows for its purchase order before a submit; the server's rejection, once
+  applied, [counts as one](server-integration.md#does-applying-a-reply-count-as-a-submit), and from
+  then on each edit re-checks the whole form in the browser.
 - `LiveDebounce` — [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor), toggled against
   the immediate default.
 - `TrackFormValidity`, and `IsFormValid` with it —
