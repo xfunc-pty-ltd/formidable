@@ -986,6 +986,13 @@ p[role=status] {
     margin-top: 1rem;
 }
 
+/* A line under an actions row (a raw-values line, a note) keeps the gap a status line keeps,
+   whether it follows the row inside the form or follows the form the row ends. */
+.actions + p,
+form:has(> .actions:last-child) + p {
+    margin-top: 1rem;
+}
+
 /* ---------- field-state table ---------- */
 
 .state-table {
