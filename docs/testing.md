@@ -447,13 +447,18 @@ The tests fall into a few groups:
 
 - A navigation smoke test that walks the sidebar itself.
 - A render smoke per sample page: the page loads, its heading renders, nothing throws.
-- A journey per behavior-bearing page, one file each under `Journeys/`. Each pins that page's
+- Journeys for each behavior-bearing page, in a file or two under `Journeys/`. Each pins that page's
   central lesson with at least one real-typed, real-blurred path: a blocked submit, a live check,
   a suppression reveal, whatever the page teaches.
   - `/workout`'s journeys go deepest. They pin a blocked submit and every summary-entry kind
     landing: native input, collection fieldset, wrapped input, the disclosure gate. They also cover
     attendee add/remove and per-item rules, async pending state and server-applied coupon
     apply/replace, and they carry a regression pin for a fixed engine race.
+- Pins that hold for every page rather than for one page's lesson. Each sample page's teaching
+  panel reads its steps, its rules, then a closed explanation, all before the form, and no in-app
+  link leaves the app's base path.
+- A contract pin for the focus service every page shares, driving its script directly rather than
+  through a form.
 - A handful of keystroke-level pins (`InputRegressions.cs`) for input mechanics no smoke or journey
   drives deep enough to see. They cover caret position mid-type, a date typed segment by segment,
   and a number field's blur-time value sync.
@@ -499,6 +504,6 @@ correctly in both light and dark OS colour schemes.
 
 The [manual checklist](../samples/MANUAL-CHECKLIST.md) is the committed walkthrough for that eyes-on
 pass. It has one section per sample-page group, matching the sidebar, plus a few others, navigation
-among them. It is walked once, in either colour scheme, and each row that says "in both colour
-schemes" is checked again in the other. It's the pre-release human gate the two automated tiers
+among them. It is walked once, in either colour scheme, and each row that asks for both colour
+schemes is checked again in the other. It's the pre-release human gate the two automated tiers
 above can't replace, not a substitute for either of them.
