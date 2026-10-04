@@ -118,6 +118,13 @@ html {
     color: var(--muted);
 }
 
+/* One full turn, repeated by the loading splash's spinner and by a pending field's spinner. */
+@keyframes formidable-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .boot-spinner {
     width: 36px;
     height: 36px;

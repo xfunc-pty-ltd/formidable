@@ -83,9 +83,10 @@ public sealed class SampleAppFixture : IAsyncLifetime
         // same guard a real visitor's preference trips. Animated scrolling makes a gesture's own
         // measurements and a test's timing budget depend on how fast the machine is — a pointer
         // aimed at an element still travelling, a marker that drains while a click waits for a
-        // scroll — and nothing in this suite asserts motion, so there is nothing to lose by
-        // asking for none. It gives that guard its only coverage besides. A caller wanting a
-        // different answer sets it and keeps it.
+        // scroll — and nothing in this suite asserts a scroll's motion, so there is nothing to
+        // lose by asking for none. It gives that guard its only coverage besides. The one
+        // animation the suite does read, the spinners' turn, runs under either answer: no
+        // reduced-motion rule stops it. A caller wanting a different answer sets it and keeps it.
         options ??= new BrowserNewContextOptions();
         options.ReducedMotion ??= ReducedMotion.Reduce;
 

@@ -379,4 +379,65 @@ public sealed class AsyncRulesJourney(SampleAppFixture app)
         await Expect(displayName).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
         await Expect(username).ToHaveClassAsync(Valid, new() { Timeout = AsyncTimeoutMs });
     }
+
+    // Every formidable-spin animation on the page, read through the Web Animations API: whether
+    // its target holds the Username box, the pseudo-element it runs on, its play state, and its
+    // keyframes' transforms joined into one string.
+    private const string ReadSpinAnimations = """
+        () => {
+            const username = document.querySelector("[id$='-username']");
+            return document.getAnimations()
+                .filter(a => a.animationName === "formidable-spin")
+                .map(a => ({
+                    OnUsername: a.effect?.target?.contains(username) === true,
+                    PseudoElement: a.effect?.pseudoElement ?? "",
+                    PlayState: a.playState,
+                    Transforms: (a.effect?.getKeyframes() ?? []).map(k => k.transform ?? "").join(" | ")
+                }));
+        }
+        """;
+
+    // Property: a field being checked shows a spinner that turns. The stylesheet draws the
+    // spinner on the field's label (its ::after) and names the formidable-spin animation, so the
+    // test reads that animation back while the check runs: it must exist, run, and carry a full
+    // turn in its keyframes. With no @keyframes rule of that name, Chromium lists no
+    // formidable-spin animation at all and the ring stands still, so the name check alone fails
+    // there; the keyframes are read so that the full turn is pinned too. The suite's contexts ask
+    // for reduced motion, and the spinner turns there too: no reduced-motion rule stops it.
+    //
+    // Mutations that must break this: removing the @keyframes formidable-spin rule from the
+    // sample's app.css; removing the animation declaration from the pending spinner's rule;
+    // turning the keyframes' full turn into a half turn (rotate(180deg)).
+    [E2EFact]
+    public async Task A_field_being_checked_shows_a_turning_spinner()
+    {
+        await using var session = await app.NewPageAsync("/async");
+        var page = session.Page;
+
+        // The slowest delay holds the check open for two seconds, so the spinner is read while
+        // it is on screen.
+        await page.Locator("input[type=range]").FillAsync("2000");
+
+        await TypeAsync(TextBox(page, "Username"), "a");
+        await Expect(Field(page, "username")).ToHaveClassAsync(Pending, new() { Timeout = AsyncTimeoutMs });
+
+        var spins = await page.EvaluateAsync<SpinAnimation[]>(ReadSpinAnimations);
+
+        var spin = Assert.Single(spins, s => s.OnUsername);
+        Assert.Equal("::after", spin.PseudoElement);
+        Assert.Equal("running", spin.PlayState);
+        Assert.Contains("rotate(360deg)", spin.Transforms, StringComparison.Ordinal);
+    }
+
+    // Playwright fills a result object through a parameterless constructor and its setters.
+    private sealed class SpinAnimation
+    {
+        public bool OnUsername { get; set; }
+
+        public string PseudoElement { get; set; } = "";
+
+        public string PlayState { get; set; } = "";
+
+        public string Transforms { get; set; } = "";
+    }
 }
