@@ -119,7 +119,9 @@ Samples:
 - [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (`OnBlur` on the string-modelled
   pattern, both date fields)
 - [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) (every rule in
-  `ConfigureSubmitRules()` and `LiveProfile` at `Draft`, so nothing answers before Submit)
+  `ConfigureSubmitRules()` and `LiveProfile` at `Draft`, so no message shows before a submit; the
+  server's rejection, once applied,
+  [counts as one](server-integration.md#does-applying-a-reply-count-as-a-submit))
 
 ### I want presence rules to wait for submit while formats answer live
 
@@ -253,7 +255,8 @@ a narrowed check, because that class means a submit would pass.
 Sample:
 
 - [`/server`](../samples/Formidable.Sample/Pages/ServerRoundTrip.razor) — `LiveProfile` at `Draft`
-  over an empty draft bucket, so the server is the only judge
+  over an empty draft bucket, so no message shows before a submit; the server's rejection, once
+  applied, [counts as one](server-integration.md#does-applying-a-reply-count-as-a-submit)
 
 ### I want an async check with a pending indicator
 
