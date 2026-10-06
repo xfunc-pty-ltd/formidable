@@ -1057,6 +1057,14 @@ identifier it registers, and with either check on `OnParametersSet` calls it onc
 that answer as the copy the check compares against. The engine resolves every path afresh at every
 pass.
 
+So a row bound by its index keeps the list it bound to. When the page replaces the list, every pass
+names the new list, while an unkeyed row's components go on speaking for the old one: their
+registration, ids and reads all name a list no pass reports on. Nothing in the component notices
+unless a check is on.
+
+A loop whose surrounding element is keyed by the list avoids that: the new key disposes every row,
+and the rows built in their place bind to the new list.
+
 Under [`VerifyRowKeys`](options.md#verifyrowkeys) or
 [`ReportStaleRegistrations`](options.md#reportstaleregistrations) the bound component re-runs
 `ResolveField()` on every later parameter set and compares the answer with that copy: the same
@@ -1081,6 +1089,16 @@ all: a keyed diff permutes the components it already has.
 
 In all three, anything newly built registers the row it was handed, and every retained component
 keeps resolving its accessor to the row it already spoke for.
+
+Rows bound by index pass for a related reason when the element around their loop is keyed by the
+list. Replacing the list retires that key, so every row is disposed and rebuilt against the new
+list. Editing it in place keeps the key, and each retained row keeps its index, so its accessor
+names the field it registered.
+
+A row keyed by its own value is the shape that fails: a remove or a reorder moves its components to
+another index of the same list. `DescribeIndexedRowFix` words the advice for both divergences. The
+same index on another list names the key on the element around the loop, and another index tells
+the reader to drop the row's own key. Every other divergence gets the object-row advice.
 
 ### A notification publishes before it returns
 

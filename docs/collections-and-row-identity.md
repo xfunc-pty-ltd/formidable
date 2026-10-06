@@ -17,7 +17,7 @@ fixed looks broken again after a reorder, and the form ends up complaining about
 Formidable never keys by path. For a row that is an object, it resolves every failure down to the
 actual object sitting at that position and keys the error to the instance itself, so add, remove,
 and reorder can never separate an error from that row. A row with no members of its own (a string in a list of tags,
-a number in an array) has no object to key, so it is identified by its index, as
+a number in an array) has no object to key an error to, so it is identified by its index, as
 [a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) shows.
 
 Here is one row of a list, from the moment the page adds it to the moment its messages leave with
@@ -136,28 +136,41 @@ Why: [how the engine works: what a row leaving changes](how-the-engine-works.md#
 
 ## How do I bind a list of strings or numbers?
 
-Bind each row by its index, and give each row its own message:
+Bind each row by its index, give each row its own message, and key the element around the loop by
+the list:
 
 ```razor
-@for (var i = 0; i < model.Tags.Count; i++)
-{
-    var index = i;
-    <div class="field">
-        <FormidableInputText @bind-Value="model.Tags[index]" />
-        <FormidableFieldMessage For="() => model.Tags[index]" />
-    </div>
-}
+<div @key="model.Tags">
+    @for (var i = 0; i < model.Tags.Count; i++)
+    {
+        var index = i;
+        <div class="field">
+            <FormidableInputText @bind-Value="model.Tags[index]" />
+            <FormidableFieldMessage For="() => model.Tags[index]" />
+        </div>
+    }
+</div>
 ```
 
 Copy the loop variable into `index` first. A lambda that captures `i` itself reads the value the
-loop ended on, so every row would bind past the end of the list. A native `InputText` and
+loop ended on, so every row would bind past the end of the list. Over an array, the loop reads
+`model.Tags.Length` where a list reads `Count`. A native `InputText` and
 `ValidationMessage` bound to the same expression work too, with the `FormidableFieldAnchor` any
 native input takes.
+
+Keying the element around the loop is the object-row habit one level up: it tells Blazor which list
+the rows belong to. Editing the list in place keeps the key, and nothing changes. Replacing the list
+hands Blazor a new key, so every row is rebuilt against the new list. The rows themselves take no
+key: each row is its index, and a key taken from its value would move its components to another
+index.
 
 To add or remove a row, wrap the loop in `<FormidableField For="() => model.Tags" Context="tagsField">`
 and call `tagsField.AddItem` and `tagsField.RemoveItem`, as the member list above does. `RemoveItem`
 matches a string or a number by value and removes the first equal row. To remove one particular row
 of two equal values, remove it by its index: `tagsField.Edit(() => model.Tags.RemoveAt(index))`.
+
+An array cannot grow in place, so `AddItem` throws for one. Replace it instead, as
+[what changes when the page replaces the list](#what-changes-when-the-page-replaces-the-list) shows.
 
 A string or a number has no members, so there is no row object for an error to follow. Formidable
 identifies the row by its index instead, the field `FieldIdentifier.Create(() => model.Tags[index])`
@@ -165,7 +178,8 @@ names and Blazor's own `EditContext` uses. Each row's message shows at its own i
 class reads its own value, and a blocked submit's summary lists it under its display name.
 
 That holds in an array and in any list that implements the non-generic `IList`, as `List<T>` and
-`Collection<T>` do, unless the list is also a dictionary. A collection that implements only the
+`Collection<T>` do, unless the list is also a dictionary. Once the page replaces the list, it holds
+only with the key on the element around the loop. A collection that implements only the
 generic `IList<T>` is one exception: Formidable does not identify its rows by index, so their
 messages never reach inputs bound that way.
 
@@ -192,7 +206,9 @@ same way: a presence rule inside `ChildRules` or a child validator marks that me
 row, and puts no mark on the list.
 
 A list of lists works the same way, cell by cell. Bind each cell by both indexes
-(`() => model.Matrix[row][column]`, with both loop variables copied first). A presence rule on the
+(`() => model.Matrix[row][column]`, with both loop variables copied first), and key the element
+around each row's cells by that row's list (`@key="model.Matrix[row]"`), so that replacing a row's
+list rebuilds its cells. A presence rule on the
 cells marks each cell's input required, whether written `RuleForEach(m => m.Matrix).ForEach(...)` or
 as nested `ForEach` calls. A blocked submit shows each cell's message at its own input, and a load
 confirms each filled cell that passes.
@@ -209,6 +225,31 @@ that submit. If the user has not edited that row, the value's message shows ther
 submit. Until then the row stays silent, never green.
 
 Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
+
+### What changes when the page replaces the list?
+
+With the element around the loop keyed by the list, every row is rebuilt against the new list, and
+each row's message, state class and required mark follow. Replacing the list is how an array grows
+(`AddItem` throws for one) and how an immutable list changes:
+
+```razor
+<button type="button" @onclick="() => tagsField.Edit(() => model.Tags = [.. model.Tags, string.Empty])">Add tag</button>
+```
+
+The new list is a new key, so Blazor builds new components for every row, for kit inputs and a
+native `InputText` alike. Without the key, Blazor reuses the rows by position, and they go on
+speaking for the list that left. A row cleared after the replacement then shows no message, no
+invalid class and no required mark, and a blocked submit can only say that something not on screen
+is invalid.
+
+[`VerifyRowKeys`](options.md#verifyrowkeys), the check for Development builds, catches that shape:
+the first render after the replacement throws, naming the key on the element around the loop.
+
+A rebuilt row is a new field, so a replacement starts every row afresh. A message a row showed
+before it, from an edit or a blocked submit, comes back at that row's next edit or at the next
+submit.
+
+Why: [how the engine works: what a component registers and re-reads](how-the-engine-works.md#what-a-component-registers-and-re-reads).
 
 ## Why did my message move rows?
 
@@ -234,10 +275,12 @@ container wears that row's id.
 The misfiled message is a real message from a real rule. It is simply on the wrong row, and nothing
 on screen says so.
 
-A row with no members (a string or a number) has no object to key, so this fix is not one it can
-take. Such a row follows its index by design, and
-[a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) says what a remove or a
-reorder shows there.
+A row with no members (a string or a number) has no object of its own to key, and it follows its
+index by design: [a list of strings or numbers](#how-do-i-bind-a-list-of-strings-or-numbers) says
+what a remove or a reorder shows there. Keying such a row by its value would move its components to
+another index, so the row takes no key. The element around its loop does take one, set to the list,
+and a page that replaces the list needs it
+([what changes when the page replaces the list](#what-changes-when-the-page-replaces-the-list)).
 
 ## How do I catch a message on the wrong row?
 
@@ -266,6 +309,10 @@ has the ordering rule that avoids it.
 Keep the key and neither check fires for anything done to the list itself. Replacing, removing,
 adding or reordering a keyed row leaves every component speaking for the row it registered.
 
+A list of strings or numbers keeps that promise with its rows unkeyed and the element around the
+loop keyed by the list. Replace the list without that key and the checks fire, naming it. Key a row
+by its value and they fire at a remove or a reorder, telling you to drop that key.
+
 Any component that speaks for a field is a candidate: an input, a message component, or the
 renderless `FormidableField` around a row. Each re-reads its own accessor and compares it against
 the field it registered. That is not free, and
@@ -277,12 +324,15 @@ Why: [how the engine works: why a keyed list never trips the checks](how-the-eng
 
 An accessor resolution per bound component per parameter set, priced by the accessor's shape. One
 whose owner is a single step from the expression's root resolves in nanoseconds:
-`() => member.Alias` over a loop-captured row, as above, or `() => _order.Total` on the page. One
-that navigates further, `() => Order.Customer.Name`, compiles its owner expression on every
-resolution, which costs microseconds and kilobytes each.
+`() => member.Alias` over a loop-captured row, as above, or `() => _order.Total` on the page. Two
+shapes compile their owner expression on every resolution instead: one that navigates further,
+`() => Order.Customer.Name`, and one that reads an element by its index, `() => model.Tags[index]`,
+however short its path.
 
-Budget for the deepest accessors the form renders. That cost is another reason the throwing check
-belongs in Development builds.
+Each compiled resolution costs tens of microseconds and about 4 KB on desktop .NET 10 in a Release
+build; WebAssembly is not measured. Budget for the deepest accessors the form renders, and for every
+row bound by its index. That cost is another reason the throwing check belongs in Development
+builds.
 
 ### Can the reporting check take the page down?
 

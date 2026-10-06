@@ -470,7 +470,8 @@ names and types come from the component's own accessor.
 field it registered: it re-reads its accessor on every parameter set, and a divergence throws an
 `InvalidOperationException` naming the field and the fix.
 
-Correctly keyed rows never trip it for anything done to the list itself;
+Correctly keyed rows never trip it for anything done to the list itself (for a list of strings or
+numbers, the element around the loop keyed by the list and no key on the rows);
 [Collections and row identity](collections-and-row-identity.md#how-do-i-catch-a-message-on-the-wrong-row)
 has the ways a page produces the divergence.
 
