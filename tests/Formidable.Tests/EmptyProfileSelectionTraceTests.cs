@@ -417,6 +417,18 @@ public class EmptyProfileSelectionTraceTests
         Assert.Contains(nameof(FactoryIncludePhantomProfileModelValidator), line);
     }
 
+    // A pin: the line's check runs an Include's factory with no model, so a factory that copes with
+    // a missing model is judged by the validator it builds then, here the ruleset-A one.
+    // Mutation: treat every factory-form Include as unreadable. Nothing is then written.
+    [Fact]
+    public async Task A_factory_include_that_copes_with_no_model_is_judged_by_what_it_builds_then()
+    {
+        var lines = await TraceOneValidation(new NullTolerantIncludePhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(NullTolerantIncludePhantomProfileModelValidator), line);
+    }
+
     // The Include sits under a condition that never holds, so validating it ends; reading it
     // ignores conditions and meets the validator again.
     // Mutation: drop the guard against a validator met twice. The read then recurses until the
@@ -430,11 +442,11 @@ public class EmptyProfileSelectionTraceTests
         Assert.Contains(nameof(SelfIncludingPhantomProfileModelValidator), line);
     }
 
-    // A factory building the validator's own type hands back a new instance on every read, so a
-    // guard keyed by instance never meets the same one twice. The guard is keyed by type, the key
-    // the line's record already uses.
-    // Mutation: key the guard by instance. The read then recurses until the stack overflows, which
-    // takes the test host down, so run that mutation alone with a filter.
+    // A factory building the validator's own type hands back a new instance on every read, so the
+    // read never meets the same instance twice. A validator built afresh of a type already on the
+    // way down is not read.
+    // Mutation: stop only at the same instance again. The read then recurses until the stack
+    // overflows, which takes the test host down, so run that mutation alone with a filter.
     [Fact]
     public async Task A_validator_whose_include_builds_its_own_type_is_judged_once()
     {
@@ -454,6 +466,44 @@ public class EmptyProfileSelectionTraceTests
 
         var line = Assert.Single(lines);
         Assert.Contains(nameof(NestedIncludePhantomProfileModelValidator), line);
+    }
+
+    // Two includes of one type with other constructor arguments: the first holds a ruleset-A rule,
+    // the second a ruleset-B rule, which the profile selects. A type seen once does not stop the
+    // read of a sibling.
+    // Mutation: keep one set of the types looked into for the whole read, and skip any type in it.
+    // The second include is then skipped and the line is written.
+    [Fact]
+    public async Task Two_included_validators_of_one_type_are_each_judged()
+    {
+        var lines = await TraceOneValidation(new HeldSiblingIncludesPhantomProfileModelValidator(), OnlyB);
+
+        Assert.Empty(lines);
+    }
+
+    // The same two includes, each built by a factory. A validator built afresh stops the read only
+    // while a validator of its type is on the way down, so the sibling is read.
+    // Mutation: keep each validator on the way down after its own read returns. The second
+    // include is then skipped and the line is written.
+    [Fact]
+    public async Task Two_factory_includes_of_one_type_are_each_judged()
+    {
+        var lines = await TraceOneValidation(new FactorySiblingIncludesPhantomProfileModelValidator(), OnlyB);
+
+        Assert.Empty(lines);
+    }
+
+    // An included validator that includes another instance of its own type, held since
+    // construction: the inner one holds the ruleset-B rule. A held validator nests only as deep as
+    // its constructors built it, so it is read.
+    // Mutation: stop at any validator whose type is already on the way down, held or built. The
+    // inner include is then skipped and the line is written.
+    [Fact]
+    public async Task An_include_nested_in_its_own_type_is_judged_to_its_depth()
+    {
+        var lines = await TraceOneValidation(new NestedSameTypeIncludePhantomProfileModelValidator(), OnlyB);
+
+        Assert.Empty(lines);
     }
 
     // A pin: an included validator that cannot list its rules cannot be counted, so it counts as
@@ -554,6 +604,13 @@ public class EmptyProfileSelectionTraceTests
                 : (IValidator<PhantomProfileModel>)new SecondIncludedPhantomProfileModelValidator());
     }
 
+    /// <summary>Picks its included validator from the model, and picks the ruleset-A one when there is no model.</summary>
+    public sealed class NullTolerantIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public NullTolerantIncludePhantomProfileModelValidator() =>
+            Include(x => x?.Flag == true ? new RuleSetPartValidator("B") : new RuleSetPartValidator("A"));
+    }
+
     public sealed class FactoryIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
     {
         public FactoryIncludePhantomProfileModelValidator() => Include(_ => new IncludedPhantomProfileModelValidator());
@@ -586,6 +643,53 @@ public class EmptyProfileSelectionTraceTests
     public sealed class NestedIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
     {
         public NestedIncludePhantomProfileModelValidator() => Include(new MiddleIncludePhantomProfileModelValidator());
+    }
+
+    /// <summary>One rule, in the ruleset its constructor names.</summary>
+    public sealed class RuleSetPartValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public RuleSetPartValidator(string ruleSet) =>
+            RuleSet(ruleSet, () => RuleFor(x => x.Name).NotEmpty());
+    }
+
+    public sealed class HeldSiblingIncludesPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public HeldSiblingIncludesPhantomProfileModelValidator()
+        {
+            Include(new RuleSetPartValidator("A"));
+            Include(new RuleSetPartValidator("B"));
+        }
+    }
+
+    public sealed class FactorySiblingIncludesPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public FactorySiblingIncludesPhantomProfileModelValidator()
+        {
+            Include(_ => new RuleSetPartValidator("A"));
+            Include(_ => new RuleSetPartValidator("B"));
+        }
+    }
+
+    /// <summary>Above depth zero, a ruleset-A rule and an include of the next depth down; at depth zero, a ruleset-B rule.</summary>
+    public sealed class NestingPartValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public NestingPartValidator(int depth)
+        {
+            if (depth > 0)
+            {
+                RuleSet("A", () => RuleFor(x => x.Name).NotEmpty());
+                Include(new NestingPartValidator(depth - 1));
+            }
+            else
+            {
+                RuleSet("B", () => RuleFor(x => x.Code).NotEmpty());
+            }
+        }
+    }
+
+    public sealed class NestedSameTypeIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public NestedSameTypeIncludePhantomProfileModelValidator() => Include(new NestingPartValidator(1));
     }
 
     public sealed class HandRolledIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>

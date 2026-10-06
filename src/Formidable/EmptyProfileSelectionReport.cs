@@ -51,7 +51,7 @@ internal static class EmptyProfileSelectionReport
                 validator,
                 ProfileRuleSelection.BuildProfileSelector(profile),
                 ProfileRuleSelection.CreateSelectionContext<TModel>(),
-                [validatorType]);
+                new HashSet<object>(ReferenceEqualityComparer.Instance) { validator });
         }
         catch (Exception)
         {
@@ -77,19 +77,17 @@ internal static class EmptyProfileSelectionReport
     /// <param name="rules">One validator's rules.</param>
     /// <param name="selector">The profile's selector, asked about an included validator's rules too.</param>
     /// <param name="selectionContext">The model-less context the selector is asked against.</param>
-    /// <param name="lookedInto">The validator types already looked into, so a validator that includes its own type is looked into once.</param>
+    /// <param name="path">The validators on the way down to <paramref name="rules"/>, compared by reference.</param>
     /// <returns><see langword="true"/> when a selected rule checks anything, or might.</returns>
     // FluentValidation's selector admits an Include outside any ruleset under every named ruleset,
     // and a run hands the included validator's rules the same selector (the adaptor an Include
     // builds carries no rulesets of its own), so the Include itself says nothing about whether
-    // validating checks anything; its validator's rules do. Keyed by type rather than instance: a
-    // factory building the validator's own type hands back a new instance on every read, and the
-    // first instance of a type answers for it, as the record above assumes.
+    // validating checks anything; its validator's rules do.
     private static bool SelectsAnyRule(
         IEnumerable<IValidationRule> rules,
         IValidatorSelector selector,
         IValidationContext selectionContext,
-        HashSet<Type> lookedInto)
+        HashSet<object> path)
     {
         foreach (var rule in rules)
         {
@@ -98,7 +96,7 @@ internal static class EmptyProfileSelectionReport
                 continue;
             }
 
-            if (rule is not IIncludeRule || IncludeSelectsAnyRule(rule, selector, selectionContext, lookedInto))
+            if (rule is not IIncludeRule || IncludeSelectsAnyRule(rule, selector, selectionContext, path))
             {
                 return true;
             }
@@ -111,17 +109,21 @@ internal static class EmptyProfileSelectionReport
     /// <param name="include">The admitted <c>Include</c> rule.</param>
     /// <param name="selector">The profile's selector.</param>
     /// <param name="selectionContext">The model-less context the selector is asked against.</param>
-    /// <param name="lookedInto">The validator types already looked into.</param>
+    /// <param name="path">The validators on the way down to <paramref name="include"/>.</param>
     /// <returns><see langword="true"/> when the included validator selects a rule that checks anything, or cannot be judged.</returns>
     // An Include judges its own model as its property, so both of its adaptor's type arguments are
     // the rule's TypeToValidate. A validator the read cannot build without a model (a factory that
-    // reads its argument), or one that cannot list its rules, might check anything, so it counts
-    // as selecting and the line stays unwritten. A type already looked into adds nothing.
+    // throws then, usually because it reads its argument), or one that cannot list its rules,
+    // might check anything, so it counts as selecting and the line stays unwritten. A factory
+    // that copes with a missing model is judged by what it builds then. One that would go round
+    // again adds nothing: the same validator on the way down, or one a factory builds afresh of a
+    // type on it (ChildValidatorReader.RepeatsPath, which the rule walk stops at too). The path
+    // holds only the way down, so a sibling of a type already read is read in its turn.
     private static bool IncludeSelectsAnyRule(
         IValidationRule include,
         IValidatorSelector selector,
         IValidationContext selectionContext,
-        HashSet<Type> lookedInto)
+        HashSet<object> path)
     {
         foreach (var component in include.Components)
         {
@@ -131,8 +133,15 @@ internal static class EmptyProfileSelectionReport
                 return true;
             }
 
-            if (lookedInto.Add(reading.Validator.GetType())
-                && SelectsAnyRule(includedRules, selector, selectionContext, lookedInto))
+            if (ChildValidatorReader.RepeatsPath(path, reading.Validator, component, include.TypeToValidate, include.TypeToValidate))
+            {
+                continue;
+            }
+
+            path.Add(reading.Validator);
+            var selects = SelectsAnyRule(includedRules, selector, selectionContext, path);
+            path.Remove(reading.Validator);
+            if (selects)
             {
                 return true;
             }

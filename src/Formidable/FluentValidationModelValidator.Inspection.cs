@@ -90,11 +90,11 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
     /// <remarks>
-    /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is read
-    /// like any other. A rule on each row of a collection property, written with <c>RuleForEach</c>
-    /// or <c>ForEach</c>, files under the indexed path (<c>Tags[]</c>, or <c>Items[].Sku</c> for
-    /// a child validator on each row), never under the collection's own path. Not read: a child
-    /// supplied by a lambda that reads its model, the repeat of a validator that includes itself,
+    /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is
+    /// read. A rule on each row, written with <c>RuleForEach</c> or <c>ForEach</c>, files under
+    /// the indexed path (<c>Tags[]</c>, or <c>Items[].Sku</c> for a child validator on each row),
+    /// not the collection's own. Not read: a child a lambda cannot build without a model, a
+    /// validator met again inside itself (the same instance, or one a lambda builds of its type),
     /// and <c>DependentRules</c>.
     /// </remarks>
     public IReadOnlySet<string> GetDeclaredFieldPaths(ValidationProfile profile)
@@ -175,14 +175,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="selector">The selector rules are admitted by at this level.</param>
     /// <param name="selectionContext">The model-less context selection questions are asked against.</param>
     /// <param name="declared">The map being filled.</param>
-    /// <param name="walking">The validators on the current path, so a validator that reaches itself is read once.</param>
+    /// <param name="walking">The validators on the current path, so a validator that reaches itself, or a factory that builds a type on the path, is not read again.</param>
     /// <remarks>
     /// A child adaptor carrying rulesets replaces the selector its child is read under, as
     /// FluentValidation's own dispatch does, and one carrying none hands its child the selector
-    /// in force. A validator reached twice down two branches is read twice; one that reaches
-    /// itself is read once, which bounds a recursive validator without a depth cap. A child
-    /// reached only through a conditional rule is conditionally demanded, however
-    /// unconditionally the child declares it.
+    /// in force. A validator reached twice down two branches is read twice. One that reaches
+    /// itself is read once, as is one a factory builds of a type already on the path, with no
+    /// depth cap. A child reached only through a conditional rule is conditionally demanded,
+    /// whatever the child declares.
     /// </remarks>
     private void WalkDeclaredRules(
         object validator,
@@ -235,7 +235,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 if (component.Validator is IChildValidatorAdaptor)
                 {
                     var child = ResolveChildValidator(component, modelType, rule.TypeToValidate);
-                    if (child.Validator is null)
+                    if (child.Validator is null
+                        || ChildValidatorReader.RepeatsPath(walking, child.Validator, component, modelType, rule.TypeToValidate))
                     {
                         continue;
                     }

@@ -33,8 +33,9 @@ internal static class ChildValidatorReader
     /// <param name="propertyType">The type the child validator judges.</param>
     /// <returns>The reading; <see cref="ChildReading.Unreadable"/> where the child cannot be had.</returns>
     /// <remarks>
-    /// A child supplied by a lambda has that lambda run with no model, so one that reads the
-    /// model is unreadable, while one that ignores its arguments is read like any other child.
+    /// A child supplied by a lambda has that lambda run with no model. One that cannot build its
+    /// child that way (usually because it reads the model) is unreadable; any other is read
+    /// through the child it builds then, the one a missing model picks.
     /// </remarks>
     // FluentValidation exposes both through ChildValidatorAdaptor<T, TProperty>, the GetValidator
     // method and the public RuleSets property its published XML docs do not mention. The surface
@@ -97,6 +98,40 @@ internal static class ChildValidatorReader
         {
             return ChildReading.Unreadable;
         }
+    }
+
+    /// <summary>Whether reading into <paramref name="child"/> would go round again: it is on <paramref name="path"/> already, or the read builds a fresh validator of a type on it.</summary>
+    /// <param name="path">The validators on the way down to <paramref name="component"/>, compared by reference.</param>
+    /// <param name="child">The validator the component's read handed back.</param>
+    /// <param name="component">The child-validator component, read again to tell a held validator from one built on each read.</param>
+    /// <param name="modelType">The type the component's rule judges.</param>
+    /// <param name="propertyType">The type the child validator judges.</param>
+    /// <returns><see langword="true"/> when the read should not go into <paramref name="child"/>.</returns>
+    // A validator held since construction nests only as deep as the instances built then, so one
+    // of a type already on the path is read: it is a further level, not a loop. A factory hands
+    // back a new instance on every read, so a validator that builds its own type (or a type above
+    // it) never meets the same instance twice and would be read without end. A second read that
+    // hands back another instance says the validator is built per read, and one of a type on the
+    // path is not read. The second read happens only when the type is already on the path.
+    internal static bool RepeatsPath(
+        HashSet<object> path,
+        IValidator child,
+        IRuleComponent component,
+        Type modelType,
+        Type propertyType)
+    {
+        if (path.Contains(child))
+        {
+            return true;
+        }
+
+        var childType = child.GetType();
+        if (!path.Any(validator => validator.GetType() == childType))
+        {
+            return false;
+        }
+
+        return !ReferenceEquals(Read(component, modelType, propertyType).Validator, child);
     }
 
     /// <summary>The closed form of <paramref name="openType"/> in the instance's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
