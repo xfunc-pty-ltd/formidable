@@ -69,7 +69,7 @@ public interface IFormidableEngine
     /// </remarks>
     FieldRequirement GetFieldRequirement(FieldIdentifier field);
 
-    /// <summary>The issues currently showing for one field, at every severity, computed on each call, each message once.</summary>
+    /// <summary>The issues currently showing for one field, at every severity, computed on each call: its submit errors, then its advisories and live messages less any message already listed.</summary>
     /// <param name="field">The field.</param>
     /// <returns>Its submit errors, then its advisories, then its live messages, each later group minus any message already listed; the fault message last, on the model-level field.</returns>
     IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field);
