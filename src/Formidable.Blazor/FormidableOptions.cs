@@ -77,7 +77,9 @@ public sealed class FormidableOptions
     /// <remarks>
     /// A change to which fields are on screen re-checks the whole form after the same wait at any
     /// point in the form's life. <see cref="TimeSpan.Zero"/> re-checks as soon as the edit is
-    /// committed; only <see cref="Timeout.InfiniteTimeSpan"/> turns the re-check off. Contrast
+    /// committed, and <see cref="Timeout.InfiniteTimeSpan"/> turns the re-check off. A wait past
+    /// the timer's limit reads as the infinite wait and a negative one as zero, each named once in
+    /// a logged warning. Contrast
     /// <see cref="LiveDebounce"/>, whose <see langword="null"/> means no wait at all. With
     /// <see cref="TrackFormValidity"/> on and a <see cref="LiveDebounce"/> of
     /// <see cref="Timeout.InfiniteTimeSpan"/>, it also times the validity check.
@@ -87,8 +89,9 @@ public sealed class FormidableOptions
     /// <summary>How long after a change before the live check runs, one shared wait for every field changed meanwhile. Defaults to <see langword="null"/>, which checks at once on every change.</summary>
     /// <remarks>
     /// A further change inside the wait restarts it. <see cref="TimeSpan.Zero"/> is a wait of no
-    /// width, not a spelling of <see langword="null"/>: the check still starts from a timer rather
-    /// than inside the change itself. With <see cref="TrackFormValidity"/> on, the validity check
+    /// width, not a spelling of <see langword="null"/>: the check starts from a timer, not inside
+    /// the change. A wait past the timer's limit reads as <see cref="Timeout.InfiniteTimeSpan"/>
+    /// and any other negative one as zero, each named once in a logged warning. With <see cref="TrackFormValidity"/> on, the validity check
     /// waits for the same window, except under <see cref="Timeout.InfiniteTimeSpan"/>, where
     /// changes before a submit or server reply run it <see cref="RefreshDebounce"/> after the last
     /// of them.

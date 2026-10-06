@@ -152,9 +152,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
 
-    // The longest due time the system timer takes, in whole milliseconds; ReportUnusableDebounce
-    // names a debounce past it.
+    // The longest due time the system timer takes, in whole milliseconds; UsableWait reads a
+    // debounce past it as a wait that never ends, and ReportUnusableDebounce names it.
     private const long MaxTimerMilliseconds = uint.MaxValue - 1;
+
+    // The debounce options already named as unusable, one bit each, so each is named once per
+    // engine whether the build or a timer's arm met the value first.
+    private const int RefreshDebounceNamed = 1;
+    private const int LiveDebounceNamed = 2;
+    private int _unusableDebouncesNamed;
 
     // The validity check a committed change arms under a LiveDebounce that never closes, before
     // the first submit or server reply (see ScheduleValidityCheck), and whether it is armed: set
@@ -298,8 +304,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             ReportInspectionUnavailable();
         }
 
-        // Once, as the engine is built. The options are read at each use, so a value set later
-        // reaches the timer unchecked.
+        // As the engine is built, so a form configured with such a value hears about it before any
+        // wait starts. The options are read at each use, so ArmTimer asks again of a value set
+        // later; both share one latch per option.
         ReportUnusableDebounce(nameof(FormidableOptions.RefreshDebounce), options.RefreshDebounce);
         if (options.LiveDebounce is { } liveDebounce)
         {
@@ -536,13 +543,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return (_pendingDebouncedLiveFields.Count > 0
                 && liveAnswersSubmit
                 && _options.LiveDebounce is { } liveDebounce
-                && liveDebounce != Timeout.InfiniteTimeSpan)
+                && UsableWait(liveDebounce) is not null)
             || RefreshArmedByEdit
             // Tracking is asked again here because the fire stands down once it is off, and a
             // promise the fire will not keep holds nothing.
             || (_validityCheckArmed
                 && _options.TrackFormValidity
-                && _options.RefreshDebounce != Timeout.InfiniteTimeSpan)
+                && UsableWait(_options.RefreshDebounce) is not null)
             // The started probe lands whatever tracking now says, so tracking is not asked here.
             || (_validityCheckRunning != 0
                 && _timeProvider.GetElapsedTime(_validityCheckStartedAt)
@@ -555,7 +562,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // to the refresh pass itself as its begin empties the accumulator.
     private bool RefreshArmedByEdit =>
         _pendingRefreshFields.Count > 0
-        && _options.RefreshDebounce != Timeout.InfiniteTimeSpan;
+        && UsableWait(_options.RefreshDebounce) is not null;
 
     /// <summary>Whether the issues showing for <paramref name="field"/> include an error, a warning and an info, read across the live and submit views in one walk.</summary>
     /// <param name="field">The field.</param>
@@ -1404,7 +1411,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _pendingRefreshFields.Add(e.FieldIdentifier);
             ScheduleRefresh();
         }
-        else if (_options.TrackFormValidity && _options.LiveDebounce == Timeout.InfiniteTimeSpan)
+        else if (_options.TrackFormValidity
+                 && _options.LiveDebounce is { } window
+                 && UsableWait(window) is null)
         {
             // A window that never closes never starts the probe its fire would, so before a
             // submit or server reply nothing this change starts would move IsFormValid or put the
@@ -2062,41 +2071,93 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             model, validator);
     }
 
-    /// <summary>Writes a Trace line and a logged warning when <paramref name="due"/> is negative other than <see cref="Timeout.InfiniteTimeSpan"/>, or past the longest wait the system timer takes, naming the option, its value and the range to use.</summary>
+    /// <summary>Writes a Trace line and a logged warning, once per option per engine, when <paramref name="due"/> is a value <see cref="UsableWait"/> does not take as given, naming the option, its value and what the form reads it as.</summary>
     /// <param name="option">The option's name on <see cref="FormidableOptions"/>.</param>
     /// <param name="due">The option's value.</param>
-    // A value past the limit, or of -2 ms or less, throws from the timer the first time its wait
-    // starts (the first render's field-set reconcile for RefreshDebounce, the first edit for
-    // LiveDebounce), with a stack that names the timer rather than the option. The timer
-    // truncates to whole milliseconds and takes the rest, but a negative value it takes still
-    // misleads. Above -2 ms and below -1 ms it never fires, while the engine treats every value
-    // but Timeout.InfiniteTimeSpan itself as a wait that passes (ReAnswerOnItsWay, the validity
-    // check's arm), so it would count a check on its way that never comes; between -1 ms and zero
-    // it fires at once. So every negative value but the infinite wait is named. The upper limit is
-    // the timer's own, in whole milliseconds, probed on TimeProvider.System.
+    // Called as the engine is built and at every arm, because the options are read at each use and
+    // a value set after the build is first met as its wait starts. One latch serves both calls, so
+    // a form misconfigured from the start hears once, at build, and a value changed later is named
+    // once, at the first wait it would have started. The latch is per option rather than per value:
+    // the note says which values the option takes, and a second unusable value earns no second
+    // note. The upper limit is the timer's own, in whole milliseconds, probed on
+    // TimeProvider.System; a value the timer truncates to it is usable and is not named.
     private void ReportUnusableDebounce(string option, TimeSpan due)
     {
-        var negative = due < TimeSpan.Zero && due != Timeout.InfiniteTimeSpan;
-        if (!negative && (long)due.TotalMilliseconds <= MaxTimerMilliseconds)
+        if (due == Timeout.InfiniteTimeSpan)
+        {
+            return;
+        }
+
+        var negative = due < TimeSpan.Zero;
+        if (!negative && UsableWait(due) is not null)
+        {
+            return;
+        }
+
+        var bit = option == nameof(FormidableOptions.RefreshDebounce) ? RefreshDebounceNamed : LiveDebounceNamed;
+        if ((Interlocked.Or(ref _unusableDebouncesNamed, bit) & bit) != 0)
         {
             return;
         }
 
         var model = FriendlyTypeName.Of(typeof(TModel));
         var value = due.ToString("c", CultureInfo.InvariantCulture);
+        if (negative)
+        {
+            FormidableDiagnostics.Warn(
+                _logger,
+                $"Formidable: FormidableOptions.{option} is {value}, which the form for {model} cannot " +
+                "use as a wait. A negative wait other than Timeout.InfiniteTimeSpan has nothing to " +
+                "wait for, so the form treats it as zero: the wait ends at once. Use " +
+                "Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from zero up to " +
+                "4294967294 milliseconds (49.17:02:47.294).",
+                "Formidable: FormidableOptions.{Option} is {Value}, which the form for {Model} cannot " +
+                "use as a wait. A negative wait other than Timeout.InfiniteTimeSpan has nothing to " +
+                "wait for, so the form treats it as zero: the wait ends at once. Use " +
+                "Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from zero up to " +
+                "4294967294 milliseconds (49.17:02:47.294).",
+                option, value, model);
+            return;
+        }
+
         FormidableDiagnostics.Warn(
             _logger,
             $"Formidable: FormidableOptions.{option} is {value}, which the form for {model} cannot " +
-            "use as a wait. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from " +
-            "zero up to 4294967294 milliseconds (49.17:02:47.294). A longer wait, or one of -2 " +
-            "milliseconds or less, throws the first time the wait starts; the timer reads any other " +
-            "negative value as zero or as a wait that never ends, not the wait the form counts on.",
+            "use as a wait. It is longer than the longest wait the timer takes, 4294967294 " +
+            "milliseconds (49.17:02:47.294), so the form treats it as Timeout.InfiniteTimeSpan: the " +
+            "wait never ends. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait " +
+            "from zero up to that limit.",
             "Formidable: FormidableOptions.{Option} is {Value}, which the form for {Model} cannot " +
-            "use as a wait. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait from " +
-            "zero up to 4294967294 milliseconds (49.17:02:47.294). A longer wait, or one of -2 " +
-            "milliseconds or less, throws the first time the wait starts; the timer reads any other " +
-            "negative value as zero or as a wait that never ends, not the wait the form counts on.",
+            "use as a wait. It is longer than the longest wait the timer takes, 4294967294 " +
+            "milliseconds (49.17:02:47.294), so the form treats it as Timeout.InfiniteTimeSpan: the " +
+            "wait never ends. Use Timeout.InfiniteTimeSpan for a wait that never ends, or a wait " +
+            "from zero up to that limit.",
             option, value, model);
+    }
+
+    /// <summary>Reads a debounce as the wait the form takes: <see langword="null"/> for one that never passes, zero for any other negative one, the value itself otherwise.</summary>
+    /// <param name="configured">The option's value.</param>
+    /// <returns><see langword="null"/> for <see cref="Timeout.InfiniteTimeSpan"/> and for a value past <see cref="MaxTimerMilliseconds"/> once truncated to whole milliseconds; <see cref="TimeSpan.Zero"/> for any other negative value; otherwise <paramref name="configured"/>.</returns>
+    // The one reading of a debounce. ArmTimer arms nothing for null, and every question of whether
+    // a wait can pass (ReAnswerOnItsWay's live-window and validity arms, RefreshArmedByEdit,
+    // HandleFieldChanged's never-closing window, the refresh's pending scope) asks here, so the arm
+    // and the vouch cannot disagree. A value past the limit is read as never because that is what
+    // TimeSpan.MaxValue is set to mean, and armed at the limit instead it would be a 49.7-day wait
+    // the vouch counts as on its way. A negative value is read as zero, the reading the timer
+    // itself gives a value between -1 ms and zero; a lower one it rejects or reads as never.
+    private static TimeSpan? UsableWait(TimeSpan configured)
+    {
+        if (configured == Timeout.InfiniteTimeSpan)
+        {
+            return null;
+        }
+
+        if (configured < TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return (long)configured.TotalMilliseconds > MaxTimerMilliseconds ? null : configured;
     }
 
     /// <summary>Writes the one-time note for a read of <see cref="IsFormValid"/> while <see cref="FormidableOptions.TrackFormValidity"/> is off: a Trace line and a logged warning.</summary>
@@ -2983,7 +3044,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return;
         }
 
-        ArmTimer(ref _refreshTimer, RunRefreshPassAsync, _options.RefreshDebounce);
+        ArmTimer(ref _refreshTimer, RunRefreshPassAsync, _options.RefreshDebounce, nameof(FormidableOptions.RefreshDebounce));
     }
 
     /// <summary>Arms or re-arms the one timer behind <see cref="FormidableOptions.LiveDebounce"/>, shared by every field that changes while the window is open; a disposed engine arms nothing.</summary>
@@ -2998,13 +3059,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return;
         }
 
-        ArmTimer(ref _liveTimer, RunDebouncedLivePassAsync, debounce);
+        ArmTimer(ref _liveTimer, RunDebouncedLivePassAsync, debounce, nameof(FormidableOptions.LiveDebounce));
     }
 
     /// <summary>Arms or re-arms the validity timer at <see cref="FormidableOptions.RefreshDebounce"/> for a change made under a <see cref="FormidableOptions.LiveDebounce"/> that never closes; a disposed engine arms nothing.</summary>
     // RefreshDebounce rather than a width of its own: it is the wait the form already gives
     // whole-form work, and the re-arm makes it a sliding window, so a burst of changes is one
-    // check. Under Timeout.InfiniteTimeSpan it never fires, and neither does the refresh.
+    // check. At a wait that never passes it never fires, and neither does the refresh.
     private void ScheduleValidityCheck()
     {
         if (_disposed)
@@ -3014,7 +3075,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         _validityCheckArmed = true;
-        ArmTimer(ref _validityTimer, RunValidityCheckAsync, _options.RefreshDebounce);
+        ArmTimer(ref _validityTimer, RunValidityCheckAsync, _options.RefreshDebounce, nameof(FormidableOptions.RefreshDebounce));
     }
 
     /// <summary>The validity timer's handler: stands down when disposed, when tracking is off, once a submit has answered or while an edit has armed the refresh; otherwise re-arms behind a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
@@ -3089,22 +3150,33 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return Task.CompletedTask;
             });
 
-    /// <summary>Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> once on the renderer's dispatcher after <paramref name="due"/>.</summary>
+    /// <summary>Creates <paramref name="timer"/> on first use and arms it to run <paramref name="fire"/> once on the renderer's dispatcher after <paramref name="due"/>, read through <see cref="UsableWait"/>; a wait that never passes disarms it instead.</summary>
     /// <param name="timer">The timer field, created here on its first arming.</param>
     /// <param name="fire">The handler.</param>
-    /// <param name="due">How long until it fires; <see cref="Timeout.InfiniteTimeSpan"/> arms a timer that never does.</param>
+    /// <param name="due">The option's value; <see cref="Timeout.InfiniteTimeSpan"/> or a value past the timer's limit leaves the timer unarmed, and a negative value arms it at zero.</param>
+    /// <param name="option">The <see cref="FormidableOptions"/> property behind <paramref name="due"/>, which an unusable value's note names.</param>
     // Created with no due time and no period, so arming is entirely the Change: a timer that
     // fires only when asked, and once per ask, is what makes every debounce a sliding window
-    // rather than a repeating tick. The caller decides whether arming is safe at all, because how
-    // a call can still arrive after disposal differs per caller.
-    private void ArmTimer(ref ITimer? timer, Func<Task> fire, TimeSpan due)
+    // rather than a repeating tick. A wait that never passes changes the timer to the infinite
+    // wait, which is what arming with Timeout.InfiniteTimeSpan does, so a fire an earlier arm left
+    // pending goes too. The caller decides whether arming is safe at all, because how a call can
+    // still arrive after disposal differs per caller.
+    private void ArmTimer(ref ITimer? timer, Func<Task> fire, TimeSpan due, string option)
     {
+        ReportUnusableDebounce(option, due);
+
+        if (UsableWait(due) is not { } wait)
+        {
+            timer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
         timer ??= _timeProvider.CreateTimer(
             _ => _ = _renderDispatch(fire),
             state: null,
             dueTime: Timeout.InfiniteTimeSpan,
             period: Timeout.InfiniteTimeSpan);
-        timer.Change(due, Timeout.InfiniteTimeSpan);
+        timer.Change(wait, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>The live timer's handler: stands down for a submit, refresh or load in flight, else runs one live pass for the fields accumulated while the window was open.</summary>
@@ -3247,10 +3319,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // debounced pass stands down behind this one; on a validator the engine can take
                 // rule by rule it then answers from this pass's verdicts at once, so this pass is
                 // the only moment the field's check is out. Read and not cleared: the window's own
-                // fire still owns the accumulator. A window armed with Timeout.InfiniteTimeSpan
-                // never fires, so its accumulator only grows and a field in it waits on no live
-                // check; it is left out.
-                if (_options.LiveDebounce != Timeout.InfiniteTimeSpan)
+                // fire still owns the accumulator. A window whose wait never passes
+                // (Timeout.InfiniteTimeSpan, or a value past the timer's limit) never fires, so its
+                // accumulator only grows and a field in it waits on no live check; it is left out.
+                if (_options.LiveDebounce is not { } window || UsableWait(window) is not null)
                 {
                     edited.UnionWith(_pendingDebouncedLiveFields);
                 }

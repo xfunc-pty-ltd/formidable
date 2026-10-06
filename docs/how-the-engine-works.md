@@ -133,9 +133,18 @@ timer `TimeSpan.Zero` still fires from the timer's own callback, never inside th
 that armed it, and a fire still defers as any fire does; on the live timer it is not a spelling
 of `null`.
 
-A third timer, the validity timer, belongs to no kind. It starts the probe on `RefreshDebounce`
-for a form whose live window never closes, as
-[the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
+Every arm, and every test of whether a wait can pass, reads a debounce through one helper,
+`UsableWait`, so the timer and the vouch cannot disagree. A value past the timer's limit
+(4294967294 ms) reads as `Timeout.InfiniteTimeSpan`: the arm leaves the timer unarmed, and the
+vouch counts nothing behind it.
+
+A negative value other than `Timeout.InfiniteTimeSpan` reads as zero. A value past the limit or
+below zero (other than the infinite wait) is named once per option per engine, by the build's check
+or the first arm that meets it.
+
+A third timer, the validity timer, belongs to no kind. It starts the probe on `RefreshDebounce`:
+after an edit under a live window that never closes, and under any window after a landing an edit
+outdated, as [the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
 
 **A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
 validator that throws under either surfaces through the caller's own `try`/`catch`. A live or
@@ -288,7 +297,7 @@ started, so only its own exits end it, and the bound below has a start to run fr
 probe is consulted: those are fire-and-forget, with no start time to bound them by.
 
 One configuration therefore blinks on an edit as a form with nothing scheduled does: a narrowed
-live channel with `TrackFormValidity` on and any `LiveDebounce` but `Timeout.InfiniteTimeSpan`,
+live channel with `TrackFormValidity` on and any `LiveDebounce` but one that never passes,
 before any submit, re-answers only through the probe, and its vouch waits for that landing.
 
 **The bound.** A pass in flight counts only while it is younger than `HeldVouchBound`, thirty

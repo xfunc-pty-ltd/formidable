@@ -346,6 +346,242 @@ public class NeverClosingWindowValidityTests
         Assert.False(engine.GetFieldState(name).WouldPassSubmit);
     }
 
+    // The test above with both windows set past the timer's limit rather than to
+    // Timeout.InfiniteTimeSpan: such a wait never ends either, so the check it arms is not one on
+    // its way. Mutation: arm a value past the limit at the limit, a wait of 49.7 days that the
+    // form then counts on, and the other field's green is held across the edit.
+    [Fact]
+    public void A_past_limit_debounce_holds_no_green_across_an_edit()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var options = new FormidableOptions
+        {
+            TrackFormValidity = true,
+            LiveDebounce = TimeSpan.MaxValue,
+            RefreshDebounce = TimeSpan.MaxValue,
+        };
+        using var engine = Build(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()),
+            options, time);
+        var name = CustomerName(order);
+        Assert.True(engine.GetFieldState(name).WouldPassSubmit);
+
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(Description(order));
+
+        Assert.False(engine.GetFieldState(name).WouldPassSubmit);
+    }
+
+    // One row per place the form asks whether a debounce can ever pass. Each row runs once with
+    // Timeout.InfiniteTimeSpan and once with TimeSpan.MaxValue, past the timer's limit, and both
+    // runs must show the row's outcome. Mutation: at any one of the five places, test the value
+    // against Timeout.InfiniteTimeSpan itself rather than through the one reading of a wait, and
+    // that row's MaxValue run shows the opposite outcome.
+    [Theory]
+    [InlineData("an open live window holds green", false)]
+    [InlineData("an armed validity check holds green", false)]
+    [InlineData("a refresh an edit armed holds green", false)]
+    [InlineData("a change under a window that never closes arms the validity check", true)]
+    [InlineData("a field in a window that never closes shows checking during a refresh", false)]
+    public async Task A_past_limit_debounce_reads_as_never_wherever_the_form_asks(string row, bool expected)
+    {
+        Assert.Equal(expected, await OutcomeAsync(row, Timeout.InfiniteTimeSpan));
+        Assert.Equal(expected, await OutcomeAsync(row, TimeSpan.MaxValue));
+    }
+
+    private static async Task<bool> OutcomeAsync(string row, TimeSpan never)
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var name = CustomerName(order);
+        var description = Description(order);
+
+        switch (row)
+        {
+            case "an open live window holds green":
+            {
+                // Tracking off and the re-check never armed, so the window is the one promise left.
+                using var engine = Build(
+                    order, editContext,
+                    new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()),
+                    new FormidableOptions { LiveDebounce = never, RefreshDebounce = Timeout.InfiniteTimeSpan },
+                    time);
+                Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+                Assert.True(engine.GetFieldState(name).WouldPassSubmit);
+
+                order.Description = "still ok";
+                editContext.NotifyFieldChanged(description);
+                return engine.GetFieldState(name).WouldPassSubmit;
+            }
+
+            case "an armed validity check holds green":
+            {
+                using var engine = Build(
+                    order, editContext,
+                    new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()),
+                    new FormidableOptions
+                    {
+                        TrackFormValidity = true,
+                        LiveDebounce = Timeout.InfiniteTimeSpan,
+                        RefreshDebounce = never,
+                    },
+                    time);
+                Assert.True(engine.GetFieldState(name).WouldPassSubmit);
+
+                order.Description = "still ok";
+                editContext.NotifyFieldChanged(description);
+                return engine.GetFieldState(name).WouldPassSubmit;
+            }
+
+            case "a refresh an edit armed holds green":
+            {
+                using var engine = Build(
+                    order, editContext,
+                    new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()),
+                    new FormidableOptions { LiveDebounce = Timeout.InfiniteTimeSpan, RefreshDebounce = never },
+                    time);
+                Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+                Assert.True(engine.GetFieldState(name).WouldPassSubmit);
+
+                order.Description = "still ok";
+                editContext.NotifyFieldChanged(description);
+                return engine.GetFieldState(name).WouldPassSubmit;
+            }
+
+            case "a change under a window that never closes arms the validity check":
+            {
+                order.Description = string.Empty;
+                using var engine = Build(
+                    order, editContext,
+                    new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()),
+                    new FormidableOptions { TrackFormValidity = true, LiveDebounce = never },
+                    time);
+                Assert.False(engine.IsFormValid);
+
+                order.Description = "ok";
+                editContext.NotifyFieldChanged(description);
+                time.Advance(Refresh);
+                return engine.IsFormValid;
+            }
+
+            case "a field in a window that never closes shows checking during a refresh":
+            {
+                var validator = new GatedCountingValidator();
+                using var engine = Build(
+                    order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+                    new FormidableOptions { LiveDebounce = never }, time);
+
+                order.Description = "still ok";
+                editContext.NotifyFieldChanged(description);
+                engine.OnRenderedFieldsChanged();
+                time.Advance(Refresh);
+                Assert.True(engine.IsValidating);
+
+                var checking = engine.GetFieldState(description).IsValidating;
+                validator.Gate.SetResult();
+                await UntilAsync(() => !engine.IsValidating);
+                return checking;
+            }
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(row), row, null);
+        }
+    }
+
+    // A pin for the infinite row, which is what arming with Timeout.InfiniteTimeSpan does: a wait
+    // that never passes leaves no earlier wait standing, and a value past the limit is read the
+    // same way. Mutation: return from the arm without touching the timer when the wait never
+    // passes, and the re-check the first field-set change armed still runs on both rows.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_wait_set_to_never_cancels_one_already_armed(bool pastTheLimit)
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var options = new FormidableOptions();
+        var counting = new CountingValidator<EngineOrder>(
+            new FluentValidationModelValidator<EngineOrder>(new CountingTwoFieldValidator()));
+        using var engine = Build(order, editContext, counting, options, time);
+
+        engine.OnRenderedFieldsChanged();
+        options.RefreshDebounce = pastTheLimit ? TimeSpan.MaxValue : Timeout.InfiniteTimeSpan;
+        engine.OnRenderedFieldsChanged();
+        var before = counting.CallCount;
+
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.Equal(before, counting.CallCount);
+    }
+
+    // Built with the defaults, a submit answered, then RefreshDebounce set past the timer's limit
+    // as a way of saying never, and a row removed. Mutation: drop the arm-time check, and the
+    // removal throws ArgumentOutOfRangeException out of the field-set change.
+    [Fact]
+    public async Task RefreshDebounce_set_to_MaxValue_after_the_build_never_throws()
+    {
+        var order = new EngineOrder
+        {
+            Description = "ok",
+            Customer = new EngineCustomer { Name = "Bo" },
+            Items = [new EngineItem { Sku = "a" }, new EngineItem { Sku = "b" }],
+        };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var logger = new CapturingLogger();
+        var options = new FormidableOptions();
+        var validator = new CountingTwoFieldValidator();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), options, time, logger: logger);
+        var rows = order.Items
+            .Select(item => engine.Registry.Register(new FieldIdentifier(item, nameof(EngineItem.Sku))))
+            .ToList();
+        engine.OnRenderedFieldsChanged();
+        time.Advance(Refresh);
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        var name = CustomerName(order);
+
+        // The submit's answer is current, and this read is the one that holds it.
+        Assert.True(engine.GetFieldState(name).WouldPassSubmit);
+
+        options.RefreshDebounce = TimeSpan.MaxValue;
+        order.Items.RemoveAt(0);
+        rows[0].Dispose();
+        var thrown = Record.Exception(engine.OnRenderedFieldsChanged);
+
+        Assert.Null(thrown);
+        var warning = Assert.Single(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
+        Assert.Contains("FormidableOptions.RefreshDebounce", warning.Message);
+
+        // No re-check comes, however long the form waits.
+        var runs = validator.Runs;
+        time.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(runs, validator.Runs);
+
+        // No green is held on its account: with the live check narrowed to rules that say nothing
+        // about the name, an edit leaves the re-check the only thing that could answer for it.
+        options.LiveProfile = ValidationProfile.Draft;
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(Description(order));
+        Assert.False(engine.GetFieldState(name).WouldPassSubmit);
+
+        // A negative value re-checks at once, and the option is not named a second time.
+        options.RefreshDebounce = TimeSpan.FromMilliseconds(-5);
+        order.Items.RemoveAt(0);
+        rows[1].Dispose();
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.Zero);
+
+        Assert.True(validator.Runs > runs);
+        Assert.Single(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
+    }
+
     // A pin: it holds whether or not a never-closing window arms a check, and guards the fire's
     // stand-down once tracking is off.
     // Mutation: drop the TrackFormValidity test from the fire. The check then runs its rules

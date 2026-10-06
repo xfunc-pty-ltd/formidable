@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
@@ -8,19 +9,141 @@ using Microsoft.Extensions.Time.Testing;
 namespace Formidable.Blazor.Tests;
 
 /// <summary>
-/// The note an engine writes as it is built when <see cref="FormidableOptions.RefreshDebounce"/>
-/// or <see cref="FormidableOptions.LiveDebounce"/> is negative other than
+/// The note an engine writes when <see cref="FormidableOptions.RefreshDebounce"/> or
+/// <see cref="FormidableOptions.LiveDebounce"/> is negative other than
 /// <see cref="Timeout.InfiniteTimeSpan"/>, or past the longest wait the system timer takes, which
-/// is <c>uint.MaxValue - 1</c> milliseconds once any fraction is truncated. The Trace listener is
-/// process-wide, so every capture is filtered to lines naming <see cref="DebounceLimitModel"/>, a
-/// model no other test class uses. Each test only builds the engine: the fake clock's timers
-/// take the same range as the system timer's, so arming one would throw.
+/// is <c>uint.MaxValue - 1</c> milliseconds once any fraction is truncated. The form reads a wait
+/// past the limit as one that never ends and a negative one as zero, and names the option once,
+/// whether the value was there as the engine was built or set later and met as a wait starts. The
+/// Trace listener is process-wide, so every Trace capture is filtered to lines naming
+/// <see cref="DebounceLimitModel"/>, a model no other test class uses; a test that arms a timer
+/// counts the entries of its own logger instead.
 /// </summary>
 public class DebounceLimitDiagnosticTests
 {
     // The longest due time the system timer accepts, and the shortest it rejects.
     private static readonly TimeSpan AtTheLimit = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
     private static readonly TimeSpan PastTheLimit = TimeSpan.FromMilliseconds(uint.MaxValue);
+
+    // A negative wait the fake clock's timer rejects, as the system timer does.
+    private static readonly TimeSpan Negative = TimeSpan.FromMilliseconds(-5);
+
+    // Each wait starts twice with a value set after the build: the refresh by a field-set change,
+    // the live window by a committed change, and the validity check (tracking on, a window that
+    // never closes, RefreshDebounce the unusable value) by a committed change before any submit.
+    // Mutations: (a) drop the arm-time check, so the value reaches the timer as it stands, and the
+    // first wait throws ArgumentOutOfRangeException with nothing named; (b) drop the latch from the
+    // arm-time check, so every arm names the value, and the second wait writes a second warning.
+    [Theory]
+    [InlineData("Refresh", false)]
+    [InlineData("Refresh", true)]
+    [InlineData("Live", false)]
+    [InlineData("Live", true)]
+    [InlineData("Validity", false)]
+    [InlineData("Validity", true)]
+    public void A_debounce_made_unusable_after_the_build_is_named_once_and_never_throws(string wait, bool negative)
+    {
+        var logger = new CapturingLogger();
+        var options = wait == "Validity"
+            ? new FormidableOptions { TrackFormValidity = true, LiveDebounce = Timeout.InfiniteTimeSpan }
+            : new FormidableOptions();
+        var model = new DebounceLimitModel();
+        var editContext = new EditContext(model);
+        using var engine = BuildEngine(model, editContext, options, logger, new FakeTimeProvider());
+        var value = negative ? Negative : TimeSpan.MaxValue;
+        var option = wait == "Live" ? nameof(FormidableOptions.LiveDebounce) : nameof(FormidableOptions.RefreshDebounce);
+        if (wait == "Live")
+        {
+            options.LiveDebounce = value;
+        }
+        else
+        {
+            options.RefreshDebounce = value;
+        }
+
+        var thrown = Record.Exception(() =>
+        {
+            StartTheWait();
+            StartTheWait();
+        });
+
+        Assert.Null(thrown);
+        var warning = Assert.Single(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        AssertNames(warning.Message, $"FormidableOptions.{option}", value.ToString("c", CultureInfo.InvariantCulture));
+        Assert.Contains(negative ? "treats it as zero" : "treats it as Timeout.InfiniteTimeSpan", warning.Message);
+
+        void StartTheWait()
+        {
+            if (wait == "Refresh")
+            {
+                engine.OnRenderedFieldsChanged();
+                return;
+            }
+
+            model.Name += "x";
+            editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(DebounceLimitModel.Name)));
+        }
+    }
+
+    // Mutation: read a negative value as a wait that never ends, and the refresh never runs.
+    [Fact]
+    public void A_negative_debounce_set_after_the_build_arms_at_zero()
+    {
+        var model = new DebounceLimitModel();
+        var editContext = new EditContext(model);
+        var options = new FormidableOptions();
+        var time = new FakeTimeProvider();
+        var counting = new CountingValidator<DebounceLimitModel>(
+            new FluentValidationModelValidator<DebounceLimitModel>(new DebounceLimitValidator()));
+        using var engine = new FormidableEngine<DebounceLimitModel>(
+            model, editContext, counting, new ReflectionModelIntrospector(), options, time,
+            logger: new CapturingLogger());
+        options.RefreshDebounce = Negative;
+        var before = counting.CallCount;
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(TimeSpan.Zero);
+
+        Assert.Equal(before + 1, counting.CallCount);
+    }
+
+    // The value is set before the build, so the build names it, and a wait then starts twice.
+    // Mutation: give the arm-time check a latch of its own rather than the build's, and the first
+    // wait names the option a second time.
+    [Theory]
+    [InlineData(nameof(FormidableOptions.RefreshDebounce), false)]
+    [InlineData(nameof(FormidableOptions.RefreshDebounce), true)]
+    [InlineData(nameof(FormidableOptions.LiveDebounce), false)]
+    [InlineData(nameof(FormidableOptions.LiveDebounce), true)]
+    public void A_debounce_named_at_the_build_is_not_named_again_at_the_arm(string option, bool negative)
+    {
+        var logger = new CapturingLogger();
+        var options = With(option, negative ? Negative : TimeSpan.MaxValue);
+        var model = new DebounceLimitModel();
+        var editContext = new EditContext(model);
+        using var engine = BuildEngine(model, editContext, options, logger, new FakeTimeProvider());
+        Assert.Single(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
+
+        var thrown = Record.Exception(() =>
+        {
+            for (var arm = 0; arm < 2; arm++)
+            {
+                if (option == nameof(FormidableOptions.RefreshDebounce))
+                {
+                    engine.OnRenderedFieldsChanged();
+                }
+                else
+                {
+                    model.Name += "x";
+                    editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(DebounceLimitModel.Name)));
+                }
+            }
+        });
+
+        Assert.Null(thrown);
+        Assert.Single(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
+    }
 
     // Mutation: drop the check, and nothing is written.
     [Fact]
@@ -150,15 +273,23 @@ public class DebounceLimitDiagnosticTests
     private static FormidableEngine<DebounceLimitModel> BuildEngine(FormidableOptions options, ILogger logger)
     {
         var model = new DebounceLimitModel();
-        return new FormidableEngine<DebounceLimitModel>(
+        return BuildEngine(model, new EditContext(model), options, logger, new FakeTimeProvider());
+    }
+
+    private static FormidableEngine<DebounceLimitModel> BuildEngine(
+        DebounceLimitModel model,
+        EditContext editContext,
+        FormidableOptions options,
+        ILogger logger,
+        TimeProvider time) =>
+        new(
             model,
-            new EditContext(model),
+            editContext,
             new FluentValidationModelValidator<DebounceLimitModel>(new DebounceLimitValidator()),
             new ReflectionModelIntrospector(),
             options,
-            new FakeTimeProvider(),
+            time,
             logger: logger);
-    }
 
     /// <summary>Whether a Trace line is the note, written for this class's model.</summary>
     private static bool IsNote(string line) =>
