@@ -75,7 +75,10 @@ also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 | `WaitForSubmit="true"`, with any mode | Not before submit, though each commit still runs the check. At submit; then as that mode's row says. | Not before submit. At submit; then as that mode's row says. |
 
 The left column is for a `LiveDebounce` left unset. A finite wait delays each of its checks until
-the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column.
+the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column. In that
+column, the whole-form re-check answers the fields a blocked submit or a server reply showed an
+error on. Any other field that fails after a later edit waits for the next submit
+([Why is it still showing, and when does it clear?](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)).
 
 Otherwise, which column a rule falls in is a configuration choice rather than a property of the
 bucket it was declared in: [`FormidableOptions.LiveProfile`](profiles.md#which-profile-runs-when)
