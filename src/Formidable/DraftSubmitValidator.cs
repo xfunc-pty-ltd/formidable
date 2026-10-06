@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FluentValidation.Internal;
 // An alias above the namespace resolves without the file's other using directives, global ones
 // included, so its type is written out in full.
@@ -21,6 +22,13 @@ namespace Formidable;
 // derives from ProfiledValidator<T> directly.
 public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
 {
+    // The pairs the overlap scan found, one answer per derived class for the life of the
+    // process, because a validator's rules belong to its class while a scoped or transient
+    // registration builds an instance per request or form. Lazy, so the scan and every message
+    // lambda it reads run once even when two instances of a new class are built at the same
+    // time. Bounded by the validator classes the code declares.
+    private static readonly ConcurrentDictionary<Type, Lazy<(string Property, string Validator)[]>> OverlapsByType = new();
+
     /// <summary>Routes the common rules to <see cref="ConfigureDraftRules"/>.</summary>
     protected sealed override void ConfigureCommonRules() => ConfigureDraftRules();
 
@@ -43,29 +51,46 @@ public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
     {
     }
 
-    /// <summary>Called at most once per property and validator type in both the draft rules and the Submit ruleset, usually a sign one mistake will show two messages. <c>Must</c> and <c>MustAsync</c> rules also need matching messages.</summary>
+    /// <summary>Called at each construction, once per property and component validator type found in both the draft rules and the Submit ruleset, usually a sign one mistake will show two messages. <c>Must</c> and <c>MustAsync</c> rules also need matching messages.</summary>
     /// <param name="propertyName">The property both axes hold a rule for.</param>
     /// <param name="validatorName">The component validator's type name as the runtime reports it (<c>NotEmptyValidator`2</c>).</param>
     /// <remarks>
-    /// Comparing two <c>Must</c> or <c>MustAsync</c> messages runs each <c>WithMessage</c> lambda
-    /// at most once, at construction and with no model; one that cannot be read that way counts as
-    /// matching. Runs from the base constructor, before a derived constructor body (field
+    /// Each derived class's rules are compared once per process, by its first instance, and that
+    /// answer serves every later instance. The comparison runs each <c>Must</c> or <c>MustAsync</c>
+    /// <c>WithMessage</c> lambda at most once, with no model; one it cannot read counts as
+    /// matching. Called from the base constructor, before a derived constructor body (field
     /// initializers have run). The default writes a <see cref="System.Diagnostics.Trace"/> line,
-    /// which the shipped release build keeps; override it to report elsewhere or to stay silent.
-    /// Child and collection rule contents are not inspected: the check covers leaf property
-    /// validators only.
+    /// which release builds keep; override it to reroute or silence it. Child and collection rule
+    /// contents are not inspected.
     /// </remarks>
     protected virtual void OnOverlappingRuleAxes(string propertyName, string validatorName) =>
         System.Diagnostics.Trace.WriteLine(
             $"Formidable: '{propertyName}' has {validatorName} rules in both the draft and submit axes; " +
             "draft handles malformed-ness, submit handles presence - overlapping rules produce double messages.");
 
+    // Every construction, the first included, calls the hook once per pair its type's answer
+    // holds, in the scan's order, so an override sees the same calls on every instance. Only the
+    // scan is shared: the hook stays outside the shared answer, so a hook that throws fails its
+    // own construction and leaves the answer standing for the next.
     private void ReportOverlappingRuleAxes()
     {
         // AbstractValidator<T> enumerates its rules; each IValidationRule carries the property
-        // name, the rulesets it was registered under, and its component validators.
-        var rules = (IEnumerable<FluentValidation.IValidationRule>)this;
+        // name, the rulesets it was registered under, and its component validators. The instance
+        // whose entry is stored first is the one scanned, and it answers for every other.
+        var overlaps = OverlapsByType.GetOrAdd(
+            GetType(),
+            static (_, rules) => new Lazy<(string Property, string Validator)[]>(() => FindOverlappingRuleAxes(rules)),
+            (IEnumerable<FluentValidation.IValidationRule>)this).Value;
 
+        foreach (var (property, validator) in overlaps)
+        {
+            OnOverlappingRuleAxes(property, validator);
+        }
+    }
+
+    private static (string Property, string Validator)[] FindOverlappingRuleAxes(
+        IEnumerable<FluentValidation.IValidationRule> rules)
+    {
         // Phase one keys each axis by (property, validator type) alone. When no property holds a
         // rule of one validator type on both axes (types compare by name), the two sets do not
         // intersect and the check stops here, with no component collected and no message read.
@@ -102,7 +127,7 @@ public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
         var sharedKeys = draftKeys;
         if (sharedKeys.Count == 0)
         {
-            return;
+            return [];
         }
 
         // Phase two collects the components of the shared keys only, and compares their messages.
@@ -135,14 +160,17 @@ public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
             }
         }
 
-        // One call per shared key, so two predicate pairs sharing a key report once.
+        // One pair per shared key, so two predicate pairs sharing a key report once.
+        var overlaps = new List<(string Property, string Validator)>();
         foreach (var (key, draftComponents) in draftAxis)
         {
             if (ShareAMessage(draftComponents, submitAxis[key]))
             {
-                OnOverlappingRuleAxes(key.Property, key.Validator);
+                overlaps.Add(key);
             }
         }
+
+        return [.. overlaps];
     }
 
     // The draft axis is the default rules (no ruleset); the submit axis is any rule registered

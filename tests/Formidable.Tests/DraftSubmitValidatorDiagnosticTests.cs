@@ -303,6 +303,10 @@ public class DraftSubmitValidatorDiagnosticTests
         Assert.Equal((nameof(TestOrder.Description), "PredicateValidator`2"), report);
     }
 
+    // Counts its message lambda's reads on the one instance its test builds. The comparison runs
+    // at a class's first construction in the process and never again, so this count is right only
+    // while no other test constructs this class: a later instance would count nothing, and the
+    // test's zero would pass whatever the comparison did.
     private sealed class MessageLambdaOnOneAxisValidator : RecordingValidator
     {
         public int MessageReads;
@@ -363,7 +367,9 @@ public class DraftSubmitValidatorDiagnosticTests
     }
 
     // Counts the message lambdas the scan runs. Its field initializer runs before the base
-    // constructor, as the recorded list's does.
+    // constructor, as the recorded list's does. The count is per instance, and the comparison runs
+    // at a class's first construction in the process and never again, so each class deriving from
+    // this one is constructed by its own test alone: a later instance would count nothing.
     private abstract class MessageCountingValidator : RecordingValidator
     {
         public int MessageCalls;
@@ -506,5 +512,72 @@ public class DraftSubmitValidatorDiagnosticTests
         Assert.Equal(2, validator.Reported.Count);
         Assert.Contains((nameof(TestOrder.Description), "PredicateValidator`2"), validator.Reported);
         Assert.Contains((nameof(TestOrder.Customer), "AsyncPredicateValidator`2"), validator.Reported);
+    }
+
+    // Counts its message lambda's calls across every instance, so the count is static. No other
+    // test constructs this type, because the comparison's answer is held per type for the life of
+    // the process.
+    private sealed class ModelReadingMessagePerTypeValidator : RecordingValidator
+    {
+        public static int MessageCalls;
+
+        protected override void ConfigureDraftRules() =>
+            RuleFor(x => x.Description).Must(d => d.Length <= 40).WithMessage(x => CountThenRead(x));
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(x => x.Description).Must(d => !d.Contains("TBD")).WithMessage(x => CountThenRead(x));
+
+        // Counts the call, then reads the instance, which is null at construction.
+        private static string CountThenRead(TestOrder order)
+        {
+            Interlocked.Increment(ref MessageCalls);
+            return order.Description;
+        }
+    }
+
+    // The comparison belongs to the validator type, so a message lambda that reads the model runs
+    // (and throws) at the type's first construction only, however many instances follow.
+    // Mutation: drop the per-type answer, so every construction compares again. The lambda then
+    // runs twice.
+    [Fact]
+    public void A_model_reading_message_runs_once_per_validator_type()
+    {
+        _ = new ModelReadingMessagePerTypeValidator();
+        _ = new ModelReadingMessagePerTypeValidator();
+
+        Assert.Equal(1, ModelReadingMessagePerTypeValidator.MessageCalls);
+    }
+
+    // No other test constructs this type, for the reason above.
+    private sealed class TwoOverlapsPerTypeValidator : RecordingValidator
+    {
+        protected override void ConfigureDraftRules()
+        {
+            RuleFor(x => x.Description).NotEmpty();
+            RuleFor(x => x.Customer).NotNull();
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Customer).NotNull();
+            RuleFor(x => x.Description).NotEmpty();
+        }
+    }
+
+    // A pin: every construction, the first included, calls the hook once for each pair its type
+    // holds, in the order the draft rules declare them, so an override sees the same calls on
+    // every instance.
+    // Mutation: skip the hook when the answer comes from an earlier construction. The second
+    // instance then records nothing.
+    [Fact]
+    public void Every_construction_reports_the_overlap_its_type_found()
+    {
+        var first = new TwoOverlapsPerTypeValidator();
+        var second = new TwoOverlapsPerTypeValidator();
+
+        Assert.Equal(
+            [(nameof(TestOrder.Description), "NotEmptyValidator`2"), (nameof(TestOrder.Customer), "NotNullValidator`2")],
+            first.Reported);
+        Assert.Equal(first.Reported, second.Reported);
     }
 }

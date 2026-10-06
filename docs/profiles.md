@@ -57,16 +57,18 @@ empty value as missing.
 | `ValidationProfile.Draft` | Default (unnamed) rules only. |
 | `ValidationProfile.Submit` | Default rules plus the `"Submit"` ruleset (`ValidationProfile.SubmitRuleSetName`). |
 
-`DraftSubmitValidator<T>` also runs a diagnostic once, at construction. For every property whose
-same-kind rule appears in both the draft rules and the `"Submit"` ruleset, it invokes
-`OnOverlappingRuleAxes` for that (property, validator) pair.
+`DraftSubmitValidator<T>` also runs a diagnostic, once per validator class, the first time the
+class is constructed. It finds every property whose same-kind rule appears in both the draft rules
+and the `"Submit"` ruleset. Every construction of the class, the first included, then invokes
+`OnOverlappingRuleAxes` once for each such (property, rule validator) pair. A class whose
+constructor arguments change its rules is judged by its first instance.
 
 Two `Must` rules, or two `MustAsync` rules, count as the same kind only when their messages match,
 since the message is how the diagnostic tells two checks apart. Two left on FluentValidation's
-default message share it, so they count. Comparing them runs each `WithMessage` lambda at most
-once, at construction and with no model, so a lambda with side effects can run then too. A message
-the diagnostic cannot read at construction (usually a lambda that reads the model) counts as a
-match.
+default message share it, so they count. Comparing them runs each `WithMessage` lambda at most once
+per validator class, at the first construction and with no model, so a lambda with side effects
+can run then too. A message the diagnostic cannot read that way (usually a lambda that reads the model)
+counts as a match.
 
 Two `Custom` rules, or two `CustomAsync` rules, cannot be told apart this way. FluentValidation
 gives them one fixed message, and `WithMessage` cannot follow them, so one on each axis of a
