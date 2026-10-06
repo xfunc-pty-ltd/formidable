@@ -69,7 +69,7 @@
         <p>Each MudBlazor control draws its label inside itself, from the <code>Label</code> text the page passes. So the markup has no label for <code>FormidableRequiredIndicator</code> (the component that draws the mark) to sit beside, and the page places no mark. The controls' own <code>Required</code> stays unset, as above, which keeps the validator the only source of rules.</p>
         <p>The <a href="workout">Full workout</a> page's <strong>Ticket tier</strong> shows where the mark goes for a foreign control (one Formidable has no input component for).</p>
         <p>MudBlazor's stylesheet arrives with this page and leaves with it, so the other pages keep their own look. While it is loaded it styles the whole document, so the fonts and spacing around the form change too, the sidebar's included. MudBlazor draws its controls in its own style, in your system's colour scheme.</p>
-        <p>MudBlazor's script loads the first time you open the page and stays until the app reloads; the form appears once it has run. In your own app both files go in the host page, as MudBlazor's installation guide describes.</p>
+        <p>MudBlazor's script loads the first time you open the page and stays until the app reloads; the form appears once it has run. If the download fails, the page says so and offers <strong>Retry</strong>, which asks for the script again. In your own app both files go in the host page, as MudBlazor's installation guide describes.</p>
     </HowItWorks>
     <Demo>
         @if (_scriptLoaded)
@@ -107,6 +107,11 @@
                     <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Submit</MudButton>
                 </div>
             </FormidableForm>
+        }
+        else if (_scriptFailed)
+        {
+            <p role="alert">MudBlazor's script did not load, so the form cannot show.</p>
+            <div class="actions"><button type="button" @onclick="RetryAsync">Retry</button></div>
         }
         else
         {

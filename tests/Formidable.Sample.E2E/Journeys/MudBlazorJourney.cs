@@ -129,6 +129,47 @@ public sealed class MudBlazorJourney(SampleAppFixture app)
             .ToHaveCountAsync(1);
     }
 
+    // A script that fails to download leaves the page saying so, with a Retry button, rather than
+    // "Loading MudBlazor…" for the rest of the visit. The request is aborted while another page is
+    // open, so the app has booted before this page first asks for the script. The text is read in
+    // the demo alone, because the page's code panel quotes the placeholder too. Letting it through
+    // and pressing Retry renders the form as a first load does: a submit shows its messages, and a
+    // room can be picked from the select's list, which opens where it can be clicked only once the
+    // script has run. Mutation that must break this: drop the catch around the script load, and the
+    // page keeps "Loading MudBlazor…" with no Retry.
+    [E2EFact]
+    public async Task A_failed_script_load_says_so_and_offers_a_retry()
+    {
+        const string scriptRequest = "**/MudBlazor.min.js";
+        await using var session = await app.NewPageAsync("/bootstrap");
+        var page = session.Page;
+        var sidebar = page.GetByRole(AriaRole.Navigation, new() { Name = "Sample pages" });
+        var demo = page.Locator(".lesson__demo");
+        var failure = demo.GetByText("MudBlazor's script did not load, so the form cannot show.", new() { Exact = true });
+        var retry = demo.GetByRole(AriaRole.Button, new() { Name = "Retry", Exact = true });
+
+        await page.RouteAsync(scriptRequest, route => route.AbortAsync());
+        await sidebar.GetByRole(AriaRole.Link, new() { Name = "Fitting MudBlazor", Exact = true }).ClickAsync();
+        await Expect(page.Locator("h1")).ToHaveTextAsync("Fitting MudBlazor");
+
+        await Expect(failure).ToBeVisibleAsync();
+        await Expect(failure).ToHaveAttributeAsync("role", "alert");
+        await Expect(retry).ToBeVisibleAsync();
+        await Expect(demo.GetByText("Loading MudBlazor…")).ToHaveCountAsync(0);
+        await Expect(Field(page, "bandname")).ToHaveCountAsync(0);
+
+        await page.UnrouteAsync(scriptRequest);
+        await retry.ClickAsync();
+
+        await Expect(Field(page, "bandname")).ToBeVisibleAsync();
+        await Expect(failure).ToHaveCountAsync(0);
+        await Expect(retry).ToHaveCountAsync(0);
+        await SubmitAsync(page);
+        await Expect(MessagesFor(page, "room")).ToHaveTextAsync(["Room is required"]);
+        await PickRoomAsync(page, "Studio A");
+        await Expect(MessagesFor(page, "room")).ToHaveCountAsync(0);
+    }
+
     /// <summary>The MudBlazor wrapper around a field's input: where the splatted class lands.</summary>
     private static ILocator MudWrapper(IPage page, string field) =>
         page.Locator(".mud-input-control").Filter(new() { Has = Field(page, field) });

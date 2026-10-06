@@ -18,6 +18,7 @@ public partial class MudBlazorFitting
     private readonly StudioBooking _booking = new();
     private MudThemeProvider? _theme;
     private bool _scriptLoaded;
+    private bool _scriptFailed;
     private bool _colourSchemeRead;
     private bool _isDarkMode;
     private string _status = string.Empty;
@@ -26,8 +27,7 @@ public partial class MudBlazorFitting
     {
         if (firstRender)
         {
-            await Js.InvokeVoidAsync("formidableSample.loadScript", MudBlazorScript);
-            _scriptLoaded = true;
+            await LoadScriptAsync();
             StateHasChanged();
         }
         else if (_theme is not null && !_colourSchemeRead)
@@ -38,6 +38,28 @@ public partial class MudBlazorFitting
             _isDarkMode = await _theme.GetSystemDarkModeAsync();
             StateHasChanged();
         }
+    }
+
+    // A download that fails (a dropped connection, a blocked request) rejects the load. The page
+    // then says so and offers Retry, where the placeholder would otherwise stand for the rest of
+    // the visit. sample.js forgets a failed script, so the next call asks for it again.
+    private async Task LoadScriptAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("formidableSample.loadScript", MudBlazorScript);
+            _scriptLoaded = true;
+        }
+        catch (JSException)
+        {
+            _scriptFailed = true;
+        }
+    }
+
+    private async Task RetryAsync()
+    {
+        _scriptFailed = false;
+        await LoadScriptAsync();
     }
 
     private void HandleValid() => _status = $"Booked {_booking.Room} for {_booking.BandName}.";

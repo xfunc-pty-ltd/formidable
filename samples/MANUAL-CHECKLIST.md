@@ -470,6 +470,11 @@ the Hosted demo section walks.
       MudBlazor's fonts and spacing. At step 6 the other page shows the sample's own fonts again
 - [ ] Steps 6 and 7, in both colour schemes: the other page showed nothing of MudBlazor's look.
       Back here, Room's popover still sits against the select
+- [ ] A failed script load, in both colour schemes. Reload the app on another page, block
+      `MudBlazor.min.js` in devtools (the Network panel's request blocking), then open this page.
+      Where the form would be, a sentence says MudBlazor's script did not load, with a *Retry*
+      button under it. Both are legible, and *Retry* reads as a button. Unblock the request and
+      click *Retry*: the form appears as it does on a first visit
 
 ### CSS colours
 
