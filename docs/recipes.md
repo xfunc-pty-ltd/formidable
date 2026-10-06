@@ -819,13 +819,17 @@ visual order are the same answer.
 list, deduplicated and capped. The click is none of their business: the component wires every entry
 to the focus service itself, which a hand-rolled list rebuilds.
 
-A surface those cannot reach (a grid-laid dialog, a status bar) reads what the component reads:
+A surface those cannot reach (a grid-laid dialog, a status bar) reads what the component reads. The
+class goes in the namespace its `.razor` file compiles into, so replace `MyApp.Components` with
+yours:
 
 ```csharp
 using Formidable;
 using Formidable.Blazor;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+
+namespace MyApp.Components;
 
 public partial class MissingFieldList : ComponentBase, IDisposable
 {
