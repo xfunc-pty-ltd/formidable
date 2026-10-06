@@ -673,7 +673,9 @@ until a submit answers or `ApplyServerIssues` runs. A submit a newer submit or l
 one whose validator threw, answers nothing, so the wait stands.
 
 `ResetAsync` or a new `Model` starts the wait again, and `DiscloseLoadedValuesAsync` engages a
-waiting field while its messages wait.
+waiting field while its messages wait. A field no waiting component has rendered yet does not wait:
+under the default [`LiveDisclosure`](#livedisclosure), a load shows its failing value's message in
+the summaries.
 
 While a field waits, a passing value still earns `formidable-valid` and a running async check still
 shows `formidable-pending`; a failing value wears no state class. [`IsFormValid`](#trackformvalidity)

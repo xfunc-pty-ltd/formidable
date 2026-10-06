@@ -197,7 +197,8 @@ or a `Collection<T>`, filled in means what `NotEmpty()` means. In any other list
 `false` held as a nullable or an `object` counts as empty, so a load leaves it silent.
 
 A row whose input waits for Submit (`WaitForSubmit`) is still confirmed at a load when its value
-passes. A failing value shows no message and no state class until a submit or server reply answers.
+passes. While that input is rendered, a failing value shows no message and no state class until a
+submit or server reply answers.
 
 A presence rule written either way, such as `RuleForEach(m => m.Tags).NotEmpty()`, marks each
 row's input required. It demands nothing of the list itself, so a component bound to `m.Tags`

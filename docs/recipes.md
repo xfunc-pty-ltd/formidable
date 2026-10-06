@@ -464,8 +464,8 @@ await _form!.DiscloseLoadedValuesAsync();
 Writing model properties notifies nothing, so without that last line a loaded form looks pristine
 however good or bad its contents are. The call confirms a good value, discloses a wrong one, and
 leaves a field holding nothing silent and unstyled; `FormidableValidator` carries the same method on
-the same terms. A field set to wait for Submit (`WaitForSubmit`) keeps a wrong value's message
-back until a submit or server reply answers.
+the same terms. A field rendered with `WaitForSubmit` keeps a wrong value's message back until a
+submit or server reply answers.
 
 **Fill the instance rather than replacing it.** A new instance reaches the form as a `Model`
 parameter, and a parameter arrives on the form's next render. The call would then run against the
