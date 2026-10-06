@@ -1,14 +1,19 @@
 @using Formidable.Blazor
 @using Microsoft.AspNetCore.Components.Web
 
-@* Razor-compiled on purpose: which Edit overload each lambda below binds is decided by the C#
-   the Razor compiler generates for the markup, and that choice is what the test pins. Built with
-   a RenderTreeBuilder, the test would name the overload itself. *@
+@* Razor-compiled on purpose: which Edit or TryEdit overload each lambda below binds is decided by
+   the C# the Razor compiler generates for the markup, and that choice is what the test pins.
+   Built with a RenderTreeBuilder, the test would name the overload itself. *@
 <FormidableForm Model="Model">
     <FormidableField For="() => Model.Items" Context="field">
-        <button id="remove-absent" type="button" @onclick="() => field.Edit(() => Rows.Remove(Absent))">Remove absent</button>
-        <button id="remove-present" type="button" @onclick="() => field.Edit(() => Rows.Remove(Present))">Remove present</button>
+        <button id="assign-false" type="button" @onclick="() => field.Edit(() => Model.Flag = false)">Assign false</button>
+        <button id="edit-remove-absent" type="button" @onclick="() => field.Edit(() => Rows.Remove(Absent))">Remove absent</button>
+        <button id="try-remove-absent" type="button" @onclick="() => field.TryEdit(() => Rows.Remove(Absent))">Try to remove absent</button>
+        <button id="try-remove-present" type="button" @onclick="() => field.TryEdit(() => Rows.Remove(Present))">Try to remove present</button>
         <button id="add-after-gate" type="button" @onclick="() => field.Edit(async () => { await Gate.Task; Rows.Add(new RowListItem()); })">Add after gate</button>
+        <button id="add-after-value-task" type="button" @onclick="() => field.Edit(async () => await AddAfterGateAsync())">Add after a ValueTask</button>
+        <button id="try-remove-absent-after-value-task" type="button" @onclick="() => field.TryEdit(async () => await RemoveAfterGateAsync(Absent))">Try to remove absent after a ValueTask</button>
+        <button id="try-remove-present-after-value-task" type="button" @onclick="() => field.TryEdit(async () => await RemoveAfterGateAsync(Present))">Try to remove present after a ValueTask</button>
     </FormidableField>
 </FormidableForm>
 
@@ -25,4 +30,18 @@
     private IList<RowListItem> Rows => Model.Items;
 
     private RowListItem Absent { get; } = new();
+
+    // A repository-shaped edit that hands back a ValueTask, the shape the awaiting overloads take
+    // only through an async lambda that awaits it.
+    private async ValueTask AddAfterGateAsync()
+    {
+        await Gate.Task;
+        Rows.Add(new RowListItem());
+    }
+
+    private async ValueTask<bool> RemoveAfterGateAsync(RowListItem row)
+    {
+        await Gate.Task;
+        return Rows.Remove(row);
+    }
 }

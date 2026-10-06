@@ -158,7 +158,14 @@ public sealed class FormidableFieldContext
     /// <summary>Runs <paramref name="edit"/>, then reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the value the edit left.</summary>
     /// <param name="edit">The page's own edit to the value this field names, such as a reorder of its list.</param>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>.</exception>
-    /// <remarks>An edit that throws reports nothing, and its exception reaches the caller.</remarks>
+    /// <remarks>
+    /// It reports whatever a lambda returns; <see cref="TryEdit(Func{bool})"/> reports only on
+    /// <see langword="true"/>. An edit that throws reports nothing, and its exception reaches the
+    /// caller. A lambda that returns a <see cref="ValueTask"/> or a <c>ValueTask&lt;bool&gt;</c>
+    /// binds this overload and reports before the edit completes: write the first as
+    /// <c>Edit(async () =&gt; await ...)</c> and the second as
+    /// <c>TryEdit(async () =&gt; await ...)</c>, and the report waits for the edit.
+    /// </remarks>
     public void Edit(Action edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
@@ -171,7 +178,7 @@ public sealed class FormidableFieldContext
     /// <returns>What <paramref name="edit"/> returned.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>.</exception>
     /// <remarks>An edit that throws reports nothing, and its exception reaches the caller.</remarks>
-    public bool Edit(Func<bool> edit)
+    public bool TryEdit(Func<bool> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
         if (!edit())
@@ -198,8 +205,12 @@ public sealed class FormidableFieldContext
     /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything.</param>
     /// <returns>A task carrying what <paramref name="edit"/> returned, which completes once any report is made.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
-    /// <remarks>An edit that faults or is cancelled reports nothing, and the returned task carries its exception or its cancellation.</remarks>
-    public Task<bool> Edit(Func<Task<bool>> edit)
+    /// <remarks>
+    /// An edit that faults or is cancelled reports nothing, and the returned task carries its
+    /// exception or its cancellation. A <c>ValueTask&lt;bool&gt;</c> edit is written
+    /// <c>async () =&gt; await ...</c>.
+    /// </remarks>
+    public Task<bool> TryEdit(Func<Task<bool>> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
         return EditThenReportAsync(edit);

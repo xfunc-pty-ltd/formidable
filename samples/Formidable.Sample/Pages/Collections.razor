@@ -27,7 +27,7 @@
         <p>Formidable keeps each message with its row's object, not the row's index in the list. Each component on a row names its field through that row's own object, as in <code>For="() =&gt; team.Name"</code>, so a moved row keeps its messages and a removed row takes them with it.</p>
         <p>The page's markup has to move with the object too, so each row is keyed by its object (<code>@@key="team"</code>, <code>@@key="member"</code>). Without the key, Blazor would reuse each row's components by position. After a move, a row's boxes would show the moved team's values, while its messages, and the field its buttons report to, still belonged to the team that first sat in that place.</p>
         <p>The error summary lists its entries in the order their fields sit on the page, so moving a team up moves its entries up too. <strong>Move up</strong> moves a member within its team the same way, messages and all.</p>
-        <p>Each list sits inside a <code>FormidableField</code> (the component that wraps one field's markup and tells the markup inside it which field it is). The buttons edit the lists through methods that field hands its markup: <code>AddItem</code>, <code>RemoveItem</code>, and <code>Edit</code> for a move.</p>
+        <p>Each list sits inside a <code>FormidableField</code> (the component that wraps one field's markup and tells the markup inside it which field it is). The buttons edit the lists through methods that field hands its markup: <code>AddItem</code>, <code>RemoveItem</code>, and <code>TryEdit</code> for a move.</p>
         <p>Each of those calls reports a change to the list, so the form checks it as you edit. That is why removing a team's last member shows "Every team needs at least one member" at once.</p>
         <p>When a row leaves, the form notices: it drops that row's messages and re-checks the whole form. After a submit, that re-check keeps the error summary in line with the shorter list, so a removed row's entry leaves with no second submit.</p>
         <p>A list has no input of its own, so each list rule shows its message through a <code>FormidableCollectionMessage</code> (the message list for a whole list): one above the teams, and one above each team's members.</p>
@@ -72,7 +72,7 @@
                                             <FormidableFieldMessage For="() => member.Alias" />
                                             <div class="actions">
                                                 <button type="button" @onclick="() => membersField.RemoveItem(team.Members, member)">Remove</button>
-                                                <button type="button" @onclick="() => membersField.Edit(() => MoveUp(team.Members, member))">Move up</button>
+                                                <button type="button" @onclick="() => membersField.TryEdit(() => MoveUp(team.Members, member))">Move up</button>
                                             </div>
                                         </li>
                                     }
@@ -80,7 +80,7 @@
                                 <div class="actions">
                                     <button type="button" @onclick="() => membersField.AddItem(team.Members, new Member())">Add member</button>
                                     <button type="button" @onclick="() => teamsField.RemoveItem(_roster.Teams, team)">Remove team</button>
-                                    <button type="button" @onclick="() => teamsField.Edit(() => MoveUp(_roster.Teams, team))">Move team up</button>
+                                    <button type="button" @onclick="() => teamsField.TryEdit(() => MoveUp(_roster.Teams, team))">Move team up</button>
                                 </div>
                             </fieldset>
                         </FormidableField>

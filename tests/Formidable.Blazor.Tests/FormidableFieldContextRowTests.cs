@@ -424,10 +424,12 @@ public class FormidableFieldContextRowTests : BunitContext
         this.RenderCollectionField(model, () => model.Items, captured);
 }
 
-/// <summary>A model whose list can hold a growable list or a fixed-size array.</summary>
+/// <summary>A model whose list can hold a growable list or a fixed-size array, and a flag no rule reads.</summary>
 public sealed class RowListModel
 {
     public IList<RowListItem> Items { get; set; } = new List<RowListItem>();
+
+    public bool Flag { get; set; }
 }
 
 public sealed class RowListItem
