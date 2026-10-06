@@ -107,10 +107,10 @@ public sealed class CancellationIgnoringValidator : DraftSubmitValidator<EngineO
     /// <summary>
     /// The rule's outcome once <see cref="Gate"/> releases it. Defaults to <see langword="true"/>
     /// — the opposite of <see cref="GatedValidator.ShouldPass"/>, because the two fixtures are
-    /// reached for different reasons: a caller here wants a stale pass that outran disposal to
-    /// carry a verdict a dead-engine guard has to suppress, and a PASSING one is what proves the
-    /// guard rather than supersession is doing the suppressing. Set it false when the verdict
-    /// itself has to be observable, e.g. as the errors a suppressed outcome must not report.
+    /// reached for different reasons: a caller here wants a stale pass that outran disposal or a
+    /// cancelled token to carry a verdict that must not land, and a PASSING one is the verdict
+    /// that would let a submit proceed if it did. Set it false when the verdict itself has to be
+    /// observable, e.g. as the errors a suppressed outcome must not report.
     /// </summary>
     public bool ShouldPass { get; set; } = true;
 

@@ -12,7 +12,7 @@ says what the member answers and, where another page teaches it, links that page
 
 | Type | Package | Where a page gets one |
 |---|---|---|
-| [`IFormidableEngine`](#iformidableengine) | `Formidable.Blazor` | `Engine` on `FormidableForm` or `FormidableValidator` (`null` until the engine is built), or `Engine` on the cascaded `FormidableFormContext` (`context.Engine` inside either root's `ChildContent`). |
+| [`IFormidableEngine`](#iformidableengine) | `Formidable.Blazor` | `Engine` on `FormidableForm` or `FormidableValidator` (`null` until the engine is built; once the root is disposed, the form's still returns its last engine, disposed, and the validator's returns `null`), or `Engine` on the cascaded `FormidableFormContext` (`context.Engine` inside either root's `ChildContent`). |
 | [`ValidationReport`](#validationreport) | `Formidable` | `SubmitOutcome.Report`, `IModelValidator<TModel>.ValidateAsync`, and on the server `GetFormidableValidationReport()`. |
 | [`SubmitOutcome`](#submitoutcome) | `Formidable.Blazor` | `FormidableForm.SubmitAsync()`, `OnValidSubmit`, `FormidableInvalidSubmitContext.Outcome`, `FormidableValidator.ValidateForSubmitAsync()`, and the engine's own `ValidateForSubmitAsync`. |
 

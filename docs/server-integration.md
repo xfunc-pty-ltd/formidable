@@ -151,6 +151,10 @@ on `FormidableValidator` alike: a deserialized `FormidableValidationProblem`, or
 then the advisories. The engine's own method takes the sequence, and a sequence is enumerated
 exactly once.
 
+A reply that arrives after the form or the validator has been disposed is dropped: on either root
+the call does nothing and throws nothing, so the handler that awaited the request needs no check that
+the form is still there. A `null` reply still throws `ArgumentNullException`, disposed or not.
+
 That first call names generated JSON metadata rather than the plain generic `ReadFromJsonAsync<T>()`
 because a WebAssembly Release publish runs the trimmer, and trimmed output cannot deserialize the
 type by reflection: it throws `NotSupportedException` when it tries. The metadata takes its options

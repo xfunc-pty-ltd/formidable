@@ -1610,7 +1610,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
             catch (OperationCanceledException) when (!external.IsCancellationRequested)
             {
-                return null; // superseded by a newer pass, rather than cancelled by the caller
+                return null; // superseded by a newer pass or by Dispose, not cancelled by the caller
             }
             catch (Exception exception) when (kind is not (PassKind.Submit or PassKind.Load))
             {
@@ -1640,7 +1640,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
                 if (pass.Version != _version)
                 {
-                    return Task.CompletedTask; // superseded by a newer pass
+                    return Task.CompletedTask; // superseded by a newer pass, or by Dispose
                 }
 
                 _faultIssue = null;
@@ -1703,9 +1703,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         finally
         {
-            // The paths that never reach the verdict dispatch — a superseded pass, a cancelled one,
-            // a faulted one — end here instead, and this no-ops once the dispatch has ended the
-            // pass itself. It reaches one step further back than a per-kind hand-roll needs to: the
+            // The paths that never land (a superseded pass, a cancelled one, a faulted one, whether
+            // or not they reached the verdict dispatch) end here instead, and this no-ops once the
+            // dispatch has landed and ended the pass itself. It reaches one step further back than a per-kind hand-roll needs to: the
             // start notification is inside the try as well, so a subscriber throwing from there
             // leaves the flag cleared and costs one extra round, rather than leaving it stuck on.
             try
@@ -2631,7 +2631,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the check.</param>
-    /// <returns>The outcome; a pass a newer submit or load displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise.</returns>
+    /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
         // Mirrors the AspNetCore filters: normalize before the profile runs, not after, so the
@@ -2934,8 +2934,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // what it loaded leaves every readable field merely unfilled — and skipping the
                 // pass there would leave that field's filed verdict describing the values the
                 // load overwrote. A null adopted set is the other case: the pass was superseded,
-                // so the pass that took it over owns what happens next. A cancelled load never
-                // gets here: it throws first.
+                // either by a newer pass, which owns what happens next, or by Dispose, after
+                // which nothing does. A cancelled load never gets here: it throws first.
                 await RunLivePassAsync(adopted);
             }
         }).ConfigureAwait(false);
@@ -3564,7 +3564,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>Unsubscribes from the edit context, stops every timer, cancels the pass and any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
+    /// <summary>Unsubscribes from the edit context, stops every timer, supersedes the pass and cancels any probe in flight, clears the message store and notifies once; later calls do nothing.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -3577,6 +3577,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _refreshTimer?.Dispose();
         _liveTimer?.Dispose();
         _validityTimer?.Dispose();
+
+        // Moving the version is what supersedes the pass in flight; cancelling its token stops
+        // only a rule that reads it. A rule that ignores the token still answers, and its pass
+        // then finds the version moved and lands nothing: a submit reports blocked, a load
+        // discloses nothing, and the pass's end arms nothing. A superseded pass's end is skipped,
+        // so the pass is retired here instead, or IsValidating would read true for good.
+        _version++;
+        EndPass();
         _passCts?.Cancel();
         _passCts?.Dispose();
         _probeCts.Cancel();

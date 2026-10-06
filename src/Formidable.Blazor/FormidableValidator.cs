@@ -44,8 +44,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     private string _modelLevelFieldId = string.Empty;
 
     // Set the moment Dispose begins, so the guard's own establish can tell a component on its way
-    // out from one merely between renders. Nothing else here needs it: every other path already
-    // reads _engine, which Dispose nulls for exactly that purpose.
+    // out from one merely between renders, and so a call that comes too late is dropped rather
+    // than told the engine is not built yet. Every other path reads _engine, which Dispose nulls
+    // for that purpose.
     private bool _disposed;
 
     [CascadingParameter]
@@ -102,7 +103,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
-    /// <inheritdoc cref="FormidableForm{TModel}.Engine"/>
+    /// <summary>The engine, also cascaded through the <see cref="FormidableFormContext"/>; <see langword="null"/> until the engine is built, and <see langword="null"/> again after <see cref="Dispose"/>.</summary>
     public IFormidableEngine? Engine => _engine;
 
     /// <summary>Builds the engine over the cascaded <see cref="EditContext"/>'s model on the first parameter set, and rebuilds it when that <see cref="EditContext"/> is replaced.</summary>
@@ -239,14 +240,19 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Runs the submit and returns the outcome for the page's own <see cref="EditForm"/> handler to route; a blocked submit moves focus to the first error under <see cref="FocusFirstErrorOnInvalidSubmit"/>.</summary>
-    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place, and blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, during the submit.</returns>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place; blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, while the submit awaited its answer, and when this component was disposed before the call.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
-    /// A replaced <see cref="EditContext"/> during the submit abandons it, and focus stays. Call it
-    /// from the renderer's synchronization context.
+    /// A replaced <see cref="EditContext"/> or a disposal while the submit awaits its answer
+    /// abandons it, and focus stays. Call it from the renderer's synchronization context.
     /// </remarks>
     public async Task<SubmitOutcome> ValidateForSubmitAsync()
     {
+        if (_disposed)
+        {
+            return RootSubmit.Superseded;
+        }
+
         var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
         if (outcome is null)
         {
@@ -266,31 +272,47 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, or the field is out of reach.</returns>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, the field is out of reach, or this component has been disposed.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
     /// The move a blocked submit makes, with <see cref="PrepareFocus"/> and
     /// <see cref="FocusFallback"/>, offered to a page that chose the moment: a page that opens a
     /// dialog instead sets <see cref="FocusFirstErrorOnInvalidSubmit"/> to <see langword="false"/>
-    /// and calls this when the dialog closes. Call it from the renderer's synchronization context.
+    /// and calls this when the dialog closes. Once this component is disposed it moves nothing and
+    /// throws nothing. Call it from the renderer's synchronization context.
     /// </remarks>
     public async Task<bool> FocusFirstErrorAsync() =>
-        await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
+        !_disposed && await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
 
     /// <summary>Applies a server reply's issues through <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> as the server's current answer; unlike <see cref="FormidableForm{TModel}.ApplyServerIssues(IEnumerable{ValidationIssue})"/>, it moves no focus.</summary>
     /// <param name="issues">The server's current issues; enumerated once.</param>
     /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
-    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) =>
+    /// <remarks>Once this component is disposed a reply is dropped: nothing is applied and nothing throws.</remarks>
+    public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        if (_disposed)
+        {
+            return;
+        }
+
         RequireEngine().ApplyServerIssues(issues);
+    }
 
     /// <summary>Applies a deserialized 400 body by flattening it with <see cref="FormidableValidationProblem.ToIssues"/>, exactly as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does.</summary>
     /// <param name="problem">The deserialized response body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="problem"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>Once this component is disposed a reply is dropped, as the other overload drops it.</remarks>
     public void ApplyServerIssues(FormidableValidationProblem problem)
     {
         ArgumentNullException.ThrowIfNull(problem);
+        if (_disposed)
+        {
+            return;
+        }
+
         RequireEngine().ApplyServerIssues(problem.ToIssues());
     }
 
@@ -302,13 +324,14 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// after filling the model from a saved draft or a loaded record; unlike a blocked submit it
     /// moves no focus. A field a component renders with <c>WaitForSubmit</c> keeps its message
     /// back until a submit answers (not one displaced or faulted) or a server reply is applied; a
-    /// passing value still shows valid. Call it from the renderer's synchronization context.
+    /// passing value still shows valid. Once this component is disposed it does nothing and throws
+    /// nothing. Call it from the renderer's synchronization context.
     /// </remarks>
     // Takes a token where the submit method takes none, for the reason FormidableForm's own
     // overload gives: a submit is UI-event-driven, while this call is data-driven and the caller
     // that filled the model typically holds the token that cancels the fetch.
     public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
-        RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
+        _disposed ? Task.CompletedTask : RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
 
     /// <summary>Tells the engine at once that the rendered field set changed, ahead of the reconcile this component runs on its own shortly after the render that changed it.</summary>
     /// <remarks>
@@ -331,12 +354,22 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the component bound to its cascaded <see cref="EditContext"/>.</summary>
     /// <returns>The built engine.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
-    private FormidableEngine<TModel> RequireEngine() =>
-        _engine ?? throw new InvalidOperationException(
+    // Every caller has already returned on a disposed component, whose engine Dispose cleared: a
+    // late call (a server reply that arrives after the component is disposed) is dropped there,
+    // with nothing for the page to guard. Only a call too early reaches the throw.
+    private FormidableEngine<TModel> RequireEngine()
+    {
+        if (_engine is not null)
+        {
+            return _engine;
+        }
+
+        throw new InvalidOperationException(
             $"{nameof(FormidableValidator<TModel>)} has no engine yet — one is built when it first " +
             "binds to its cascaded EditContext, and this call arrived before that. Capture it with " +
             "@ref and call it from an event handler rather than from a lifecycle method that runs " +
             "ahead of the first render.");
+    }
 
     /// <summary>Renders the cascaded <see cref="FormidableFormContext"/> around <see cref="ChildContent"/>, or nothing at all when there is no engine or no content.</summary>
     /// <param name="builder">The render tree builder.</param>

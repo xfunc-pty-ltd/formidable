@@ -490,10 +490,11 @@ public class FormidableFormComponentTests : BunitContext
     // A submit awaiting the engine's pipeline can still be in flight when ResetAsync disposes
     // that very engine out from under it. Cancelling the abandoned pass's token is what usually
     // ends it early (see FormidableEngine's own "superseded, not cancelled by the caller"
-    // handling), but this validator does not observe its token at all — the pass runs to
-    // completion and would pass, proving that what blocks this outcome is FormidableForm's own
-    // dead-engine guard, not supersession inside the engine. Its verdict belongs to an abandoned
-    // engine and must not surface as if it were current — CanProceed included.
+    // handling), but this validator does not observe its token at all: the pass runs to
+    // completion and would pass. Disposing the engine keeps that answer from landing, so the
+    // engine itself reports the submit blocked; what keeps both callbacks quiet is FormidableForm's
+    // own dead-engine guard, which returns the empty outcome in its place. Its verdict belongs to
+    // an abandoned engine and must not surface as if it were current, CanProceed included.
     [Fact]
     public async Task SubmitAsync_suppresses_callbacks_when_ResetAsync_disposes_its_engine_mid_flight()
     {
@@ -530,7 +531,7 @@ public class FormidableFormComponentTests : BunitContext
         await submitTask;
 
         Assert.NotNull(outcome);
-        Assert.False(outcome!.CanProceed); // would be true here if the raw (passing) outcome leaked through
+        Assert.False(outcome!.CanProceed);
         Assert.Empty(outcome.VisibleErrorSummary);
         Assert.False(validSeen);
         Assert.False(invalidSeen);

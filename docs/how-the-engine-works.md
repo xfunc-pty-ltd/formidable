@@ -373,6 +373,11 @@ superseding, and which pass yields to which is written in kinds.
   leaving whatever preceded it on screen. Its report is empty when the validator honoured the
   cancellation and its own otherwise.
 
+Disposing the engine supersedes the pass in flight: it moves the version, as a newer pass does, and
+clears the descriptor and `IsValidating`. A rule that ignores the token the disposal cancels still
+answers, but its pass lands nothing and arms nothing, so a submit reports blocked and a load
+discloses nothing.
+
 A caller's cancellation of a submit or a load holds even under a rule that ignores the token. The
 verdict dispatch reads the caller's token before anything lands, so the pass ends without landing,
 as it does when the rule reads the token, and the call throws `OperationCanceledException`. A pass

@@ -114,10 +114,20 @@ The members a page calls:
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
 | `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
-| `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine), where `IsValidating`, `HasSubmitted` and `IsFormValid` are read — the last meaning nothing until [`TrackFormValidity`](options.md#trackformvalidity) is on. |
+| `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine), where `IsValidating`, `HasSubmitted` and `IsFormValid` are read. `IsFormValid` is kept current only while [`TrackFormValidity`](options.md#trackformvalidity) is on. With it off, `IsFormValid` keeps its last answer, `false` on a form that has never tracked. |
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
-Before that there is no engine and they throw.
+Before that there is no engine and they throw. Every method in the table throws an
+`InvalidOperationException` saying so, while `Engine` throws nothing and reads `null`.
+
+Once the form is disposed, `Engine` still returns the last engine it built, now disposed, and every
+method in the table does nothing and throws nothing. `SubmitAsync` returns a blocked outcome carrying
+nothing, with neither callback, as a submit still awaiting its answer at disposal does, and
+`FocusFirstErrorAsync` answers `false`. A server reply that arrives after the form is disposed is
+dropped, so its handler needs no check that the form is still there.
+
+`ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
+`ArgumentNullException` before the first render and after disposal alike.
 
 **The `<form>` takes four positions of its own against the splat**, across the five attributes it
 can render:
@@ -1078,6 +1088,14 @@ The members a page calls:
 Call them from the renderer's synchronization context, and after the component has bound to its
 `EditContext`. Before that there is no engine: the four that require one throw a message saying
 exactly that, `Engine` reads `null`, and `NotifyFieldSetChanged()` does nothing.
+
+Once the component is disposed, `Engine` reads `null` again and `NotifyFieldSetChanged()` still does
+nothing, while the four do nothing and throw nothing. `ValidateForSubmitAsync()` returns a blocked
+outcome carrying nothing, `FocusFirstErrorAsync()` answers `false`, and a server reply that arrives
+after the component is disposed is dropped.
+
+`ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
+`ArgumentNullException` before binding and after disposal alike.
 
 **The `<form>` is the page's, and so is everything `FormidableForm` renders on one:**
 

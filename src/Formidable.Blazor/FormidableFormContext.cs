@@ -40,7 +40,7 @@ public sealed class FormidableFormContext
     public FieldRegistry Registry => Engine.Registry;
 
     /// <summary>Moves focus to the first visible error through the root that cascaded this context, and reports whether an element took it.</summary>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, or when no root is behind this context.</returns>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, when no root is behind this context, or when that root has been disposed.</returns>
     /// <remarks>Call it from the renderer's synchronization context.</remarks>
     // The one member here that is not the engine's, because the engine cannot make this move:
     // the parameters governing it are the root's, and no focus service is reachable from the

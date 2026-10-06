@@ -177,7 +177,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
-    /// <summary>The engine, also cascaded through the <see cref="FormidableFormContext"/>; <see langword="null"/> until the engine is built.</summary>
+    /// <summary>The engine, also cascaded through the <see cref="FormidableFormContext"/>; <see langword="null"/> until the engine is built, and after <see cref="Dispose"/> the last engine the form built, now disposed.</summary>
     public IFormidableEngine? Engine => _engine;
 
     /// <summary>Builds the engine over <see cref="Model"/> on the first parameter set, rebuilds it for a different instance, and builds nothing on a static page with no render mode.</summary>
@@ -568,11 +568,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <remarks>
     /// Everything the old engine held goes with it: touched and modified state, every message,
     /// <see cref="IFormidableEngine.HasSubmitted"/>, a whole-form re-check still waiting, and a
-    /// <see cref="SubmitAsync"/> still awaiting its answer, which then fires no callback. Call it
-    /// from the renderer's synchronization context.
+    /// <see cref="SubmitAsync"/> still awaiting its answer, which then fires no callback. Once the
+    /// form is disposed it does nothing and throws nothing. Call it from the renderer's
+    /// synchronization context.
     /// </remarks>
     public async Task ResetAsync(TModel? newModel = null)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         RequireEngine();
 
         if (newModel is null)
@@ -601,21 +607,28 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Runs the submit and routes the outcome to <see cref="OnValidSubmit"/> or <see cref="OnInvalidSubmit"/>; the rendered <c>&lt;form&gt;</c>'s own submit runs the same thing.</summary>
-    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place (<see cref="OnInvalidSubmit"/> still fires), and blocked and empty when <see cref="ResetAsync(TModel?)"/> or a different <see cref="Model"/> rebuilt the engine during the submit (neither callback fires).</returns>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place (<see cref="OnInvalidSubmit"/> still fires); blocked and empty, with neither callback, when <see cref="ResetAsync(TModel?)"/> or a different <see cref="Model"/> rebuilt the engine, or the form was disposed, while the submit awaited its answer, and when the form was disposed before the call.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
-    /// A reset during the submit abandons it: neither callback fires, focus stays and nothing
-    /// re-renders. Call it from the renderer's synchronization context.
+    /// A reset or a disposal while the submit awaits its answer abandons it: neither callback
+    /// fires, focus stays and nothing re-renders. Call it from the renderer's synchronization
+    /// context.
     /// </remarks>
     public async Task<SubmitOutcome> SubmitAsync()
     {
-        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _engine);
+        if (_disposed)
+        {
+            return RootSubmit.Superseded;
+        }
+
+        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _disposed ? null : _engine);
         if (outcome is null)
         {
-            // The engine that started this submit is gone, and its answer must not surface as if
-            // it were current. Cancelling the abandoned check's token is what usually stops it
-            // short, but a validator that does not honour the token can still run to completion,
-            // so the empty blocked outcome is returned instead of whatever that check decided.
+            // The engine that started this submit is gone, rebuilt or disposed with the form, and
+            // its answer must not surface as if it were current. Cancelling the abandoned check's
+            // token is what usually stops it short, but a validator that does not honour the
+            // token can still run to completion, so the empty blocked outcome is returned instead
+            // of whatever that check decided, and no callback runs for a page that may be gone.
             return RootSubmit.Superseded;
         }
 
@@ -630,6 +643,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // submit hands it a different one.
             var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
             await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+
+            // A handler that removes the form from the page has disposed it by here, and the
+            // move then does nothing, as every call on a disposed form does.
             if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
             {
                 await FocusFirstErrorAsync();
@@ -641,16 +657,16 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, or the field is out of reach.</returns>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, the field is out of reach, or the form has been disposed.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
     /// The move a blocked submit makes, with <see cref="PrepareFocus"/> and
     /// <see cref="FocusFallback"/>, offered to a page that chose the moment;
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> does not gate it. Call it from the renderer's
-    /// synchronization context.
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/> does not gate it. Once the form is disposed it
+    /// moves nothing and throws nothing. Call it from the renderer's synchronization context.
     /// </remarks>
     public async Task<bool> FocusFirstErrorAsync() =>
-        await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
+        !_disposed && await FirstErrorFocus.MoveAsync(Services, RequireEngine(), FocusFallback, PrepareFocus);
 
     /// <summary>Moves focus to the first error after a server apply that carried one, under <see cref="FocusFirstErrorOnInvalidSubmit"/>, without awaiting the move.</summary>
     /// <param name="appliedIssues">The issues the apply carried.</param>
@@ -693,12 +709,18 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// The apply is <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/>'s,
     /// which sets <see cref="IFormidableEngine.HasSubmitted"/> and moves no focus of its own;
     /// call that through <see cref="Engine"/> for a quiet apply. The move here is gated by
-    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>. Call this from the renderer's
+    /// <see cref="FocusFirstErrorOnInvalidSubmit"/>. Once the form is disposed a reply is dropped:
+    /// nothing is applied, no focus moves and nothing throws. Call this from the renderer's
     /// synchronization context.
     /// </remarks>
     public void ApplyServerIssues(IEnumerable<ValidationIssue> issues)
     {
         ArgumentNullException.ThrowIfNull(issues);
+        if (_disposed)
+        {
+            return;
+        }
+
         var issueList = issues as IReadOnlyList<ValidationIssue> ?? issues.ToList();
         RequireEngine().ApplyServerIssues(issueList);
         FocusAfterServerIssues(issueList);
@@ -708,9 +730,15 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// <param name="problem">The deserialized response body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="problem"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>Once the form is disposed a reply is dropped, as the other overload drops it.</remarks>
     public void ApplyServerIssues(FormidableValidationProblem problem)
     {
         ArgumentNullException.ThrowIfNull(problem);
+        if (_disposed)
+        {
+            return;
+        }
+
         var issues = problem.ToIssues();
         RequireEngine().ApplyServerIssues(issues);
         FocusAfterServerIssues(issues);
@@ -724,8 +752,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     /// after filling <see cref="Model"/> from a saved draft or a loaded record; unlike a blocked
     /// submit it moves no focus. A field a component renders with <c>WaitForSubmit</c> keeps its
     /// message back until a submit answers (not one displaced or faulted) or a server reply is
-    /// applied; a passing value still shows valid. Call it from the renderer's synchronization
-    /// context.
+    /// applied; a passing value still shows valid. Once the form is disposed it does nothing and
+    /// throws nothing. Call it from the renderer's synchronization context.
     /// </remarks>
     // Takes a token where the submit methods take none: a submit is UI-event-driven and its
     // handler holds none to pass, while this call is data-driven, and the caller that filled the
@@ -733,11 +761,15 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // record-open or a dispose mid-load cancels the disclosure through the token that cancels the
     // fetch.
     public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
-        RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
+        _disposed ? Task.CompletedTask : RequireEngine().DiscloseLoadedValuesAsync(cancellationToken);
 
     /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the first render built one.</summary>
     /// <returns>The built engine.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    // Every caller has already returned on a disposed form, which keeps the engine it disposed so
+    // Engine can still return it: a late call (a server reply that arrives after the form is
+    // disposed) is dropped there, with nothing for the page to guard. Only a call too early
+    // reaches the throw.
     private FormidableEngine<TModel> RequireEngine() =>
         _engine ?? throw new InvalidOperationException(
             $"{nameof(FormidableForm<TModel>)} has no engine yet — one is built when the form first " +

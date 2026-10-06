@@ -156,6 +156,56 @@ public class FormidableEngineAsyncTests
         Assert.False(engine.IsValidating);
     }
 
+    // Disposal moves the engine on from the pass in flight, whether or not its rule reads the
+    // token the disposal cancels. This rule ignores it and passes, so only the disposal can keep
+    // the answer from landing.
+    // Mutation: leave the version alone in Dispose, and the submit reports CanProceed=true, and
+    // the load lands and then throws ObjectDisposedException from the live check it starts on
+    // the disposed engine.
+    // Mutation: leave the pass unretired in Dispose, and IsValidating reads true for good.
+    [Theory]
+    [InlineData("submit")]
+    [InlineData("load")]
+    public async Task A_pass_in_flight_when_the_engine_is_disposed_never_lands(string kind)
+    {
+        var order = new EngineOrder { Description = "Loaded" };
+        var validator = new CancellationIgnoringValidator(); // passes once released
+        var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            new FakeTimeProvider());
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        if (kind == "submit")
+        {
+            var pending = engine.ValidateForSubmitAsync();
+            Assert.Equal(1, validator.Started);
+            engine.Dispose();
+            validator.Gate.SetResult();
+
+            var outcome = await pending;
+
+            Assert.False(outcome.CanProceed);
+            Assert.False(engine.HasSubmitted);
+        }
+        else
+        {
+            var pending = engine.DiscloseLoadedValuesAsync();
+            Assert.Equal(1, validator.Started);
+            engine.Dispose();
+            validator.Gate.SetResult();
+
+            await pending;
+
+            Assert.False(engine.GetFieldState(description).IsTouched);
+            Assert.Empty(engine.GetVisibleIssues());
+        }
+
+        Assert.False(engine.IsValidating);
+    }
+
     [Fact]
     public async Task IsValidating_stays_true_while_a_newer_pass_supersedes()
     {

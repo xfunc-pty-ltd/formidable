@@ -101,8 +101,8 @@ only errors, and [`SubmitOutcome.CanProceed`](engine-reference.md#submitoutcome)
 for a submit that landed; a submit
 displaced by a newer submit, a load, or the form being rebuilt or torn down reports `false` whatever
 its report holds. `FormidableForm<TModel>.SubmitAsync()` routes on it: `OnValidSubmit` when
-`CanProceed`, `OnInvalidSubmit` otherwise. A model that's all warnings and infos, with no errors,
-submits successfully.
+`CanProceed`, `OnInvalidSubmit` otherwise, and neither for a submit the form's rebuild or teardown
+abandoned. A model that's all warnings and infos, with no errors, submits successfully.
 
 That's the whole authoring surface: mark severities, put the rule where it should run, read
 `CanProceed` instead of counting errors by hand. What follows backs that guarantee with the actual
@@ -274,7 +274,7 @@ submit nor a server reply has shown.
 A field that was an error site at submit picks up a newly-appearing warning too, because it is
 already watched. That holds whether or not it carried a warning at submit time. Only a
 field with no visible issue of any severity at submit is left outside that re-check when it starts
-failing a warning-severity rule — the same way a newly-failing error field is.
+failing a warning-severity rule, the same way a newly-failing error field is.
 
 A passing submit ends every watch but one kind. An advisory the form is showing as it passes keeps
 its watch and goes on updating as the visitor edits; everything else starts over. An error the

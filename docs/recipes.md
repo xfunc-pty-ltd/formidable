@@ -517,7 +517,8 @@ rather than "proven optional", and the shapes below draw no mark:
 - Presence written as a predicate, `Must(s => !string.IsNullOrWhiteSpace(s))`.
 - Any field of a validator that cannot be inspected at all.
 - A presence rule that carries a condition (a `When`/`Unless`, or a collection rule's per-row
-  `Where` filter) which answers `ConditionallyRequired`.
+  `Where` filter), which answers `ConditionallyRequired`. The indicator renders no mark for
+  `ConditionallyRequired`.
 - A presence rule whose severity is decided from the model, `WithSeverity(x => ...)`, which
   answers `ConditionallyRequired` as a condition does.
 

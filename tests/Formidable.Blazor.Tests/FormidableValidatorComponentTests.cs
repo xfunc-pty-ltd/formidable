@@ -479,12 +479,12 @@ public class FormidableValidatorComponentTests : BunitContext
     // is replaced out from under it, which is what OnParametersSet disposes and rebuilds the
     // engine for. The counterpart of FormidableFormComponentTests'
     // SubmitAsync_suppresses_callbacks_when_ResetAsync_disposes_its_engine_mid_flight, for the
-    // root whose engine a page reaches through this component rather than owning. Two things make
-    // it discriminating at once: the validator does not observe its token, so the abandoned pass
-    // runs to completion instead of being cut short by the disposal, and it FAILS, so the verdict
-    // the guard has to suppress is one that carries both a summary and a field for focus to move
-    // to. Without the guard the outcome reports that stale summary and the focus service is asked
-    // for a field on a model nothing is editing any more.
+    // root whose engine a page reaches through this component rather than owning. The validator
+    // does not observe its token, so the abandoned pass runs to completion instead of being cut
+    // short by the disposal, and it FAILS, so the answer the guard has to suppress carries an
+    // error. Disposing the old engine already makes that engine report the submit blocked with an
+    // empty summary, so what only the guard keeps out is the abandoned pass's own report: without
+    // it the outcome carries the stale error.
     [Fact]
     public async Task A_submit_whose_engine_is_replaced_mid_flight_reports_blocked_and_moves_nothing()
     {
@@ -514,7 +514,8 @@ public class FormidableValidatorComponentTests : BunitContext
 
         Assert.NotNull(outcome);
         Assert.False(outcome!.CanProceed);
-        Assert.Empty(outcome.VisibleErrorSummary); // the abandoned pass's own errors would fill this
+        Assert.Empty(outcome.VisibleErrorSummary);
+        Assert.Empty(outcome.Report.Issues); // the abandoned pass's own error would be here
         Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
 
         await Services.DisposeAsync();
