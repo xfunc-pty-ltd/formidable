@@ -23,7 +23,7 @@ public class FormidableEngineHardeningTests
 
         var submit = engine.ValidateForSubmitAsync();
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
-        time.Advance(TimeSpan.FromMilliseconds(301)); // debounce elapses while submit is in flight -> defer + re-arm
+        time.Advance(TimeSpan.FromMilliseconds(301)); // debounce elapses while submit is in flight -> defers until the submit ends
 
         validator.Gate.SetResult();
         await submit;

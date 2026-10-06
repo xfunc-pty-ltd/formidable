@@ -40,7 +40,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // and _currentPass, which the pass that recorded it clears beside IsValidating. The running
     // validity check's marker (_validityCheckRunning, _validityCheckStartedAt) and _submitAnswered
     // move on the dispatcher alone: the marker as the timer fires and in the probe's own exits,
-    // each dispatched, and the flag in the submit's apply.
+    // each dispatched, and the flag in the submit's apply. So do the three deferral records
+    // (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set as a fire defers, and
+    // cleared in a dispatch of their own after the end of the pass they deferred to.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
     // context as a probe starts, and IsFormValid is written on the dispatcher only while that
@@ -151,6 +153,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     private ITimer? _refreshTimer;
     private ITimer? _liveTimer;
+
+    // One record per timer whose fire found a pass in flight that it defers to: set by the fire,
+    // which arms nothing, and cleared as ArmDeferredFires arms the timer once at the end of that
+    // pass.
+    private bool _refreshFireDeferred;
+    private bool _liveFireDeferred;
+    private bool _validityFireDeferred;
 
     // The longest due time the system timer takes, in whole milliseconds; UsableWait reads a
     // debounce past it as a wait that never ends, and ReportUnusableDebounce names it.
@@ -503,7 +512,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // The options are read here at each ask, per their read-at-each-use contract. The validity
     // timer is consulted while it is armed: its fire stands down once a submit has answered
     // (which answered the selection itself) or an edit has armed the refresh (counted here in its
-    // own right), re-arms behind a submit or a load in flight, and otherwise starts the probe.
+    // own right), defers to a submit or a load in flight, and otherwise starts the probe.
     // That probe is consulted too, from the fire until one of its
     // exits, under the bound a pass has, measured from the fire. No other probe is: they are
     // fire-and-forget, with no start time to bound them by. The serve condition itself, and the
@@ -517,7 +526,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             // A pass past the bound stops vouching whatever is scheduled behind it: a hung
             // submit, live or load pass defers every armed refresh indefinitely
-            // (RunRefreshPassAsync re-arms behind exactly those kinds), and a hung refresh is
+            // (RunRefreshPassAsync defers to exactly those kinds), and a hung refresh is
             // displaced by the next fire rather than deferred to, beginning a pass with a bound
             // of its own — so at this read the arms below cannot stand in for the pass past it.
             if (_timeProvider.GetElapsedTime(pass.StartedAt)
@@ -1499,17 +1508,23 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Retires a pass that ended without landing (a fault or a caller's cancellation) and abandons the held coverage answer, when the pass is still current.</summary>
     /// <param name="pass">The pass that ended.</param>
+    /// <returns><see langword="true"/> when the pass was still current and this retired it.</returns>
     // Retraction is immediate rather than bound-delayed: EndPass moves the coverage version out
     // from under the cache, and abandoning the held answer keeps the serve route from handing it
     // straight back for a still-armed window or the bound's remainder. A landed pass ended at its
     // verdict dispatch and never reaches here, and a superseded pass fails the version gate
     // PublishPassStateAsync applies, so neither costs a hold anything.
-    private Task EndPassWithoutLandingAsync(PassScope pass) =>
-        PublishPassStateAsync(pass, () =>
+    private async Task<bool> EndPassWithoutLandingAsync(PassScope pass)
+    {
+        var ended = false;
+        await PublishPassStateAsync(pass, () =>
         {
             _submitCoverage.Abandon();
             EndPass();
-        });
+            ended = true;
+        }).ConfigureAwait(false);
+        return ended;
+    }
 
     /// <summary>Applies a pass-state change on the renderer's dispatcher and raises both the engine's and the <see cref="EditContext"/>'s notifications, when <paramref name="pass"/> is still current.</summary>
     /// <param name="pass">The pass the change belongs to; a superseded pass's change is skipped rather than written over a newer pass's state.</param>
@@ -1557,6 +1572,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // what the verdict apply below checks before it writes the store.
         var editStamp = _editStamp;
         var generation = _verdictStore.Generation;
+
+        // Whether this pass ended as the current one, landed or not, which is what owes the fires
+        // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
+        // nothing: the pass that superseded it ends later.
+        var ended = false;
 
         try
         {
@@ -1636,6 +1656,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // descriptor is gone before any notification, so a handler that reacts by letting a
                 // deferred refresh run cannot still see this pass as the one in flight.
                 EndPass();
+                ended = true;
 
                 RebuildStore();
                 return Task.CompletedTask;
@@ -1652,8 +1673,56 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // leaves the flag cleared and costs one extra round, rather than leaving it stuck on.
             if (IsValidating)
             {
-                await EndPassWithoutLandingAsync(pass).ConfigureAwait(false);
+                ended |= await EndPassWithoutLandingAsync(pass).ConfigureAwait(false);
             }
+
+            // In a dispatch of its own, after the landing's: a fire armed at zero can run inside
+            // the arm (FakeTimeProvider fires a zero due time inside Change) and start a pass, and
+            // that must not happen before the landing's store rebuild has run. Here too a throw
+            // from the landing's notification still leaves the deferred fires armed.
+            if (ended)
+            {
+                await _renderDispatch(() =>
+                {
+                    ArmDeferredFires();
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>Arms, once each, the timers whose fires found a pass in flight that they defer to, at each one's own debounce, and clears their records; a disposed engine arms nothing.</summary>
+    // Called once the pass a fire deferred to has ended as the current pass. Re-arming from the
+    // fire itself would poll: at a debounce of zero the fire would run back to back for the whole
+    // flight. The validity check is armed first. Its fire stands down for a refresh an edit armed,
+    // and a refresh armed ahead of it at the same wait could begin first and leave nothing for it
+    // to stand down for. A live fire whose LiveDebounce was cleared while it waited closes its
+    // window, as a fire that finds the option cleared does.
+    private void ArmDeferredFires()
+    {
+        if (_validityFireDeferred)
+        {
+            _validityFireDeferred = false;
+            ScheduleValidityCheck();
+        }
+
+        if (_liveFireDeferred)
+        {
+            _liveFireDeferred = false;
+            if (_options.LiveDebounce is { } liveDebounce)
+            {
+                ScheduleLiveDebounce(liveDebounce);
+            }
+            else
+            {
+                _pendingDebouncedLiveFields.Clear();
+            }
+        }
+
+        if (_refreshFireDeferred)
+        {
+            _refreshFireDeferred = false;
+            ScheduleRefresh();
         }
     }
 
@@ -1890,8 +1959,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         if (SubmitInFlight || LoadInFlight)
         {
-            // A probe the validity timer's fire started never reaches here: the fire re-arms
-            // behind these two kinds instead, so this exit has no running check to end.
+            // A probe the validity timer's fire started never reaches here: the fire defers to
+            // these two kinds instead, so this exit has no running check to end.
             return;
         }
 
@@ -3039,8 +3108,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         if (_disposed)
         {
-            // A refresh pass whose dispatch was still queued when the owning component went away
-            // re-arms the timer from its own deferral branch; a disposed engine arms no timer.
+            // A pass that ends after the owning component went away still arms the fires that
+            // deferred to it, and a fire dispatched before Dispose can still land; a disposed
+            // engine arms no timer.
             return;
         }
 
@@ -3053,9 +3123,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         if (_disposed)
         {
-            // A debounced live pass whose dispatch was still queued when the owning component
-            // went away re-arms nothing on its own, but a field change notification racing
-            // Dispose could still reach here; a disposed engine arms no timer.
+            // A pass that ends after the owning component went away still arms the fires that
+            // deferred to it, and a field change notification racing Dispose could still reach
+            // here; a disposed engine arms no timer.
             return;
         }
 
@@ -3070,7 +3140,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         if (_disposed)
         {
-            // A field change notification racing Dispose could still reach here.
+            // A field change notification racing Dispose, or a pass ending after it, could
+            // still reach here.
             return;
         }
 
@@ -3078,7 +3149,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ArmTimer(ref _validityTimer, RunValidityCheckAsync, _options.RefreshDebounce, nameof(FormidableOptions.RefreshDebounce));
     }
 
-    /// <summary>The validity timer's handler: stands down when disposed, when tracking is off, once a submit has answered or while an edit has armed the refresh; otherwise re-arms behind a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
+    /// <summary>The validity timer's handler: stands down when disposed, when tracking is off, once a submit has answered or while an edit has armed the refresh; otherwise defers to a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
     /// <returns>A completed task; the probe it starts runs fire-and-forget.</returns>
     // A stand-down leaves the timer unarmed, because what it would have answered is answered
     // elsewhere or not wanted: an answered submit arms the refresh behind every later edit, a
@@ -3087,22 +3158,24 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // probe beside that refresh would run a still-unanswered async rule a second time, since
     // neither could reuse what the other was still computing. A server reply alone is no
     // stand-down: it answers nothing this check computes, and the edit before it would go
-    // unanswered. The refresh is tested before the re-arm below because it waits out a submit in
-    // flight too, and runs whether that submit answers or is cancelled. Behind a submit or a load
-    // in flight the timer re-arms and keeps its flag, as the live timer's fire does, because a
-    // submit that ends without answering, or a load whose answer predates the edit, leaves the
-    // edit to this check. So the probe this fire starts never meets the probe's own stand-down.
+    // unanswered. The refresh is tested before the deferral below because it waits out a submit
+    // in flight too, and runs whether that submit answers or is cancelled. Behind a submit or a
+    // load in flight the fire records that it deferred and keeps its flag, as the live timer's
+    // fire does, and the end of that pass arms it once more (ArmDeferredFires), because a submit
+    // that ends without answering, or a load whose answer predates the edit, leaves the edit to
+    // this check. So the probe this fire starts never meets the probe's own stand-down.
     private Task RunValidityCheckAsync()
     {
         if (_disposed || !_options.TrackFormValidity || _submitAnswered || RefreshArmedByEdit)
         {
             _validityCheckArmed = false;
+            _validityFireDeferred = false;
             return Task.CompletedTask;
         }
 
         if (SubmitInFlight || LoadInFlight)
         {
-            ScheduleValidityCheck();
+            _validityFireDeferred = true;
             return Task.CompletedTask;
         }
 
@@ -3181,8 +3254,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>The live timer's handler: stands down for a submit, refresh or load in flight, else runs one live pass for the fields accumulated while the window was open.</summary>
     /// <remarks>
-    /// Standing down re-arms the timer while <see cref="FormidableOptions.LiveDebounce"/> is still
-    /// set; with the option cleared mid-window the window closes and the accumulator empties. A
+    /// Standing down records the deferral, and the end of the pass in flight arms the timer once
+    /// more while <see cref="FormidableOptions.LiveDebounce"/> is still set; with the option
+    /// cleared mid-window the window closes and the accumulator empties. A
     /// snapshot left empty, every accumulated field having departed, starts no pass; the
     /// <see cref="FormidableOptions.TrackFormValidity"/> probe still runs, because it answers for
     /// the model rather than for any field.
@@ -3198,10 +3272,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         if (SubmitInFlight || RefreshInFlight || LoadInFlight)
         {
-            if (_options.LiveDebounce is { } liveDebounce)
+            if (_options.LiveDebounce is not null)
             {
-                // Re-arm and try again once the pass in flight finishes, touching neither the
-                // accumulator nor a pass. Snapshotting here regardless (the shape every other fire
+                // Wait for the pass in flight to end, touching neither the accumulator nor a pass:
+                // its end arms this timer once more (ArmDeferredFires). Re-arming here would poll,
+                // and at a window of zero the fire would run back to back for the whole flight.
+                // Snapshotting here regardless (the shape every other fire
                 // handler in this file uses) would still lose the fields: RunLivePassAsync's own
                 // stand-down guard bails without writing them anywhere, and starting a live pass
                 // against an in-flight refresh would cancel it via BeginPass without anything left to
@@ -3212,13 +3288,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // not checked: one live pass superseding another is the existing, correct
                 // contract, and the winner's verdict answers every engaged field — the
                 // superseded pass's fields among them.
-                ScheduleLiveDebounce(liveDebounce);
+                _liveFireDeferred = true;
                 return Task.CompletedTask;
             }
 
             // Options mutate in place, and this fire can land after a consumer has since cleared
             // LiveDebounce out from under an already-open window. There is no duration left to
-            // re-arm with, so the window closes here instead of throwing, and the accumulator
+            // arm with, so the window closes here instead of throwing, and the accumulator
             // empties with it: a field only ever accumulated here, never yet handed to a pass,
             // is the same speculative entry the departed-field prune in OnRenderedFieldsChanged
             // discards on identical reasoning — its next edit, or a submit, revalidates it
@@ -3255,7 +3331,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return RunLivePassAsync(fields);
     }
 
-    /// <summary>The refresh timer's handler: re-arms behind a submit, live pass or load in flight, else re-checks the whole model under the submit profile, the indicator narrowed to the fields edited within the window and those a debounce window holds.</summary>
+    /// <summary>The refresh timer's handler: defers to a submit, live pass or load in flight, else re-checks the whole model under the submit profile, the indicator narrowed to the fields edited within the window and those a debounce window holds.</summary>
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -3268,8 +3344,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         if (SubmitInFlight || LiveInFlight || LoadInFlight)
         {
-            // Defer and re-arm — the edit must still be revalidated once the pass in flight
-            // finishes. Submit is the higher-intent operation and no refresh ever supersedes it,
+            // Defer: the edit must still be revalidated once the pass in flight finishes, and that
+            // pass's end arms this timer once more (ArmDeferredFires). Re-arming here would poll,
+            // and at a RefreshDebounce of zero the fire would run back to back for the whole
+            // flight. Submit is the higher-intent operation and no refresh ever supersedes it,
             // and a load pass is stood down for on the same grounds (see LoadInFlight); a live
             // pass is waited out for a different reason: starting here would cancel it (see
             // BeginPass) and this pass would then discard its own verdict for any field that was
@@ -3280,7 +3358,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // finds them answered. Waiting can in principle be starved by passes that never
             // quiesce — the same exposure the submit case has always carried, and a form whose
             // passes never settle has no moment at which a refresh would be meaningful anyway.
-            ScheduleRefresh();
+            _refreshFireDeferred = true;
             return;
         }
 
@@ -3295,8 +3373,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // window is still holding (below). Fields
                 // edited while this pass is in flight land in the now-empty accumulator and are
                 // flagged by the NEXT refresh instead — they are not lost, just deferred one
-                // window (see ScheduleRefresh's re-arm on the deferral branch above for the
-                // analogous case). If THIS pass is itself superseded before finishing (a live
+                // window (the deferral branch above is the analogous case). If THIS pass is
+                // itself superseded before finishing (a live
                 // pass never defers to a refresh — see BeginPass), its already-captured scope is
                 // deliberately dropped, not merged into whatever runs next: the superseding pass
                 // owns the indicator outright, exactly as one live pass already displaces

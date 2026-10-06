@@ -508,7 +508,7 @@ public class FormidableEngineFieldSetChangeTests
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
             // The departure below arms a refresh as well, and a refresh in flight is one the
-            // window's own fire stands down for and re-arms behind. Held past the window, so what
+            // window's own fire stands down for and waits out. Held past the window, so what
             // answers for the survivor here is the window's pass rather than a pass that would
             // have answered for every field alike.
             new FormidableOptions

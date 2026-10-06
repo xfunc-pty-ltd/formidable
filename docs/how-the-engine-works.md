@@ -78,7 +78,8 @@ whole selection by fiat.
 A submit clears the server store too when it began after the last apply
 ([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
-**Refresh.** Started by the refresh timer, which two things arm (and a deferred fire re-arms): a
+**Refresh.** Started by the refresh timer, which two things arm (and the end of a pass its fire
+waited for arms again): a
 field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerIssues` also sets
 `HasSubmitted`), and any move in the rendered field set, the first render included. It runs the
 submit profile whole-model.
@@ -341,9 +342,9 @@ has the reader's view). Deferral is the other relationship, a pass that stands d
 superseding, and which pass yields to which is written in kinds.
 
 - A **live pass** never starts while a submit or a load is in flight: an immediate one returns
-  without running, and a debounced fire re-arms its timer and tries again. Either kind supersedes
-  an older live pass, and the winner's verdict answers every engaged field, the superseded pass's
-  fields included.
+  without running, and a debounced fire records that it waited, so the end of the pass in flight
+  arms its timer once more. Either kind supersedes an older live pass, and the winner's verdict
+  answers every engaged field, the superseded pass's fields included.
 - A **debounced live fire** also defers to a refresh in flight, because the edit that opened the
   window already happened and nothing else would re-arm that refresh if the live pass cancelled
   it.
@@ -352,8 +353,8 @@ superseding, and which pass yields to which is written in kinds.
   re-armed, so the submit-selected coverage waits for whatever next answers that profile. With
   the live channel narrowed and `TrackFormValidity` off, nothing refills it before a submit, a
   load or the next field-set move.
-- A **refresh** fire defers to a submit, a live pass or a load in flight, re-arming so the edit is
-  still revalidated once that pass ends. A refresh does not defer to a refresh: the newer displaces
+- A **refresh** fire defers to a submit, a live pass or a load in flight, and that pass's end
+  arms it again, so the edit is still revalidated. A refresh does not defer to a refresh: the newer displaces
   the older. An open debounce window is not a pass, so nothing defers to it; a refresh that comes
   due first executes the stale rules, and the window's own pass then finds them answered.
 - A **submit** and a **load** defer to nothing. Each is started and awaited by a caller, so two of
@@ -361,6 +362,15 @@ superseding, and which pass yields to which is written in kinds.
   superseded before its verdict landed reports blocked with an empty summary and writes nothing,
   leaving whatever preceded it on screen. Its report is empty when the validator honoured the
   cancellation and its own otherwise.
+
+A timer fire that defers arms nothing. It records that it waited, and the end of the pass it
+deferred to, landed or not, arms its timer once at its own debounce. A superseded pass's end arms
+nothing, since the pass that superseded it ends later. So a `TimeSpan.Zero` debounce costs one
+fire per pass in flight, never a loop.
+
+That arm runs in a dispatch after the landing's. Under a clock that fires a zero wait inside the
+arm (`FakeTimeProvider` does), a pass it starts would otherwise begin before the landing's store
+rebuild.
 
 A superseded pass's pending-indicator scope is dropped, not merged: the superseding pass owns the
 indicator outright. The probe stands down for a submit or a load in flight on the same grounds
@@ -639,14 +649,14 @@ Its fire tests for a stand-down first: the engine is disposed, tracking is off, 
 answered, or an edit has armed the refresh. A server reply alone does not stand it down, since the
 reply answers nothing the probe computes.
 
-Otherwise, while a submit or a load is in flight, the fire re-arms and keeps the flag, as the live
-timer's fire does. Otherwise it clears the flag, marks the probe it starts as running, and starts
+Otherwise, while a submit or a load is in flight, the fire records that it waited and keeps the
+flag, as the live timer's fire does, and the end of that pass arms it once more. Otherwise it clears the flag, marks the probe it starts as running, and starts
 it.
 
 The refresh an edit arms adopts `IsFormValid` for the whole model and counts as a re-answer on its
 way, so a probe beside it would only run a still-unanswered async rule a second time. That refresh
 also waits out a submit in flight and runs whether the submit answers or is cancelled, which is
-why the fire tests for it before the re-arm.
+why the fire tests for it before it defers.
 
 After `HasSubmitted` no change arms the validity timer at all. A probe due with the refresh the
 same change armed could fire once that refresh had begun, with no armed refresh left to stand down

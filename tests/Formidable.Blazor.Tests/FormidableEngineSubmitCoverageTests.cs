@@ -1129,7 +1129,7 @@ public class FormidableEngineSubmitCoverageTests
 
     // Mutation this breaks: consulting the arms behind a pass without first asking the pass's
     // age. A hung submit, live or load pass defers every armed refresh indefinitely — the
-    // refresh re-arms behind exactly those three kinds — so the refresh accumulator stays full
+    // refresh defers to exactly those three kinds — so the refresh accumulator stays full
     // for as long as the hang lasts, and an arm read past the bound would keep the vouch on a
     // promise the hang itself is blocking.
     [Fact]

@@ -456,12 +456,69 @@ public class FormidableEngineRuleReuseTests
         var draftBefore = validator.DraftRuleRuns;
         var submitBefore = validator.SubmitRuleRuns;
 
-        // The deferred refresh comes due with nothing in its way and runs; no live pass ever
-        // fires for the emptied accumulator.
-        time.Advance(TimeSpan.FromMilliseconds(200));
+        // The deferred refresh comes due RefreshDebounce after the submit's end, with nothing in
+        // its way, and runs; no live pass ever fires for the emptied accumulator.
+        time.Advance(TimeSpan.FromMilliseconds(300));
 
         Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
         Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+        Assert.False(engine.IsValidating);
+    }
+
+    // A pin, which a fire that re-armed itself behind the submit would pass too. An edit made
+    // during a second submit arms the refresh, which comes due while that submit is out and
+    // waits for its end; then each rule runs once more for the edit, and no more. The wait is
+    // 300 ms, not zero: every refresh arm shares one timer whose arm replaces a pending fire, so
+    // only a second way of starting the refresh could run it twice. Mutation: have the submit's
+    // end both arm the refresh timer and start the refresh at once, and the gated rule is
+    // reached twice for the edit (the timer's refresh replaces the one still waiting on the rule,
+    // and runs it again).
+    [Fact]
+    public async Task A_refresh_deferred_behind_a_submit_runs_each_rule_once_for_the_edit()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Description = "ok", Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { RefreshDebounce = TimeSpan.FromMilliseconds(300) },
+            time);
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
+
+        // The second submit waits on the draft rule.
+        validator.Reset();
+        var submitGate = validator.Gate;
+        var submit = engine.ValidateForSubmitAsync();
+
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        time.Advance(TimeSpan.FromMilliseconds(300)); // the refresh comes due while the submit is out
+
+        // The submit ends. The rule the refresh reaches next waits on a gate of its own, so a
+        // refresh started twice would reach it twice before either could answer.
+        validator.Reset();
+        submitGate.SetResult();
+        Assert.True((await submit).CanProceed);
+
+        time.Advance(TimeSpan.FromMilliseconds(300));
+        validator.Gate.SetResult();
+        for (var waited = 0; waited < 500 && engine.IsValidating; waited++)
+        {
+            await Task.Delay(10);
+        }
+
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        // One run of each rule for the second submit, and one for the edit.
+        Assert.Equal(draftBefore + 2, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 2, validator.SubmitRuleRuns);
         Assert.False(engine.IsValidating);
     }
 

@@ -513,8 +513,8 @@ public class FormidableEngineValidatingScopeTests
 
         time.Advance(TimeSpan.FromMilliseconds(400)); // window closes while the submit is in flight
 
-        // Deferred, not dropped: SubmitInFlight is still true, so the fire re-arms itself
-        // instead of snapshotting the accumulator or starting a pass.
+        // Deferred, not dropped: SubmitInFlight is still true, so the fire waits for the
+        // submit's end instead of snapshotting the accumulator or starting a pass.
         Assert.True(engine.IsValidating); // the submit, uninterrupted
 
         validator.Gate.SetResult();

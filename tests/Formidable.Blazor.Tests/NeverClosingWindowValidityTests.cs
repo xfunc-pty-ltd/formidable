@@ -930,6 +930,78 @@ public class NeverClosingWindowValidityTests
         Assert.True(engine.IsFormValid);
     }
 
+    // A validity check that comes due while a submit or a load is out, at a RefreshDebounce of
+    // zero, fires once and waits; the end of that pass arms it once more, and the check then runs
+    // once. The submit row arms the check at the default wait and sets zero before it comes due:
+    // under the fake clock a zero arm fires inside the change that armed it, before any submit
+    // could start, and a change during a submit arms the whole-form re-check instead. The submit
+    // is cancelled, the one way it leaves the edit to this check. Mutation: re-arm the check at
+    // its own wait from the fire that finds the pass, and the fire repeats until the counting
+    // clock's cap stops it.
+    [Theory]
+    [InlineData("submit")]
+    [InlineData("load")]
+    public async Task A_validity_check_deferred_behind_a_pass_fires_once_and_runs_once_it_ends(string pass)
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var clock = new CountingTimeProvider(new FakeTimeProvider());
+        var validator = new GatedCountingValidator();
+        validator.Gate.SetResult();
+        var options = NeverClosing();
+        if (pass == "load")
+        {
+            options.RefreshDebounce = TimeSpan.Zero;
+        }
+
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), options, clock);
+        Assert.False(engine.IsFormValid);
+        validator.Reset();
+
+        using var cancel = new CancellationTokenSource();
+        Task inFlight;
+        if (pass == "submit")
+        {
+            order.Description = "ok";
+            editContext.NotifyFieldChanged(Description(order));
+            inFlight = engine.ValidateForSubmitAsync(cancel.Token);
+            options.RefreshDebounce = TimeSpan.Zero;
+            clock.Advance(Refresh);
+        }
+        else
+        {
+            inFlight = engine.DiscloseLoadedValuesAsync();
+            order.Description = "ok";
+            editContext.NotifyFieldChanged(Description(order));
+        }
+
+        // The pass is out on the rule, and the check has come due once and waited.
+        Assert.Equal(1, validator.Runs);
+        Assert.Equal(1, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+
+        if (pass == "submit")
+        {
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => inFlight);
+        }
+        else
+        {
+            validator.Gate.SetResult();
+            await inFlight;
+        }
+
+        validator.Gate.TrySetResult();
+        await UntilAsync(() => engine.IsFormValid);
+
+        Assert.True(engine.IsFormValid);
+        Assert.Equal(2, validator.Runs);
+        Assert.Equal(2, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+    }
+
     // Mutation: let the fire start the check behind a submit in flight, where the check stands
     // down at once. A submit the caller cancels then answers nothing, and nothing answers for the
     // edit made before it.
@@ -1098,8 +1170,8 @@ public class NeverClosingWindowValidityTests
     }
 
     // Mutation: drop the armed whole-form re-check from the fire's stand-down. The check that came
-    // due during the submit then re-arms behind it, and fires while the re-check the edit during
-    // the submit armed is still out on the async rule, so the rule runs a third time.
+    // due during the submit then waits for its end, is armed again, and fires while the re-check
+    // the edit during the submit armed is still out on the async rule, so the rule runs a third time.
     [Fact]
     public async Task A_check_armed_before_a_cancelled_submit_stands_down_for_the_recheck_an_edit_during_it_armed()
     {

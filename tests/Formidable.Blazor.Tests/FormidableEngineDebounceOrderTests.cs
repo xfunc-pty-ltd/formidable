@@ -13,7 +13,7 @@ namespace Formidable.Blazor.Tests;
 /// the two windows close in whatever order their configured widths give them — and the order does
 /// not matter, because rule verdicts are keyed by rule and edit stamp: whichever pass fires first
 /// executes the stale rules, and the other serves their verdicts from the store. What the engine
-/// still enforces is deference to a pass genuinely IN FLIGHT — a window's fire re-arms rather
+/// still enforces is deference to a pass genuinely IN FLIGHT — a window's fire waits rather
 /// than cancel a running submit or refresh, and a refresh defers to a running live pass — which
 /// is supersession hygiene, not execution ordering. Every configuration still has to reach the
 /// same verdicts, so each sequence here is run against one assertion set.
@@ -126,7 +126,7 @@ public class FormidableEngineDebounceOrderTests
     {
         // The same ordering with the shared draft rule asynchronous, and the mirror of the
         // inverted test below: here the LIVE pass is the one in flight when the other's window
-        // closes, so the refresh is the one that has to stand down and re-arm rather than cancel
+        // closes, so the refresh is the one that has to stand down and wait rather than cancel
         // it. An async live rule outlasting the refresh window is the whole shape of that branch.
         var customer = new EngineCustomer();
         var order = new EngineOrder { Description = "Quarterly refresh", Customer = customer };
@@ -185,7 +185,7 @@ public class FormidableEngineDebounceOrderTests
     {
         // LiveDebounce 400 ms against the 300 ms RefreshDebounce default, with both rules
         // asynchronous: the refresh fires first and is still in flight on its gate when the live
-        // window closes. The window must re-arm rather than start a pass that would cancel the
+        // window closes. The window must wait rather than start a pass that would cancel the
         // refresh (see RefreshInFlight's remarks) — and once the refresh lands, the re-armed
         // window's own pass finds every rule answered at its stamp and publishes the draft
         // verdict without touching the gate at all.
@@ -240,6 +240,141 @@ public class FormidableEngineDebounceOrderTests
         time.Advance(TimeSpan.FromMilliseconds(400)); // the re-armed window closes; nothing left to execute
 
         AssertBothChannelsCurrent(engine, customerName, description);
+    }
+
+    // A refresh that comes due at a RefreshDebounce of zero while an edit's live check is out
+    // fires once and waits; the live check's end arms it once more, and the refresh then answers
+    // the submit rules once. The live channel is narrowed to the draft bucket, so only the refresh
+    // runs the submit rule. Mutation: re-arm the refresh at its own wait from the fire that finds
+    // the live check, and the fire repeats until the counting clock's cap stops it.
+    [Fact]
+    public async Task A_refresh_deferred_behind_a_live_pass_fires_once_and_runs_once_it_ends()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Description = "ok", Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        var editContext = new EditContext(order);
+        var clock = new CountingTimeProvider(new FakeTimeProvider());
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, RefreshDebounce = TimeSpan.Zero },
+            clock);
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        validator.Reset();
+        var submitRuns = validator.SubmitRuleRuns;
+        var draftRuns = validator.DraftRuleRuns;
+
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(new FieldIdentifier(customer, nameof(EngineCustomer.Name)));
+
+        // The live check is out on the draft rule; the refresh has come due once and waited.
+        Assert.Equal(draftRuns + 1, validator.DraftRuleRuns);
+        Assert.Equal(submitRuns, validator.SubmitRuleRuns);
+        Assert.Equal(1, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+
+        validator.Gate.SetResult();
+        await UntilAsync(() => validator.SubmitRuleRuns > submitRuns && !engine.IsValidating);
+
+        Assert.Equal(submitRuns + 1, validator.SubmitRuleRuns);
+        Assert.Equal(draftRuns + 1, validator.DraftRuleRuns);
+        Assert.Equal(2, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+    }
+
+    // A live window of zero that closes while a load is out fires once and waits; the load's end
+    // arms it once more, and the window's check then runs once, for the value edited during the
+    // load. Mutation: re-arm the window at its own width from the fire that finds the load, and the
+    // fire repeats until the counting clock's cap stops it.
+    [Fact]
+    public async Task A_live_window_deferred_behind_a_load_fires_once_and_runs_once_it_ends()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Description = "ok", Customer = customer };
+        var validator = new GatedRuleRunCountingValidator();
+        var editContext = new EditContext(order);
+        var clock = new CountingTimeProvider(new FakeTimeProvider());
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveDebounce = TimeSpan.Zero },
+            clock);
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+
+        var load = engine.DiscloseLoadedValuesAsync();
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name);
+
+        // The load is out on the draft rule; the window has closed once and waited.
+        Assert.Equal(1, validator.DraftRuleRuns);
+        Assert.Equal(1, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+
+        validator.Gate.SetResult();
+        await load;
+        await UntilAsync(() => engine.GetIssues(name).Count > 0 && !engine.IsValidating);
+
+        // One more run of each rule, for the edited value, and the window's message shows.
+        Assert.Equal(2, validator.DraftRuleRuns);
+        Assert.Equal(2, validator.SubmitRuleRuns);
+        Assert.Contains(engine.GetIssues(name), issue => issue.Message == RuleRunCountingValidator.DraftMessage);
+        Assert.Equal(2, clock.Callbacks);
+        Assert.False(clock.AnyCapped);
+    }
+
+    // A pin, which a fire that re-armed itself behind the live check would pass too. The refresh
+    // that came due during an edit's live check runs once that check has ended, even when it ended
+    // in a fault, and its landing clears the fault's form-level message. Mutation: arm the waiting
+    // fires only from a pass that landed, and after the fault nothing runs the refresh, so the
+    // message stays.
+    [Fact]
+    public async Task A_check_deferred_behind_a_pass_that_faults_still_runs()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        validator.Gate.SetResult();
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var options = new FormidableOptions();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            options,
+            time);
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        validator.Reset();
+
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        time.Advance(options.RefreshDebounce); // the refresh comes due behind the live check
+
+        var faulted = 0;
+        engine.ValidationFaulted += (_, _) => faulted++;
+        validator.ThrowOnRelease = true;
+        validator.Gate.SetResult();
+        await UntilAsync(() => faulted > 0 && !engine.IsValidating);
+        Assert.Contains(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
+
+        validator.ThrowOnRelease = false;
+        time.Advance(options.RefreshDebounce);
+        await UntilAsync(() => !engine.IsValidating);
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
+        Assert.Equal(1, faulted);
+    }
+
+    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds; the caller asserts afterwards.</summary>
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        for (var waited = 0; waited < 500 && !condition(); waited++)
+        {
+            await Task.Delay(10);
+        }
     }
 
     /// <summary>
