@@ -441,6 +441,199 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.Empty(rows.Messages(0));
     }
 
+    // An array grows only by replacement. With the element around the loop keyed by the array,
+    // the replacement rebuilds every row against the new array, so a row cleared after the grow
+    // shows its message, aria-invalid and its required mark, kit and native inputs alike. Without
+    // the key each row's components stay bound to the array that left, so the cleared row shows
+    // none of the three and a blocked submit can only say that something unseen is invalid. A pin:
+    // the key on the element around the loop decides whether a replaced array's rows speak.
+    // Mutation that must break it: remove the key from the keyed host, and its cleared row shows
+    // nothing either.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_loop_keyed_by_its_array_shows_a_cleared_row_after_the_array_grows_and_an_unkeyed_loop_does_not(bool native)
+    {
+        var keyed = await GrowThenClearRowZeroAsync(native, keyByCollection: true);
+
+        Assert.Equal([MustNotBeEmpty], keyed.Messages(0));
+        Assert.Contains("formidable-invalid", keyed.Class(0));
+        Assert.Equal("true", keyed.Input(0).GetAttribute("aria-invalid"));
+        Assert.Single(keyed.Cut.FindAll("[data-row=\"0\"] .formidable-required"));
+        if (!native)
+        {
+            Assert.Equal("true", keyed.Input(0).GetAttribute("aria-required"));
+        }
+
+        var unkeyed = await GrowThenClearRowZeroAsync(native, keyByCollection: false);
+
+        Assert.Empty(unkeyed.Messages(0));
+        Assert.DoesNotContain("formidable-invalid", unkeyed.Class(0));
+        Assert.Null(unkeyed.Input(0).GetAttribute("aria-invalid"));
+        Assert.Empty(unkeyed.Cut.FindAll("[data-row=\"0\"] .formidable-required"));
+        Assert.Null(unkeyed.Input(0).GetAttribute("aria-required"));
+        Assert.Equal(string.Empty, unkeyed.Collection[0]);
+        Submit(unkeyed);
+        Assert.Empty(unkeyed.Messages(0));
+        Assert.Equal([unkeyed.Engine.Options.DefensiveGateMessage], unkeyed.Engine.GetVisibleIssues().Select(v => v.Issue.Message));
+    }
+
+    // A submit shows a field's message once it has shown that field, and it keeps that per field. A
+    // row the replacement rebuilt is a new field, and so is the empty row the Add appended, so
+    // neither shows its message until the next submit, which shows both; every row carries its
+    // required mark throughout. A pin: a replacing Add starts every row afresh, the added row
+    // included. Mutation that must break it: reveal every field a refresh finds failing (union the
+    // refresh's error fields into the reveal ledger), and row 0 speaks straight after the grow.
+    [Fact]
+    public async Task A_keyed_array_grown_after_a_blocked_submit_shows_its_rows_again_at_the_next_submit()
+    {
+        var model = new ArrayTags { Tags = ["", "ok"] };
+        var rows = RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ArrayEach(), native: false, onInvalid: null, keyByCollection: true, withIndicator: true);
+        Submit(rows);
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.Edit(() => model.Tags = [.. model.Tags, string.Empty]));
+        await SettleAsync(rows);
+
+        Assert.Equal(3, rows.Collection.Count);
+        foreach (var row in new[] { 0, 2 })
+        {
+            Assert.Empty(rows.Messages(row));
+            Assert.DoesNotContain("formidable-invalid", rows.Class(row));
+            Assert.DoesNotContain("formidable-valid", rows.Class(row));
+        }
+
+        for (var row = 0; row < 3; row++)
+        {
+            Assert.Single(rows.Cut.FindAll($"[data-row=\"{row}\"] .formidable-required"));
+            Assert.Equal("true", rows.Input(row).GetAttribute("aria-required"));
+        }
+
+        Submit(rows);
+
+        Assert.Equal([MustNotBeEmpty], rows.Messages(0));
+        Assert.Equal([MustNotBeEmpty], rows.Messages(2));
+        Assert.Contains("formidable-invalid", rows.Class(2));
+        Assert.Empty(rows.Messages(1));
+    }
+
+    // The same for a live message. A field shows live messages only once a change to it has been
+    // committed, and a rebuilt row is a field no change has touched. A pin: a rebuilt row shows
+    // nothing until the visitor edits it again, here by typing a value and then clearing it.
+    // Mutation that must break it: engage every field a live pass finds failing (file the report's
+    // fields as well as the engaged set's), and row 0 speaks straight after the grow.
+    [Fact]
+    public async Task A_keyed_array_grown_after_an_edit_shows_the_row_again_at_its_next_edit()
+    {
+        var model = new ArrayTags { Tags = ["ok", "ok"] };
+        var rows = RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ArrayEach(), native: false, onInvalid: null, keyByCollection: true);
+        rows.Input(0).Change("");
+        rows.Cut.WaitForAssertion(() => Assert.Equal([MustNotBeEmpty], rows.Messages(0)));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.Edit(() => model.Tags = [.. model.Tags, "x"]));
+        await SettleAsync(rows);
+
+        Assert.Equal(3, rows.Collection.Count);
+        Assert.Empty(rows.Messages(0));
+        Assert.DoesNotContain("formidable-invalid", rows.Class(0));
+
+        rows.Input(0).Change("x");
+        await SettleAsync(rows);
+        Assert.Empty(rows.Messages(0));
+        rows.Input(0).Change("");
+
+        rows.Cut.WaitForAssertion(() => Assert.Equal([MustNotBeEmpty], rows.Messages(0)));
+        Assert.Contains("formidable-invalid", rows.Class(0));
+    }
+
+    // A grid's row is a list of its own. Replacing one row's list hands that row's cells a list the
+    // form's checks report on while the cells still speak for the list that left, unless the
+    // element around the row's cells is keyed by the row's list. With the key, the replacement
+    // rebuilds the row's cells, and a cell cleared after it shows its message; without the key, the
+    // cleared cell shows nothing. A pin: the key on each grid row's element decides whether its
+    // cells speak after the page replaces its list. Mutation that must break it: drop the key from
+    // the keyed case, and its cleared cell shows nothing.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_grid_row_keyed_by_its_list_shows_a_cleared_cell_after_the_page_replaces_that_list(bool keyed)
+    {
+        var model = new CellGrid { Matrix = [["a", "b"], ["c", "d"]] };
+        var captured = new StrongBox<FormidableFieldContext>();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<CellGrid>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", (IModelValidator<CellGrid>)new FluentValidationModelValidator<CellGrid>(new CellGridEachRowValidator()));
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableField<List<List<string?>>>>(0);
+                inner.AddComponentParameter(1, "For", (Expression<Func<List<List<string?>>>>)(() => model.Matrix));
+                inner.AddComponentParameter(2, "ChildContent", (RenderFragment<FormidableFieldContext>)(context => content =>
+                {
+                    captured.Value = context;
+                    for (var i = 0; i < model.Matrix.Count; i++)
+                    {
+                        var row = i;
+                        content.OpenElement(0, "div");
+                        if (keyed)
+                        {
+                            content.SetKey(model.Matrix[row]);
+                        }
+
+                        for (var j = 0; j < model.Matrix[row].Count; j++)
+                        {
+                            var column = j;
+                            RenderCell(content, column, $"{row}-{column}", () => model.Matrix[row][column], v => model.Matrix[row][column] = v);
+                        }
+
+                        content.CloseElement();
+                    }
+                }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+        var engine = cut.FindComponent<FormidableForm<CellGrid>>().Instance.Engine!;
+
+        await cut.InvokeAsync(() => captured.Value!.Edit(() => model.Matrix[0] = [.. model.Matrix[0]]));
+        cut.WaitForState(() => !engine.IsValidating);
+        cut.Find("[data-cell=\"0-0\"] input").Change("");
+        cut.WaitForState(() => !engine.IsValidating);
+
+        Assert.Equal(string.Empty, model.Matrix[0][0]);
+        if (keyed)
+        {
+            cut.WaitForAssertion(() => Assert.Equal([CellGridEachRowValidator.Required], CellMessages(cut, "0-0")));
+            Assert.Contains("formidable-invalid", cut.Find("[data-cell=\"0-0\"] input").GetAttribute("class"));
+        }
+        else
+        {
+            Assert.Empty(CellMessages(cut, "0-0"));
+            Assert.DoesNotContain("formidable-invalid", cut.Find("[data-cell=\"0-0\"] input").GetAttribute("class") ?? string.Empty);
+            cut.Find("form").Submit();
+            cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
+            Assert.Empty(CellMessages(cut, "0-0"));
+            Assert.Equal([engine.Options.DefensiveGateMessage], engine.GetVisibleIssues().Select(v => v.Issue.Message));
+        }
+    }
+
+    /// <summary>Renders the array rows with a required mark each, grows the array by replacing it, then clears row 0 and lets every check land.</summary>
+    private async Task<RenderedRows> GrowThenClearRowZeroAsync(bool native, bool keyByCollection)
+    {
+        var model = new ArrayTags { Tags = ["ok"] };
+        var rows = RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ArrayEach(), native, onInvalid: null, keyByCollection, withIndicator: true);
+        Assert.Single(rows.Cut.FindAll("[data-row=\"0\"] .formidable-required"));
+
+        await rows.Cut.InvokeAsync(() => rows.Context.Edit(() => model.Tags = [.. model.Tags, "x"]));
+        await SettleAsync(rows);
+        Assert.Equal(2, rows.Cut.FindAll("[data-row]").Count);
+
+        rows.Input(0).Change("");
+        await SettleAsync(rows);
+        return rows;
+    }
+
     /// <summary>Submits and waits for the submit's answer to render.</summary>
     private static void Submit(RenderedRows rows)
     {
@@ -507,14 +700,16 @@ public class ScalarRowIdentityTests : BunitContext
         return RenderRows(array, () => array.Tags, i => () => array.Tags[i], new ArrayEach(), native, onInvalid);
     }
 
-    /// <summary>Renders one unkeyed row per element inside a <c>FormidableField</c> over the collection, whose context drives the removal and the reorder.</summary>
+    /// <summary>Renders one unkeyed row per element inside a <c>FormidableField</c> over the collection, whose context drives the removal and the reorder; the element around the rows is keyed by the collection when <paramref name="keyByCollection"/> asks.</summary>
     private RenderedRows RenderRows<TModel, TCollection>(
         TModel model,
         Expression<Func<TCollection>> collection,
         Func<int, Expression<Func<string?>>> row,
         AbstractValidator<TModel> validator,
         bool native,
-        Action<FormidableInvalidSubmitContext>? onInvalid)
+        Action<FormidableInvalidSubmitContext>? onInvalid,
+        bool keyByCollection = false,
+        bool withIndicator = false)
         where TModel : class
         where TCollection : IList<string?>
     {
@@ -538,10 +733,18 @@ public class ScalarRowIdentityTests : BunitContext
                 {
                     captured.Value = context;
                     var items = read();
+                    content.OpenElement(0, "div");
+                    if (keyByCollection)
+                    {
+                        content.SetKey(items);
+                    }
+
                     for (var i = 0; i < items.Count; i++)
                     {
-                        RenderRow(content, items, i, row(i), native);
+                        RenderRow(content, items, i, row(i), native, withIndicator);
                     }
+
+                    content.CloseElement();
                 }));
                 inner.CloseComponent();
                 inner.AddMarkupContent(3, "<button type=\"submit\">Save</button>");
@@ -553,11 +756,12 @@ public class ScalarRowIdentityTests : BunitContext
         return new RenderedRows(cut, engine, captured, () => read(), row);
     }
 
-    private void RenderRow(RenderTreeBuilder builder, IList<string?> items, int index, Expression<Func<string?>> accessor, bool native)
+    private void RenderRow(RenderTreeBuilder builder, IList<string?> items, int index, Expression<Func<string?>> accessor, bool native, bool withIndicator)
     {
         builder.OpenRegion(index);
         builder.OpenElement(0, "div");
         builder.AddAttribute(1, "data-row", index);
+
         if (native)
         {
             builder.OpenComponent<InputText>(2);
@@ -581,6 +785,13 @@ public class ScalarRowIdentityTests : BunitContext
             builder.CloseComponent();
             builder.OpenComponent<FormidableFieldMessage<string?>>(6);
             builder.AddComponentParameter(7, "For", accessor);
+            builder.CloseComponent();
+        }
+
+        if (withIndicator)
+        {
+            builder.OpenComponent<FormidableRequiredIndicator<string?>>(10);
+            builder.AddComponentParameter(11, "For", accessor);
             builder.CloseComponent();
         }
 
