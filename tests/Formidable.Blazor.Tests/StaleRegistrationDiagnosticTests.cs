@@ -219,6 +219,42 @@ public class StaleRegistrationDiagnosticTests : BunitContext
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
+    // The reporting sibling names the same fix as the throw for a list of index-bound rows the
+    // page replaced: the element around the loop keyed by the list. Each unkeyed row reports
+    // once. Mutation that must break it: give every divergence the object-row advice
+    // (DescribeIndexedRowFix answers null), and the warning tells the reader to key the component
+    // by its owning object.
+    [Fact]
+    public void A_replaced_list_of_index_bound_rows_reports_the_key_on_the_loop()
+    {
+        var reports = new List<StaleRegistrationReport>();
+        var model = new ScalarTags { Array = ["a", "b"] };
+        var cut = Render<ScalarRowsHost>(parameters => parameters
+            .Add(p => p.Model, model)
+            .Add(p => p.UseArray, true)
+            .Add(p => p.Options, new FormidableOptions
+            {
+                ReportStaleRegistrations = true,
+                StaleRegistrationDiagnostic = reports.Add,
+            }));
+        var original = model.Array;
+
+        model.Array = [.. model.Array, "c"];
+        cut.Render(parameters => parameters.Add(p => p.Model, model));
+
+        Assert.Equal(2, reports.Count);
+        Assert.Equal(new FieldIdentifier(original, "0"), reports[0].RegisteredField);
+        Assert.Equal(new FieldIdentifier(model.Array, "0"), reports[0].CurrentField);
+        Assert.Equal(2, StaleWarnings.Count);
+        Assert.All(StaleWarnings, warning =>
+        {
+            Assert.Contains("Key the element around the loop by the list", warning.Message, StringComparison.Ordinal);
+            Assert.Contains("@key=\"Model.Tags\"", warning.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("owning object", warning.Message, StringComparison.Ordinal);
+        });
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
     /// <summary>
     /// <c>OwnerReplacementNotifyOrderTests</c>' markup shape: a <see cref="FormidableField{TValue}"/>
     /// keyed by the owner instance, wrapping a <see cref="FormidableFieldMessage{TValue}"/>, both

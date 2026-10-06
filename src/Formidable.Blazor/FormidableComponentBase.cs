@@ -99,9 +99,8 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             return;
         }
 
-        throw new InvalidOperationException(
-            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, " +
-            "without having been rebuilt in between. A field is the object owning the " +
+        var fix = DescribeIndexedRowFix(_registeredField, current) ??
+            "A field is the object owning the " +
             "value plus a member name, so this happens whenever something replaces that " +
             "object without rebuilding the components bound to it. A row list rendered " +
             "without @key is the common way to do it: remove or reorder a row, and Blazor " +
@@ -112,7 +111,11 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
             "— so a row's components travel with it. If the list is already keyed " +
             "that way, or there is no list to key at all, something else re-pointed the " +
             "accessor: a key taken from the row's id while the row object itself was " +
-            "replaced, or a For that now names another field. " +
+            "replaced, or a For that now names another field.";
+
+        throw new InvalidOperationException(
+            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, " +
+            $"without having been rebuilt in between. {fix} " +
             $"(Reported by {nameof(FormidableOptions)}." +
             $"{nameof(FormidableOptions.VerifyRowKeys)}.)");
     }
@@ -168,6 +171,35 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
 
         static string OwnerName(FieldIdentifier field) =>
             field.Model is { } owner ? FriendlyTypeName.Of(owner.GetType()) : "nothing";
+    }
+
+    /// <summary>The fix a divergence calls for when both fields are rows bound by their index, such as strings in a list or an array: the same index on another list, or another index.</summary>
+    /// <param name="registered">The field the component registered.</param>
+    /// <param name="current">The field the accessor currently names.</param>
+    /// <returns>The advice that follows the description of the change, or <see langword="null"/> when either field is not an element named by its index.</returns>
+    // Shared by the VerifyRowKey throw and the engine's stale-registration report, as
+    // DescribeChange is. A row bound by its index has no object of its own to key, so the advice
+    // every other divergence gets (key each row by its row object) would send the reader to the
+    // key that causes the second case.
+    internal static string? DescribeIndexedRowFix(FieldIdentifier registered, FieldIdentifier current)
+    {
+        if (!ResolvedFieldExtensions.IsIndexedElement(registered) || !ResolvedFieldExtensions.IsIndexedElement(current))
+        {
+            return null;
+        }
+
+        return string.Equals(registered.FieldName, current.FieldName, StringComparison.Ordinal)
+            ? "A row bound by its index, such as a string in a list or an array, is that list " +
+              "plus the index, and the accessor now reaches another list: the page replaced the " +
+              "list, or the row holding it. Key the element around the loop by the list, for " +
+              "example @key=\"Model.Tags\" on the element around a loop over Model.Tags, so " +
+              "that a new list rebuilds its rows."
+            : "A row bound by its index, such as a string in a list or an array, is that list " +
+              "plus the index, and this component now names another index. A key taken from the " +
+              "row's value is the usual cause: it moves the row's components with the value on a " +
+              "remove or a reorder, while the index stays the row's identity. Give such a row no " +
+              "key of its own. Where the page replaces the list, key the element around the loop " +
+              "by the list instead (for example @key=\"Model.Tags\").";
     }
 
     /// <summary>Called when the cascaded context is a new instance (the first render and every rebind): registers what the component speaks for with <paramref name="context"/>'s registry, or returns <see langword="null"/> to register nothing.</summary>

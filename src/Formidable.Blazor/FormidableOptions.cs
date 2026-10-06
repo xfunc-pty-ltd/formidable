@@ -201,7 +201,8 @@ public sealed class FormidableOptions
     /// For Development builds: the misfiling is invisible on screen, and where a throw is the
     /// wrong severity <see cref="ReportStaleRegistrations"/> reports the same divergence. Read
     /// once per bound component as it binds, so a change mid-form reaches only components binding
-    /// afterwards. A list keyed by its row objects never trips it, whatever the edit; replacing a
+    /// afterwards. A list keyed by its row objects never trips it, whatever the edit, and nor does
+    /// a list of strings with unkeyed rows whose loop element is keyed by the list. Replacing a
     /// nested object under a bound field does.
     /// </remarks>
     public bool VerifyRowKeys { get; set; }

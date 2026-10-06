@@ -2414,21 +2414,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     {
         var component = FriendlyTypeName.Of(report.ComponentType);
         var change = FormidableComponentBase.DescribeChange(report.RegisteredField, report.CurrentField);
+        var fix = FormidableComponentBase.DescribeIndexedRowFix(report.RegisteredField, report.CurrentField) ??
+            "Key the component by the owning object (@key=\"item\" on the element the loop " +
+            "renders) so a replacement rebuilds it.";
         FormidableDiagnostics.Warn(
             _logger,
             $"Formidable: {component} {change}, without having been rebuilt in between - its " +
             "registration, element id, aria attributes and messages stay with the field it " +
-            "registered. Key the component by the owning object (@key=\"item\" on the element " +
-            "the loop renders) so a replacement rebuilds it. (Reported by " +
+            $"registered. {fix} (Reported by " +
             "FormidableOptions.ReportStaleRegistrations; FormidableOptions.VerifyRowKeys throws " +
             "for this instead.)",
             "Formidable: {Component} {Change}, without having been rebuilt in between - its " +
             "registration, element id, aria attributes and messages stay with the field it " +
-            "registered. Key the component by the owning object (@key=\"item\" on the element " +
-            "the loop renders) so a replacement rebuilds it. (Reported by " +
+            "registered. {Fix} (Reported by " +
             "FormidableOptions.ReportStaleRegistrations; FormidableOptions.VerifyRowKeys throws " +
             "for this instead.)",
-            component, change);
+            component, change, fix);
 
         // The callback receives the identifiers as the component holds them; the composed text
         // above is the library's own two channels. A page rendering them encodes as any Blazor

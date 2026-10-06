@@ -131,7 +131,119 @@ public class RowKeyVerificationTests : BunitContext
         Assert.Equal(2, cut.FindComponents<FormidableInputText>().Count);
     }
 
+    // An array grows only by replacement, and an unkeyed loop hands each row's components the
+    // accessor of the row now at their position, so a row registered under the old list is bound
+    // to the new one. The check catches it and names the fix for a row bound by its index: the
+    // element around the loop keyed by the list. Mutation that must break it: give every
+    // divergence the object-row advice (DescribeIndexedRowFix answers null), and the message
+    // sends the reader to key each row by its row object.
+    [Theory]
+    [InlineData(ScalarRowComponent.Input, true)]
+    [InlineData(ScalarRowComponent.Field, true)]
+    [InlineData(ScalarRowComponent.Message, true)]
+    [InlineData(ScalarRowComponent.Anchor, true)]
+    [InlineData(ScalarRowComponent.Input, false)]
+    public void Replacing_a_list_of_index_bound_rows_names_the_key_on_the_loop(ScalarRowComponent component, bool array)
+    {
+        var model = new ScalarTags { Array = ["a", "b"], List = ["a", "b"] };
+        var cut = RenderScalarRows(model, array, ScalarRowKey.None, component);
+
+        if (array)
+        {
+            model.Array = [.. model.Array, "c"];
+        }
+        else
+        {
+            model.List = [.. model.List, "c"];
+        }
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => ReRender(cut, model));
+        Assert.Contains("same field on a different", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("Key the element around the loop by the list", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("@key=\"Model.Tags\"", thrown.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("row object", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains($"{nameof(FormidableOptions)}.{nameof(FormidableOptions.VerifyRowKeys)}", thrown.Message, StringComparison.Ordinal);
+    }
+
+    // A row bound by its index and keyed by its value moves with the value when a row before it
+    // is removed, so its components are handed the next index along. The check names the fix for
+    // that shape, which is no key of the row's own. Mutation that must break it: give every
+    // divergence the object-row advice (DescribeIndexedRowFix answers null), and the message
+    // tells the reader to key each row by its row object, the key that caused it.
+    [Fact]
+    public void A_row_bound_by_its_index_and_keyed_by_its_value_is_told_to_drop_the_key()
+    {
+        var model = new ScalarTags { List = ["a", "b", "c"] };
+        var cut = RenderScalarRows(model, array: false, ScalarRowKey.Value);
+
+        model.List.RemoveAt(0);
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => ReRender(cut, model));
+        Assert.Contains("now names another index", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("Give such a row no key of its own", thrown.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("row object", thrown.Message, StringComparison.Ordinal);
+    }
+
+    // The fix the message names. With the element around the loop keyed by the list, replacing
+    // the list rebuilds every row, so no component is handed an accessor for another list. A pin:
+    // a loop keyed by its list never trips the check when the page replaces the list. Mutation
+    // that must break it: drop the key from the host (ScalarRowKey.None), and the replacement
+    // throws.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_loop_keyed_by_its_list_never_trips_the_check_when_the_list_is_replaced(bool array)
+    {
+        var model = new ScalarTags { Array = ["a", "b"], List = ["a", "b"] };
+        var cut = RenderScalarRows(model, array, ScalarRowKey.Loop);
+
+        if (array)
+        {
+            model.Array = [.. model.Array, "c"];
+        }
+        else
+        {
+            model.List = [.. model.List, "c"];
+        }
+
+        ReRender(cut, model);
+
+        Assert.Equal(3, cut.FindComponents<FormidableInputText>().Count);
+    }
+
+    // A list edited in place keeps its instance, and an unkeyed row keeps its index, so a row's
+    // components go on naming the field they registered. A pin: the check stays quiet for an add
+    // and a remove, and each row shows the value at its index. Mutation that must break it:
+    // replace the list in the edit instead of editing it in place, and the re-render throws.
+    [Fact]
+    public void An_unkeyed_list_of_index_bound_rows_edited_in_place_never_trips_the_check()
+    {
+        var model = new ScalarTags { List = ["a", "b", "c"] };
+        var cut = RenderScalarRows(model, array: false, ScalarRowKey.None);
+
+        model.List.RemoveAt(0);
+        model.List.Add("d");
+        ReRender(cut, model);
+
+        Assert.Equal(["b", "c", "d"], cut.FindAll("input").Select(input => input.GetAttribute("value")));
+    }
+
     private static FormidableOptions Verifying() => new() { VerifyRowKeys = true };
+
+    private static void ReRender(IRenderedComponent<ScalarRowsHost> cut, ScalarTags model) =>
+        cut.Render(parameters => parameters.Add(p => p.Model, model));
+
+    private IRenderedComponent<ScalarRowsHost> RenderScalarRows(
+        ScalarTags model,
+        bool array,
+        ScalarRowKey key,
+        ScalarRowComponent component = ScalarRowComponent.Input) =>
+        Render<ScalarRowsHost>(parameters => parameters
+            .Add(p => p.Model, model)
+            .Add(p => p.UseArray, array)
+            .Add(p => p.Key, key)
+            .Add(p => p.Component, component)
+            .Add(p => p.Options, Verifying()));
 
     private static EngineOrder Rows(params string[] skus) =>
         new() { Items = [.. skus.Select(sku => new EngineItem { Sku = sku })] };
