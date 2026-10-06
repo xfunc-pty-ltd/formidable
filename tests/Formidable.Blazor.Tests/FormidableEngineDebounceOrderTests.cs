@@ -338,34 +338,96 @@ public class FormidableEngineDebounceOrderTests
         var validator = new TwoFieldGatedValidator();
         validator.Gate.SetResult();
         var editContext = new EditContext(order);
-        var time = new FakeTimeProvider();
+        var clock = new CountingTimeProvider(new FakeTimeProvider());
         var options = new FormidableOptions();
         using var engine = new FormidableEngine<EngineOrder>(
             order, editContext,
             new FluentValidationModelValidator<EngineOrder>(validator),
             new ReflectionModelIntrospector(),
             options,
-            time);
+            clock,
+            EngineTestSync.OneAtATime());
         Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
         validator.Reset();
 
         order.Description = "still ok";
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
-        time.Advance(options.RefreshDebounce); // the refresh comes due behind the live check
+        clock.Advance(options.RefreshDebounce); // the refresh comes due behind the live check
 
         var faulted = 0;
         engine.ValidationFaulted += (_, _) => faulted++;
+        var armsBefore = clock.Changes;
         validator.ThrowOnRelease = true;
         validator.Gate.SetResult();
         await UntilAsync(() => faulted > 0 && !engine.IsValidating);
         Assert.Contains(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
 
+        // The live check ends on a worker thread, and its end arms the waiting refresh in a
+        // dispatch of its own after the one that cleared IsValidating. The clock moves only once
+        // that arm has landed, or the refresh would come due on a clock nothing advances again.
+        await UntilAsync(() => clock.Changes > armsBefore);
         validator.ThrowOnRelease = false;
-        time.Advance(options.RefreshDebounce);
+        clock.Advance(options.RefreshDebounce);
         await UntilAsync(() => !engine.IsValidating);
 
         Assert.DoesNotContain(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
         Assert.Equal(1, faulted);
+    }
+
+    // The same fault, with a StateChanged handler that throws once as the faulted live check ends.
+    // The throw reaches nobody who could retry, so the refresh that waited for that check must be
+    // armed whatever the handler does. Mutation: arm the waiting fires only after the end's
+    // notification returns, and the refresh never runs, so the fault's message stays.
+    [Fact]
+    public async Task A_check_deferred_behind_a_pass_whose_end_handler_throws_still_runs()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var validator = new TwoFieldGatedValidator();
+        validator.Gate.SetResult();
+        var editContext = new EditContext(order);
+        var clock = new CountingTimeProvider(new FakeTimeProvider());
+        var options = new FormidableOptions();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            options,
+            clock,
+            EngineTestSync.OneAtATime());
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        validator.Reset();
+
+        order.Description = "still ok";
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
+        clock.Advance(options.RefreshDebounce); // the refresh comes due behind the live check
+
+        var armsBefore = clock.Changes;
+        var throwAtEnd = false;
+        var thrown = 0;
+        engine.ValidationFaulted += (_, _) => throwAtEnd = true;
+        engine.StateChanged += (_, _) =>
+        {
+            if (throwAtEnd && !engine.IsValidating)
+            {
+                throwAtEnd = false;
+                thrown++;
+                throw new InvalidOperationException("handler blew up");
+            }
+        };
+        validator.ThrowOnRelease = true;
+        validator.Gate.SetResult();
+        await UntilAsync(() => thrown > 0 && !engine.IsValidating);
+        Assert.Equal(1, thrown);
+        Assert.Contains(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
+
+        // As above, the clock moves only once the end's own dispatch has armed the refresh.
+        await UntilAsync(() => clock.Changes > armsBefore);
+        validator.ThrowOnRelease = false;
+        clock.Advance(options.RefreshDebounce);
+        await UntilAsync(() => !engine.IsValidating
+            && !engine.GetVisibleIssues().Any(issue => issue.Issue.Message == options.ValidationFaultMessage));
+
+        Assert.DoesNotContain(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
     }
 
     /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds; the caller asserts afterwards.</summary>

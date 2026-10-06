@@ -312,6 +312,240 @@ public class FormidableEngineValidityTests
         Assert.True(engine.IsFormValid); // still the submit's answer; the stale probe was discarded
     }
 
+    // A load of values is out when an edit lands; the load answers for the values before the
+    // edit. Rows a and b (LiveDebounce null, the edit emptying or fixing the field) leave the edit
+    // with no check of its own, since the edit's check stood down for the load; c (200 ms) and d
+    // (never) leave it to the window's or the validity check's own check; e (null, RefreshDebounce
+    // never) leaves no timer that could run a check. Each settles where a submit says the form
+    // stands. Mutations: (a) adopt the load's answer whatever edit came after it began, and row a
+    // settles valid with the description empty; (b) drop the check behind a landing whose answer
+    // predates an edit, and row a settles valid; (c) run that check only through the validity
+    // timer, and row e settles valid.
+    [Theory]
+    [InlineData("a", 0, true, false)]
+    [InlineData("b", 0, false, false)]
+    [InlineData("c", 200, true, false)]
+    [InlineData("d", -1, true, false)]
+    [InlineData("e", 0, true, true)]
+    public async Task A_load_with_an_edit_in_flight_leaves_IsFormValid_on_the_edited_model(
+        string run, int liveDebounceMs, bool startValid, bool refreshNever)
+    {
+        _ = run;
+        var order = new EngineOrder
+        {
+            Description = startValid ? "ok" : string.Empty,
+            Customer = new EngineCustomer { Name = "Bo" },
+        };
+        var editContext = new EditContext(order);
+        var validator = new PerRunGatedValidator();
+        var options = new FormidableOptions
+        {
+            TrackFormValidity = true,
+            LiveDebounce = liveDebounceMs switch
+            {
+                0 => null,
+                -1 => Timeout.InfiniteTimeSpan,
+                _ => TimeSpan.FromMilliseconds(liveDebounceMs),
+            },
+            RefreshDebounce = refreshNever ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(300),
+        };
+        var dispatch = new CountedDispatch();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), options, _time, dispatch.Dispatch);
+        var built = dispatch.Completed;
+        validator.Release(0); // the check every tracked form runs as it is built
+        await dispatch.WaitUntilAtLeastAsync(built + 1);
+        Assert.Equal(startValid, engine.IsFormValid);
+
+        var load = engine.DiscloseLoadedValuesAsync(); // run 1
+        order.Description = startValid ? string.Empty : "ok";
+        editContext.NotifyFieldChanged(DescriptionOf(order));
+
+        // The load lands older than the edit, its end arms whatever is owed to the edit, and the
+        // live check that follows a load then waits on a run of its own. The load's task completes
+        // only after all of that, so once it has, every wait the end armed is armed, and the clock
+        // can move.
+        await ReleaseUntilAsync(validator, () => load.IsCompleted);
+        await load;
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await ReleaseUntilAsync(validator, () => engine.IsFormValid == !startValid && !engine.IsValidating);
+
+        var settled = engine.IsFormValid;
+        Assert.Equal(!startValid, settled);
+        Assert.Equal(await SubmitSaysAsync(engine, validator), settled);
+    }
+
+    // The first submit is out when an edit empties the field. The edit's own check stands down for
+    // the submit, and the whole-form re-check the edit would arm never fires under a
+    // RefreshDebounce that never passes, so the submit's landing, older than the edit, starts the
+    // check itself. Mutation: run that check only through the validity timer, which never fires
+    // here, and IsFormValid keeps the submit's answer for the value before the edit.
+    [Fact]
+    public async Task An_edit_during_a_first_submit_under_an_infinite_refresh_leaves_IsFormValid_on_the_edited_model()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var validator = new PerRunGatedValidator();
+        var dispatch = new CountedDispatch();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan },
+            _time,
+            dispatch.Dispatch);
+        var built = dispatch.Completed;
+        validator.Release(0);
+        await dispatch.WaitUntilAtLeastAsync(built + 1);
+        Assert.True(engine.IsFormValid);
+
+        var submit = engine.ValidateForSubmitAsync(); // run 1
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(DescriptionOf(order));
+        validator.Release(1);
+        Assert.True((await submit).CanProceed); // the submit answered for the value it read
+
+        // The submit's task completes after its end has started the check, which waits on run 2.
+        await ReleaseUntilAsync(validator, () => !engine.IsFormValid);
+
+        Assert.False(engine.IsFormValid);
+    }
+
+    // A pin of the stand-down rules: once a submit has answered, the validity check stands down,
+    // and the whole-form re-check an edit arms answers IsFormValid. An edit during a second submit
+    // is answered by that re-check alone. Mutation: run the check behind the submit's landing
+    // without asking whether an armed re-check answers the edit, and without the check's own
+    // stand-down for an answered submit, and the async rule is reached a second time for the edit.
+    [Fact]
+    public async Task An_edit_during_a_submit_is_answered_by_the_refresh_alone()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = true, RefreshDebounce = TimeSpan.FromMilliseconds(300) },
+            _time,
+            EngineTestSync.OneAtATime());
+        Assert.True((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.True(engine.IsFormValid);
+
+        validator.Reset();
+        var submitGate = validator.Gate;
+        var submit = engine.ValidateForSubmitAsync(); // reaches the async rule and waits
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(DescriptionOf(order)); // arms the re-check, due at 300 ms
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+
+        validator.Reset();
+        submitGate.SetResult();
+        await submit; // its answer predates the edit
+        var afterSubmit = validator.DraftRuleRuns;
+
+        _time.Advance(TimeSpan.FromMilliseconds(200)); // the re-check starts and waits on the rule
+        _time.Advance(TimeSpan.FromMilliseconds(100)); // where a check armed at the submit's end would come due
+        Assert.Equal(afterSubmit + 1, validator.DraftRuleRuns);
+
+        validator.Gate.SetResult();
+        for (var waited = 0; waited < 500 && engine.IsFormValid; waited++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.False(engine.IsFormValid);
+        Assert.Equal(afterSubmit + 1, validator.DraftRuleRuns);
+    }
+
+    // With no LiveDebounce an edit made during a load starts no check of its own, so the load's
+    // outdated landing arms a validity check for RefreshDebounce after its end. A second edit
+    // inside that wait starts its own live check and validity check, the documented pair, and the
+    // armed check then has nothing left to answer. Mutation: let the armed check run whatever
+    // check is already out for the latest edit, and the async rule is reached a third time for
+    // that edit.
+    [Fact]
+    public async Task The_check_behind_an_outdated_load_stands_down_for_a_later_edit_s_own_check()
+    {
+        var customer = new EngineCustomer { Name = "Bo" };
+        var order = new EngineOrder { Description = "ok", Customer = customer };
+        var editContext = new EditContext(order);
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = true, RefreshDebounce = TimeSpan.FromMilliseconds(300) },
+            _time,
+            EngineTestSync.OneAtATime());
+        await UntilAsync(() => engine.IsFormValid);
+        var name = new FieldIdentifier(customer, nameof(EngineCustomer.Name));
+
+        validator.Reset();
+        var loadGate = validator.Gate;
+        var load = engine.DiscloseLoadedValuesAsync(); // waits on the async rule
+        customer.Name = "Bea";
+        editContext.NotifyFieldChanged(name); // its checks stand down for the load
+        var beforeLanding = validator.DraftRuleRuns;
+
+        validator.Reset();
+        loadGate.SetResult(); // the load lands outdated; the live check after it waits on the rule
+        await UntilAsync(() => validator.DraftRuleRuns == beforeLanding + 1);
+
+        _time.Advance(TimeSpan.FromMilliseconds(100));
+        customer.Name = "far too long";
+        editContext.NotifyFieldChanged(name); // its live check and validity check both reach the rule
+        var reached = validator.DraftRuleRuns;
+        Assert.Equal(beforeLanding + 3, reached);
+
+        _time.Advance(TimeSpan.FromMilliseconds(200)); // where the check the landing armed comes due
+        Assert.Equal(reached, validator.DraftRuleRuns);
+
+        validator.Gate.SetResult();
+        await UntilAsync(() => !engine.IsFormValid && load.IsCompleted);
+        Assert.False(engine.IsFormValid);
+        Assert.Equal(reached, validator.DraftRuleRuns);
+    }
+
+    private static FieldIdentifier DescriptionOf(EngineOrder order) => new(order, nameof(EngineOrder.Description));
+
+    /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds; the caller asserts afterwards.</summary>
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        for (var waited = 0; waited < 500 && !condition(); waited++)
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>Releases every run of the async rule until <paramref name="condition"/> holds, for at most five seconds; the caller asserts afterwards.</summary>
+    private static async Task ReleaseUntilAsync(PerRunGatedValidator validator, Func<bool> condition)
+    {
+        for (var waited = 0; waited < 500; waited++)
+        {
+            validator.ReleaseAll();
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>What a submit says of the form as it stands, the truth <see cref="FormidableEngine{TModel}.IsFormValid"/> must settle on.</summary>
+    private static async Task<bool> SubmitSaysAsync(FormidableEngine<EngineOrder> engine, PerRunGatedValidator validator)
+    {
+        var submit = engine.ValidateForSubmitAsync();
+        while (!submit.IsCompleted)
+        {
+            validator.ReleaseAll();
+            await Task.Delay(10);
+        }
+
+        return (await submit).CanProceed;
+    }
+
     [Fact]
     public async Task Probe_fault_routes_to_ValidationFaulted_and_leaves_IsFormValid_unchanged()
     {

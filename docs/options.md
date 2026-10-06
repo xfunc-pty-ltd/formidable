@@ -49,7 +49,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
 | [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. Under a `LiveDebounce` that never closes, it also times the validity check. |
 | [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
-| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check, which also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values. |
+| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check, which also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values, and at the check that follows one you edited during. |
 | [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
 | [`ClickRecovery`](#clickrecovery) | `DisplacedClickRecovery` | `Buttons` | Whether a click the page displaced is re-delivered. |
 | [`DisclosureOverride`](#disclosureoverride) | `Func<ValidationIssue, bool?>?` | `null` | A per-issue answer to whether an issue may be shown. |
@@ -207,7 +207,16 @@ server reply, the whole-form re-check that follows each edit answers instead.
 A change to which fields are on screen (a row added or removed) re-checks the whole form after the
 same wait at any point in the form's life, and that re-check moves `IsFormValid` too. With
 `RefreshDebounce` also `Timeout.InfiniteTimeSpan`, neither ever runs, so after the check at build
-`IsFormValid` moves only on a submit or a load of values.
+`IsFormValid` moves only on a submit or a load of values, and on the check that follows one you
+edited during (below).
+
+An edit made while a submit or a load of values is still checking leaves `IsFormValid` where it
+was, because the submit or load answers for the values it read. The edit's own check answers
+instead: its validity check, its live window, or the whole-form re-check it brings after a submit.
+
+When an edit made during a submit or a load brings no check of its own (an edit during a load
+before any submit, with `LiveDebounce` unset), a validity check runs `RefreshDebounce` after the
+load ends. When `RefreshDebounce` never passes, it runs as the submit or load ends.
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
 

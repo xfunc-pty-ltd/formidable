@@ -1002,6 +1002,224 @@ public class NeverClosingWindowValidityTests
         Assert.False(clock.AnyCapped);
     }
 
+    // A whole-form re-check from a row arriving is out when an edit lands; the edit's validity
+    // check starts while it is still out; then the two answer in either order. The four runs: the
+    // re-check answers first, then the check; the check first; the mirror, where the edit fixes
+    // the field; and a validator the engine cannot take rule by rule. Each settles where a submit
+    // says the form stands. Mutation: adopt the re-check's answer whatever edit came after it
+    // began, and runs a, b and d settle valid with the description empty (c settles invalid).
+    [Theory]
+    [InlineData("a", true, true, false)]
+    [InlineData("b", false, true, false)]
+    [InlineData("c", true, false, false)]
+    [InlineData("d", true, true, true)]
+    public async Task A_refresh_begun_before_an_edit_leaves_IsFormValid_to_the_edit_s_check(
+        string run, bool checkAnswersLast, bool startValid, bool wholeProfileOnly)
+    {
+        _ = run;
+        var order = new EngineOrder
+        {
+            Description = startValid ? "ok" : string.Empty,
+            Customer = new EngineCustomer { Name = "Bo" },
+        };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var validator = new PerRunGatedValidator();
+        IModelValidator<EngineOrder> wrapped = new FluentValidationModelValidator<EngineOrder>(validator);
+        if (wholeProfileOnly)
+        {
+            wrapped = new CapabilityHidingModelValidator<EngineOrder>(wrapped);
+        }
+
+        var dispatch = new CountedDispatch();
+        using var engine = Build(order, editContext, wrapped, NeverClosing(), time, dispatch.Dispatch);
+        await ReleaseAndLandAsync(dispatch, validator, run: 0, dispatches: 1); // the check at build
+        Assert.Equal(startValid, engine.IsFormValid);
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(Refresh); // the re-check starts: run 1
+        order.Description = startValid ? string.Empty : "ok";
+        editContext.NotifyFieldChanged(Description(order));
+        time.Advance(Refresh); // the edit's validity check starts: run 2
+        Assert.Equal(3, validator.Runs);
+
+        // Each answer lands before the other is released, in the run's order. The re-check is done
+        // after its landing and the dispatch after its end; the validity check after its landing.
+        if (checkAnswersLast)
+        {
+            await ReleaseAndLandAsync(dispatch, validator, run: 1, dispatches: 2);
+            await ReleaseAndLandAsync(dispatch, validator, run: 2, dispatches: 1);
+        }
+        else
+        {
+            await ReleaseAndLandAsync(dispatch, validator, run: 2, dispatches: 1);
+            await ReleaseAndLandAsync(dispatch, validator, run: 1, dispatches: 2);
+        }
+
+        var settled = engine.IsFormValid;
+        Assert.Equal(await SubmitSaysAsync(engine, validator), settled);
+    }
+
+    // A refresh from a row arriving is out when an edit lands, and the edit's validity check then
+    // reaches the async rule. The refresh read the name before the edit, so its answer (valid) is
+    // older than the edit and it adopts nothing; the check already out answers the edit, so nothing
+    // more runs for it. Two guards keep it so: the landing asks whether anything answers the edit,
+    // and the check it would arm stands down at its fire for a probe already begun at that edit.
+    // Mutation: re-check behind every landing whose answer predates an edit, and drop the check's
+    // stand-down for a probe already begun, and the async rule is reached a second time for the
+    // edit. Either half alone leaves one run.
+    [Fact]
+    public async Task The_check_behind_a_stale_landing_runs_only_when_nothing_else_answers_the_edit()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var validator = new GatedRuleRunCountingValidator();
+        validator.Gate.SetResult();
+        var dispatch = new CountedDispatch();
+        using var engine = Build(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            NeverClosing(), time, dispatch.Dispatch);
+        Assert.True(engine.IsFormValid);
+
+        validator.Reset();
+        var refreshGate = validator.Gate;
+        engine.OnRenderedFieldsChanged();
+        time.Advance(Refresh); // the refresh waits on the async rule
+
+        validator.Reset();
+        order.Customer!.Name = "far too long";
+        editContext.NotifyFieldChanged(CustomerName(order));
+        time.Advance(Refresh); // the edit's check reaches the async rule and waits on a gate of its own
+        var reached = validator.DraftRuleRuns;
+
+        // The refresh lands, its answer older than the edit. It finishes on a worker thread: its
+        // landing, then the dispatch after its end that would arm a check behind it. The check's
+        // own gate keeps the probe still, so those two are the only dispatches to wait for, and the
+        // clock moves only once both have run, or a check armed behind the landing would come due
+        // on a clock nothing advances again.
+        var landed = dispatch.Completed;
+        refreshGate.SetResult();
+        await dispatch.WaitUntilAtLeastAsync(landed + 2);
+        time.Advance(Refresh);
+        Assert.Equal(reached, validator.DraftRuleRuns);
+
+        validator.Gate.SetResult();
+        await UntilAsync(() => !engine.IsFormValid);
+        var settled = engine.IsFormValid;
+        Assert.Equal(reached, validator.DraftRuleRuns);
+        Assert.False(settled);
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+    }
+
+    // A refresh is out when the page sets RefreshDebounce to Timeout.InfiniteTimeSpan, and an edit
+    // lands under it. The edit arms a validity check that can never fire, so the refresh's landing,
+    // older than the edit, starts the check itself. Mutation: re-check only through the validity
+    // timer, and IsFormValid keeps the answer from before the edit.
+    [Fact]
+    public async Task A_refresh_out_when_RefreshDebounce_turns_infinite_leaves_IsFormValid_to_a_check_of_its_own()
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var validator = new PerRunGatedValidator();
+        var options = NeverClosing();
+        var dispatch = new CountedDispatch();
+        using var engine = Build(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator), options, time,
+            dispatch.Dispatch);
+        await ReleaseAndLandAsync(dispatch, validator, run: 0, dispatches: 1); // the check at build
+        Assert.True(engine.IsFormValid);
+
+        engine.OnRenderedFieldsChanged();
+        time.Advance(Refresh); // the refresh starts: run 1
+        options.RefreshDebounce = Timeout.InfiniteTimeSpan;
+        order.Description = string.Empty;
+        editContext.NotifyFieldChanged(Description(order));
+
+        // The refresh lands, older than the edit, and the dispatch after its end starts the check
+        // at once: three dispatches (the landing, the check's planning inside the third, and the
+        // third itself), after which the check waits on the rule as run 2.
+        await ReleaseAndLandAsync(dispatch, validator, run: 1, dispatches: 3);
+        Assert.Equal(3, validator.Runs);
+        await ReleaseAndLandAsync(dispatch, validator, run: 2, dispatches: 1);
+
+        var settled = engine.IsFormValid;
+        Assert.False(settled);
+        Assert.Equal(await SubmitSaysAsync(engine, validator), settled);
+    }
+
+    /// <summary>Releases one run of the async rule and waits until the dispatches its answer owes have run.</summary>
+    /// <param name="dispatch">The engine's dispatch.</param>
+    /// <param name="validator">The validator whose run to release.</param>
+    /// <param name="run">The run to release, counting from zero.</param>
+    /// <param name="dispatches">How many dispatches finish once that run answers: one for a validity check's landing, two for a pass's landing and the dispatch after its end.</param>
+    private static async Task ReleaseAndLandAsync(
+        CountedDispatch dispatch, PerRunGatedValidator validator, int run, int dispatches)
+    {
+        var before = dispatch.Completed;
+        validator.Release(run);
+        await dispatch.WaitUntilAtLeastAsync(before + dispatches);
+    }
+
+    /// <summary>What a submit says of the form as it stands, the truth <see cref="FormidableEngine{TModel}.IsFormValid"/> must settle on.</summary>
+    private static async Task<bool> SubmitSaysAsync(FormidableEngine<EngineOrder> engine, PerRunGatedValidator validator)
+    {
+        var submit = engine.ValidateForSubmitAsync();
+        while (!submit.IsCompleted)
+        {
+            validator.ReleaseAll();
+            await Task.Delay(10);
+        }
+
+        return (await submit).CanProceed;
+    }
+
+    // A validity check comes due during a submit and waits; an edit during the same submit arms
+    // the whole-form re-check, which also comes due and waits. The submit is cancelled, so both
+    // are owed at its end, at the same wait. The re-check answers the edit, so the check is
+    // dropped as they are armed, and which timer fires first cannot matter. The fake clock fires
+    // timers due together in the order they were armed; a real timer gives no such order.
+    // Mutation: arm the re-check first and leave the check to stand down at its own fire, and the
+    // re-check begins first, empties what the check would stand down for, and the async rule runs
+    // a second time. Either half alone leaves one run.
+    [Fact]
+    public async Task A_check_and_a_recheck_waiting_on_one_cancelled_submit_run_the_rule_once()
+    {
+        var order = new EngineOrder { Customer = new EngineCustomer { Name = "Bo" } };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var validator = new GatedCountingValidator();
+        validator.Gate.SetResult();
+        using var engine = Build(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            NeverClosing(), time, EngineTestSync.OneAtATime());
+        Assert.False(engine.IsFormValid);
+
+        validator.Reset();
+        order.Description = "o";
+        editContext.NotifyFieldChanged(Description(order)); // arms the validity check
+        using var cancel = new CancellationTokenSource();
+        var submit = engine.ValidateForSubmitAsync(cancel.Token); // the rule's first run
+        time.Advance(Refresh); // the check comes due mid-submit and waits
+        order.Description = "ok";
+        editContext.NotifyFieldChanged(Description(order)); // arms the whole-form re-check
+        time.Advance(Refresh); // the re-check comes due mid-submit and waits
+
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit);
+        Assert.Equal(1, validator.Runs);
+
+        time.Advance(Refresh); // both are due here
+        Assert.Equal(2, validator.Runs);
+
+        validator.Gate.SetResult();
+        await UntilAsync(() => engine.IsFormValid);
+        time.Advance(Refresh);
+        Assert.True(engine.IsFormValid);
+        Assert.Equal(2, validator.Runs);
+    }
+
     // Mutation: let the fire start the check behind a submit in flight, where the check stands
     // down at once. A submit the caller cancels then answers nothing, and nothing answers for the
     // edit made before it.

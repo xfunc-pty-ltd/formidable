@@ -29,6 +29,14 @@ public sealed class CountingTimeProvider(FakeTimeProvider clock) : TimeProvider
     /// <summary>Every fire the clock has delivered to any timer, capped ones included.</summary>
     public int Callbacks => _timers.Sum(timer => timer.Callbacks);
 
+    /// <summary>Every <c>Change</c> call on any timer: each arm, and each disarm by a wait that never passes.</summary>
+    /// <remarks>
+    /// A pass that ends on a worker thread arms the fires that waited for it in a dispatch of its
+    /// own after the end, so a test that advances the clock to let such a fire run first waits for
+    /// this count to move.
+    /// </remarks>
+    public int Changes => _timers.Sum(timer => timer.Changes);
+
     /// <summary>Whether any timer reached the cap.</summary>
     public bool AnyCapped => _timers.Any(timer => timer.Capped);
 
@@ -73,23 +81,25 @@ public sealed class CountingTimeProvider(FakeTimeProvider clock) : TimeProvider
 
         private readonly TimerCallback _callback;
         private int _firesSinceArm;
+        private int _callbacks;
+        private int _changes;
 
         internal CountingTimer(TimerCallback callback) => _callback = callback;
 
         internal ITimer Inner { get; set; } = null!;
 
         /// <summary>Every fire the clock delivered, capped ones included.</summary>
-        public int Callbacks { get; private set; }
+        public int Callbacks => Volatile.Read(ref _callbacks);
 
-        /// <summary>Every <c>Change</c> call, from anywhere.</summary>
-        public int Changes { get; private set; }
+        /// <summary>Every <c>Change</c> call, from any thread.</summary>
+        public int Changes => Volatile.Read(ref _changes);
 
         /// <summary>Whether an arm delivered more than <see cref="Cap"/> fires.</summary>
         public bool Capped { get; private set; }
 
         internal void Fire(object? state)
         {
-            Callbacks++;
+            Interlocked.Increment(ref _callbacks);
             if (++_firesSinceArm > Cap)
             {
                 Capped = true;
@@ -111,7 +121,7 @@ public sealed class CountingTimeProvider(FakeTimeProvider clock) : TimeProvider
         /// <inheritdoc />
         public bool Change(TimeSpan dueTime, TimeSpan period)
         {
-            Changes++;
+            Interlocked.Increment(ref _changes);
             if (!ReferenceEquals(t_firing, this))
             {
                 _firesSinceArm = 0;

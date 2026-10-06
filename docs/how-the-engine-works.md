@@ -128,8 +128,8 @@ set, and a fire that finds the accumulator empty starts no live pass; the validi
 runs on that fire.
 
 [`RefreshDebounce`](options.md#refreshdebounce) (300 ms) arms the refresh timer the same way from
-every arm site. `Timeout.InfiniteTimeSpan` arms a timer that never fires, which is how the
-refresh is turned off; `TimeSpan.Zero` is the narrowest window, not a switch. Under either
+every arm site. `Timeout.InfiniteTimeSpan` leaves the timer unarmed, which is how the refresh is
+turned off; `TimeSpan.Zero` is the narrowest window, not a switch. Under either
 timer `TimeSpan.Zero` still fires from the timer's own callback, never inside the notification
 that armed it, and a fire still defers as any fire does; on the live timer it is not a spelling
 of `null`.
@@ -144,8 +144,9 @@ below zero (other than the infinite wait) is named once per option per engine, b
 or the first arm that meets it.
 
 A third timer, the validity timer, belongs to no kind. It starts the probe on `RefreshDebounce`:
-after an edit under a live window that never closes, and under any window after a landing an edit
-outdated, as [the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
+after an edit under a live window that never closes, under any window after a landing an edit
+outdated, and once more at the end of a submit or a load its fire waited for, as
+[the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
 
 **A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
 validator that throws under either surfaces through the caller's own `try`/`catch`. A live or
@@ -175,8 +176,12 @@ publishing its assembled verdict like any other.
 Reuse is keyed by rule and stamp, never by which pass ran first. Of a post-submit edit's live
 pass and the refresh behind it, whichever lands first executes the stale rules and the other
 finds them answered, so on a rule-capable validator each selected rule runs at most once across
-the pair. A `TrackFormValidity` probe, and a live pass narrowed by `LiveProfile`, are outside
-that promise.
+the pair. A deferred fire's arm keeps it: the end of the pass it waited for arms it once, never
+beside a second start.
+
+A `TrackFormValidity` probe, and a live pass narrowed by `LiveProfile`, are outside that promise.
+So is the probe behind a landing an edit outdated, which runs only when nothing already on its
+way answers that edit ([the probe's section](#the-trackformvalidity-probe)).
 
 Filing a set drops every stored set answering for a different model state and every stored set
 sharing a rule with it, so the store's size stays bounded by rule count. A submit sets
@@ -280,7 +285,11 @@ they would with nothing held, and the serve condition is re-checked on every rea
 
 The profile match guards both grounds: an answer about one selection of rules never vouches for
 another. A served answer describes the model as it stood when the answer was computed until the
-pass behind it lands, the same lag `IsFormValid` carries on the same terms.
+pass behind it lands.
+
+`IsFormValid` lags the same way. A submit, refresh or load that began before an edit never writes
+it, but a probe begun before the edit still can, until a later probe starts; the check that answers
+the edit then writes the current answer.
 
 "On its way" (`ReAnswerOnItsWay`) means one of five things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
@@ -646,12 +655,21 @@ change that arms no refresh (no `HasSubmitted`, no submit in flight) arms the va
 `RefreshDebounce` instead, one sliding window, so a burst of changes is one probe.
 
 Its fire tests for a stand-down first: the engine is disposed, tracking is off, a submit has
-answered, or an edit has armed the refresh. A server reply alone does not stand it down, since the
-reply answers nothing the probe computes.
+answered, an edit has armed the refresh, or a probe has already begun at the current edit stamp. A
+server reply alone does not stand it down, since the reply answers nothing the probe computes.
+
+A probe already begun at the current stamp stands down only the check armed behind an outdated
+landing (below), once a later edit has started its own probe; under a window that never closes no
+edit starts one.
 
 Otherwise, while a submit or a load is in flight, the fire records that it waited and keeps the
-flag, as the live timer's fire does, and the end of that pass arms it once more. Otherwise it clears the flag, marks the probe it starts as running, and starts
-it.
+flag, as the live timer's fire does, and the end of that pass arms it once more. Otherwise it
+clears the flag, marks the probe it starts as running, and starts it.
+
+A refresh an edit armed can wait for the same pass. Both are then armed at that pass's end, at
+`RefreshDebounce`, so both come due at one instant, and a real timer gives no order between them.
+So the stand-down for that refresh is decided at the arm: the check is dropped and its flag
+cleared, and a refresh that begins first cannot leave it nothing to stand down for.
 
 The refresh an edit arms adopts `IsFormValid` for the whole model and counts as a re-answer on its
 way, so a probe beside it would only run a still-unanswered async rule a second time. That refresh
@@ -661,13 +679,16 @@ why the fire tests for it before it defers.
 After `HasSubmitted` no change arms the validity timer at all. A probe due with the refresh the
 same change armed could fire once that refresh had begun, with no armed refresh left to stand down
 for. Under a `RefreshDebounce` of `Timeout.InfiniteTimeSpan` the timer never fires, so
-`IsFormValid` moves only on a submit or a load.
+`IsFormValid` moves only on a submit, a load, or the probe that starts behind one of them when an
+edit made while it ran has outdated its answer.
 
-The probe stands down for a submit or a load in flight, which is about to compute the same
-quantity itself. On a rule-capable validator it plans against the store exactly as a pass does,
-executes the submit-selected rules with no fresh verdict at its begin stamp, and files what it
-ran. On any other validator each probe is one whole submit-profile validation, recorded as the
-vouch's coverage source.
+The probe stands down for a submit or a load in flight, which computes the same quantity for the
+model it read and adopts it, unless an edit after its begin has outdated it (below).
+
+On a rule-capable validator the probe plans against the store exactly as a pass does, executes
+the submit-selected rules with no fresh verdict at its begin stamp, and files what it ran. On any
+other validator each probe is one whole submit-profile validation, recorded as the vouch's
+coverage source.
 
 A probe whose every selected rule is already answered executes nothing and files nothing; it
 still writes `IsFormValid` from the served verdicts. A landing that moved a coverage source
@@ -690,9 +711,23 @@ of the probe and the pass goes first has filed everything the other would have p
 share in full.
 
 `IsFormValid` is written only when the value flips and only while the probe's stamp is the latest
-taken. With tracking on, a submit, a refresh or a load landing adopts its own report's validity
-directly and bumps the same stamp, so a probe that started earlier discards its answer rather
-than overwrite a fresher one.
+taken. With tracking on, a submit, a refresh or a load whose begin stamp is still the engine's
+adopts its own report's validity directly and bumps the same stamp, so a probe that started
+earlier discards its answer rather than overwrite a fresher one.
+
+A landing an edit outdated (`AdoptFormValidity` finds `_editStamp` moved past the pass's begin)
+writes neither `IsFormValid` nor the stamp, so a probe begun after the edit still lands. The end
+of that pass then checks for the edit unless something already on its way answers it, because a
+check beside it would run a still-unanswered async rule a second time.
+
+Four things answer the edit's `IsFormValid` already: a probe begun at the current stamp
+(`_lastProbeEditStamp`), an armed validity check, an armed or waiting refresh of any origin, and an
+open live window (or its waiting fire), whose fire starts the probe.
+
+The check behind an outdated landing goes through the validity timer while `RefreshDebounce` can
+pass, so a burst of edits behind a landing is one check, and starts the probe at once otherwise,
+since a timer at a wait that never passes never fires. Like the deferred fires' arm, it runs after
+the landing's dispatch.
 
 Probes are never cancelled short of disposal, so under a slow async rule and no `LiveDebounce`
 several can be in flight together, each answering for the model state it started at. A probe

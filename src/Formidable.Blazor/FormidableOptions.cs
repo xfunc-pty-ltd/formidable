@@ -75,14 +75,13 @@ public sealed class FormidableOptions
 
     /// <summary>After a submit, how long after an edit before the whole form is re-checked so the summary stays truthful. Defaults to 300 ms.</summary>
     /// <remarks>
-    /// A change to which fields are on screen re-checks the whole form after the same wait at any
-    /// point in the form's life. <see cref="TimeSpan.Zero"/> re-checks as soon as the edit is
+    /// A change to which fields are on screen re-checks the whole form after the same wait, before a
+    /// submit or after. <see cref="TimeSpan.Zero"/> re-checks as soon as the edit is
     /// committed, and <see cref="Timeout.InfiniteTimeSpan"/> turns the re-check off. A wait past
-    /// the timer's limit reads as the infinite wait and a negative one as zero, each named once in
-    /// a logged warning. Contrast
-    /// <see cref="LiveDebounce"/>, whose <see langword="null"/> means no wait at all. With
-    /// <see cref="TrackFormValidity"/> on and a <see cref="LiveDebounce"/> of
-    /// <see cref="Timeout.InfiniteTimeSpan"/>, it also times the validity check.
+    /// the timer's limit reads as the infinite wait and any other negative one as zero, each named
+    /// once in a logged warning. With <see cref="TrackFormValidity"/> on it also times the validity
+    /// check under a <see cref="LiveDebounce"/> of <see cref="Timeout.InfiniteTimeSpan"/>, and
+    /// after a load you edited during.
     /// </remarks>
     public TimeSpan RefreshDebounce { get; set; } = TimeSpan.FromMilliseconds(300);
 

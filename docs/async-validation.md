@@ -168,9 +168,12 @@ Why: [how the engine works: which check yields to which](how-the-engine-works.md
 Press Submit and every field is answered at once, whatever partial work a half-typed field had
 running: every submit rule runs, whatever a live check answered a moment before. Keep typing
 while the submit spinner turns and nothing you type cancels it; the edit is not lost, because the
-whole form is re-checked once the submit lands. The same holds while loaded values are being
-checked (`DiscloseLoadedValuesAsync`): nothing you type cancels that, and the edit is answered by
-the check that follows the load.
+whole form is re-checked once the submit lands.
+
+The same holds while loaded values are being checked (`DiscloseLoadedValuesAsync`): nothing you
+type cancels that, and the edit is answered by the check that follows the load. With
+`TrackFormValidity` on, `IsFormValid` waits for the check that answers your edit too, rather than
+taking the submit's or the load's answer for the values before it.
 
 Only a second Submit, or a load of values, can overtake a submit; the overtaken submit blocks
 without writing an error of its own, leaving what was already showing. A blocked submit focuses
@@ -311,13 +314,15 @@ A `LiveDebounce` of `Timeout.InfiniteTimeSpan` never closes its window, so befor
 or server reply the edits start a validity check of their own instead, one for each burst,
 `RefreshDebounce` (300 ms) after its last edit. After a submit or server reply the whole-form
 re-check that follows each edit answers instead, and no validity check runs beside it, so an
-async rule is not paid twice. With `RefreshDebounce` also `Timeout.InfiniteTimeSpan`,
-`IsFormValid` moves only on a submit or a load of values.
+async rule is not paid twice.
+
+With `RefreshDebounce` also `Timeout.InfiniteTimeSpan`, `IsFormValid` moves only on a submit or a
+load of values, and on the check that follows one you edited during.
 
 Where every rule answers without waiting, it adds no rule executions per edit on the default
 profiles, wherever an edit starts a live check: whichever of the validity check and the check your
 edit started runs first has answered by the time the other looks, and the other reuses those
-answers. It costs extra in three places.
+answers. It costs extra in four places.
 Narrowing `LiveProfile` does not save the work: the rules the live check skipped still run on every
 edit to keep `IsFormValid` honest.
 
@@ -330,6 +335,9 @@ wins: time, never correctness.
 
 And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each
 validity check there is rule work the edits would not otherwise cost, async rules included.
+
+And an edit made while a submit or a load of values runs adds one validity check after it ends,
+only where nothing the edit started already answers `IsFormValid`.
 
 [Options](options.md#trackformvalidity) has the cost on a validator that cannot be taken rule by
 rule.

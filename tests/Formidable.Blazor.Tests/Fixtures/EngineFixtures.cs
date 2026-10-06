@@ -532,6 +532,89 @@ public sealed class GatedRuleRunCountingValidator : DraftSubmitValidator<EngineO
 }
 
 /// <summary>
+/// A synchronous presence rule on <see cref="EngineOrder.Description"/> beside an asynchronous
+/// rule on <see cref="EngineCustomer.Name"/> that waits, each time it runs, on a gate of its own,
+/// both submit rules. Each run records the description it saw, so a test can hold several checks
+/// out at once, release them in any order, and say which value each answered for. The async rule
+/// always passes, so a check's answer is the description's.
+/// </summary>
+public sealed class PerRunGatedValidator : DraftSubmitValidator<EngineOrder>
+{
+    private readonly List<(TaskCompletionSource Gate, string Seen)> _runs = [];
+
+    /// <summary>How many times the async rule has been reached.</summary>
+    public int Runs
+    {
+        get
+        {
+            lock (_runs)
+            {
+                return _runs.Count;
+            }
+        }
+    }
+
+    /// <summary>The description run <paramref name="run"/> saw, counting from zero.</summary>
+    public string Seen(int run)
+    {
+        lock (_runs)
+        {
+            return _runs[run].Seen;
+        }
+    }
+
+    /// <summary>Lets run <paramref name="run"/> answer.</summary>
+    public void Release(int run)
+    {
+        TaskCompletionSource gate;
+        lock (_runs)
+        {
+            gate = _runs[run].Gate;
+        }
+
+        gate.TrySetResult();
+    }
+
+    /// <summary>Lets every run reached so far answer.</summary>
+    public void ReleaseAll()
+    {
+        List<TaskCompletionSource> gates;
+        lock (_runs)
+        {
+            gates = [.. _runs.Select(run => run.Gate)];
+        }
+
+        foreach (var gate in gates)
+        {
+            gate.TrySetResult();
+        }
+    }
+
+    protected override void ConfigureDraftRules()
+    {
+    }
+
+    protected override void ConfigureSubmitRules()
+    {
+        RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+
+        RuleFor(x => x.Customer!.Name)
+            .MustAsync(async (order, _, ct) =>
+            {
+                var gate = new TaskCompletionSource();
+                lock (_runs)
+                {
+                    _runs.Add((gate, order.Description));
+                }
+
+                await gate.Task.WaitAsync(ct);
+                return true;
+            })
+            .When(x => x.Customer is not null);
+    }
+}
+
+/// <summary>
 /// The inverse bucket split of <see cref="TwoFieldGatedValidator"/>: the gated asynchronous rule
 /// on <see cref="EngineOrder.Description"/> sits in the DRAFT bucket, so a live channel narrowed
 /// to <see cref="ValidationProfile.Draft"/> still selects it — an edit opens a real debounce
@@ -1036,9 +1119,78 @@ public sealed class ToggleableTripleValidator : DraftSubmitValidator<EngineOrder
     }
 }
 
+/// <summary>
+/// A render dispatch that runs one delegate at a time, as <see cref="EngineTestSync.OneAtATime"/>
+/// does, and counts the dispatches whose delegate has returned or thrown. A
+/// pass that ends on a worker thread lands in one dispatch and arms what waited for it in the next,
+/// so a test that must act only after that arm waits for the count to pass the landing.
+/// </summary>
+public sealed class CountedDispatch
+{
+    private readonly object _sync = new();
+    private int _completed;
+
+    /// <summary>The dispatch to hand the engine.</summary>
+    public Func<Func<Task>, Task> Dispatch => Run;
+
+    /// <summary>How many dispatches have finished.</summary>
+    public int Completed => Volatile.Read(ref _completed);
+
+    /// <summary>Yields until at least <paramref name="count"/> dispatches have finished, for at most five seconds.</summary>
+    /// <param name="count">The count to reach.</param>
+    /// <returns>A task that completes once the count is reached.</returns>
+    /// <exception cref="TimeoutException">The count was not reached in five seconds.</exception>
+    public async Task WaitUntilAtLeastAsync(int count)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (Completed < count)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"Expected {count} finished dispatches, saw {Completed}.");
+            }
+
+            await Task.Delay(5);
+        }
+    }
+
+    private Task Run(Func<Task> work)
+    {
+        lock (_sync)
+        {
+            try
+            {
+                return work();
+            }
+            finally
+            {
+                Interlocked.Increment(ref _completed);
+            }
+        }
+    }
+}
+
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>
 public static class EngineTestSync
 {
+    /// <summary>
+    /// A render dispatch that runs one delegate at a time, as the renderer's dispatcher does. A
+    /// rule that awaits a gate resumes on a worker thread once the test releases it, so with the
+    /// inline default two landings could reach the engine at once, which a real dispatcher never
+    /// allows. The lock is re-entrant, so a dispatch made inside another runs inline.
+    /// </summary>
+    public static Func<Func<Task>, Task> OneAtATime()
+    {
+        var sync = new object();
+        return work =>
+        {
+            lock (sync)
+            {
+                return work();
+            }
+        };
+    }
+
     /// <summary>
     /// Completes the next time the engine reports it is no longer validating. Call it only once
     /// the pass under test is confirmed in flight — StateChanged also fires before a pass flips
