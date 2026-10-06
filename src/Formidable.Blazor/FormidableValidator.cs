@@ -140,7 +140,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 Validator,
                 Options,
                 renderDispatch: work => InvokeAsync(work));
-            _context = new FormidableFormContext(_engine, FocusFirstErrorAsync);
+            // The reader answers the engine this component holds when it is called: the one a
+            // replaced EditContext rebuilt here, or null once Dispose has cleared it.
+            _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _engine);
             _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
             Reconciler.Reset();
             _engine.Registry.Changed += Reconciler.OnRegistryChanged;

@@ -56,7 +56,7 @@ public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TV
         var engine = Context.Engine;
         var state = engine.GetFieldState(_field);
         var context = new FormidableFieldContext(
-            engine,
+            Context,
             _field,
             _elementId,
             state,

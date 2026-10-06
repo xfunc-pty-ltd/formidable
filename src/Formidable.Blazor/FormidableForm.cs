@@ -537,7 +537,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             Validator,
             Options,
             renderDispatch: work => InvokeAsync(work));
-        _context = new FormidableFormContext(_engine, FocusFirstErrorAsync);
+        // The reader answers null once the form is disposed: Dispose keeps the engine it tore down
+        // so Engine can still return it, and no report belongs there.
+        _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _disposed ? null : _engine);
         _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
 
         // The new engine has its own registry, whose version starts over — and its own fields to

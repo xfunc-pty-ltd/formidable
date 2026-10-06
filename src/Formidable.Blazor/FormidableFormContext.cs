@@ -6,6 +6,7 @@ namespace Formidable.Blazor;
 public sealed class FormidableFormContext
 {
     private readonly Func<Task<bool>>? _focusFirstError;
+    private readonly Func<IFormidableEngine?>? _currentEngine;
 
     /// <summary>Wraps an engine for a test that cascades a context by hand; the two roots build their own.</summary>
     /// <param name="engine">The engine the context exposes.</param>
@@ -21,14 +22,24 @@ public sealed class FormidableFormContext
         Engine = engine;
     }
 
-    /// <summary>The roots' constructor: the engine plus the root's own <c>FocusFirstErrorAsync</c>.</summary>
+    /// <summary>The roots' constructor: the engine, the root's own <c>FocusFirstErrorAsync</c>, and a reader of the engine the root holds at the time of the call.</summary>
     /// <param name="engine">The engine the context exposes.</param>
     /// <param name="focusFirstError">The root's <c>FocusFirstErrorAsync</c>, so its <c>PrepareFocus</c> and <c>FocusFallback</c> travel with the move.</param>
+    /// <param name="currentEngine">Reads the engine the root holds when it is called, or <see langword="null"/> once the root holds none.</param>
     // A delegate over the root's public method rather than over the move itself, deliberately:
     // the move has exactly one implementation, and it is reached through the root so that the
-    // root's PrepareFocus and FocusFallback come with it.
-    internal FormidableFormContext(IFormidableEngine engine, Func<Task<bool>> focusFirstError)
-        : this(engine) => _focusFirstError = focusFirstError;
+    // root's PrepareFocus and FocusFallback come with it. The engine reader is the root's too,
+    // because only the root is sure to outlive a rebuild: FormidableForm keys its cascade on the
+    // context, so the components that read the old one are disposed with it.
+    internal FormidableFormContext(
+        IFormidableEngine engine,
+        Func<Task<bool>> focusFirstError,
+        Func<IFormidableEngine?> currentEngine)
+        : this(engine)
+    {
+        _focusFirstError = focusFirstError;
+        _currentEngine = currentEngine;
+    }
 
     /// <summary>The form's validation engine.</summary>
     public IFormidableEngine Engine { get; }
@@ -49,4 +60,8 @@ public sealed class FormidableFormContext
     // asked on, where moving focus invalidates nothing. That one stays on the component.
     public Task<bool> FocusFirstErrorAsync() =>
         _focusFirstError?.Invoke() ?? Task.FromResult(false);
+
+    /// <summary>The engine the root behind this context holds now: <see cref="Engine"/> until the root replaces or lets it go, then the root's newer engine, or <see langword="null"/> once it holds none.</summary>
+    /// <returns>The root's engine at the time of the call, or <see langword="null"/>; a context built through the public constructor answers <see cref="Engine"/>.</returns>
+    internal IFormidableEngine? ReadCurrentEngine() => _currentEngine is null ? Engine : _currentEngine();
 }

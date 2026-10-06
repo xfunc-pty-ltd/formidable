@@ -5,17 +5,19 @@ namespace Formidable.Blazor;
 /// <summary>What <see cref="FormidableField{TValue}"/> hands its child content each render: the field's state, issues, class and the attributes a custom input binds.</summary>
 public sealed class FormidableFieldContext
 {
+    private readonly FormidableFormContext _formContext;
     private readonly IFormidableEngine _engine;
 
     internal FormidableFieldContext(
-        IFormidableEngine engine,
+        FormidableFormContext formContext,
         FieldIdentifier field,
         string elementId,
         FieldState state,
         string cssClass,
         IReadOnlyList<ValidationIssue> issues)
     {
-        _engine = engine;
+        _formContext = formContext;
+        _engine = formContext.Engine;
         Field = field;
         ElementId = elementId;
         State = state;
@@ -23,7 +25,7 @@ public sealed class FormidableFieldContext
         Issues = issues;
         AriaInvalid = state.HasErrors;
         AriaDescribedBy = issues.Count > 0 ? FormidableFieldId.MessagesFor(elementId) : null;
-        Requirement = engine.GetFieldRequirement(field);
+        Requirement = _engine.GetFieldRequirement(field);
 
         var inputAttributes = new Dictionary<string, object>(5)
         {
@@ -194,7 +196,14 @@ public sealed class FormidableFieldContext
     /// <param name="edit">The page's own edit to the value this field names, which awaits before or while it changes the value.</param>
     /// <returns>A task that completes once the edit has completed and the change is reported.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
-    /// <remarks>An edit that faults or is cancelled reports nothing, and the returned task carries its exception or its cancellation.</remarks>
+    /// <remarks>
+    /// An edit that faults or is cancelled reports nothing, and the returned task carries its
+    /// exception or its cancellation. When the root rebuilds its engine during the await (a reset,
+    /// or a replaced <see cref="EditContext"/> the page cascades by hand), the report goes to the
+    /// new engine if it edits the same model, and nowhere otherwise. It goes nowhere once the root
+    /// is disposed, which is what replacing an <see cref="EditForm"/>'s <see cref="EditContext"/>
+    /// does to the <see cref="FormidableValidator{TModel}"/> inside it.
+    /// </remarks>
     public Task Edit(Func<Task> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
@@ -202,13 +211,16 @@ public sealed class FormidableFieldContext
     }
 
     /// <summary>Awaits <paramref name="edit"/> and, only when it returns <see langword="true"/>, reports the change as <see cref="NotifyChanged"/> does.</summary>
-    /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything.</param>
+    /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything; a <c>ValueTask&lt;bool&gt;</c> edit is written <c>async () =&gt; await ...</c>.</param>
     /// <returns>A task carrying what <paramref name="edit"/> returned, which completes once any report is made.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
     /// <remarks>
     /// An edit that faults or is cancelled reports nothing, and the returned task carries its
-    /// exception or its cancellation. A <c>ValueTask&lt;bool&gt;</c> edit is written
-    /// <c>async () =&gt; await ...</c>.
+    /// exception or its cancellation. When the root rebuilds its engine during the await (a reset,
+    /// or a replaced <see cref="EditContext"/> the page cascades by hand), the report goes to the
+    /// new engine if it edits the same model, and nowhere otherwise. It goes nowhere once the root
+    /// is disposed, which is what replacing an <see cref="EditForm"/>'s <see cref="EditContext"/>
+    /// does to the <see cref="FormidableValidator{TModel}"/> inside it.
     /// </remarks>
     public Task<bool> TryEdit(Func<Task<bool>> edit)
     {
@@ -221,7 +233,7 @@ public sealed class FormidableFieldContext
     private async Task EditThenReportAsync(Func<Task> edit)
     {
         await edit();
-        NotifyChanged();
+        ReportToCurrentEngine();
     }
 
     private async Task<bool> EditThenReportAsync(Func<Task<bool>> edit)
@@ -231,8 +243,25 @@ public sealed class FormidableFieldContext
             return false;
         }
 
-        NotifyChanged();
+        ReportToCurrentEngine();
         return true;
+    }
+
+    // An await gives the root time to rebuild its engine (a reset) or to let it go (a disposal),
+    // so the report goes to the engine the root holds once the edit has completed. An engine over
+    // the same model edits the object this field names and hears the change; an engine over
+    // another model never held this field, and a root holding none has nothing to tell. The
+    // synchronous members report to the engine this context was built with, inside the handler
+    // that called them.
+    private void ReportToCurrentEngine()
+    {
+        var current = _formContext.ReadCurrentEngine();
+        if (current is null || !ReferenceEquals(current.EditContext.Model, _engine.EditContext.Model))
+        {
+            return;
+        }
+
+        current.EditContext.NotifyFieldChanged(Field);
     }
 
     // The rule keys on TItem, not on each item's own type. A value type or a string matches by

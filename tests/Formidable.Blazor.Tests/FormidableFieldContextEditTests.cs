@@ -1,7 +1,10 @@
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
@@ -10,7 +13,8 @@ namespace Formidable.Blazor.Tests;
 /// Pins <c>Edit</c> and <c>TryEdit</c> on <c>FormidableFieldContext</c>: each runs the page's own
 /// edit, then reports the change for the field, so the check it starts reads the edited list.
 /// <c>Edit</c> always reports; a <c>TryEdit</c> whose edit returns <see langword="false"/> reports
-/// nothing, and so does an edit that throws, faults or is cancelled.
+/// nothing, and so does an edit that throws, faults or is cancelled. An awaited edit reports to the
+/// engine its root holds once the edit completes, when that engine edits the same model.
 /// </summary>
 // LiveDebounce stays at its default in every test here. With no wait, the live check starts
 // inside the report itself, which is what lets a report made before the edit show.
@@ -310,6 +314,186 @@ public class FormidableFieldContextEditTests : BunitContext
         Assert.True(valueTaskPresent.IsModified());
     }
 
+    // A reset over the same model rebuilds the form's engine while the edit awaits. The field
+    // names an object the new engine still edits, so the report follows the form there. Mutation
+    // that must break it: report to the engine the context was built with, and the new engine
+    // hears nothing.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_awaiting_edit_reports_to_the_engine_a_reset_built_over_the_same_model(bool tryEdit)
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var built = form.Instance.Engine!;
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(form, context.Value!, gate, tryEdit, () => model.Items.Clear());
+
+        await form.InvokeAsync(() => form.Instance.ResetAsync());
+        var current = form.Instance.Engine!;
+        Assert.NotSame(built, current);
+        var heard = HearFieldChanges(current.EditContext);
+
+        gate.SetResult();
+        await edit;
+
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.True(current.EditContext.IsModified(ItemsField(model)));
+        form.WaitForAssertion(() => Assert.Equal(AtLeastOne, form.Find("li").TextContent));
+    }
+
+    // A reset to another model under @bind-Model: the new engine never held a field on the old
+    // model, so the report goes nowhere, the old engine's EditContext included. Mutation that must
+    // break it: drop the same-model test, and the new engine hears a field on the old model.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_awaiting_edit_reports_to_nobody_after_a_reset_to_another_model(bool tryEdit)
+    {
+        var oldModel = new RowListModel { Items = [new RowListItem()] };
+        var newModel = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var host = Render<BoundModelHost>(parameters => parameters
+            .Add(p => p.InitialModel, oldModel)
+            .Add(p => p.Captured, context));
+        var form = host.FindComponent<FormidableForm<RowListModel>>();
+        var built = form.Instance.Engine!;
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(form, context.Value!, gate, tryEdit, () => oldModel.Items.Clear());
+
+        await form.InvokeAsync(() => form.Instance.ResetAsync(newModel));
+        var current = form.Instance.Engine!;
+        Assert.Same(newModel, current.EditContext.Model);
+        var heard = HearFieldChanges(current.EditContext);
+
+        gate.SetResult();
+        await edit;
+
+        Assert.Empty(heard);
+        Assert.False(built.EditContext.IsModified(ItemsField(oldModel)));
+    }
+
+    // Mutation that must break it: report to the engine the context was built with whatever the
+    // form holds, and the disposed form's EditContext marks the field modified.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_awaiting_edit_reports_to_nobody_once_the_form_is_disposed(bool tryEdit)
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var built = form.Instance.Engine!;
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(form, context.Value!, gate, tryEdit, () => model.Items.Clear());
+        var heard = HearFieldChanges(built.EditContext);
+
+        await DisposeComponentsAsync();
+        gate.SetResult();
+        await edit;
+
+        Assert.Empty(heard);
+        Assert.False(built.EditContext.IsModified(ItemsField(model)));
+    }
+
+    // FormidableValidator survives an EditContext its host cascades by hand and swaps, and builds a
+    // new engine over the same model, so the report follows it there. Mutation that must break
+    // it: report to the engine the context was built with, and the new engine hears nothing.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_awaiting_edit_under_FormidableValidator_follows_a_hand_cascaded_EditContext_over_the_same_model(bool tryEdit)
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var host = Render<HandCascadedHost>(parameters => parameters
+            .Add(p => p.Model, model)
+            .Add(p => p.Captured, context));
+        var validator = host.FindComponent<FormidableValidator<RowListModel>>();
+        var built = validator.Instance.Engine!;
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(host, context.Value!, gate, tryEdit, () => model.Items.Clear());
+
+        await host.InvokeAsync(host.Instance.ReplaceEditContext);
+        Assert.Same(validator.Instance, host.FindComponent<FormidableValidator<RowListModel>>().Instance);
+        var current = validator.Instance.Engine!;
+        Assert.NotSame(built, current);
+        Assert.Same(host.Instance.EditContext, current.EditContext);
+        var heard = HearFieldChanges(current.EditContext);
+
+        gate.SetResult();
+        await edit;
+
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.True(current.EditContext.IsModified(ItemsField(model)));
+    }
+
+    // An EditForm keys its content on its EditContext, so replacing the EditContext disposes the
+    // FormidableValidator inside it and builds another. The disposed one holds no engine, and the
+    // new one is a different root, so the report goes nowhere. Mutation that must break it: fall
+    // back to the engine the context was built with when the root holds none, and the old
+    // EditContext marks the field modified.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_awaiting_edit_under_an_EditForm_whose_EditContext_is_replaced_reports_to_nobody(bool tryEdit)
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var host = Render<EditFormHost>(parameters => parameters
+            .Add(p => p.Model, model)
+            .Add(p => p.Captured, context));
+        var first = host.FindComponent<FormidableValidator<RowListModel>>().Instance;
+        var oldEditContext = host.Instance.EditContext;
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(host, context.Value!, gate, tryEdit, () => model.Items.Clear());
+        var heardOld = HearFieldChanges(oldEditContext);
+
+        await host.InvokeAsync(host.Instance.ReplaceEditContext);
+        var second = host.FindComponent<FormidableValidator<RowListModel>>().Instance;
+        Assert.NotSame(first, second);
+        Assert.Null(first.Engine);
+        var heardNew = HearFieldChanges(second.Engine!.EditContext);
+
+        gate.SetResult();
+        await edit;
+
+        Assert.Empty(heardOld);
+        Assert.Empty(heardNew);
+        Assert.False(oldEditContext.IsModified(ItemsField(model)));
+        Assert.False(second.Engine!.EditContext.IsModified(ItemsField(model)));
+    }
+
+    // A pin: a context built through FormidableFormContext's public constructor has no root behind
+    // it, so an awaited edit reports to the engine that context wraps. Mutation that must break it:
+    // answer null from ReadCurrentEngine when no root handed in a reader, and the engine hears
+    // nothing.
+    [Fact]
+    public async Task An_awaiting_edit_under_a_hand_built_form_context_reports_to_its_engine()
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var form = RenderList(model, new StrongBox<FormidableFieldContext>());
+        var engine = form.Instance.Engine!;
+        var context = new StrongBox<FormidableFieldContext>();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
+            builder.AddComponentParameter(1, "Value", new FormidableFormContext(engine));
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner => RenderItemsField(inner, () => model.Items, context)));
+            builder.CloseComponent();
+        });
+        var heard = HearFieldChanges(engine.EditContext);
+        var gate = new TaskCompletionSource();
+        var edit = await StartGatedEditAsync(cut, context.Value!, gate, tryEdit: false, () => model.Items.Clear());
+
+        gate.SetResult();
+        await edit;
+
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.True(engine.EditContext.IsModified(ItemsField(model)));
+    }
+
     private static FieldIdentifier ItemsField(RowListModel model) => new(model, nameof(RowListModel.Items));
 
     /// <summary>Clicks a button whose edit waits on the host's gate, shows that nothing is reported or edited while the gate is closed, then opens it and awaits the click.</summary>
@@ -343,6 +527,160 @@ public class FormidableFieldContextEditTests : BunitContext
     /// <summary>Renders the list the way a page does: a <c>FormidableField</c> wrapping it, and a <c>FormidableCollectionMessage</c> for the list's own rule.</summary>
     private IRenderedComponent<FormidableForm<RowListModel>> RenderList(RowListModel model, StrongBox<FormidableFieldContext> context) =>
         this.RenderCollectionField(model, () => model.Items, context);
+
+    /// <summary>Starts an awaiting <c>Edit</c> or <c>TryEdit</c> (the latter returning <see langword="true"/>) whose change waits on <paramref name="gate"/>, from the renderer's context, and hands back its task.</summary>
+    private static async Task<Task> StartGatedEditAsync<TComponent>(
+        IRenderedComponent<TComponent> cut,
+        FormidableFieldContext field,
+        TaskCompletionSource gate,
+        bool tryEdit,
+        Action change)
+        where TComponent : IComponent
+    {
+        var edit = Task.CompletedTask;
+        await cut.InvokeAsync(() =>
+        {
+            edit = tryEdit
+                ? field.TryEdit(async () =>
+                {
+                    await gate.Task;
+                    change();
+                    return true;
+                })
+                : field.Edit(async () =>
+                {
+                    await gate.Task;
+                    change();
+                });
+        });
+        Assert.False(edit.IsCompleted);
+        return edit;
+    }
+
+    /// <summary>Records every field <paramref name="editContext"/> hears change, from this call on.</summary>
+    private static List<FieldIdentifier> HearFieldChanges(EditContext editContext)
+    {
+        var heard = new List<FieldIdentifier>();
+        editContext.OnFieldChanged += (_, e) => heard.Add(e.FieldIdentifier);
+        return heard;
+    }
+
+    /// <summary>A form bound with <c>@bind-Model</c>, so <c>ResetAsync</c> can hand it another model, with a <c>FormidableField</c> over the current model's list.</summary>
+    private sealed class BoundModelHost : ComponentBase
+    {
+        private RowListModel _model = default!;
+
+        [Parameter]
+        public RowListModel InitialModel { get; set; } = default!;
+
+        [Parameter]
+        public StrongBox<FormidableFieldContext> Captured { get; set; } = default!;
+
+        protected override void OnInitialized() => _model = InitialModel;
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<RowListModel>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<RowListModel>.Model), _model);
+            builder.AddComponentParameter(
+                2,
+                nameof(FormidableForm<RowListModel>.ModelChanged),
+                EventCallback.Factory.Create<RowListModel>(this, model => _model = model));
+            builder.AddComponentParameter(
+                3,
+                nameof(FormidableForm<RowListModel>.ChildContent),
+                (RenderFragment<FormidableFormContext>)(_ => inner => RenderItemsField(inner, () => _model.Items, Captured)));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>
+    /// Cascades an <see cref="EditContext"/> the host owns, with a <see cref="FormidableValidator{TModel}"/>
+    /// beneath it, and replaces that <see cref="EditContext"/> with a new one over the same model on
+    /// <see cref="ReplaceEditContext"/>. Cascading by hand keeps the same validator in place across
+    /// the swap, where an <c>EditForm</c> would replace it.
+    /// </summary>
+    private sealed class HandCascadedHost : ComponentBase
+    {
+        [Parameter]
+        public RowListModel Model { get; set; } = default!;
+
+        [Parameter]
+        public StrongBox<FormidableFieldContext> Captured { get; set; } = default!;
+
+        public EditContext EditContext { get; private set; } = default!;
+
+        public void ReplaceEditContext()
+        {
+            EditContext = new EditContext(Model);
+            StateHasChanged();
+        }
+
+        protected override void OnInitialized() => EditContext = new EditContext(Model);
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<CascadingValue<EditContext>>(0);
+            builder.AddComponentParameter(1, "Value", EditContext);
+            builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(inner => RenderAttachedField(inner, Model, Captured)));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>A real <c>EditForm</c> over a host-owned <see cref="EditContext"/>, with a <see cref="FormidableValidator{TModel}"/> inside, and <see cref="ReplaceEditContext"/> to swap in a new one over the same model.</summary>
+    private sealed class EditFormHost : ComponentBase
+    {
+        [Parameter]
+        public RowListModel Model { get; set; } = default!;
+
+        [Parameter]
+        public StrongBox<FormidableFieldContext> Captured { get; set; } = default!;
+
+        public EditContext EditContext { get; private set; } = default!;
+
+        public void ReplaceEditContext()
+        {
+            EditContext = new EditContext(Model);
+            StateHasChanged();
+        }
+
+        protected override void OnInitialized() => EditContext = new EditContext(Model);
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<EditForm>(0);
+            builder.AddComponentParameter(1, nameof(EditForm.EditContext), EditContext);
+            builder.AddComponentParameter(
+                2,
+                nameof(EditForm.ChildContent),
+                (RenderFragment<EditContext>)(_ => inner => RenderAttachedField(inner, Model, Captured)));
+            builder.CloseComponent();
+        }
+    }
+
+    private static void RenderAttachedField(RenderTreeBuilder builder, RowListModel model, StrongBox<FormidableFieldContext> captured)
+    {
+        builder.OpenComponent<FormidableValidator<RowListModel>>(0);
+        builder.AddComponentParameter(
+            1,
+            nameof(FormidableValidator<RowListModel>.ChildContent),
+            (RenderFragment<FormidableFormContext>)(_ => inner => RenderItemsField(inner, () => model.Items, captured)));
+        builder.CloseComponent();
+    }
+
+    private static void RenderItemsField(
+        RenderTreeBuilder builder,
+        Expression<Func<IList<RowListItem>>> accessor,
+        StrongBox<FormidableFieldContext> captured)
+    {
+        builder.OpenComponent<FormidableField<IList<RowListItem>>>(0);
+        builder.AddComponentParameter(1, nameof(FormidableField<IList<RowListItem>>.For), accessor);
+        builder.AddComponentParameter(
+            2,
+            nameof(FormidableField<IList<RowListItem>>.ChildContent),
+            (RenderFragment<FormidableFieldContext>)(context => _ => captured.Value = context));
+        builder.CloseComponent();
+    }
 
     private sealed record BindingHost(
         IRenderedComponent<Fixtures.EditBindingHost> Host,

@@ -229,6 +229,7 @@ await _form!.ResetAsync(new Order());     // a different instance — needs @bin
 | Called with nothing | The engine and the `EditContext` are rebuilt over the model instance already bound; the model's values are not written. |
 | What the old engine held | Gone: touched and modified state, the message store, the advisory buckets, `HasSubmitted`, and any whole-form re-check still waiting. |
 | A `SubmitAsync` still awaiting its answer | Abandoned with that engine: neither callback fires, focus stays, nothing re-renders, and it returns a blocked outcome carrying nothing. |
+| An awaited `Edit` or `TryEdit` on a field's context, still waiting on its edit | Reports once the edit completes (a `TryEdit` only on `true`): to the rebuilt form when the reset kept the model instance, and nowhere after a swap to a new one. |
 | Called with a model but no `ModelChanged` bound | Throws, naming `@bind-Model` as the fix. |
 
 Called with a model, it swaps to that instance. The swap is durable only if the parent's own field
