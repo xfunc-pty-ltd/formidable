@@ -1,10 +1,12 @@
 using System.Globalization;
 using System.Linq.Expressions;
 using Bunit;
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Formidable.Blazor.Tests;
@@ -162,6 +164,35 @@ public class WaitForSubmitTests : BunitContext
         var input = cut.Find("input");
         Assert.Contains("formidable-invalid", input.GetAttribute("class"));
         Assert.Equal("true", input.GetAttribute("aria-invalid"));
+    }
+
+    // No surface shows the description's length error: the inline lists, the kit summary, a native
+    // summary and message, every input's state class and aria-invalid, and the edit context.
+    private static void AssertNothingShows<TComponent>(IRenderedComponent<TComponent> cut, EditContext editContext, FieldIdentifier field)
+        where TComponent : IComponent
+    {
+        AssertQuiet(cut, editContext, field);
+        Assert.Equal(0, SurfacesShowing(cut, "10"));
+    }
+
+    // How many elements of the named kinds carry the text. With no selector given, the kinds are
+    // every surface a message can render on: the kit's message list and summary, and the native
+    // summary and message.
+    private static int SurfacesShowing<TComponent>(IRenderedComponent<TComponent> cut, string text, params string[] selectors)
+        where TComponent : IComponent
+    {
+        if (selectors.Length == 0)
+        {
+            selectors =
+            [
+                "ul.formidable-message-list li",
+                "ul.formidable-summary__group--error li",
+                "ul.validation-errors li",
+                "div.validation-message",
+            ];
+        }
+
+        return selectors.Sum(selector => cut.FindAll(selector).Count(element => element.TextContent.Contains(text)));
     }
 
     // Every live surface at once: the inline list, the summary, the state class and aria-invalid.
@@ -327,11 +358,11 @@ public class WaitForSubmitTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // The reverse of the mount above: the held input leaves while the plain one stays, so the
-    // republish runs while the render batch disposes the departing input. The refresh is off, and
-    // the rendered-field-set reconcile the form runs after the render publishes nothing on the
-    // default policy, so the store moves only through the wait's own report. Mutation: make the
-    // engine's held-state handler do nothing, and the edit context never gets the message.
+    // The reverse of the mount above: the held input leaves while the plain one stays. Its wait
+    // stands until the rendered-field-set reconcile the form runs after the render, which drops no
+    // field here and then ends the wait. The refresh is off, and that reconcile publishes nothing
+    // else on the default policy, so the store moves only through the wait's own report. Mutation:
+    // make the engine's held-state handler do nothing, and the edit context never gets the message.
     [Fact]
     public async Task A_held_input_leaving_beside_a_plain_one_shows_the_error_it_held()
     {
@@ -660,11 +691,12 @@ public class WaitForSubmitTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // The only waiting input for the field leaves through a nested render, so the field has
-    // departed. Its wait ends on the way out, and that must not put the message it held on the
-    // summary, the inline list or a native message outside the nested component, not even in the
-    // turn before the reconcile the removal posts drops the field. Mutation: drop the departure
-    // test in the engine's held-state handler, and the store holds the message inside that turn.
+    // A pin of the hold standing: the only waiting input for the field leaves through a nested
+    // render, so the field has departed. Its wait stands until the reconcile the removal posts,
+    // which drops the field before it settles the wait. So in the turn before that reconcile, the
+    // engine's own reads and the edit context show nothing, and neither does any surface after it.
+    // Mutation: end the hold inside Unregister, and the engine's issue read gives the message
+    // inside the turn.
     [Fact]
     public async Task A_waiting_input_leaving_as_its_field_s_only_registration_shows_nothing()
     {
@@ -687,14 +719,17 @@ public class WaitForSubmitTests : BunitContext
         AssertQuiet(cut, engine.EditContext, description);
 
         var heldInTheTurn = true;
+        var issuesInTheTurn = -1;
         await cut.InvokeAsync(() =>
         {
             nested.Render(parameters => parameters.Add(p => p.Show, false));
             heldInTheTurn = !engine.EditContext.GetValidationMessages(description).Any();
+            issuesInTheTurn = engine.GetIssues(description).Count;
         });
         await Settle(cut);
 
         Assert.True(heldInTheTurn);
+        Assert.Equal(0, issuesInTheTurn);
         Assert.Empty(cut.FindAll("input"));
         Assert.False(engine.Registry.IsRegistered(description));
         AssertQuiet(cut, engine.EditContext, description);
@@ -703,10 +738,10 @@ public class WaitForSubmitTests : BunitContext
     }
 
     // The same departure, then an edit to another field, with nothing re-rendering the form. That
-    // edit's check answers every field still engaged, so a departed field the form has not yet
-    // reconciled would show the message it held on every surface outside the nested component.
-    // Mutation: drop FormidableForm's Registry.Changed subscription, and the store, the summary
-    // and the native message all show it.
+    // edit's check answers every field still engaged. Two things keep the departed field quiet:
+    // the reconcile the removal posts drops the field, and until that reconcile runs the wait
+    // stands. Mutation: drop FormidableForm's Registry.Changed subscription and end the hold
+    // inside Unregister together, and the store, the summary and the native message all show it.
     [Fact]
     public async Task A_waiting_input_hidden_by_a_nested_render_stays_quiet_through_an_unrelated_edit()
     {
@@ -952,10 +987,11 @@ public class WaitForSubmitTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // The review's case: a kept row whose wait was switched off while it was away comes back
-    // answering live. The retention it left held; the row re-created without the wait registers
-    // plain, and a registration standing speaks for the field. Mutation: have IsHeld count the
-    // retention while a registration stands, and every surface stays empty.
+    // A kept row whose wait was switched off while it was away comes back answering live. The
+    // retention it left held; the row re-created without the wait registers plain, which starts
+    // a new visit, and a registration standing speaks for the field. Mutation: have IsHeld count
+    // the retention while a registration stands and never forget the kept-hold count when a visit
+    // starts, together, and every surface stays empty.
     [Fact]
     public async Task A_KeepRegistered_row_recreated_after_its_hold_was_switched_off_answers_live()
     {
@@ -985,10 +1021,344 @@ public class WaitForSubmitTests : BunitContext
         host.Render(parameters => parameters.Add(p => p.Wait, false));
         host.Render(parameters => parameters.Add(p => p.Show, true));
 
+        // The plain registration ends the retention's hold, and that change re-renders the input
+        // from a round posted past the render batch; it runs before the input is found.
+        await Settle(cut);
         cut.Find("input").Change(TooLong + "y");
 
         cut.WaitForAssertion(() => AssertShowing(cut, engine.EditContext, description, nativeMessage: false));
         Assert.False(engine.HasSubmitted);
+
+        // A pin: the row came back without its wait, which started a new visit, so the retention
+        // it leaves on going away again carries no hold and the summary keeps the message.
+        // Mutation: never forget the kept-hold count when a visit starts, and the retention holds.
+        host.Render(parameters => parameters.Add(p => p.Show, false));
+        await Settle(cut);
+
+        Assert.Empty(cut.FindAll("input"));
+        Assert.True(engine.Registry.IsRegistered(description));
+        Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
+        Assert.Contains(engine.EditContext.GetValidationMessages(description), m => m.Contains("10"));
+
+        await Services.DisposeAsync();
+    }
+
+    // A waiting FormidableField wraps a plain kit input for the same field, and a nested render
+    // removes both while the field holds a failing value. The renderer disposes the wrapper before
+    // the input it wraps, so for the rest of that batch a plain registration stands. The wrapper's
+    // hold stands until the reconcile the removal posts settles the field, and that reconcile drops
+    // the departed field first. So inside the removing turn no surface outside the removed row
+    // shows the message, and after the reconcile none does either. Mutation: end the hold inside
+    // Unregister, and the edit context holds the message inside the turn.
+    [Fact]
+    public async Task A_waiting_wrapper_leaving_with_its_plain_input_shows_nothing_before_the_reconcile()
+    {
+        UseServices<EngineOrderValidator>();
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<WaitingWrapperHost>(0);
+            builder.AddComponentParameter(1, nameof(WaitingWrapperHost.Order), order);
+            builder.CloseComponent();
+        });
+        var row = cut.FindComponent<WaitingWrapperRow>();
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        cut.Find("input[data-name=row]").Change(TooLong);
+        await Settle(cut);
+        Assert.True(engine.GetFieldState(description).IsModified);
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        var storeInTheTurn = -1;
+        var issuesInTheTurn = -1;
+        var surfacesInTheTurn = -1;
+        await cut.InvokeAsync(() =>
+        {
+            row.Render(parameters => parameters.Add(p => p.Show, false));
+            storeInTheTurn = engine.EditContext.GetValidationMessages(description).Count();
+            issuesInTheTurn = engine.GetIssues(description).Count;
+            surfacesInTheTurn = SurfacesShowing(cut, "10");
+        });
+
+        Assert.Equal(0, storeInTheTurn);
+        Assert.Equal(0, issuesInTheTurn);
+        Assert.Equal(0, surfacesInTheTurn);
+
+        await Settle(cut);
+
+        Assert.Empty(cut.FindAll("input"));
+        Assert.False(engine.Registry.IsRegistered(description));
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        await Services.DisposeAsync();
+    }
+
+    // A kept waiting FormidableField around a kept plain kit input leaves the page, as a row does
+    // when it scrolls out of a virtualized list, while its value fails. The wrapper is disposed
+    // first, so the plain input is the last to end. The kept wait still counts, so the field stays
+    // quiet after the row leaves, after the whole-form re-check RefreshDebounce arms has run, and
+    // through an edit to another field. It is quiet when the row returns, and the first submit
+    // shows the message. Mutation: take KeptHolds from the last registration alone, and every
+    // surface shows the message once the row has left.
+    [Fact]
+    public async Task A_kept_waiting_row_leaving_stays_quiet_through_an_unrelated_edit()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        Services.AddSingleton<TimeProvider>(clock);
+        UseServices<EngineOrderValidator>();
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<WaitingWrapperHost>(0);
+            builder.AddComponentParameter(1, nameof(WaitingWrapperHost.Order), order);
+            builder.AddComponentParameter(2, nameof(WaitingWrapperHost.Keep), true);
+            builder.AddComponentParameter(3, nameof(WaitingWrapperHost.Options), new FormidableOptions());
+            builder.CloseComponent();
+        });
+        var host = cut.FindComponent<WaitingWrapperHost>();
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        cut.Find("input[data-name=row]").Change(TooLong);
+        await Settle(cut);
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        host.Render(parameters => parameters.Add(p => p.Show, false));
+        await Settle(cut);
+        Assert.Empty(cut.FindAll("input"));
+        Assert.True(engine.Registry.IsRegistered(description));
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        clock.Advance(TimeSpan.FromMilliseconds(800));
+        await Settle(cut);
+        await Settle(cut);
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        await cut.InvokeAsync(() =>
+        {
+            order.Customer = new EngineCustomer();
+            engine.EditContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        });
+        await Settle(cut);
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        host.Render(parameters => parameters.Add(p => p.Show, true));
+        await Settle(cut);
+        Assert.Single(cut.FindAll("input"));
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        cut.Find("form").Submit();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains(cut.FindAll("div.waiting-row ul.formidable-message-list li"), li => li.TextContent.Contains("10"));
+            Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
+            Assert.Contains(engine.EditContext.GetValidationMessages(description), m => m.Contains("10"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    // The same kept waiting row, scrolled out of view and back twice before the form is first
+    // submitted. Each return registers the waiting wrapper again, so the field
+    // waits while the row is on screen, and the kept wait holds it while the row is away. The
+    // first submit shows the message on the row. Mutation: take KeptHolds from the last
+    // registration alone, and the message shows once the row is first away.
+    [Fact]
+    public async Task A_kept_waiting_row_scrolled_out_and_back_stays_quiet_until_the_first_submit()
+    {
+        UseServices<EngineOrderValidator>();
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<WaitingWrapperHost>(0);
+            builder.AddComponentParameter(1, nameof(WaitingWrapperHost.Order), order);
+            builder.AddComponentParameter(2, nameof(WaitingWrapperHost.Keep), true);
+            builder.CloseComponent();
+        });
+        var host = cut.FindComponent<WaitingWrapperHost>();
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        cut.Find("input[data-name=row]").Change(TooLong);
+        await Settle(cut);
+        AssertNothingShows(cut, engine.EditContext, description);
+
+        for (var scroll = 0; scroll < 2; scroll++)
+        {
+            host.Render(parameters => parameters.Add(p => p.Show, false));
+            await Settle(cut);
+            Assert.Empty(cut.FindAll("input"));
+            AssertNothingShows(cut, engine.EditContext, description);
+
+            host.Render(parameters => parameters.Add(p => p.Show, true));
+            await Settle(cut);
+            Assert.Single(cut.FindAll("input"));
+            AssertNothingShows(cut, engine.EditContext, description);
+        }
+
+        cut.Find("form").Submit();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains(cut.FindAll("div.waiting-row ul.formidable-message-list li"), li => li.TextContent.Contains("10"));
+            var input = cut.Find("input[data-name=row]");
+            Assert.Contains("formidable-invalid", input.GetAttribute("class"));
+            Assert.Equal("true", input.GetAttribute("aria-invalid"));
+        });
+
+        await Services.DisposeAsync();
+    }
+
+    // Four rows mount waiting in one nested render, each over a field that is engaged and failing.
+    // Each mount rewrites its own field's messages at once, and the two notifications go out once
+    // for the whole batch, from a round posted past it. Mutation: raise both notifications for
+    // every flip, or rebuild the whole message store for every flip, and each count is four.
+    [Fact]
+    public async Task Flipping_many_waiting_fields_in_one_batch_notifies_once()
+    {
+        UseServices<SkuLengthValidator>();
+        var order = new EngineOrder { Items = [new(), new(), new(), new()] };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<WaitingRowsHost>(0);
+            builder.AddComponentParameter(1, nameof(WaitingRowsHost.Order), order);
+            builder.CloseComponent();
+        });
+        var block = cut.FindComponent<WaitingRowsBlock>();
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var skus = order.Items.Select(item => new FieldIdentifier(item, nameof(EngineItem.Sku))).ToList();
+
+        await cut.InvokeAsync(() =>
+        {
+            for (var i = 0; i < skus.Count; i++)
+            {
+                order.Items[i].Sku = $"sku-{i}";
+                engine.EditContext.NotifyFieldChanged(skus[i]);
+            }
+        });
+        await Settle(cut);
+        Assert.All(skus, sku => Assert.Single(engine.EditContext.GetValidationMessages(sku)));
+        Assert.Equal(skus.Count, SurfacesShowing(cut, "SKU", "ul.formidable-summary__group--error li"));
+
+        var validationStateChanges = 0;
+        var stateChanges = 0;
+        engine.EditContext.OnValidationStateChanged += (_, _) => validationStateChanges++;
+        engine.StateChanged += (_, _) => stateChanges++;
+
+        block.Render(parameters => parameters.Add(p => p.Show, true));
+        await Settle(cut);
+        await Settle(cut);
+
+        Assert.Equal(skus.Count, cut.FindAll("div.waiting-row").Count);
+        Assert.Equal(1, validationStateChanges);
+        Assert.Equal(1, stateChanges);
+        Assert.All(skus, sku => Assert.Empty(engine.EditContext.GetValidationMessages(sku)));
+        Assert.Equal(0, SurfacesShowing(cut, "SKU"));
+
+        await Services.DisposeAsync();
+    }
+
+    // A pin: a summary sits above a block of rows that mount waiting, each over a field a plain
+    // input elsewhere already shows a live error for. Each mount rewrites its own
+    // field's messages at once, so the row's own message list and native ValidationMessage, which
+    // render after the mount in the same batch, show nothing. The summary rendered before the
+    // mounts in that batch, and drops the entries at the round posted past it. Mutation: defer
+    // the message rewrite into the posted round, and a mounting row's native ValidationMessage
+    // shows its message inside the batch.
+    [Fact]
+    public async Task A_summary_above_waiting_rows_mounting_in_bulk_drops_their_entries()
+    {
+        UseServices<SkuLengthValidator>();
+        var order = new EngineOrder { Items = [new(), new(), new()] };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<WaitingRowsHost>(0);
+            builder.AddComponentParameter(1, nameof(WaitingRowsHost.Order), order);
+            builder.AddComponentParameter(2, nameof(WaitingRowsHost.PlainInputs), true);
+            builder.CloseComponent();
+        });
+        var block = cut.FindComponent<WaitingRowsBlock>();
+
+        for (var i = 0; i < order.Items.Count; i++)
+        {
+            cut.Find($"input[data-name=plain-{i}]").Change($"sku-{i}");
+        }
+
+        await Settle(cut);
+        Assert.Equal(order.Items.Count, SurfacesShowing(cut, "SKU", "ul.formidable-summary__group--error li"));
+
+        var rowsInTheBatch = -1;
+        var rowSurfacesInTheBatch = -1;
+        await cut.InvokeAsync(() =>
+        {
+            block.Render(parameters => parameters.Add(p => p.Show, true));
+            rowsInTheBatch = cut.FindAll("div.waiting-row").Count;
+            rowSurfacesInTheBatch = SurfacesShowing(
+                cut, "SKU", "div.waiting-row ul.formidable-message-list li", "div.waiting-row div.validation-message");
+        });
+
+        Assert.Equal(order.Items.Count, rowsInTheBatch);
+        Assert.Equal(0, rowSurfacesInTheBatch);
+
+        await Settle(cut);
+
+        Assert.Equal(0, SurfacesShowing(cut, "SKU", "ul.formidable-summary__group--error li"));
+
+        await Services.DisposeAsync();
+    }
+
+    // A consumer's OnValidationStateChanged handler throws once, as a waiting input mounts over a
+    // field that is engaged and failing with nothing else registered for it. The mount's
+    // notification is posted past the render batch, so no consumer code runs while the input
+    // registers, and the input holds its registration's handle. Removing the input therefore ends
+    // the registration. Mutation: raise the two notifications inside the engine's held-state
+    // handler, and the handler's throw escapes the registration before its handle is returned,
+    // so the field stays registered after the input has gone.
+    [Fact]
+    public async Task A_throwing_validation_state_handler_during_a_waiting_mount_leaks_no_registration()
+    {
+        UseServices<EngineOrderValidator>();
+        var order = new EngineOrder();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<BoundaryInputHost>(0);
+            builder.AddComponentParameter(1, nameof(BoundaryInputHost.Order), order);
+            builder.CloseComponent();
+        });
+        var host = cut.FindComponent<BoundaryInputHost>();
+        var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        await cut.InvokeAsync(() =>
+        {
+            order.Description = TooLong;
+            engine.EditContext.NotifyFieldChanged(description);
+        });
+        await Settle(cut);
+        Assert.NotEmpty(engine.EditContext.GetValidationMessages(description));
+        Assert.False(engine.Registry.IsRegistered(description));
+
+        var armed = true;
+        engine.EditContext.OnValidationStateChanged += (_, _) =>
+        {
+            if (armed)
+            {
+                armed = false;
+                throw new InvalidOperationException("a consumer handler throws");
+            }
+        };
+
+        host.Render(parameters => parameters.Add(p => p.ShowInput, true));
+        await Settle(cut);
+        await Settle(cut);
+        Assert.False(armed);
+
+        host.Render(parameters => parameters.Add(p => p.ShowInput, false));
+        await Settle(cut);
+        await Settle(cut);
+
+        Assert.Empty(cut.FindAll("input"));
+        Assert.False(engine.Registry.IsRegistered(description));
 
         await Services.DisposeAsync();
     }
@@ -1188,5 +1558,226 @@ public class WaitForSubmitTests : BunitContext
             }));
             builder.CloseComponent();
         }
+    }
+
+    /// <summary>Test-only host: a form whose content is a <see cref="WaitingWrapperRow"/>, with the description's message list, the kit summary, a native summary and a native message outside it.</summary>
+    private sealed class WaitingWrapperHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool Show { get; set; } = true;
+
+        [Parameter]
+        public bool Keep { get; set; }
+
+        [Parameter]
+        public FormidableOptions Options { get; set; } = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), Options);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<WaitingWrapperRow>(0);
+                inner.AddComponentParameter(1, nameof(WaitingWrapperRow.Order), Order);
+                inner.AddComponentParameter(2, nameof(WaitingWrapperRow.Show), Show);
+                inner.AddComponentParameter(3, nameof(WaitingWrapperRow.Keep), Keep);
+                inner.CloseComponent();
+
+                inner.OpenComponent<FormidableFieldMessage<string>>(10);
+                inner.AddComponentParameter(11, "For", (Expression<Func<string>>)(() => Order.Description));
+                inner.CloseComponent();
+
+                inner.OpenComponent<FormidableSummary>(12);
+                inner.CloseComponent();
+
+                inner.OpenComponent<ValidationSummary>(13);
+                inner.CloseComponent();
+
+                AddNativeMessage(inner, 14, Order);
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>Test-only row: a <c>FormidableField</c> with <c>WaitForSubmit</c> around a plain kit input and a message list for the description, both kept registered while <see cref="Keep"/> is set.</summary>
+    private sealed class WaitingWrapperRow : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool Show { get; set; }
+
+        [Parameter]
+        public bool Keep { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            if (!Show)
+            {
+                return;
+            }
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "waiting-row");
+            builder.OpenComponent<FormidableField<string>>(2);
+            builder.AddComponentParameter(3, "For", (Expression<Func<string>>)(() => Order.Description));
+            builder.AddComponentParameter(4, "WaitForSubmit", true);
+            builder.AddComponentParameter(5, "KeepRegistered", Keep);
+            builder.AddComponentParameter(6, "ChildContent", (RenderFragment<FormidableFieldContext>)(_ => content =>
+            {
+                AddHeldInput(content, 0, this, Order, waitForSubmit: false, dataName: "row", keepRegistered: Keep);
+
+                content.OpenComponent<FormidableFieldMessage<string>>(10);
+                content.AddComponentParameter(11, "For", (Expression<Func<string>>)(() => Order.Description));
+                content.CloseComponent();
+            }));
+            builder.CloseComponent();
+            builder.CloseElement();
+        }
+    }
+
+    /// <summary>Test-only host: a kit summary above an optional plain input per item's SKU, then a <see cref="WaitingRowsBlock"/>, then a native summary.</summary>
+    private sealed class WaitingRowsHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool PlainInputs { get; set; }
+
+        private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), _options);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.CloseComponent();
+
+                if (PlainInputs)
+                {
+                    for (var i = 0; i < Order.Items.Count; i++)
+                    {
+                        AddSkuInput(inner, 10, this, Order.Items[i], waitForSubmit: false, $"plain-{i}");
+                    }
+                }
+
+                inner.OpenComponent<WaitingRowsBlock>(20);
+                inner.AddComponentParameter(21, nameof(WaitingRowsBlock.Order), Order);
+                inner.CloseComponent();
+
+                inner.OpenComponent<ValidationSummary>(22);
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>Test-only block: while <see cref="Show"/> is set, one row per item, each a waiting kit input for its SKU, a message list and a native message.</summary>
+    private sealed class WaitingRowsBlock : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool Show { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            if (!Show)
+            {
+                return;
+            }
+
+            foreach (var item in Order.Items)
+            {
+                builder.OpenElement(0, "div");
+                builder.SetKey(item);
+                builder.AddAttribute(1, "class", "waiting-row");
+                AddSkuInput(builder, 2, this, item, waitForSubmit: true, dataName: null);
+
+                builder.OpenComponent<FormidableFieldMessage<string>>(10);
+                builder.AddComponentParameter(11, "For", (Expression<Func<string>>)(() => item.Sku));
+                builder.CloseComponent();
+
+                builder.OpenComponent<ValidationMessage<string>>(12);
+                builder.AddComponentParameter(13, "For", (Expression<Func<string>>)(() => item.Sku));
+                builder.CloseComponent();
+                builder.CloseElement();
+            }
+        }
+    }
+
+    // A kit input for one item's SKU, waiting or not. It takes six sequence numbers from sequence.
+    private static void AddSkuInput(
+        RenderTreeBuilder builder, int sequence, object receiver, EngineItem item, bool waitForSubmit, string? dataName)
+    {
+        builder.OpenComponent<FormidableInputText>(sequence);
+        builder.SetKey(item);
+        builder.AddComponentParameter(sequence + 1, "For", (Expression<Func<string?>>)(() => item.Sku));
+        builder.AddComponentParameter(sequence + 2, "Value", item.Sku);
+        builder.AddComponentParameter(sequence + 3, "ValueChanged",
+            EventCallback.Factory.Create<string?>(receiver, v => item.Sku = v ?? string.Empty));
+        builder.AddComponentParameter(sequence + 4, "WaitForSubmit", waitForSubmit);
+        if (dataName is not null)
+        {
+            builder.AddComponentParameter(sequence + 5, "data-name", dataName);
+        }
+
+        builder.CloseComponent();
+    }
+
+    /// <summary>Test-only host: a form with a kit summary, and a waiting description input inside an <c>ErrorBoundary</c> while <see cref="ShowInput"/> is set.</summary>
+    private sealed class BoundaryInputHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool ShowInput { get; set; }
+
+        private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), _options);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.CloseComponent();
+
+                inner.OpenComponent<ErrorBoundary>(1);
+                inner.AddComponentParameter(2, nameof(ErrorBoundary.ChildContent), (RenderFragment)(section =>
+                {
+                    if (ShowInput)
+                    {
+                        AddHeldInput(section, 0, this, Order, waitForSubmit: true);
+                    }
+                }));
+                inner.AddComponentParameter(3, nameof(ErrorBoundary.ErrorContent), (RenderFragment<Exception>)(_ => error =>
+                    error.AddMarkupContent(0, "<p class=\"section-failed\">The section failed.</p>")));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>One rule per item: a SKU longer than three characters fails with a message that names it.</summary>
+    private sealed class SkuLengthValidator : FluentValidation.AbstractValidator<EngineOrder>
+    {
+        public SkuLengthValidator() =>
+            RuleForEach(x => x.Items).ChildRules(item =>
+                item.RuleFor(x => x.Sku).MaximumLength(3).WithMessage(x => $"SKU {x.Sku} is too long"));
     }
 }

@@ -10,7 +10,8 @@ public sealed class FieldRegistration : IDisposable
     private readonly bool _keepRegistered;
 
     // Mutable because a component's wait can change while it stays on the page. Dispose passes the
-    // hold as it stands then, so a retention holds only if the registration held when it ended.
+    // hold as it stands then, so the registration counts toward a retention's hold only if it held
+    // when it ended.
     private bool _holdsLiveMessages;
     private bool _disposed;
 

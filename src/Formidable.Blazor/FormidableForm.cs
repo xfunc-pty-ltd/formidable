@@ -48,8 +48,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // displayed, which on Blazor Server is when the client acknowledges the batch: the renderer
     // awaits the batch's display task before any OnAfterRenderAsync, and RemoteRenderer completes
     // that task only on the acknowledgement. Until it arrives, a field that left in the batch
-    // keeps its live message in the EditContext. A prerendered form never clears the flag, and
-    // posts nothing, as it never reconciles.
+    // keeps its live message in the EditContext, and a hold a waiting component left as it ended
+    // still stands, so a field that component held shows its message only from that reconcile.
+    // A prerendered form never clears the flag, and posts nothing, as it never reconciles.
     private bool _afterRenderPending;
 
     // Distinct from _fieldOrderVersion, which gates whether a resolve is started at all:

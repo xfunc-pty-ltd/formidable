@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
@@ -19,8 +20,15 @@ public sealed class FieldRegistry
     private readonly Dictionary<FieldIdentifier, FieldEntry> _entries = [];
     private readonly HashSet<FieldIdentifier> _everRegistered = [];
 
-    // How many fields IsHeld answers true for, moved only as a field's held state flips, so a
-    // form that holds nothing answers IsHeld without a lookup.
+    // The fields a holding registration has ended for since the last SettleReleasedHolds. Kept
+    // apart from the entries because a released hold can outlive its entry: a field whose last
+    // registration left without keepRegistered has no entry, and its hold still stands until the
+    // root's reconcile settles it.
+    private readonly HashSet<FieldIdentifier> _releasedHolds = [];
+
+    // How many fields IsHeld answers true for, a field held only by a released hold included,
+    // moved only as a field's held state flips, so a form that holds nothing answers IsHeld
+    // without a lookup.
     private int _heldFields;
     private int _version;
 
@@ -43,12 +51,27 @@ public sealed class FieldRegistry
     /// <summary>Registers a rendered field, optionally holding its live messages until a submit or server reply answers.</summary>
     /// <param name="field">The field being rendered.</param>
     /// <param name="keepRegistered">As for <see cref="Register"/>.</param>
-    /// <param name="holdsLiveMessages"><see langword="true"/> holds the field's live messages while this registration stands and holds, or while the retention it leaves does.</param>
+    /// <param name="holdsLiveMessages"><see langword="true"/> holds the field's live messages while this registration stands and holds, then until <see cref="SettleReleasedHolds"/> runs, and while a retention it counts toward does.</param>
     /// <returns>The handle to dispose when the field leaves the page.</returns>
+    // No consumer event handler runs here: HeldStateChanged reaches the engine, which rewrites the
+    // field's messages and posts its notifications past the batch, and Changed reaches the roots,
+    // which post their reconcile. One consumer delegate can run: a plain registration arriving
+    // over a holding retention ends that hold at once, and under EngagedAndVisible the engine's
+    // rewrite reads DisclosureOverride. If the flip throws, the registration is taken back before
+    // the throw leaves, so a caller that never received a handle leaves nothing registered.
     internal FieldRegistration RegisterWithHold(FieldIdentifier field, bool keepRegistered, bool holdsLiveMessages)
     {
-        _entries.TryGetValue(field, out var entry);
-        var wasHeld = entry.IsHeld;
+        var wasHeld = HeldNow(field);
+        var existed = _entries.TryGetValue(field, out var entry);
+        var previous = entry;
+        var heldFields = _heldFields;
+        if (entry.Registrations == 0)
+        {
+            // A registration arriving on a field with none standing starts a new visit, so the
+            // kept holds the last visit counted no longer speak for the field.
+            entry.KeptHolds = false;
+        }
+
         entry.Registrations++;
         if (holdsLiveMessages)
         {
@@ -56,9 +79,35 @@ public sealed class FieldRegistry
         }
 
         _entries[field] = entry;
-        _everRegistered.Add(field);
+        var firstRegistration = _everRegistered.Add(field);
         _version++;
-        NoteHeldState(field, wasHeld, entry.IsHeld);
+        try
+        {
+            NoteHeldState(field, wasHeld, HeldNow(field));
+        }
+        catch
+        {
+            // Every change above is undone, so the registry stands as it did before the call and
+            // nothing a root keys on the version moved.
+            if (existed)
+            {
+                _entries[field] = previous;
+            }
+            else
+            {
+                _entries.Remove(field);
+            }
+
+            if (firstRegistration)
+            {
+                _everRegistered.Remove(field);
+            }
+
+            _heldFields = heldFields;
+            _version--;
+            throw;
+        }
+
         Changed?.Invoke();
         return new FieldRegistration(this, field, keepRegistered, holdsLiveMessages);
     }
@@ -68,11 +117,16 @@ public sealed class FieldRegistry
     /// <returns><see langword="true"/> while the field counts as registered.</returns>
     public bool IsRegistered(FieldIdentifier field) => _entries.ContainsKey(field);
 
-    /// <summary>Whether the field's live messages are held: while a component is registered for it, whether any current registration holds; otherwise whether its keep-registered retention was left by one that held.</summary>
+    /// <summary>Whether the field's live messages are held: by a hold an ended registration left, until <see cref="SettleReleasedHolds"/>; otherwise, while a component is registered for it, by any current registration that holds; otherwise by its keep-registered retention.</summary>
     /// <param name="field">The field to look up.</param>
     /// <returns><see langword="true"/> while the field is held.</returns>
-    internal bool IsHeld(FieldIdentifier field) =>
-        _heldFields > 0 && _entries.TryGetValue(field, out var entry) && entry.IsHeld;
+    internal bool IsHeld(FieldIdentifier field) => _heldFields > 0 && HeldNow(field);
+
+    /// <summary>Whether the field is held, read without the held-field count's shortcut.</summary>
+    /// <param name="field">The field to look up.</param>
+    /// <returns><see langword="true"/> while a released hold awaits its settle, or while the field's entry holds.</returns>
+    private bool HeldNow(FieldIdentifier field) =>
+        _releasedHolds.Contains(field) || (_entries.TryGetValue(field, out var entry) && entry.IsHeld);
 
     /// <summary>Moves one current registration's hold, and raises <see cref="HeldStateChanged"/> when that flips the field's held state.</summary>
     /// <param name="field">The field the registration speaks for.</param>
@@ -80,7 +134,10 @@ public sealed class FieldRegistry
     // Neither the version nor Changed moves: which fields are on the page has not changed, so no
     // root reconciles, clears what it keeps per field, or asks where the fields sit for it. The one
     // caller, FieldRegistration.ChangeHold, calls this only for a registration still standing
-    // whose hold actually changed.
+    // whose hold actually changed. A change that ends the field's hold can run one consumer
+    // delegate: under EngagedAndVisible the engine's rewrite reads DisclosureOverride. If that
+    // throws, the new hold stands and the throw reaches the component whose wait changed, which
+    // already holds its handle, so nothing is left registered without one.
     internal void ChangeHold(FieldIdentifier field, bool holdsLiveMessages)
     {
         if (!_entries.TryGetValue(field, out var entry) || entry.Registrations == 0)
@@ -88,7 +145,7 @@ public sealed class FieldRegistry
             return;
         }
 
-        var wasHeld = entry.IsHeld;
+        var wasHeld = HeldNow(field);
         if (holdsLiveMessages)
         {
             entry.Holding++;
@@ -99,13 +156,16 @@ public sealed class FieldRegistry
         }
 
         _entries[field] = entry;
-        NoteHeldState(field, wasHeld, entry.IsHeld);
+        NoteHeldState(field, wasHeld, HeldNow(field));
     }
 
-    /// <summary>Raised synchronously, once, whenever <see cref="IsHeld"/> flips for a field: a registration arriving (a plain one over a holding retention included), one ending, or a change of hold.</summary>
+    /// <summary>Raised synchronously, once, whenever <see cref="IsHeld"/> flips for a field: a registration arriving (a plain one over a holding retention included), a change of hold, a last registration ending over a retention that holds, or <see cref="SettleReleasedHolds"/> ending a hold.</summary>
     /// <remarks>
     /// Raised after the registry has taken the change, so <see cref="IsHeld"/> already answers for
-    /// the field passed, and from inside the render batch that made the change.
+    /// the field passed. A registration arriving or ending, or a change of hold, raises it from
+    /// inside the render batch that made the change. A holding registration that ends never flips
+    /// the field there: its hold stands until the root's reconcile calls
+    /// <see cref="SettleReleasedHolds"/>.
     /// </remarks>
     internal event Action<FieldIdentifier>? HeldStateChanged;
 
@@ -156,7 +216,10 @@ public sealed class FieldRegistry
     /// <summary>Removes one registration of the field, the last one keeping or dropping the field by <paramref name="keepRegistered"/>; a field with no counted registration is left untouched.</summary>
     /// <param name="field">The field one registration of which ends.</param>
     /// <param name="keepRegistered"><see langword="true"/> retains the field as registered once its last registration ends; <see langword="false"/> also drops an earlier retention.</param>
-    /// <param name="holdsLiveMessages">Whether the ending registration held the field's live messages as it ended; a retention it leaves holds too.</param>
+    /// <param name="holdsLiveMessages">Whether the ending registration held the field's live messages as it ended: its hold stands until <see cref="SettleReleasedHolds"/>, and a kept one makes the retention its visit leaves hold.</param>
+    // Changed is always raised: the one flip that happens here starts a hold (a last plain
+    // registration ending over a retention that holds), and the engine's rewrite for a field that
+    // becomes held reads no consumer delegate (see RegisterWithHold).
     internal void Unregister(FieldIdentifier field, bool keepRegistered, bool holdsLiveMessages)
     {
         if (!_entries.TryGetValue(field, out var entry) || entry.Registrations == 0)
@@ -165,19 +228,27 @@ public sealed class FieldRegistry
         }
 
         _version++;
-        var wasHeld = entry.IsHeld;
+        var wasHeld = HeldNow(field);
         entry.Registrations--;
         if (holdsLiveMessages && entry.Holding > 0)
         {
             entry.Holding--;
+
+            // The hold stands until the root's reconcile has decided whether the field left the
+            // page, so the field never shows what it held while that is undecided.
+            _releasedHolds.Add(field);
+        }
+
+        if (keepRegistered && holdsLiveMessages)
+        {
+            entry.KeptHolds = true;
         }
 
         if (entry.Registrations == 0)
         {
-            // Latest disposal intent wins: a non-kept dispose reverses an earlier keep, and a kept
-            // one holds only if the registration held as it ended.
+            // Latest disposal intent decides whether the field is retained at all: a non-kept
+            // dispose reverses an earlier keep, and drops the retention's hold with it.
             entry.Kept = keepRegistered;
-            entry.KeptHolds = keepRegistered && holdsLiveMessages;
         }
 
         if (entry.Registrations == 0 && !entry.Kept)
@@ -189,8 +260,56 @@ public sealed class FieldRegistry
             _entries[field] = entry;
         }
 
-        NoteHeldState(field, wasHeld, entry.IsHeld);
+        NoteHeldState(field, wasHeld, HeldNow(field));
         Changed?.Invoke();
+    }
+
+    /// <summary>Ends every hold a holding registration left standing as it ended since the last call, and raises <see cref="HeldStateChanged"/> once for each field that stops being held.</summary>
+    /// <remarks>
+    /// The root's reconcile calls this once it has dropped the fields that left the page, so a
+    /// field that left never shows what it held, and a field still on the page shows it from
+    /// here on. A field another holding registration or a holding retention still holds stays
+    /// held and raises nothing. A handler that throws for one field does not stop the others;
+    /// the throw reaches the caller once every field has settled.
+    /// </remarks>
+    /// <exception cref="AggregateException">Handlers threw for more than one field; a single throw is rethrown as it was.</exception>
+    internal void SettleReleasedHolds()
+    {
+        if (_releasedHolds.Count == 0)
+        {
+            return;
+        }
+
+        // Copied and cleared first, so every field is read with no released hold left standing,
+        // and a handler that reaches back into the registry finds the set already settled. A
+        // throw is held until the loop ends: the engine's rewrite for a field that stops being
+        // held can read a consumer's DisclosureOverride, and the set is already cleared, so a
+        // field the loop had not reached would otherwise never raise its flip.
+        var released = new FieldIdentifier[_releasedHolds.Count];
+        _releasedHolds.CopyTo(released);
+        _releasedHolds.Clear();
+        List<Exception>? failures = null;
+        foreach (var field in released)
+        {
+            try
+            {
+                NoteHeldState(field, wasHeld: true, HeldNow(field));
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        if (failures is { Count: 1 })
+        {
+            ExceptionDispatchInfo.Throw(failures[0]);
+        }
+
+        if (failures is not null)
+        {
+            throw new AggregateException(failures);
+        }
     }
 
     /// <summary>Keeps the held-field count, and raises <see cref="HeldStateChanged"/>, when a change flipped the field's held state.</summary>
@@ -208,7 +327,9 @@ public sealed class FieldRegistry
         HeldStateChanged?.Invoke(field);
     }
 
-    /// <summary>One field's registrations: how many stand, how many of those hold, and the retention the last one to end left.</summary>
+    /// <summary>One field's registrations: how many stand, how many of those hold, and the retention the field's last visit left.</summary>
+    // A visit runs from a registration arriving on a field with none standing to the last one
+    // ending.
     private struct FieldEntry
     {
         /// <summary>The components registered for the field now.</summary>
@@ -220,7 +341,9 @@ public sealed class FieldRegistry
         /// <summary>Whether the last registration to end kept the field registered.</summary>
         public bool Kept;
 
-        /// <summary>Whether that kept registration held as it ended.</summary>
+        /// <summary>Whether any registration that ended during the field's current or last visit was kept and held as it ended.</summary>
+        // Any, not only the last to end: a kept waiting wrapper disposed ahead of the kept plain
+        // input it wraps still holds the retention the two leave. A new visit forgets it.
         public bool KeptHolds;
 
         /// <summary>Whether the field is held: by its current registrations while any stand, else by its retention.</summary>

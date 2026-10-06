@@ -210,9 +210,10 @@ form posts the same continuation the validator does. While a render of the form 
 its `OnAfterRenderAsync`, a registry change posts nothing, because that method reconciles whatever
 the registry then holds.
 
-On Blazor Server that method runs only once the client acknowledges the render batch. A field
-the form's own render removed keeps its live message (in the summary and the `EditContext`) until
-the acknowledgement arrives.
+On Blazor Server the form's `OnAfterRenderAsync` runs only once the client acknowledges the render
+batch. A field the form's own render removed keeps its live message (in the summary and the
+`EditContext`) until the acknowledgement arrives. A hold a waiting component left as it ended
+stands until then too ([the live view](#the-live-view)).
 
 Each root's version tracker keeps one move from being reconciled twice. It records a move only
 once the call has returned, so a consumer's `OnValidationStateChanged` or `StateChanged` handler
@@ -438,51 +439,95 @@ virtualized row scroll out of view and keep its messages.
 `EngagedAndVisible` additionally filters each live issue on the same override-aware visibility
 the reveal uses, uniformly across every surface, the store included.
 
-The submit hold sits ahead of either policy, in `LiveViewOf`. While `HasSubmitted` is false and a
-current registration holds the field (a component registered with `WaitForSubmit`, or, while no
-component is registered for the field, the keep-registered retention a holding one left behind),
-`LiveViewOf` answers `null`, so nothing from the field's live view shows on any surface.
-The live pass still runs and files the verdict.
+The submit hold sits ahead of either policy, in `LiveViewOf`. While `HasSubmitted` is false and
+the registry holds the field, `LiveViewOf` answers `null`, so nothing from the field's live view
+shows on any surface. The live pass still runs and files the verdict.
+
+The registry holds a field for three reasons: a component registered with `WaitForSubmit` stands;
+a holding registration ended and the root's reconcile has not yet settled the hold it left (a
+released hold); or no component is registered for the field and the keep-registered retention it
+kept holds.
 
 The first answered submit, or `ApplyServerIssues`, sets `HasSubmitted`, and the store rebuild that
 follows that write discloses the verdict with no pass of its own. A submit a newer submit or load
 superseded, or whose validator threw, never sets it, so the hold stands.
 
 The registry keeps one entry per field: how many registrations stand, how many of them hold, and
-the retention the last one left. It also counts the fields it holds, so a form that holds nothing
-answers before any lookup.
+the retention the field's last visit left. A visit runs from a registration arriving on a field
+with none standing to the last one ending.
 
-A retention holds only while no component is registered for the field, and only if the registration
-that left it held as it ended. A component registered for the field says what it wants now, so a
-hold left by a departed row cannot keep its re-created, non-waiting successor quiet.
+Apart from the entries, the registry keeps the fields with a released hold, because that hold
+outlives an entry a non-kept departure drops. It counts every field it holds, so a form that holds
+nothing answers before any lookup.
 
-A registration's hold changes in place. A component's `WaitForSubmit` reaches its registration at
-the component's next render, and moves neither the registry's version nor its `Changed` event, so no
-root reconciles for it.
+A retention holds only while no component is registered for the field, and only if a registration
+that ended during its visit was kept and held as it ended. Every such registration counts, not
+only the last to end. A kept waiting `FormidableField` is disposed ahead of the kept plain input
+it wraps, and the retention the two leave still holds.
 
-Whenever a field starts or stops being held (a holding registration arriving or ending, a plain one
-arriving over a holding retention, or a change of hold), the registry raises `HeldStateChanged` at
-once, from inside the render batch; a second holding registration of an already held field raises
-nothing.
+A registration arriving on a field with none standing starts a new visit and forgets that count,
+and a component registered for the field says what it wants now. So a hold left by a departed row
+cannot keep its re-created, non-waiting successor quiet, and does not return when that successor
+leaves.
 
-Before `HasSubmitted`, the engine rebuilds the store for a field's change of hold only when the
-field is engaged and its filed live verdict carries an issue of any severity. A change of hold
-moves no other field's view. A field with nothing filed, or whose rules passed, reads the same held
-or not, so its change of hold costs no render round.
+A registration's hold changes in place (a change of hold, below). A component's `WaitForSubmit`
+reaches its registration at the component's next render, and moves neither the registry's version
+nor its `Changed` event, so no root reconciles for it.
 
-Warnings and infos count because a rebuild round also raises `StateChanged`, which re-renders the
-kit's surfaces that show them, though the store carries errors only. Each change of hold is
-answered on its own, so a batch that flips several such fields rebuilds once for each.
+A field starting or stopping being held is a flip. When a registration arrives, a registration
+ends or a hold changes, and that flips the field, the registry raises `HeldStateChanged` at once,
+from inside the render batch.
 
-A field whose last registration left with no retention has departed rather than stopped waiting,
-and the engine rebuilds nothing for that flip. It tells the two apart by asking the registry,
-which has seen a departed field registered and now holds nothing for it.
+That covers a holding registration arriving, a plain one arriving over a holding retention, a plain
+one ending last over a retention that holds, and a change of hold. A second holding registration of
+an already held field raises nothing.
 
+A holding registration that ends never flips its field there. Its released hold stands until the
+root's reconcile calls `SettleReleasedHolds`, which raises `HeldStateChanged` for each field that
+then stops being held.
+
+Before `HasSubmitted`, the engine answers a flip only when the field is engaged and its filed live
+verdict carries an issue of any severity. A flip moves no other field's view, so the engine patches
+that field's store entries alone (`PatchStoreFor`), at once. A field with nothing filed, or whose
+rules passed, reads the same held or not, so its flip costs nothing.
+
+The patch then requests the batch's notification. `OnValidationStateChanged` and `StateChanged` go
+out once per render batch, from a post past it (`BatchPost`), however many fields the batch flips.
+Warnings and infos count because that `StateChanged` re-renders the kit's surfaces that show them,
+though the store carries errors only.
+
+The patch is synchronous, so a component rendering later in the same batch reads it: a native
+`ValidationMessage` in a mounting waiting row shows nothing. A surface that rendered earlier in the
+batch (a summary above those rows) catches up in the posted round. No consumer event handler runs
+inside the registry, so one that throws cannot keep a registration's handle from its component.
+
+One consumer delegate can run there. Under `EngagedAndVisible`, patching a field that stops being
+held reads `DisclosureOverride` for each issue, through `LiveViewOf`. If it throws as a plain
+registration arrives over a holding retention, the registry takes that registration back before the
+throw reaches the arriving component, so nothing stays registered without a handle.
+
+A change of hold that ends the field's hold reads `DisclosureOverride` too. If it throws there, the
+registration's new hold stands, and the throw reaches the component whose `WaitForSubmit` changed,
+which already holds its handle.
+
+If `DisclosureOverride` throws during the settle, every other field still settles before the throw
+reaches the reconcile, and the reconcile is left to the form's next render, the next post, or a
+`NotifyFieldSetChanged()` call in attach mode, as for any handler that throws during it
+([the verdict store](#the-verdict-store)).
+
+A field whose last registration left with no retention has departed rather than stopped waiting.
 The engaged set learns of a departure only when the root's rendered-field-set reconcile runs, so
-until then a departed field is still engaged, and a rebuild would show the message it was holding.
+until then a departed field is still engaged. Ending its hold before that would show the message
+it was holding on every surface outside the departing subtree.
 
-The reconcile's departure prune drops the verdict with the engagement and rebuilds the store. Each
-root runs it once the batch that removed the registration has rendered.
+That is why an ended hold waits for the reconcile. A waiting `FormidableField` is disposed before
+the plain kit input it wraps, so for the rest of that batch the field is still registered, and only
+the standing hold keeps it quiet.
+
+The reconcile's departure prune drops the verdict with the engagement and rebuilds the store, and
+only then settles the released holds. A field that left has nothing to show, and a field still on
+the page shows its message from the settle on. Each root runs the reconcile once the batch that
+removed the registration has rendered.
 
 `FormidableForm` runs the reconcile
 from its own `OnAfterRenderAsync` when the form rendered in that batch, and otherwise from a
@@ -490,8 +535,14 @@ continuation it posts past the batch. `FormidableValidator` always runs it from 
 posts, since its own `OnAfterRenderAsync` does not reconcile
 ([the verdict store](#the-verdict-store) has both paths).
 
-`HeldStateChanged` comes from the registry rather than from a root's reconcile, so a change of hold
-reaches every surface under either root, a component a nested render mounts included.
+No flip ever reaches the engine for a field that has left while it is still engaged. A flip at
+once concerns a registered field, and a flip at the settle comes after the prune, so
+`OnHeldStateChanged` has no departure test of its own.
+
+Every flip reaches the engine through `HeldStateChanged` as it happens, not through a root's
+reconcile, so it reaches every surface under either root, a component a nested render mounts
+included. The exception is the end of a released hold, which comes from the reconcile, through its
+settle. A holding retention is not a released hold: a plain registration arriving ends it at once.
 
 Nothing else reads the hold: `IsFieldValidating`, the submit-coverage vouch behind
 `formidable-valid` and `IsFormValid` never consult it, so a held field that passes still turns
@@ -526,10 +577,12 @@ submit view is not already showing for that field. Advisories never enter the st
 `ValidationMessage` sees errors only.
 
 The rebuild runs at every round that moves what the store projects: a pass's verdict apply, a
-server apply, a fault report, a departure that dropped a filed verdict, under `EngagedAndVisible`
-a field-set change with filed verdicts standing, and, before `HasSubmitted`, a hold starting or
-stopping on a field that is engaged, has an issue filed and has not departed
-([the live view](#the-live-view)).
+server apply, a fault report, a departure that dropped a filed verdict, and under
+`EngagedAndVisible` a field-set change with filed verdicts standing.
+
+A hold starting or stopping before `HasSubmitted`, on a field that is engaged, has an issue filed
+and has not departed, rebuilds nothing. It patches that field's entries alone and requests one
+notification for the render batch ([the live view](#the-live-view)).
 
 The gate latch, though a source, adds no round of its own: it arms and disarms only inside a
 submit's verdict apply, whose rebuild the list above already counts.

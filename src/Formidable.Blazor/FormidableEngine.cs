@@ -186,6 +186,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private bool _disposed;
     private HashSet<FieldIdentifier>? _validatingScope;
 
+    // Raises the two notifications a flip of a field's hold owes, once per render batch however
+    // many fields the batch flips (see OnHeldStateChanged). Its callback does nothing once the
+    // engine is disposed, so a post made before Dispose reaches no handler after it.
+    private readonly BatchPost _heldStatePublish;
+
     private int _version;
     private int _formValidityStamp;
 
@@ -255,8 +260,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <see cref="FormidableForm{TModel}"/> and <see cref="FormidableValidator{TModel}"/> are the
     /// only supported hosts. An engine built directly, as a test does, never hears of a move in
     /// the rendered field set, because only a root calls <see cref="OnRenderedFieldsChanged"/>
-    /// and <see cref="SetFieldOrder"/>: a departed field keeps its live verdict, the stored
-    /// verdicts are never dropped, and issues list in the engine's own order. With
+    /// and <see cref="SetFieldOrder"/>: a departed field keeps its live verdict, a holding
+    /// registration that ended keeps its field held, the stored verdicts are never dropped, and
+    /// issues list in the engine's own order. With
     /// <see cref="FormidableOptions.TrackFormValidity"/> on, construction runs the first probe.
     /// </remarks>
     public FormidableEngine(
@@ -309,6 +315,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         editContext.OnFieldChanged += HandleFieldChanged;
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
+        _heldStatePublish = new BatchPost(PublishHeldStateChanges);
         Registry.HeldStateChanged += OnHeldStateChanged;
 
         if (options.TrackFormValidity)
@@ -830,7 +837,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // The submit hold, ahead of either policy: a component registered with WaitForSubmit
         // keeps its field's filed verdict off every live surface until a submit or a server
         // apply has answered. The rules still ran; only the view waits. The registry answers
-        // IsHeld afresh at every read, so a hold that starts or stops is seen at once. The
+        // IsHeld afresh at every read, so a hold that starts or changes is seen at once, and a
+        // hold a departing registration left is seen until the reconcile settles it. The
         // answer is null, what LiveIssuesFor gives a field no pass has answered, so no read
         // builds an empty list to say that nothing shows, and an issue read with nothing else to
         // report returns the shared empty list.
@@ -1154,14 +1162,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return true;
     }
 
-    /// <summary>Tells the engine the rendered field set moved: departed fields leave the live channel, the stored verdicts and the presence map (<see cref="Requirements"/>) are dropped, and a refresh is armed.</summary>
+    /// <summary>Tells the engine the rendered field set moved: departed fields leave the live channel, then holds that ended registrations left are settled, the stored verdicts and the presence map (<see cref="Requirements"/>) are dropped, and a refresh is armed.</summary>
     /// <remarks>
     /// Departed means registered once and no longer rendered, so a field nothing ever
     /// registered keeps its verdict, and a row held by keep-registered keeps its messages.
-    /// Dropping is all this does: an issue a departure causes shows only once a later pass
-    /// computes it, by default the refresh this arms, and on a form never submitted that refresh
-    /// discloses nothing. A model whose contents changed still owes a field-changed notification
-    /// of its own.
+    /// Beyond the settle, dropping is all this does: an issue a departure causes shows only once a
+    /// later pass computes it, by default the refresh this arms, and on a form never submitted
+    /// that refresh discloses nothing. A model whose contents changed still owes a field-changed
+    /// notification of its own.
     /// </remarks>
     // Nothing announces a row removed, a section collapsed or a branch swapped as a field change,
     // so this call is the engine's only word that the page its verdicts describe is not the page
@@ -1217,14 +1225,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
         }
 
+        // After the prune, never before it. A holding registration that ended left its hold
+        // standing, so its field could not show what it held while this call was still to decide
+        // whether the field left. A field that left has just lost its engagement and its verdict,
+        // so ending its hold shows nothing; a field still on the page shows its message from here
+        // on, through OnHeldStateChanged's patch of its store entries.
+        Registry.SettleReleasedHolds();
+
         // Under the opt-in live-disclosure policy the registered field set is one of the live
         // view's own inputs — a field REGISTERING can disclose a live verdict the store was not
         // projecting, exactly as a departure can retract one — so a field-set change with filed
         // verdicts standing owes a republish in that mode. The default policy consults
-        // registration only through the submit hold, and a field starting or stopping being held
-        // reaches the engine as it happens, through the registry's HeldStateChanged (see
-        // OnHeldStateChanged), whatever rendered the change and whether or not this call follows.
-        // That keeps the default's churn cost here at the departure-only republish above.
+        // registration only through the submit hold, whose flips reach the engine through the
+        // registry's HeldStateChanged (see OnHeldStateChanged): a hold starting or changing as it
+        // happens, whatever rendered the change, and a hold an ended registration left at the
+        // settle above. That keeps the default's churn cost here at the departure-only republish
+        // above.
         if (!dropped
             && _liveVerdicts.Count > 0
             && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)
@@ -1274,40 +1290,48 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ScheduleRefresh();
     }
 
-    /// <summary>Republishes when a field still on the page starts or stops being held while its filed live verdict carries an issue, so every surface follows the submit hold as it moves.</summary>
+    /// <summary>Rewrites one field's store entries when a field still on the page starts or stops being held while its filed live verdict carries an issue, and asks for the render batch's one notification.</summary>
     /// <param name="field">The field whose held state flipped.</param>
-    // The registry raises this synchronously, from inside the render batch that changed the
-    // registration: a component mounting, leaving, or re-rendering with a new WaitForSubmit. The
-    // engine's own reads already follow, since LiveViewOf asks the registry at every read; what a
-    // flip leaves stale is the store a native ValidationMessage renders from, and every kit
-    // surface that re-renders only on StateChanged, and RebuildStore moves both. Nothing a root
-    // runs is involved: a change of hold moves neither the registry's version nor its Changed,
-    // and a flip that a mount or a departure makes is answered here, before and apart from any
-    // rendered-field-set reconcile, so a component a nested render mounts is covered under
-    // either root. After the first answered submit or server apply no hold applies.
+    // The registry raises this synchronously: from inside the render batch that changed a
+    // registration (a component mounting, a kept one leaving over a retention that holds, or one
+    // re-rendering with a new WaitForSubmit), or from the reconcile's SettleReleasedHolds, which
+    // ends the hold a holding registration left standing as it ended. The engine's own reads
+    // already follow, since LiveViewOf asks the registry at every read; what a flip leaves stale
+    // is the store a native ValidationMessage renders from, and every kit surface that
+    // re-renders only on StateChanged. A change of hold moves neither the registry's version nor
+    // its Changed, and a mount's flip is answered here apart from any rendered-field-set
+    // reconcile, so a component a nested render mounts is covered under either root. After the
+    // first answered submit or server apply no hold applies.
     //
-    // Before the first answered submit or server apply, a flip moves the flipped field's own live
-    // view and nothing else (LiveViewOf is the engine's one read of the hold), and that view can
-    // show something only while the field is engaged and its filed verdict carries an issue. A
-    // field with nothing filed, or whose rules passed, reads the same held or not, so its flip
-    // publishes nothing, and a page that mounts or re-renders waiting fields in bulk pays no
-    // render round for fields like that. Any severity counts, because the kit surfaces that
-    // StateChanged re-renders show a warning or an info, though the store never carries one. Each
-    // flip is raised and answered alone, so a batch that flips several such fields rebuilds once
-    // for each of them.
+    // Before then, a flip moves the flipped field's own live view and nothing else (LiveViewOf is
+    // the engine's one read of the hold), and that view can show something only while the field
+    // is engaged and its filed verdict carries an issue. A field with nothing filed, or whose
+    // rules passed, reads the same held or not, so its flip publishes nothing, and a page that
+    // mounts or re-renders waiting fields in bulk pays nothing for fields like that. Any severity
+    // counts, because the kit surfaces that StateChanged re-renders show a warning or an info,
+    // though the store never carries one.
     //
-    // A field whose last registration left with no retention has departed rather than stopped
-    // waiting, and its flip is not published here. The departure belongs to the root's
-    // rendered-field-set reconcile, which drops the filed verdict with the engagement and
-    // republishes. Under either root it runs once the batch that removed the registration has
-    // rendered: FormidableForm runs it from its own OnAfterRenderAsync when the form rendered in
-    // that batch, and otherwise either root runs it from a continuation posted past the batch.
-    // Until it runs, the field is still engaged, so a republish here would put the message it was
-    // holding on every surface outside the departing subtree. HasDeparted is the prune's own test,
-    // so the two cannot disagree about which fields have left.
+    // The field's store entries are rewritten here, at once, so a component rendering later in
+    // the same batch (a native ValidationMessage in a mounting row) reads them. The two
+    // notifications go out once per batch, from a post past it: a batch that flips many fields
+    // pays one render round, a surface that rendered earlier in the batch (a summary above the
+    // mounting rows) catches up in that round, and no consumer event handler runs inside the
+    // registry. The rewrite itself can run one consumer delegate: for a field that stops being
+    // held, under EngagedAndVisible, LiveViewOf asks DisclosureOverride per issue. A throw there
+    // leaves this method with the field's entries cleared and its notification not asked for;
+    // the registry takes back a registration whose arrival threw, keeps the new hold of a change
+    // of hold that threw (its component already holds the handle), and settles every other field
+    // before it passes a settle's throw on.
+    //
+    // No flip reaches this method for a field that has left the page while it is still engaged,
+    // so nothing here tests for a departure. A flip at once always concerns a registered field:
+    // a registration arriving, a kept one ending (its retention keeps the field registered), or
+    // a change of hold, which needs a registration standing. A flip at the settle comes after the
+    // reconcile's departure prune has taken every departed field out of the engaged set, and the
+    // engaged test below then answers for it.
     private void OnHeldStateChanged(FieldIdentifier field)
     {
-        if (_disposed || HasSubmitted || HasDeparted(field))
+        if (_disposed || HasSubmitted)
         {
             return;
         }
@@ -1316,8 +1340,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             && _liveVerdicts.TryGetValue(field, out var filed)
             && filed.Count > 0)
         {
-            RebuildStore();
+            PatchStoreFor(field);
+            _heldStatePublish.Request();
         }
+    }
+
+    /// <summary>Raises the edit context's and the engine's notifications for the hold flips a render batch made, once for the batch; nothing once the engine is disposed.</summary>
+    private void PublishHeldStateChanges()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        EditContext.NotifyValidationStateChanged();
+        NotifyStateChanged();
     }
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
@@ -2273,11 +2310,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // The EditContext API takes writes, so the projection runs at every round that moves what the
     // store projects, and the store between rebuilds is what the views said the last time a
     // source moved. Those rounds: a pass's verdict apply, a server apply, a fault report, a
-    // departure that dropped a filed verdict, under EngagedAndVisible a field-set change with
-    // verdicts standing, and, before the first answered submit or server apply, a hold starting
-    // or stopping on a field that is engaged, has an issue filed and has not departed
-    // (OnHeldStateChanged). A round that moves only a pass's own state or the submit coverage
-    // notifies without rebuilding (PublishPassStateAsync, and the validity probe's ends).
+    // departure that dropped a filed verdict, and under EngagedAndVisible a field-set change with
+    // verdicts standing. A hold starting or stopping, before the first answered submit or server
+    // apply, on a field that is engaged, has an issue filed and has not departed rewrites that
+    // field's entries alone (PatchStoreFor, from OnHeldStateChanged). A round that moves only a
+    // pass's own state or the submit coverage notifies without rebuilding (PublishPassStateAsync,
+    // and the validity probe's ends).
     private void RebuildStore()
     {
         _store.Clear();
@@ -2297,24 +2335,48 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         foreach (var (field, issues) in LiveEntries())
         {
-            // Deliberately not the shadow rule the issue reads share: the against-list here is this
-            // field's submit issues alone and never grows, so two live errors carrying the same
-            // message both reach the store, where ExceptShadowed would collapse them to one. The
-            // store is the interop surface a native ValidationMessage/ValidationSummary renders
-            // straight out, so narrowing the merge here would change what those components show
-            // rather than what an engine read returns.
-            var existing = SubmitErrorsFor(field);
-            foreach (var issue in issues.Where(i => i.Severity == ValidationSeverity.Error))
-            {
-                if (existing is null || !existing.Any(s => s.Message == issue.Message))
-                {
-                    _store.Add(field, issue.Message);
-                }
-            }
+            AddLiveErrors(field, issues);
         }
 
         EditContext.NotifyValidationStateChanged();
         NotifyStateChanged();
+    }
+
+    /// <summary>Rewrites one field's entries in the <see cref="ValidationMessageStore"/> from its live view and leaves every other field's as they stand, without notifying.</summary>
+    /// <param name="field">The field whose held state flipped.</param>
+    // Called only before the first answered submit or server apply. Until then every submit view
+    // is empty: the reveal ledgers and the server store fill only in a submit's verdict apply and
+    // in ApplyServerIssues, and both set HasSubmitted first. The fault issue sits on the
+    // model-level field, which no kit component registers. So a field's whole share of a rebuild
+    // is its live errors, and this writes exactly that share, through the loop RebuildStore uses.
+    private void PatchStoreFor(FieldIdentifier field)
+    {
+        _store.Clear(field);
+        if (LiveIssuesFor(field) is { } live)
+        {
+            AddLiveErrors(field, live);
+        }
+    }
+
+    /// <summary>Adds one field's live errors to the <see cref="ValidationMessageStore"/>, leaving out any whose message the field's submit-error view already shows.</summary>
+    /// <param name="field">The field.</param>
+    /// <param name="issues">The field's live view.</param>
+    // Deliberately not the shadow rule the issue reads share: the against-list here is this
+    // field's submit issues alone and never grows, so two live errors carrying the same message
+    // both reach the store, where ExceptShadowed would collapse them to one. The store is the
+    // interop surface a native ValidationMessage/ValidationSummary renders straight out, so
+    // narrowing the merge here would change what those components show rather than what an
+    // engine read returns.
+    private void AddLiveErrors(FieldIdentifier field, List<ValidationIssue> issues)
+    {
+        var existing = SubmitErrorsFor(field);
+        foreach (var issue in issues.Where(i => i.Severity == ValidationSeverity.Error))
+        {
+            if (existing is null || !existing.Any(s => s.Message == issue.Message))
+            {
+                _store.Add(field, issue.Message);
+            }
+        }
     }
 
     private void NotifyStateChanged() => StateChanged?.Invoke(this, FormidableStateChangedEventArgs.Empty);

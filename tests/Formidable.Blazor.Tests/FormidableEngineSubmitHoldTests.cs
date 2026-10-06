@@ -274,11 +274,15 @@ public class FormidableEngineSubmitHoldTests
     // input engages it) gains a holding registration: the engine's reads hide the error at once,
     // and the store, which a native ValidationMessage renders from, follows as the registration
     // arrives. An engine built directly never hears a rendered-field-set change, and the refresh
-    // is off, so nothing but the registry's report of the flip can move the store. Mutation: make
-    // the engine's held-state handler do nothing, and the store assertion fails.
+    // is off, so nothing but the registry's report of the flip can move the store. The flip's
+    // notifications are posted past the render batch, so the test queues them and runs them at
+    // the end. Mutation: make the engine's held-state handler do nothing, and the store assertion
+    // fails.
     [Fact]
     public void A_hold_arriving_on_a_field_with_a_live_error_standing_retracts_it_from_the_store()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -293,14 +297,19 @@ public class FormidableEngineSubmitHoldTests
 
         Assert.Empty(engine.GetIssues(description));
         Assert.Empty(editContext.GetValidationMessages(description));
+        sync.Drain();
     }
 
     // The same republish in the other direction: the holding registration leaves while a plain one
-    // keeps the field on the page, so the held error reaches the store as the hold ends. Mutation:
-    // make the engine's held-state handler do nothing, and the store assertion fails.
+    // keeps the field on the page. Its hold stands until the root's reconcile settles it, so the
+    // test makes the call a root would make, and the held error reaches the store there. The
+    // flip's notifications are posted, so the test queues them and runs them at the end.
+    // Mutation: make the engine's held-state handler do nothing, and the store assertion fails.
     [Fact]
     public void A_hold_ending_while_the_field_stays_rendered_publishes_its_live_error()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -314,20 +323,27 @@ public class FormidableEngineSubmitHoldTests
         Assert.Empty(editContext.GetValidationMessages(description));
 
         holding.Dispose();
+        Assert.Empty(engine.GetIssues(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
+
+        engine.OnRenderedFieldsChanged();
 
         Assert.Contains(engine.GetIssues(description), i => i.Message.Contains("10"));
         Assert.NotEmpty(editContext.GetValidationMessages(description));
+        sync.Drain();
     }
 
-    // A held field whose only registration leaves has departed, and a departure is the root's
-    // rendered-field-set reconcile to answer: it drops the verdict and republishes then. The
-    // flip the registration makes on its way out must publish nothing, or the store would carry
-    // the message the field was holding. An engine built directly never gets that reconcile, so
-    // the store read right after the dispose is what the flip alone left. Mutation: drop the
-    // departure test in the engine's held-state handler, and the store gains the message.
+    // A pin of the hold standing: a held field whose only registration leaves has departed, and a
+    // departure is the root's rendered-field-set reconcile to answer. The registration's hold
+    // stands until that reconcile, so nothing about the field shows or publishes in between. The
+    // test then makes the call a root would make: it drops the verdict with one republish of its
+    // own, and settling the hold afterwards publishes nothing more. Mutation: end the hold inside
+    // Unregister, and the engine's issue read gives the message straight after the dispose.
     [Fact]
     public void A_held_field_whose_only_registration_leaves_publishes_nothing()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -342,20 +358,33 @@ public class FormidableEngineSubmitHoldTests
         var published = 0;
         engine.StateChanged += (_, _) => published++;
         holding.Dispose();
+        sync.Drain();
 
         Assert.False(engine.Registry.IsRegistered(description));
+        Assert.Empty(engine.GetIssues(description));
         Assert.Empty(editContext.GetValidationMessages(description));
         Assert.Equal(0, published);
+
+        engine.OnRenderedFieldsChanged();
+        sync.Drain();
+
+        Assert.False(engine.Registry.IsHeld(description));
+        Assert.Empty(engine.GetIssues(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
+        Assert.Equal(1, published);
     }
 
     // A hold starting on a field with nothing filed changes nothing any surface shows, even while
     // another field's live error stands, so it publishes nothing. The registration's own version
     // move raises nothing here either, because an engine built directly never hears the registry's
-    // Changed. Mutation: republish on every flip while any live verdict stands, whatever the
-    // flipped field filed, and both counts become one.
+    // Changed. A flip's notifications are posted past the render batch, so the test runs the
+    // queued posts before it counts. Mutation: republish on every flip while any live verdict
+    // stands, whatever the flipped field filed, and both counts become one.
     [Fact]
     public void A_wait_starting_on_a_field_with_nothing_filed_publishes_nothing()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -369,6 +398,7 @@ public class FormidableEngineSubmitHoldTests
 
         var count = PublishCount.Of(engine, editContext);
         using var registration = engine.Registry.RegisterWithHold(customer, keepRegistered: false, holdsLiveMessages: true);
+        sync.Drain();
 
         Assert.True(engine.Registry.IsHeld(customer));
         Assert.Equal(0, count.StateChanged);
@@ -376,12 +406,15 @@ public class FormidableEngineSubmitHoldTests
         Assert.NotEmpty(editContext.GetValidationMessages(description));
     }
 
-    // A passing field has nothing to hold back, so a hold starting on it moves no surface.
-    // Mutation: drop the issue-count test from the engine's held-state handler, so any engaged
-    // field with a filed verdict republishes, and both counts become one.
+    // A passing field has nothing to hold back, so a hold starting on it moves no surface. A
+    // flip's notifications are posted past the render batch, so the test runs the queued posts
+    // before it counts. Mutation: drop the issue-count test from the engine's held-state handler,
+    // so any engaged field with a filed verdict republishes, and both counts become one.
     [Fact]
     public void A_wait_starting_on_a_passing_field_publishes_nothing()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -395,6 +428,7 @@ public class FormidableEngineSubmitHoldTests
 
         var count = PublishCount.Of(engine, editContext);
         using var registration = engine.Registry.RegisterWithHold(description, keepRegistered: false, holdsLiveMessages: true);
+        sync.Drain();
 
         Assert.True(engine.Registry.IsHeld(description));
         Assert.Equal(0, count.StateChanged);
@@ -402,13 +436,16 @@ public class FormidableEngineSubmitHoldTests
     }
 
     // Any severity counts. A warning never reaches the store, but the kit shows it and re-renders
-    // on StateChanged, so a hold starting over a warning owes one publish to take it down. A pin
-    // rather than a red-first test: any broader condition publishes here too, so what it guards is
-    // a condition too narrow. Mutation: count only error-severity issues in the engine's
-    // held-state handler, and both counts fall to zero.
+    // on StateChanged, so a hold starting over a warning owes one publish to take it down. The
+    // publish is posted past the render batch, so the test runs the queued posts before it
+    // counts. A pin: any broader condition publishes here too, so what it guards is a condition
+    // too narrow. Mutation: count only error-severity issues in the engine's held-state handler,
+    // and both counts fall to zero.
     [Fact]
     public void A_wait_starting_on_a_field_with_only_a_warning_republishes()
     {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         using var engine = Build(
@@ -423,6 +460,7 @@ public class FormidableEngineSubmitHoldTests
 
         var count = PublishCount.Of(engine, editContext);
         using var registration = engine.Registry.RegisterWithHold(description, keepRegistered: false, holdsLiveMessages: true);
+        sync.Drain();
 
         Assert.Empty(engine.GetIssues(description));
         Assert.Equal(1, count.StateChanged);
@@ -451,6 +489,98 @@ public class FormidableEngineSubmitHoldTests
         Assert.False(state.WouldPassSubmit);
         Assert.False(state.HasErrors);
         Assert.Same(engine.GetIssues(customer), engine.GetIssues(description));
+    }
+
+    // A pin: a change of hold rewrites the flipped field's own messages in the edit context and
+    // leaves every other field's alone. The description fails two rules that share one message,
+    // and the edit context carries both, so the store a native ValidationMessage reads matches the
+    // live view rule for rule. The customer's message is the bystander. The messages read before
+    // any change of hold are what the live check's full republish wrote, so the description's
+    // messages after the hold comes off again must equal them. Mutations: de-duplicate the
+    // flipped field's messages by text, and one of the description's two goes; clear every field's
+    // messages before writing the flipped one's, and the customer's goes.
+    [Fact]
+    public void A_hold_flip_patches_only_its_field_and_keeps_both_equal_messages()
+    {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = Build(
+            order,
+            editContext,
+            new FormidableOptions { RefreshDebounce = Timeout.InfiniteTimeSpan },
+            new TwinMessageValidator());
+        var description = Field(order, nameof(EngineOrder.Description));
+        var customer = Field(order, nameof(EngineOrder.Customer));
+
+        order.Description = TooLong;
+        editContext.NotifyFieldChanged(description);
+        editContext.NotifyFieldChanged(customer);
+        var rebuilt = editContext.GetValidationMessages(description).ToList();
+        var bystander = editContext.GetValidationMessages(customer).ToList();
+        Assert.Equal([TwinMessageValidator.TooLongMessage, TwinMessageValidator.TooLongMessage], rebuilt);
+        Assert.Equal([TwinMessageValidator.CustomerMessage], bystander);
+
+        using var registration = engine.Registry.RegisterWithHold(description, keepRegistered: false, holdsLiveMessages: false);
+        registration.ChangeHold(true);
+
+        Assert.Empty(editContext.GetValidationMessages(description));
+        Assert.Equal(bystander, editContext.GetValidationMessages(customer));
+
+        registration.ChangeHold(false);
+
+        Assert.Equal(rebuilt, editContext.GetValidationMessages(description));
+        Assert.Equal(bystander, editContext.GetValidationMessages(customer));
+        sync.Drain();
+    }
+
+    // Under EngagedAndVisible, a plain registration arriving over a holding retention ends the
+    // hold at once, and rewriting the field's messages reads the consumer's DisclosureOverride.
+    // When that delegate throws, the registry takes the registration back before the throw
+    // reaches the caller, which never received a handle: nothing stays registered that nothing
+    // can release, and the field is held as it was. Mutation: drop the registry's take-back, and
+    // the field lists among the registered fields with no handle to end it.
+    [Fact]
+    public void A_disclosure_override_that_throws_as_a_plain_registration_arrives_leaves_no_registration()
+    {
+        var sync = new QueueingSynchronizationContext();
+        using var installed = sync.Install();
+        var armed = false;
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = Build(
+            order,
+            editContext,
+            new FormidableOptions
+            {
+                RefreshDebounce = Timeout.InfiniteTimeSpan,
+                LiveDisclosure = LiveIssueDisclosure.EngagedAndVisible,
+                DisclosureOverride = _ => armed ? throw new InvalidOperationException("the override throws") : null,
+            });
+        var description = Field(order, nameof(EngineOrder.Description));
+        var kept = engine.Registry.RegisterWithHold(description, keepRegistered: true, holdsLiveMessages: true);
+        order.Description = TooLong;
+        editContext.NotifyFieldChanged(description);
+        kept.Dispose();
+        engine.OnRenderedFieldsChanged();
+        Assert.True(engine.Registry.IsHeld(description));
+        var version = engine.Registry.Version;
+
+        armed = true;
+        Assert.Throws<InvalidOperationException>(() => engine.Registry.Register(description));
+
+        Assert.DoesNotContain(description, engine.Registry.RegisteredFields);
+        Assert.Equal(version, engine.Registry.Version);
+        Assert.True(engine.Registry.IsHeld(description));
+        Assert.Empty(editContext.GetValidationMessages(description));
+
+        armed = false;
+        using var plain = engine.Registry.Register(description);
+
+        Assert.False(engine.Registry.IsHeld(description));
+        Assert.Contains(editContext.GetValidationMessages(description), m => m.Contains("10"));
+        sync.Drain();
     }
 
     private static FieldIdentifier Field(EngineOrder order, string name) => new(order, name);
@@ -482,6 +612,24 @@ public class FormidableEngineSubmitHoldTests
             new ReflectionModelIntrospector(),
             options,
             new FakeTimeProvider());
+
+    /// <summary>Two description rules that fail with one message, and a customer rule, all in the draft profile.</summary>
+    private sealed class TwinMessageValidator : DraftSubmitValidator<EngineOrder>
+    {
+        public const string TooLongMessage = "Keep the description to 10 characters";
+        public const string CustomerMessage = "Choose a customer";
+
+        protected override void ConfigureDraftRules()
+        {
+            RuleFor(x => x.Description).MaximumLength(10).WithMessage(TooLongMessage);
+            RuleFor(x => x.Description).Must(d => d.Length <= 10).WithMessage(TooLongMessage);
+            RuleFor(x => x.Customer).NotNull().WithMessage(CustomerMessage);
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+        }
+    }
 
     /// <summary>The description's draft length rule, and a submit rule on the customer that throws once <see cref="Throw"/> is set.</summary>
     private sealed class SubmitThrowsValidator : DraftSubmitValidator<EngineOrder>

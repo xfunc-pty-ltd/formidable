@@ -666,9 +666,11 @@ While a field waits, a passing value still earns `formidable-valid` and a runnin
 shows `formidable-pending`; a failing value wears no state class. [`IsFormValid`](#trackformvalidity)
 does not wait, so a Submit button disabled on it can refuse the one click that would show why.
 
-The wait belongs to the field. A field waits while any component registered for it asks, and a
-`KeepRegistered` component that has left counts only while nothing else is registered for the
-field. A change to the parameter applies at that component's next render, on every surface.
+The wait belongs to the field. A field waits while any component registered for it asks. A
+`KeepRegistered` component that asked as it left keeps the field waiting once nothing else is
+registered for it, as long as the last component to leave the field kept it registered too. That
+wait lasts until a component registers for the field again. A change to the parameter applies at
+that component's next render, on every surface.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
 wait beside the three modes' behaviour table.
