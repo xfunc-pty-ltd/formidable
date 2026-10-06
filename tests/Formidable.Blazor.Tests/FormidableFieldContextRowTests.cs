@@ -219,8 +219,8 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.False(form.Instance.Engine!.EditContext.IsModified(new FieldIdentifier(model, nameof(RowCollectionModel.Items))));
     }
 
-    // A pin, not a red-first test: a set that takes the item reports it. Mutation that must break
-    // it: return without reporting for every set, and the field is never marked modified.
+    // A pin: a set that takes the item reports it. Mutation that must break it: return without
+    // reporting for every set, and the field is never marked modified.
     [Fact]
     public async Task AddItem_on_a_set_reports_an_item_it_did_not_hold()
     {
@@ -238,10 +238,10 @@ public class FormidableFieldContextRowTests : BunitContext
         form.WaitForAssertion(() => Assert.True(engine.GetFieldState(items).WouldPassSubmit));
     }
 
-    // A pin, not a red-first test: a set of rows with value equality removes an equal row that is
-    // not the instance passed, because a set removes by its own rule, not the list rule. Mutation
-    // that must break it: match every collection by the list rule (the same instance for a
-    // class), and the set keeps its row.
+    // A pin: a set of rows with value equality removes an equal row that is not the instance
+    // passed, because a set removes by its own rule, not the list rule. Mutation that must break
+    // it: match every collection by the list rule (the same instance for a class), and the set
+    // keeps its row.
     [Fact]
     public async Task RemoveItem_on_a_set_of_equal_rows_removes_an_equal_row()
     {
@@ -259,10 +259,10 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.True(form.Instance.Engine!.EditContext.IsModified(new FieldIdentifier(model, nameof(RowMatchModel.RowSet))));
     }
 
-    // A pin, not a red-first test: a read-only collection that is not a list refuses its own
-    // Remove whether or not it holds the item, and nothing is reported either way. Mutation that
-    // must break it: report before the collection's own Remove, and the field is marked modified
-    // before the collection refuses.
+    // A pin: a read-only collection that is not a list refuses its own Remove whether or not it
+    // holds the item, and nothing is reported either way. Mutation that must break it: report
+    // before the collection's own Remove, and the field is marked modified before the collection
+    // refuses.
     [Fact]
     public async Task RemoveItem_on_a_read_only_collection_that_is_not_a_list_throws_either_way()
     {
@@ -317,8 +317,8 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.False(form.Instance.Engine!.EditContext.IsModified(new FieldIdentifier(model, nameof(RowMatchModel.Rows))));
     }
 
-    // A pin, not a red-first test: removing by value from a value-type list held before this
-    // change. A boxed value is a fresh object each time, so a reference test never matches one.
+    // A pin: a list of a value type matches the item to remove by value. A boxed value is a
+    // fresh object each time, so a reference test never matches one.
     // Mutation that must break it: a reference test for every TItem, and nothing is removed.
     [Fact]
     public async Task RemoveItem_on_a_value_type_list_matches_by_value()
@@ -334,9 +334,9 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.True(form.Instance.Engine!.EditContext.IsModified(new FieldIdentifier(model, nameof(RowMatchModel.Numbers))));
     }
 
-    // A pin, not a red-first test: a string matched by value before this change. A tag typed
-    // into an input arrives as a new string instance, never the one in the list. Mutation that
-    // must break it: a reference test for string, and the typed tag matches nothing.
+    // A pin: a list of strings matches the item to remove by value. A tag typed into an input
+    // arrives as a new string instance, never the one in the list. Mutation that must break it:
+    // a reference test for string, and the typed tag matches nothing.
     [Fact]
     public async Task RemoveItem_of_a_typed_in_string_removes_the_equal_tag()
     {
@@ -353,8 +353,8 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.True(form.Instance.Engine!.EditContext.IsModified(new FieldIdentifier(model, nameof(RowMatchModel.Tags))));
     }
 
-    // A pin, not a red-first test: the rule keys on the list's item type, not on what each item
-    // holds, so a list of object matches only the instance passed, even for a boxed number.
+    // A pin: the rule keys on the list's item type, not on what each item holds, so a list of
+    // object matches only the instance passed, even for a boxed number.
     // Mutation that must break it: key the rule on the item's own type (item is ValueType or
     // string), and the equal box goes in place of the one passed.
     [Fact]
@@ -399,9 +399,9 @@ public class FormidableFieldContextRowTests : BunitContext
         Assert.False(form.Instance.Engine!.EditContext.IsModified(ItemsField(model)));
     }
 
-    // A pin, not a red-first test: an array holding the row refuses to shrink with its own
-    // exception, and nothing is reported. Mutation that must break it: report before RemoveAt,
-    // and the field is marked modified before the array refuses.
+    // A pin: an array holding the row refuses to shrink with its own exception, and nothing is
+    // reported. Mutation that must break it: report before RemoveAt, and the field is marked
+    // modified before the array refuses.
     [Fact]
     public async Task RemoveItem_on_an_array_holding_the_item_throws_and_reports_nothing()
     {

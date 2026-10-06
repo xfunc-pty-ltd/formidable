@@ -171,8 +171,8 @@ public class EmptyProfileSelectionTraceTests
         Assert.Single(lines);
     }
 
-    // A pin, not a red-first test: each validator type is judged on its own rules, so one profile
-    // that selects nothing of two types names each of them.
+    // A pin: each validator type is judged on its own rules, so one profile that selects nothing
+    // of two types names each of them.
     // Mutation: key the record by profile alone, so the second type stays silent.
     [Fact]
     public async Task Two_validator_types_under_one_profile_each_trace()

@@ -354,8 +354,8 @@ public class DraftSubmitValidatorDiagnosticTests
             RuleFor(x => x.Description).Must(d => !d.Contains("TBD")).WithMessage(_ => Messages.B);
     }
 
-    // A pin, not a red-first test: a lambda that ignores the model reads at construction, so two
-    // localised messages that differ are told apart as two constants are.
+    // A pin: a lambda that ignores the model reads at construction, so two localised messages
+    // that differ are told apart as two constants are.
     // Mutation: count a message set by a lambda as matching without reading it. The pair is then
     // reported.
     [Fact]
@@ -498,10 +498,9 @@ public class DraftSubmitValidatorDiagnosticTests
         }
     }
 
-    // A pin, not a red-first test, of FluentValidation's shape: Custom is a Must that always
-    // passes and CustomAsync a MustAsync, each keeping the default message, and WithMessage
-    // cannot follow either. Two of a kind on one property share a key, whatever failures their
-    // bodies add, so they are reported.
+    // A pin of FluentValidation's shape: Custom is a Must that always passes and CustomAsync a
+    // MustAsync, each keeping the default message, and WithMessage cannot follow either. Two of a
+    // kind on one property share a key, whatever failures their bodies add, so they are reported.
     // Mutation: skip a predicate whose message is its validator's default template. Neither pair
     // is then reported.
     [Fact]

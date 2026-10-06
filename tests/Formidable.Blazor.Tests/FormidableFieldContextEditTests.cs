@@ -49,8 +49,8 @@ public class FormidableFieldContextEditTests : BunitContext
     // delegate with a return type, so Edit offers no Func<bool> for it to bind: the method's name
     // decides whether the change is reported, never the lambda's shape. The list starts empty, so
     // the engaged field's own rule answers with its message. Mutation that must break it: give
-    // Edit a Func<bool> overload again beside Edit(Action), and the assignment of false binds it
-    // and reports nothing.
+    // Edit a Func<bool> overload beside Edit(Action), and the assignment of false binds it and
+    // reports nothing.
     [Fact]
     public async Task Edit_with_a_bool_assignment_always_reports()
     {
@@ -276,7 +276,7 @@ public class FormidableFieldContextEditTests : BunitContext
     // modified once it has been. Edit reports whatever its edit returns; TryEdit reports only on
     // true. A ValueTask edit written async () => await binds an awaiting overload, so its report
     // waits for the ValueTask. Mutations that must break it: give Edit a Func<bool> overload
-    // again beside Edit(Action) (the absent row's Edit lambda binds it and reports nothing), and
+    // beside Edit(Action) (the absent row's Edit lambda binds it and reports nothing), and
     // delete Edit(Func<Task>) (each async Edit lambda binds Edit(Action) as async void, which
     // reports at the lambda's first await, while the gate is still closed).
     [Fact]

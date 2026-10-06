@@ -213,9 +213,9 @@ public class DebounceLimitDiagnosticTests
             rendered);
     }
 
-    // A pin, passing before the check existed because nothing was named then. The limit itself
-    // and Timeout.InfiniteTimeSpan both arm. Mutation: compare with >= against the limit, and the
-    // limit is named; or name every negative, and the infinite wait is.
+    // A pin: neither value is named. The limit itself arms as given, and Timeout.InfiniteTimeSpan
+    // is the wait that never passes. Mutation: compare with >= against the limit, and the limit
+    // is named; or name every negative, and the infinite wait is.
     [Theory]
     [InlineData(nameof(FormidableOptions.RefreshDebounce), false)]
     [InlineData(nameof(FormidableOptions.RefreshDebounce), true)]
@@ -235,10 +235,10 @@ public class DebounceLimitDiagnosticTests
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("cannot use as a wait"));
     }
 
-    // A pin, passing before the check existed because nothing was named then. The timer
-    // truncates a due time to whole milliseconds before it checks its upper limit, so a wait just
-    // under a millisecond past the limit arms as the limit. Mutation: compare the TimeSpan with
-    // the limit rather than its whole milliseconds, and it is named.
+    // A pin: the timer truncates a due time to whole milliseconds before it checks its upper
+    // limit, so a wait just under a millisecond past the limit arms as the limit and is not named.
+    // Mutation: compare the TimeSpan with the limit rather than its whole milliseconds, and it is
+    // named.
     [Theory]
     [InlineData(nameof(FormidableOptions.RefreshDebounce), 42949672949999L)]
     [InlineData(nameof(FormidableOptions.LiveDebounce), 42949672940001L)]

@@ -522,9 +522,9 @@ public class DiagnosticMessageTests : BunitContext
         Assert.Equal(2, logger.Entries.Count);
     }
 
-    // A pin, not a red-first test: the stale-registration report writes the sentence it logs to
-    // Trace as well, and logs it at Warning. Its own test class reads the logged channel alone,
-    // so this is the test that reads the Trace line. Matched by content, as above.
+    // A pin: the stale-registration report writes the sentence it logs to Trace as well, and logs
+    // it at Warning. Its own test class reads the logged channel alone, so this is the test that
+    // reads the Trace line. Matched by content, as above.
     // Mutation: hand the report's log template to Trace in place of the formatted line, so the
     // Trace line carries "{Component}" and matches no logged sentence.
     [Fact]

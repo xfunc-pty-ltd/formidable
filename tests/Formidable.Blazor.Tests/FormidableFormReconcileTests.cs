@@ -242,11 +242,11 @@ public class FormidableFormReconcileTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // A pin, passing before the form posted anything because nothing was posted then. A reconcile
-    // posted just before disposal runs after it. The removed row shows an error, so a reconcile
-    // reaching the engine would drop it and republish the store. Mutation: drop the disposed test
-    // from the form's registry reader, and the posted reconcile is counted and puts the
-    // description's error back into the store Dispose had cleared.
+    // A pin: a reconcile posted just before disposal runs after it and reaches nothing. The
+    // removed row shows an error, so a reconcile reaching the engine would drop it and republish
+    // the store. Mutation: drop the disposed test from the form's registry reader, and the posted
+    // reconcile is counted and puts the description's error back into the store Dispose had
+    // cleared.
     [Fact]
     public async Task A_reconcile_posted_before_Dispose_reaches_nothing_after_it()
     {
