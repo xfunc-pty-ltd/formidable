@@ -651,7 +651,7 @@ field: the field, the issue, and the `DisplayName` a summary entry for the same 
 | When | What you see |
 |---|---|
 | The template is set | Its content inside each `<li>`, which keeps `formidable-message` and its severity class. The `<ul>` keeps its id, its class and any `aria-live`. |
-| The template is unset | Each `<li>` holds the issue's `Message`, as it always has. |
+| The template is unset | Each `<li>` holds the issue's `Message` as text, with the same classes. |
 | The component sits inside `FormidableForm` | The template needs a `Context` name of its own, because the form's child content already takes `context`. A form whose own `Context` is renamed leaves `context` free for the template. |
 
 `FormidableCollectionMessage` and `FormidableModelMessage` take the same parameter.
