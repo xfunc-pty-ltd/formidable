@@ -354,10 +354,31 @@ public sealed class FormidableSummary : FormidableComponentBase
     // issue in the position that issue already had, in whatever order GetVisibleIssues reported.
     // A List rather than the interface so a capped band can hand OverflowTemplate its tail as one
     // right-sized copy: GetRange is that slice, and it keeps the order this list is already in.
-    private List<VisibleIssue> EntriesFor(IEnumerable<VisibleIssue> bandIssues) =>
-        GroupByField
+    //
+    // Every entry leaves here named, so ItemTemplate and OverflowTemplate read a DisplayName from
+    // any engine. The shipped engine names each entry it returns. An entry built by hand without a
+    // name (a test double's, say) is named by the rule the message lists use, and an entry that
+    // arrives named keeps its name. The name takes no part in the entry's key or its equality, so
+    // naming one changes nothing the diff or a click reads.
+    private List<VisibleIssue> EntriesFor(IEnumerable<VisibleIssue> bandIssues)
+    {
+        var entries = GroupByField
             ? bandIssues.GroupBy(v => v.Field).Select(g => g.First()).ToList()
             : bandIssues.ToList();
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            if (entries[index] is { DisplayName: null } unnamed)
+            {
+                entries[index] = IssueDisplayName.Named(
+                    unnamed.Field,
+                    unnamed.Issue,
+                    Context!.Engine.Options.ModelLevelDisplayName);
+            }
+        }
+
+        return entries;
+    }
 
     // The one thing a clicked entry does: take the visitor to the field that entry names. Naming
     // the field is the click's whole contribution — the steps that get the visitor there are the

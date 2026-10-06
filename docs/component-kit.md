@@ -966,7 +966,7 @@ the same there as in the summary.
 | The rule named its field (`WithName(...)`, or FluentValidation's own name) | That name, unless it is empty. |
 | The issue has a path but no `Issue.DisplayName`, or an empty one | The path. A [response-body error](server-integration.md#the-wire-contract) carries none, and a server advisory carries one only where the response supplied it. |
 | The issue names no field of its own | `ModelLevelDisplayName`. The gate's explanation and a validator fault carry no `Issue.DisplayName` and no path. |
-| You built the `VisibleIssue` yourself | `null`. The name stays out of the record's equality, so your instance equals the summary's entry for the same field and issue. |
+| You built the `VisibleIssue` yourself | `null` on your instance unless you set it. A summary that receives it (from an engine written for a test, say) keeps a name you set and names an unnamed one by the same rule. The name stays out of the record's equality, so your instance equals the summary's entry for the same field and issue. |
 
 A template that reads `entry.Issue.DisplayName` instead renders nothing for the gate's explanation,
 a validator fault or a response-body error.

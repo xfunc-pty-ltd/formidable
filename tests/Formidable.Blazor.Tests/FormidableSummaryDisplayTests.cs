@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Bunit;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -467,5 +468,193 @@ public class FormidableSummaryDisplayTests : BunitContext
         Assert.Equal(nameof(EngineOrder.Customer), field.FieldName);
 
         await Services.DisposeAsync();
+    }
+
+    /// <summary>
+    /// An engine other than the shipped one, a test double most often, can hand the summary
+    /// entries it built by hand with no <see cref="VisibleIssue.DisplayName"/>. The
+    /// summary names each one by the rule the message lists use: the issue's own display name,
+    /// else its path, else the engine's <see cref="FormidableOptions.ModelLevelDisplayName"/>. A
+    /// click still asks for the entry's own field. Mutation that must break this: hand the entries
+    /// through unchanged, and each button renders empty.
+    /// </summary>
+    [Theory]
+    [InlineData("Order description", nameof(EngineOrder.Description), "Order description")]
+    [InlineData(null, nameof(EngineOrder.Description), "Description")]
+    [InlineData(null, "", "The whole order")]
+    public async Task A_summary_names_an_entry_a_test_double_left_unnamed(
+        string? issueDisplayName, string path, string expected)
+    {
+        var order = new EngineOrder();
+        var entry = HandBuilt(order, path, "Needs attention", issueDisplayName);
+        RenderFragment<VisibleIssue> template = item => builder => builder.AddContent(0, item.DisplayName);
+
+        var host = RenderOverDouble(order, [entry], (inner, sequence) =>
+            inner.AddComponentParameter(sequence, nameof(FormidableSummary.ItemTemplate), template));
+
+        var button = host.Find("li.formidable-summary__item > button");
+        Assert.Equal(expected, button.TextContent);
+
+        button.Click();
+
+        host.WaitForAssertion(() => Assert.Single(_focus.Requests));
+        Assert.Equal(entry.Field, Assert.Single(_focus.Requests));
+
+        await Services.DisposeAsync();
+    }
+
+    /// <summary>
+    /// A pin: an entry that arrives named keeps the name it came with, so an engine that names its
+    /// own entries is not overruled. Mutation that must break this: name every entry by the rule,
+    /// whatever it arrived with, and the button reads the issue's own display name.
+    /// </summary>
+    [Fact]
+    public async Task A_summary_keeps_the_name_an_entry_arrives_with()
+    {
+        var order = new EngineOrder();
+        var entry = HandBuilt(order, nameof(EngineOrder.Description), "Needs attention", "Order description")
+            with { DisplayName = "Named by the double" };
+        RenderFragment<VisibleIssue> template = item => builder => builder.AddContent(0, item.DisplayName);
+
+        var host = RenderOverDouble(order, [entry], (inner, sequence) =>
+            inner.AddComponentParameter(sequence, nameof(FormidableSummary.ItemTemplate), template));
+
+        Assert.Equal("Named by the double", host.Find("li.formidable-summary__item > button").TextContent);
+
+        await Services.DisposeAsync();
+    }
+
+    /// <summary>
+    /// The entries a capped band holds back reach <c>OverflowTemplate</c> named as well, so a line
+    /// listing the fields it held back reads a name for each. Mutation that must break this: name
+    /// only the entries the band shows, and the held-back names render empty.
+    /// </summary>
+    [Fact]
+    public async Task The_overflow_template_receives_named_entries()
+    {
+        var order = new EngineOrder();
+        VisibleIssue[] entries =
+        [
+            HandBuilt(order, nameof(EngineOrder.Description), "Description is required", "Order description"),
+            HandBuilt(order, nameof(EngineOrder.Customer), "A customer is required", null),
+            HandBuilt(order, "", "No more than 3 items", null),
+        ];
+        RenderFragment<IReadOnlyList<VisibleIssue>> overflow = held => builder =>
+            builder.AddContent(0, string.Join(" / ", held.Select(entry => entry.DisplayName)));
+
+        var host = RenderOverDouble(order, entries, (inner, sequence) =>
+        {
+            inner.AddComponentParameter(sequence, nameof(FormidableSummary.MaxItems), (int?)1);
+            inner.AddComponentParameter(sequence + 1, nameof(FormidableSummary.OverflowTemplate), overflow);
+        });
+
+        Assert.Equal("Customer / The whole order", host.Find("li.formidable-summary__overflow").TextContent);
+
+        await Services.DisposeAsync();
+    }
+
+    /// <summary>An entry as a test double builds it: the field the path names (the model-level field for an empty path) and an issue, with no <see cref="VisibleIssue.DisplayName"/>.</summary>
+    private static VisibleIssue HandBuilt(EngineOrder order, string path, string message, string? issueDisplayName) =>
+        new(new FieldIdentifier(order, path), new ValidationIssue(path, message, DisplayName: issueDisplayName));
+
+    /// <summary>Renders a summary under a hand-cascaded context whose engine answers <see cref="IFormidableEngine.GetVisibleIssues"/> with <paramref name="entries"/>, and whose options name the model-level field "The whole order".</summary>
+    private IRenderedComponent<CascadedContextHost> RenderOverDouble(
+        EngineOrder order,
+        IReadOnlyList<VisibleIssue> entries,
+        Action<RenderTreeBuilder, int> configure)
+    {
+        var engine = new HandBuiltEntriesEngine(
+            new FormidableEngine<EngineOrder>(
+                order,
+                new EditContext(order),
+                new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+                new Formidable.Introspection.ReflectionModelIntrospector(),
+                new FormidableOptions { ModelLevelDisplayName = "The whole order" }),
+            entries);
+
+        RenderFragment summary = inner =>
+        {
+            inner.OpenComponent<FormidableSummary>(0);
+            configure(inner, 1);
+            inner.CloseComponent();
+        };
+
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<CascadedContextHost>(0);
+            builder.AddComponentParameter(1, nameof(CascadedContextHost.Context), new FormidableFormContext(engine));
+            builder.AddComponentParameter(2, nameof(CascadedContextHost.ChildContent), summary);
+            builder.CloseComponent();
+        });
+
+        return cut.FindComponent<CascadedContextHost>();
+    }
+
+    /// <summary>Cascades a context with no root around it, so the summary reads the engine it is given and nothing else.</summary>
+    private sealed class CascadedContextHost : ComponentBase
+    {
+        [Parameter]
+        public FormidableFormContext? Context { get; set; }
+
+        [Parameter]
+        public RenderFragment? ChildContent { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
+            builder.AddComponentParameter(1, "Value", Context);
+            builder.AddComponentParameter(2, "IsFixed", true);
+            builder.AddComponentParameter(3, "ChildContent", ChildContent);
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>
+    /// A test double as a consumer would write one: every member forwards to a real engine except
+    /// <see cref="GetVisibleIssues"/>, which answers with entries built by hand.
+    /// </summary>
+    private sealed class HandBuiltEntriesEngine(IFormidableEngine inner, IReadOnlyList<VisibleIssue> entries) : IFormidableEngine
+    {
+        public EditContext EditContext => inner.EditContext;
+
+        public FieldRegistry Registry => inner.Registry;
+
+        public FormidableOptions Options => inner.Options;
+
+        public bool IsValidating => inner.IsValidating;
+
+        public bool HasSubmitted => inner.HasSubmitted;
+
+        public bool IsFormValid => inner.IsFormValid;
+
+        public event EventHandler<FormidableStateChangedEventArgs>? StateChanged
+        {
+            add => inner.StateChanged += value;
+            remove => inner.StateChanged -= value;
+        }
+
+        public event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted
+        {
+            add => inner.ValidationFaulted += value;
+            remove => inner.ValidationFaulted -= value;
+        }
+
+        public FieldState GetFieldState(FieldIdentifier field) => inner.GetFieldState(field);
+
+        public IReadOnlyList<ValidationIssue> GetIssues(FieldIdentifier field) => inner.GetIssues(field);
+
+        public FieldRequirement GetFieldRequirement(FieldIdentifier field) => inner.GetFieldRequirement(field);
+
+        public IReadOnlyList<VisibleIssue> GetVisibleIssues() => entries;
+
+        public void MarkTouched(FieldIdentifier field) => inner.MarkTouched(field);
+
+        public Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default) =>
+            inner.ValidateForSubmitAsync(cancellationToken);
+
+        public Task DiscloseLoadedValuesAsync(CancellationToken cancellationToken = default) =>
+            inner.DiscloseLoadedValuesAsync(cancellationToken);
+
+        public void ApplyServerIssues(IEnumerable<ValidationIssue> issues) => inner.ApplyServerIssues(issues);
     }
 }
