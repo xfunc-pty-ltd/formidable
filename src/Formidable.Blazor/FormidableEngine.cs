@@ -1705,9 +1705,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             // The paths that never land (a superseded pass, a cancelled one, a faulted one, whether
             // or not they reached the verdict dispatch) end here instead, and this no-ops once the
-            // dispatch has landed and ended the pass itself. It reaches one step further back than a per-kind hand-roll needs to: the
-            // start notification is inside the try as well, so a subscriber throwing from there
-            // leaves the flag cleared and costs one extra round, rather than leaving it stuck on.
+            // dispatch has landed and ended the pass itself. It reaches one step further back than
+            // a per-kind hand-roll needs to: the start notification is inside the try as well, so
+            // a subscriber throwing from there leaves the flag cleared and costs one extra round,
+            // rather than leaving it stuck on.
             try
             {
                 if (IsValidating)
@@ -2916,7 +2917,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // unsupplied one, and a pass that completed without leaving the dispatcher all do.
         await _renderDispatch(async () =>
         {
-            if (adopted is not null && _engagedFields.Count > 0)
+            if (!_disposed && adopted is not null && _engagedFields.Count > 0)
             {
                 // The disclosure itself. Engagement alone shows nothing — the live view is the
                 // filed verdicts read THROUGH the engaged set — so the fields just engaged need
@@ -2935,7 +2936,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // pass there would leave that field's filed verdict describing the values the
                 // load overwrote. A null adopted set is the other case: the pass was superseded,
                 // either by a newer pass, which owns what happens next, or by Dispose, after
-                // which nothing does. A cancelled load never gets here: it throws first.
+                // which nothing does. A cancelled load never gets here: it throws first. Nor does
+                // a load whose engine was disposed after it landed: the landing and this dispatch
+                // are separate turns, and a live pass begun on a disposed engine would cancel a
+                // token source Dispose already disposed, as every arm site's own stand-down says.
                 await RunLivePassAsync(adopted);
             }
         }).ConfigureAwait(false);

@@ -378,6 +378,9 @@ clears the descriptor and `IsValidating`. A rule that ignores the token the disp
 answers, but its pass lands nothing and arms nothing, so a submit reports blocked and a load
 discloses nothing.
 
+A load that landed just before the disposal starts no live pass after it: its tail stands down for
+a disposed engine, as every timer fire does.
+
 A caller's cancellation of a submit or a load holds even under a rule that ignores the token. The
 verdict dispatch reads the caller's token before anything lands, so the pass ends without landing,
 as it does when the rule reads the token, and the call throws `OperationCanceledException`. A pass

@@ -645,6 +645,44 @@ public class FormidableEngineDraftLoadTests
         Assert.Empty(engine.GetVisibleIssues());
     }
 
+    // A load lands, and its engine is disposed before the live check that discloses the loaded
+    // values starts: the two are separate turns on the dispatcher. The disposal comes from a
+    // handler of the landing's own notification, the earliest moment between them. The check is
+    // skipped, as every other start on a disposed engine is.
+    // Mutation: drop the disposed test from the load's last turn, and the load throws
+    // ObjectDisposedException from the live check it starts on the disposed engine.
+    [Fact]
+    public async Task A_load_whose_engine_is_disposed_as_it_lands_starts_no_live_check()
+    {
+        var order = new EngineOrder { Description = "Loaded" };
+        var editContext = new EditContext(order);
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var sawValidating = false;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating)
+            {
+                sawValidating = true;
+            }
+            else if (sawValidating)
+            {
+                engine.Dispose(); // the landing's rebuild: the load has landed
+            }
+        };
+
+        var thrown = await Record.ExceptionAsync(() => engine.DiscloseLoadedValuesAsync());
+
+        Assert.Null(thrown);
+        Assert.True(engine.GetFieldState(description).IsTouched); // the control: the load did land
+    }
+
     /// <summary>Counts the checks that begin, as the moments <see cref="FormidableEngine{TModel}.IsValidating"/> turns true.</summary>
     private static Func<int> CountChecksBegun<TModel>(FormidableEngine<TModel> engine)
         where TModel : class
