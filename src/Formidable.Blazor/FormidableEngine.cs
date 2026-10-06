@@ -3029,22 +3029,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             && ResolvedFieldExtensions.TryParseIndex(field.FieldName, out var index))
         {
             var elements = (System.Collections.IList)field.Model;
-            value = null;
             declaredType = null;
-            try
+            if (!TryReadElement(elements, index, out value))
             {
-                if (index >= elements.Count)
-                {
-                    return false;
-                }
-
-                value = elements[index];
-            }
-            catch
-            {
-                // A list that refuses the read (an array of rank two, a consumer's own list)
-                // cannot be read, which claims nothing, as for a member whose getter throws.
-                value = null;
                 return false;
             }
 
@@ -3053,6 +3040,33 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         return _introspector.TryReadValue(field.Model, field.FieldName, out value, out declaredType);
+    }
+
+    /// <summary>Reads the element at <paramref name="index"/> from a list <see cref="ResolvedFieldExtensions.IsIndexedList"/> accepts, the read the load and the collection count share.</summary>
+    /// <param name="elements">The list.</param>
+    /// <param name="index">The element's index.</param>
+    /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
+    /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or when the list refuses the read.</returns>
+    private static bool TryReadElement(System.Collections.IList elements, int index, out object? value)
+    {
+        value = null;
+        try
+        {
+            if (index >= elements.Count)
+            {
+                return false;
+            }
+
+            value = elements[index];
+            return true;
+        }
+        catch
+        {
+            // A list that refuses the read (an array of rank two, a consumer's own list) cannot
+            // be read, which claims nothing, as for a member whose getter throws.
+            value = null;
+            return false;
+        }
     }
 
     /// <summary>The element type <paramref name="elements"/> declares, where it can be read: an array's element type, or the type argument of the <see cref="List{T}"/> or <see cref="System.Collections.ObjectModel.Collection{T}"/> the list is or derives from.</summary>
@@ -3140,10 +3154,26 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>The element count of the collection at <paramref name="path"/>.</summary>
     /// <param name="path">The collection's path.</param>
     /// <returns>The count; zero when the path resolves to nothing, to a non-collection or to an empty collection, which all mean no rows to expand into.</returns>
+    // A collection that is itself an element (a row of a list of lists: Matrix[0], as Matrix[][]
+    // expands) is read from its list through the load's element read, under the test
+    // ToFieldIdentifier's list branch makes, because the introspector reads members and never
+    // elements. Read as a member, such a row counts no cells, so its cells get no required mark
+    // and a load confirms none of them. Anything else is a member, a collection a struct holds
+    // included.
     private int CollectionCount(string path)
     {
         var resolved = _introspector.Resolve(_model, path);
-        if (!_introspector.TryReadValue(resolved.Owner, resolved.PropertyName, out var value, out _))
+        object? value;
+        if (ResolvedFieldExtensions.IsIndexedList(resolved.Owner)
+            && resolved.PropertyName is ['[', .., ']'] token
+            && ResolvedFieldExtensions.TryParseIndex(token.AsSpan(1, token.Length - 2), out var index))
+        {
+            if (!TryReadElement((System.Collections.IList)resolved.Owner, index, out value))
+            {
+                return 0;
+            }
+        }
+        else if (!_introspector.TryReadValue(resolved.Owner, resolved.PropertyName, out value, out _))
         {
             return 0;
         }

@@ -378,6 +378,46 @@ public class FormidableEngineDraftLoadTests
         }
     }
 
+    // A grid's cells are elements of the lists inside a list. A load confirms a filled cell (it
+    // reads touched and would pass submit) and leaves an empty one silent, under either spelling
+    // of the nested rule. Mutation that must break it: read the collection at a path through the
+    // introspector alone when counting its rows, and a row of the grid counts no cells, so no
+    // filled cell is confirmed.
+    [Theory]
+    [InlineData(nameof(CellGridEachRowValidator))]
+    [InlineData(nameof(CellGridNestedForEachValidator))]
+    public async Task A_load_confirms_a_filled_nested_cell(string spelling)
+    {
+        var model = new CellGrid { Matrix = [["a", ""], ["", "b"]] };
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<CellGrid>(
+            model,
+            editContext,
+            new FluentValidationModelValidator<CellGrid>(spelling == nameof(CellGridEachRowValidator)
+                ? new CellGridEachRowValidator()
+                : new CellGridNestedForEachValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        await engine.DiscloseLoadedValuesAsync();
+
+        foreach (var filled in new[] { FieldIdentifier.Create(() => model.Matrix[0][0]), FieldIdentifier.Create(() => model.Matrix[1][1]) })
+        {
+            var state = engine.GetFieldState(filled);
+            Assert.True(state.IsTouched);
+            Assert.True(state.WouldPassSubmit);
+            Assert.Equal("formidable-valid", BothSeams(engine, editContext, filled));
+        }
+
+        foreach (var empty in new[] { FieldIdentifier.Create(() => model.Matrix[0][1]), FieldIdentifier.Create(() => model.Matrix[1][0]) })
+        {
+            Assert.False(engine.GetFieldState(empty).IsTouched);
+            Assert.Equal(string.Empty, BothSeams(engine, editContext, empty));
+            Assert.Empty(engine.GetIssues(empty));
+        }
+    }
+
     // Whatever mix of rules an empty field fails, it stays silent - a presence rule and a
     // predicate together under the default Continue cascade (both fail), the same pair under
     // rule-level Stop (only the presence rule fails), and a plain presence rule on its own.

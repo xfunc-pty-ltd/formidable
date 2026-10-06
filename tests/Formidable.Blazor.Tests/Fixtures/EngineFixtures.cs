@@ -1228,3 +1228,25 @@ public sealed class OrderedAnswersValidator : AbstractValidator<OrderedAnswers>
     public OrderedAnswersValidator() =>
         RuleForEach(m => m.Answers).Must(entry => !string.IsNullOrEmpty(entry.Value)).WithMessage(Required);
 }
+
+/// <summary>A grid of text cells: a list of rows, each a list of strings, so a cell has no members of its own.</summary>
+public sealed class CellGrid
+{
+    public List<List<string?>> Matrix { get; set; } = [];
+}
+
+/// <summary>Every cell must be filled, written as a rule for each row that holds a rule for each cell.</summary>
+public sealed class CellGridEachRowValidator : AbstractValidator<CellGrid>
+{
+    public const string Required = "Cell required";
+
+    public CellGridEachRowValidator() =>
+        RuleForEach(g => g.Matrix).ForEach(cell => cell.NotEmpty().WithMessage(Required));
+}
+
+/// <summary>The same demand written as one rule over the grid, holding a rule for each row and, inside it, one for each cell.</summary>
+public sealed class CellGridNestedForEachValidator : AbstractValidator<CellGrid>
+{
+    public CellGridNestedForEachValidator() =>
+        RuleFor(g => g.Matrix).ForEach(row => row.ForEach(cell => cell.NotEmpty().WithMessage(CellGridEachRowValidator.Required)));
+}

@@ -125,6 +125,11 @@ load asks the introspector for it instead. The default introspector reads member
 claims nothing for an entry; an introspector that names an entry by its key and reads it by key has
 the entry's own value judged.
 
+The count that expands a declared collection into one field per row reads a row the same way when
+the row is itself a list. So `Matrix[][]` (a list of lists) expands to one field per cell, for the
+load and for the required mark alike. Each cell carries the mark the validator answers for it, and
+a load confirms a filled cell that passes and leaves an empty one silent.
+
 **The two debounces are the timers behind two kinds.** [`LiveDebounce`](options.md#livedebounce)
 is `null` by default, which starts the live pass inside the notification itself. Set, it arms one
 shared timer; a further change within the window re-arms it, and the fire snapshots and clears

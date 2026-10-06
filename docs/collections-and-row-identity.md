@@ -191,6 +191,12 @@ carries no mark for it, and a load does not paint the list valid. Rows that are 
 same way: a presence rule inside `ChildRules` or a child validator marks that member's input in each
 row, and puts no mark on the list.
 
+A list of lists works the same way, cell by cell. Bind each cell by both indexes
+(`() => model.Matrix[row][column]`, with both loop variables copied first). A presence rule on the
+cells marks each cell's input required, whether written `RuleForEach(m => m.Matrix).ForEach(...)` or
+as nested `ForEach` calls. A blocked submit shows each cell's message at its own input, and a load
+confirms each filled cell that passes.
+
 One rule covers what a remove or a reorder does to a list of strings or numbers: the index is the
 row's identity, so the check answers per position. Each position is judged by the value that now
 sits there, and once the form re-checks, no row keeps a message that belonged to the value that

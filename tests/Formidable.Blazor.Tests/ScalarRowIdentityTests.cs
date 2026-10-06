@@ -261,6 +261,77 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == engine.Options.DefensiveGateMessage);
     }
 
+    // A grid's cells are elements of the lists inside a list. The validator declares each cell's
+    // presence rule, and the form expands that declaration to one field per cell, so every cell
+    // input carries the mark. Both spellings of the nested rule declare the same shape. Mutation
+    // that must break it: read the collection at a path through the introspector alone when
+    // counting its rows, and a row of the grid counts no cells, so no cell carries the mark.
+    [Theory]
+    [InlineData(nameof(CellGridEachRowValidator))]
+    [InlineData(nameof(CellGridNestedForEachValidator))]
+    public void A_nested_scalar_collection_marks_each_cell_required(string spelling)
+    {
+        var model = new CellGrid { Matrix = [["a", ""], ["", "b"]] };
+        var (cut, engine) = RenderGrid(model, spelling);
+
+        Assert.Equal(FieldRequirement.Required, engine.GetFieldRequirement(FieldIdentifier.Create(() => model.Matrix[0][1])));
+        foreach (var cell in new[] { "0-0", "0-1", "1-0", "1-1" })
+        {
+            Assert.Equal("true", cut.Find($"[data-cell=\"{cell}\"] input").GetAttribute("aria-required"));
+        }
+    }
+
+    // A cell is named by its own list and its index, so a blocked submit shows each empty cell's
+    // message at that cell's input and nowhere else. A pin, under either spelling of the nested
+    // rule. Mutation that must break it: the identity mutation, and no cell shows a message (the
+    // submit reports against the form instead).
+    [Theory]
+    [InlineData(nameof(CellGridEachRowValidator))]
+    [InlineData(nameof(CellGridNestedForEachValidator))]
+    public void A_nested_scalar_collection_shows_each_cell_s_message_at_its_own_input(string spelling)
+    {
+        var model = new CellGrid { Matrix = [["a", ""], ["", "b"]] };
+        var (cut, engine) = RenderGrid(model, spelling);
+
+        cut.Find("form").Submit();
+        cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
+
+        Assert.Equal([CellGridEachRowValidator.Required], CellMessages(cut, "0-1"));
+        Assert.Equal([CellGridEachRowValidator.Required], CellMessages(cut, "1-0"));
+        Assert.Empty(CellMessages(cut, "0-0"));
+        Assert.Empty(CellMessages(cut, "1-1"));
+    }
+
+    /// <summary>Renders one kit input and message per cell of <paramref name="model"/>'s grid, each bound by both indexes.</summary>
+    private (IRenderedComponent<IComponent> Cut, IFormidableEngine Engine) RenderGrid(CellGrid model, string spelling)
+    {
+        AbstractValidator<CellGrid> validator = spelling == nameof(CellGridEachRowValidator)
+            ? new CellGridEachRowValidator()
+            : new CellGridNestedForEachValidator();
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<CellGrid>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", (IModelValidator<CellGrid>)new FluentValidationModelValidator<CellGrid>(validator));
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                for (var i = 0; i < model.Matrix.Count; i++)
+                {
+                    for (var j = 0; j < model.Matrix[i].Count; j++)
+                    {
+                        var (row, column) = (i, j);
+                        RenderCell(inner, (row * 100) + column, $"{row}-{column}", () => model.Matrix[row][column], v => model.Matrix[row][column] = v);
+                    }
+                }
+            }));
+            builder.CloseComponent();
+        });
+        return (cut, cut.FindComponent<FormidableForm<CellGrid>>().Instance.Engine!);
+    }
+
+    private static IReadOnlyList<string> CellMessages(IRenderedComponent<IComponent> cut, string cell) =>
+        cut.FindAll($"[data-cell=\"{cell}\"] li").Select(e => e.TextContent.Trim()).ToList();
+
     /// <summary>Renders one kit input and its message, bound to <paramref name="accessor"/>, inside an element marked <c>data-cell</c>.</summary>
     private void RenderCell(RenderTreeBuilder builder, int region, string cell, Expression<Func<string?>> accessor, Action<string?> assign)
     {
