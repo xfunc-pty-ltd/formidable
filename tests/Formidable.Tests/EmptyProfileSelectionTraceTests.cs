@@ -356,6 +356,118 @@ public class EmptyProfileSelectionTraceTests
         Assert.Empty(lines);
     }
 
+    /// <summary>A profile that leaves out the default rules and selects ruleset <c>B</c>, which no included validator here declares.</summary>
+    private static readonly ValidationProfile OnlyB = ValidationProfile.Named("B", includeDefaultRules: false, "B");
+
+    /// <summary>A profile that leaves out the default rules and selects ruleset <c>A</c>, the one every included validator here declares.</summary>
+    private static readonly ValidationProfile OnlyA = ValidationProfile.Named("A", includeDefaultRules: false, "A");
+
+    // Validates under the profile through an adapter, the way a form or a server filter does, and
+    // returns the lines naming this class's model.
+    private static Task<List<string>> TraceOneValidation(IValidator<PhantomProfileModel> validator, ValidationProfile profile) =>
+        TraceCapture.RunAsync(
+            async () => await new FluentValidationModelValidator<PhantomProfileModel>(validator)
+                .ValidateAsync(new PhantomProfileModel(), profile),
+            NamesModel);
+
+    // FluentValidation's selector admits an Include outside any ruleset under every named ruleset,
+    // so the line has to look at the included validator's own rules, all in ruleset A here.
+    // Mutation: count an admitted Include as selecting a rule. Nothing is then written.
+    [Fact]
+    public async Task An_include_whose_rules_the_profile_skips_writes_the_line()
+    {
+        var lines = await TraceOneValidation(new InstanceIncludeSkippedPhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(InstanceIncludeSkippedPhantomProfileModelValidator), line);
+    }
+
+    // A pin: the included validator's rule in ruleset A is a rule the profile selects.
+    // Mutation: never look inside an Include, and count it as selecting nothing. The line is then
+    // written.
+    [Fact]
+    public async Task An_include_whose_rules_the_profile_selects_writes_nothing()
+    {
+        var lines = await TraceOneValidation(new InstanceIncludeSelectedPhantomProfileModelValidator(), OnlyA);
+
+        Assert.Empty(lines);
+    }
+
+    // A pin: an Include that picks its validator by reading the model cannot be read without one,
+    // so it counts as selecting a rule and nothing is written.
+    // Mutation: count an Include that cannot be read as selecting nothing. The line is then
+    // written.
+    [Fact]
+    public async Task An_include_built_from_the_model_is_not_judged()
+    {
+        var lines = await TraceOneValidation(new ModelBuiltIncludePhantomProfileModelValidator(), OnlyB);
+
+        Assert.Empty(lines);
+    }
+
+    // A factory that ignores its argument builds its validator without a model, so the Include is
+    // read as the instance form is.
+    // Mutation: treat every factory-form Include as unreadable. Nothing is then written.
+    [Fact]
+    public async Task A_factory_include_that_ignores_its_argument_is_judged()
+    {
+        var lines = await TraceOneValidation(new FactoryIncludePhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(FactoryIncludePhantomProfileModelValidator), line);
+    }
+
+    // The Include sits under a condition that never holds, so validating it ends; reading it
+    // ignores conditions and meets the validator again.
+    // Mutation: drop the guard against a validator met twice. The read then recurses until the
+    // stack overflows, which takes the test host down, so run that mutation alone with a filter.
+    [Fact]
+    public async Task A_validator_that_includes_itself_is_judged_once()
+    {
+        var lines = await TraceOneValidation(new SelfIncludingPhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(SelfIncludingPhantomProfileModelValidator), line);
+    }
+
+    // A factory building the validator's own type hands back a new instance on every read, so a
+    // guard keyed by instance never meets the same one twice. The guard is keyed by type, the key
+    // the line's record already uses.
+    // Mutation: key the guard by instance. The read then recurses until the stack overflows, which
+    // takes the test host down, so run that mutation alone with a filter.
+    [Fact]
+    public async Task A_validator_whose_include_builds_its_own_type_is_judged_once()
+    {
+        var lines = await TraceOneValidation(new SelfFactoryPhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(SelfFactoryPhantomProfileModelValidator), line);
+    }
+
+    // An Include two levels down is judged by the innermost validator's rules, all in ruleset A.
+    // Mutation: look inside one Include only, and count an Include found there as selecting a
+    // rule. Nothing is then written.
+    [Fact]
+    public async Task A_nested_include_whose_rules_the_profile_skips_writes_the_line()
+    {
+        var lines = await TraceOneValidation(new NestedIncludePhantomProfileModelValidator(), OnlyB);
+
+        var line = Assert.Single(lines);
+        Assert.Contains(nameof(NestedIncludePhantomProfileModelValidator), line);
+    }
+
+    // A pin: an included validator that cannot list its rules cannot be counted, so it counts as
+    // selecting a rule and nothing is written.
+    // Mutation: count an included validator that cannot list its rules as selecting nothing. The
+    // line is then written.
+    [Fact]
+    public async Task An_included_validator_that_cannot_list_its_rules_is_not_judged()
+    {
+        var lines = await TraceOneValidation(new HandRolledIncludePhantomProfileModelValidator(), OnlyB);
+
+        Assert.Empty(lines);
+    }
+
     /// <summary>Whether a Trace line names this class's model.</summary>
     private static bool NamesModel(string line) => line.Contains(nameof(PhantomProfileModel));
 
@@ -364,6 +476,8 @@ public class EmptyProfileSelectionTraceTests
         public string Name { get; set; } = string.Empty;
 
         public string Code { get; set; } = string.Empty;
+
+        public bool Flag { get; set; }
     }
 
     /// <summary>A default rule and a <c>"Submit"</c> rule, with no ruleset named anything else.</summary>
@@ -402,6 +516,81 @@ public class EmptyProfileSelectionTraceTests
             Profile(ValidationProfile.SubmitRuleSetName, () => RuleFor(x => x.Code).NotEmpty());
             Profile("Empty", () => { });
         }
+    }
+
+    // The validators below each belong to one test, because the line is written once per
+    // validator type and profile for the life of the process. The included ones are never judged
+    // on their own, so they are shared.
+
+    /// <summary>One rule, in ruleset <c>A</c>.</summary>
+    public sealed class IncludedPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public IncludedPhantomProfileModelValidator() =>
+            RuleSet("A", () => RuleFor(x => x.Name).NotEmpty());
+    }
+
+    /// <summary>The same rule as <see cref="IncludedPhantomProfileModelValidator"/>, under a type of its own.</summary>
+    public sealed class SecondIncludedPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public SecondIncludedPhantomProfileModelValidator() =>
+            RuleSet("A", () => RuleFor(x => x.Code).NotEmpty());
+    }
+
+    public sealed class InstanceIncludeSkippedPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public InstanceIncludeSkippedPhantomProfileModelValidator() => Include(new IncludedPhantomProfileModelValidator());
+    }
+
+    public sealed class InstanceIncludeSelectedPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public InstanceIncludeSelectedPhantomProfileModelValidator() => Include(new IncludedPhantomProfileModelValidator());
+    }
+
+    public sealed class ModelBuiltIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public ModelBuiltIncludePhantomProfileModelValidator() =>
+            Include(x => x.Flag
+                ? new IncludedPhantomProfileModelValidator()
+                : (IValidator<PhantomProfileModel>)new SecondIncludedPhantomProfileModelValidator());
+    }
+
+    public sealed class FactoryIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public FactoryIncludePhantomProfileModelValidator() => Include(_ => new IncludedPhantomProfileModelValidator());
+    }
+
+    public sealed class SelfIncludingPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public SelfIncludingPhantomProfileModelValidator()
+        {
+            RuleSet("A", () => RuleFor(x => x.Name).NotEmpty());
+            When(_ => false, () => Include(this));
+        }
+    }
+
+    public sealed class SelfFactoryPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public SelfFactoryPhantomProfileModelValidator()
+        {
+            RuleSet("A", () => RuleFor(x => x.Name).NotEmpty());
+            When(_ => false, () => Include(_ => new SelfFactoryPhantomProfileModelValidator()));
+        }
+    }
+
+    /// <summary>Includes <see cref="IncludedPhantomProfileModelValidator"/> and declares nothing else.</summary>
+    public sealed class MiddleIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public MiddleIncludePhantomProfileModelValidator() => Include(new IncludedPhantomProfileModelValidator());
+    }
+
+    public sealed class NestedIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public NestedIncludePhantomProfileModelValidator() => Include(new MiddleIncludePhantomProfileModelValidator());
+    }
+
+    public sealed class HandRolledIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public HandRolledIncludePhantomProfileModelValidator() => Include(new HandRolledPhantomProfileModelValidator());
     }
 
     public sealed class HandRolledPhantomProfileModelValidator : IValidator<PhantomProfileModel>

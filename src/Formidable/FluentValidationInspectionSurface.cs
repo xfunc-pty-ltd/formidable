@@ -22,9 +22,10 @@ namespace Formidable;
 // check turns that silence into an honest "cannot tell".
 internal static class FluentValidationInspectionSurface
 {
-    // The five by-name reads, named once here. The walk (FluentValidationModelValidator.Inspection.cs)
-    // reads the adaptor's two and the severity through Members and the row filter's two by these
-    // same names, so the guard and the walk cannot drift to different members.
+    // The five by-name reads, named once here. The child-validator read (ChildValidatorReader.cs)
+    // reads the adaptor's two through Members, and the walk (FluentValidationModelValidator.Inspection.cs)
+    // reads the severity through Members and the row filter's two by these same names, so the
+    // guard and the reads cannot drift to different members.
     private const string GetValidatorMethod = "GetValidator";
     private const string RuleSetsProperty = "RuleSets";
     internal const string FilterProperty = "Filter";

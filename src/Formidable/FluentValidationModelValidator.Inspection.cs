@@ -20,7 +20,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // this validator's rules are fixed once it is constructed. Bounded by the number of
     // child-validator components the wrapped validator declares, which is a property of the
     // code rather than of anything a request carries.
-    private readonly ConcurrentDictionary<IRuleComponent, ChildReading> _childReadings = new();
+    private readonly ConcurrentDictionary<IRuleComponent, ChildValidatorReader.ChildReading> _childReadings = new();
 
     private DeclaredSnapshot? _declared;
 
@@ -328,8 +328,8 @@ public sealed partial class FluentValidationModelValidator<TModel>
     // A child validator can be written for a base type of what it validates (an
     // AnimalValidator on a Dog, a PersonValidator included into a CustomerValidator, the
     // IEnumerable<T> validator ForEach hands a List<T>), and its rules are typed on that base, so
-    // the walk reads them under it. The base types are walked as ClosedTypeOf walks them,
-    // each tested against a literal typeof and nothing built.
+    // the walk reads them under it. The base types are walked as ChildValidatorReader.ClosedTypeOf
+    // walks them, each tested against a literal typeof and nothing built.
     private static Type ValidatedModelTypeOf(object validator, Type fallback)
     {
         for (var type = validator.GetType(); type is not null; type = type.BaseType)
@@ -412,127 +412,32 @@ public sealed partial class FluentValidationModelValidator<TModel>
         }
     }
 
-    /// <summary>What one child-validator component yields: the validator it wraps, or <see langword="null"/> where that needs a model, and the adaptor's rulesets as declared.</summary>
-    /// <param name="Validator">The wrapped validator, or <see langword="null"/> where it cannot be had without a model.</param>
-    /// <param name="RuleSets">The rulesets the adaptor scopes the child with; <see langword="null"/> and empty both mean unscoped.</param>
-    private sealed record ChildReading(IValidator? Validator, string[]? RuleSets)
-    {
-        public static readonly ChildReading Unreadable = new(null, null);
-    }
-
     /// <summary>The validator a child component wraps and the rulesets scoping it, remembered per component; the validator is <see langword="null"/> where it needs a model.</summary>
     /// <param name="component">The child-validator component to read.</param>
     /// <param name="modelType">The type the component's rule judges.</param>
     /// <param name="propertyType">The type the child validator judges.</param>
-    /// <returns>The reading; <see cref="ChildReading.Unreadable"/> where the child cannot be had.</returns>
+    /// <returns>The reading; <see cref="ChildValidatorReader.ChildReading.Unreadable"/> where the child cannot be had.</returns>
     /// <remarks>
-    /// A child supplied by a lambda has that lambda run with no model, so one that reads the
-    /// model is unreadable and contributes no paths, while one that ignores its arguments is
-    /// read like any other child.
+    /// A child that cannot be had without a model contributes no paths. The read itself is
+    /// <see cref="ChildValidatorReader.Read"/>.
     /// </remarks>
-    // FluentValidation exposes both through ChildValidatorAdaptor<T, TProperty>, the GetValidator
-    // method and the public RuleSets property its published XML docs do not mention. The surface
-    // check finds each once, on the open type named by a literal typeof (which is what keeps the
-    // trimmer from removing it), and the reading matches it to the closed type the live adaptor
-    // already has. The call needs a context, and there is no model, so it passes one carrying
-    // none: an adaptor holding a validator instance ignores it and hands the validator back; one
-    // holding a factory runs that factory against a model that is not there. Every failure lands
-    // in the same place (no child, so no paths from it) because an inspection answer decorates a
-    // form and a missing decoration beats a thrown render.
+    // The walk carries the type each validator's rules are written for, which is what the read's
+    // pair check holds the adaptor to.
     // Answers are remembered per component, including "cannot be had": a component is one
     // declaration on one rule of one validator, and this validator's rules are fixed once it is
     // constructed, so the child behind a component cannot change. That keeps a caller asking per
     // field (the required indicator does) from paying for a reflective resolve of every child in
     // the form on every ask.
-    private ChildReading ResolveChildValidator(IRuleComponent component, Type modelType, Type propertyType)
+    private ChildValidatorReader.ChildReading ResolveChildValidator(IRuleComponent component, Type modelType, Type propertyType)
     {
         if (_childReadings.TryGetValue(component, out var cached))
         {
             return cached;
         }
 
-        var resolved = ReadChildValidator(component, modelType, propertyType);
+        var resolved = ChildValidatorReader.Read(component, modelType, propertyType);
         _childReadings[component] = resolved;
         return resolved;
-    }
-
-    // ValidationContext<T>'s one-argument constructor, found on the open type by a literal typeof
-    // so the trimmer keeps it, and matched on each read to the closed context type GetValidator
-    // takes. It is public FluentValidation API, not one of the by-name reads the surface check
-    // vouches for, so its absence is tested here and leaves the child unread.
-    private static readonly ConstructorInfo? OpenContextConstructor =
-        typeof(ValidationContext<>).GetConstructor([typeof(ValidationContext<>).GetGenericArguments()[0]]);
-
-    // Every closed type this touches is read off the live adaptor rather than built from type
-    // arguments. The walk carries the type each validator's rules are written for, and the pair
-    // check holds the adaptor to the rule it sits on: one closed over another pair than that
-    // rule's model and property types is left unread, a missing mark rather than a guess. A
-    // hand-built adaptor can fail the check, since component variance lets one written for a base
-    // property type sit on a rule over a derived one.
-    private static ChildReading ReadChildValidator(IRuleComponent component, Type modelType, Type propertyType)
-    {
-        try
-        {
-            var adaptor = ClosedTypeOf(component.Validator, typeof(ChildValidatorAdaptor<,>));
-            if (adaptor is null
-                || adaptor.GetGenericArguments() is not [var judged, var child]
-                || judged != modelType
-                || child != propertyType)
-            {
-                return ChildReading.Unreadable;
-            }
-
-            // The walk runs only while the surface is intact, so the members are there. Were that
-            // ever not so, the dereference would throw into the catch below and read as unreadable.
-            var members = FluentValidationInspectionSurface.Members!;
-            var getValidator = (MethodInfo)adaptor.GetMemberWithSameMetadataDefinitionAs(members.GetValidator);
-
-            // GetValidator's first parameter is the context type it takes, ValidationContext<T>
-            // for the adaptor's T; the open type's one-argument constructor is matched to that
-            // closed one.
-            var contextType = getValidator.GetParameters()[0].ParameterType;
-            if (OpenContextConstructor is null)
-            {
-                return ChildReading.Unreadable;
-            }
-
-            var context = ((ConstructorInfo)contextType.GetMemberWithSameMetadataDefinitionAs(OpenContextConstructor)).Invoke([null]);
-
-            if (getValidator.Invoke(component.Validator, [context, null]) is not IValidator validator)
-            {
-                return ChildReading.Unreadable;
-            }
-
-            var ruleSets = ((PropertyInfo)adaptor.GetMemberWithSameMetadataDefinitionAs(members.RuleSets))
-                .GetValue(component.Validator) as string[];
-
-            return new ChildReading(validator, ruleSets);
-        }
-        catch (Exception)
-        {
-            return ChildReading.Unreadable;
-        }
-    }
-
-    /// <summary>The closed form of <paramref name="openType"/> in the instance's own type or one of its base types, or <see langword="null"/> when it derives from none.</summary>
-    /// <param name="instance">The live object: a component's validator, or the component itself.</param>
-    /// <param name="openType">The open generic class, named by a literal <c>typeof</c> at the call site.</param>
-    /// <returns>The closed type, or <see langword="null"/>.</returns>
-    // The base types are walked because both classes read this way are open to subclassing
-    // (FluentValidation's own polymorphic child validator subclasses the adaptor, and its component
-    // for a nullable struct subclasses the component), and a subclass is read through the members
-    // of the class it derives from. Nothing is built: each type is compared to the open one.
-    private static Type? ClosedTypeOf(object instance, Type openType)
-    {
-        for (var type = instance.GetType(); type is not null; type = type.BaseType)
-        {
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == openType)
-            {
-                return type;
-            }
-        }
-
-        return null;
     }
 
     /// <summary>Whether the component is a <c>NotEmpty()</c> or <c>NotNull()</c> validator, by the marker interface FluentValidation gives each.</summary>
@@ -582,7 +487,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
         Delegate? provider;
         try
         {
-            var closed = ClosedTypeOf(component, typeof(RuleComponent<,>));
+            var closed = ChildValidatorReader.ClosedTypeOf(component, typeof(RuleComponent<,>));
             if (closed is null)
             {
                 return SeverityReading.Blocks;

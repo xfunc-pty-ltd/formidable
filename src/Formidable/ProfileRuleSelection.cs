@@ -5,7 +5,9 @@ namespace Formidable;
 
 /// <summary>Which of a validator's top-level rules a profile selects, answered by the selector a full validation under that profile uses.</summary>
 // Shared by the adapter's rule listing, its inspection members and the empty-selection report, so
-// the report counts exactly what the listing would return.
+// all three ask one selector about a validator's top-level rules. The listing returns an admitted
+// Include as one rule; the report goes on to ask the same selector about the included validator's
+// rules.
 internal static class ProfileRuleSelection
 {
     /// <summary>The rules <paramref name="profile"/> selects from <paramref name="rules"/>, in declaration order, as the profile's selector answers for each.</summary>

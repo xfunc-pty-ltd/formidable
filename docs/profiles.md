@@ -144,7 +144,10 @@ is not covered.
 
 A plain validator gets a `Trace` line instead, once per validator type and profile, when a profile
 that leaves out the default rules selects none of its rules. The form, the server filters and the
-`ValidatorProfileExtensions` overloads all write it.
+`ValidatorProfileExtensions` overloads all write it. Rules the validator brings in through
+`Include` count as its own. An `Include` whose validator cannot be read without a model (one that
+picks its validator by reading the model) is not judged, so a profile that selects that `Include`
+gets no line.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a third,
 custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.
