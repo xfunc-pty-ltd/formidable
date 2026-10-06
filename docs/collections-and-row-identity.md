@@ -165,8 +165,17 @@ names and Blazor's own `EditContext` uses. Each row's message shows at its own i
 class reads its own value, and a blocked submit's summary lists it under its display name.
 
 That holds in an array and in any list that implements the non-generic `IList`, as `List<T>` and
-`Collection<T>` do. A collection that implements only the generic `IList<T>` is the exception:
-Formidable does not identify its rows by index, so their messages never reach inputs bound that way.
+`Collection<T>` do, unless the list is also a dictionary. A collection that implements only the
+generic `IList<T>` is one exception: Formidable does not identify its rows by index, so their
+messages never reach inputs bound that way.
+
+A dictionary is the other exception, an `OrderedDictionary<TKey, TValue>` included, though it is a
+list too. FluentValidation numbers its entries by position, while an input bound to
+`model.Answers[key]` is named by its key. So an entry's message reaches no input rather than land on
+another key's. When nothing on screen explains a blocked submit, the
+[defensive gate](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight) does. A load
+never reads an entry by its position either, so it leaves every entry's input silent (unless your
+own `IModelIntrospector` names and reads entries by key).
 
 A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
 written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a `List<T>`

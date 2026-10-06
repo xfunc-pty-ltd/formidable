@@ -1209,3 +1209,22 @@ public static class EngineTestSync
         return quiescent.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 }
+
+/// <summary>
+/// Answers kept by question number in an <see cref="OrderedDictionary{TKey, TValue}"/>, which is a
+/// dictionary and a non-generic list at once. FluentValidation numbers its entries by position,
+/// while an input bound with <c>() => model.Answers[key]</c> is named by its key.
+/// </summary>
+public sealed class OrderedAnswers
+{
+    public OrderedDictionary<int, string?> Answers { get; set; } = new();
+}
+
+/// <summary>Every answer must be given; the rule runs once per entry.</summary>
+public sealed class OrderedAnswersValidator : AbstractValidator<OrderedAnswers>
+{
+    public const string Required = "Answer required";
+
+    public OrderedAnswersValidator() =>
+        RuleForEach(m => m.Answers).Must(entry => !string.IsNullOrEmpty(entry.Value)).WithMessage(Required);
+}

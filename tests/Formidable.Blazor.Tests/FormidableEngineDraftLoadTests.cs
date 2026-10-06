@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
@@ -285,6 +286,96 @@ public class FormidableEngineDraftLoadTests
 
         Assert.Equal(string.Empty, BothSeams(engine, editContext, blank));
         Assert.Empty(engine.GetIssues(blank));
+    }
+
+    // An OrderedDictionary is a list as well as a dictionary, and a load reads none of its entries
+    // by position. Read by position, the entry at position 2 (key 3, filled) would confirm key 2's
+    // empty answer, and key 2's failure, reported at position 1, would paint key 1 invalid. Every
+    // key stays silent instead, as a Dictionary's entries do. Mutation that must break it: drop
+    // the dictionary exclusion from the list test, and key 2 turns valid and key 1 invalid.
+    [Fact]
+    public async Task A_load_reads_no_ordered_dictionary_entry_by_position()
+    {
+        var model = new OrderedAnswers();
+        model.Answers.Add(1, "fine");
+        model.Answers.Add(2, "");
+        model.Answers.Add(3, "ok");
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<OrderedAnswers>(
+            model,
+            editContext,
+            new FluentValidationModelValidator<OrderedAnswers>(new OrderedAnswersValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        await engine.DiscloseLoadedValuesAsync();
+
+        foreach (var key in model.Answers.Keys)
+        {
+            var entry = FieldIdentifier.Create(() => model.Answers[key]);
+            Assert.Equal(string.Empty, BothSeams(engine, editContext, entry));
+            Assert.Empty(engine.GetIssues(entry));
+        }
+    }
+
+    // An introspector may name an ordered dictionary's entry by its key, as Blazor does, and read
+    // it by key. A load then asks that introspector for the entry's value, never the dictionary by
+    // position: the filled keys are confirmed and key 2's empty answer stays silent. Mutation that
+    // must break it: let the load read any IList owner by position, and key 2 reads position 2
+    // (key 3, filled), so its failure shows, while key 3 reads past the end and stays silent.
+    [Fact]
+    public async Task A_load_asks_the_introspector_for_a_dictionary_entry_it_names_by_key()
+    {
+        var model = new OrderedAnswers();
+        model.Answers.Add(1, "fine");
+        model.Answers.Add(2, "");
+        model.Answers.Add(3, "ok");
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<OrderedAnswers>(
+            model,
+            editContext,
+            new FluentValidationModelValidator<OrderedAnswers>(new OrderedAnswersValidator()),
+            new KeyNamingIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+
+        await engine.DiscloseLoadedValuesAsync();
+
+        Assert.Equal("formidable-valid", BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[1])));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[2])));
+        Assert.Equal("formidable-valid", BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[3])));
+    }
+
+    /// <summary>Names an <see cref="OrderedAnswers"/> entry by its key and reads it by key; every other path and member goes to the reflection introspector.</summary>
+    private sealed class KeyNamingIntrospector : IModelIntrospector
+    {
+        private readonly ReflectionModelIntrospector _inner = new();
+
+        public ResolvedField Resolve(object rootModel, string propertyPath)
+        {
+            var resolved = _inner.Resolve(rootModel, propertyPath);
+            return resolved.Owner is OrderedDictionary<int, string?> answers
+                && resolved.PropertyName is ['[', .., ']'] token
+                && int.TryParse(token[1..^1], CultureInfo.InvariantCulture, out var position)
+                && position < answers.Count
+                    ? new ResolvedField(answers, answers.GetAt(position).Key.ToString(CultureInfo.InvariantCulture))
+                    : resolved;
+        }
+
+        public bool TryReadValue(object owner, string propertyName, out object? value, out Type? declaredType)
+        {
+            if (owner is OrderedDictionary<int, string?> answers
+                && int.TryParse(propertyName, CultureInfo.InvariantCulture, out var key)
+                && answers.TryGetValue(key, out var answer))
+            {
+                value = answer;
+                declaredType = typeof(string);
+                return true;
+            }
+
+            return _inner.TryReadValue(owner, propertyName, out value, out declaredType);
+        }
     }
 
     // Whatever mix of rules an empty field fails, it stays silent - a presence rule and a

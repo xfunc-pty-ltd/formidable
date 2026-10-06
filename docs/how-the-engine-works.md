@@ -119,6 +119,12 @@ Any other list lends the value's own type instead. There an element declared as 
 `object` or an interface and holding a value type's default reads as empty, and the field stays
 silent.
 
+Only an element that [`ToFieldIdentifier`](#the-walk) names by its index is read from its list. A
+dictionary's entry is never read by position, an `OrderedDictionary<TKey, TValue>`'s included: the
+load asks the introspector for it instead. The default introspector reads members only, so the load
+claims nothing for an entry; an introspector that names an entry by its key and reads it by key has
+the entry's own value judged.
+
 **The two debounces are the timers behind two kinds.** [`LiveDebounce`](options.md#livedebounce)
 is `null` by default, which starts the live pass inside the notification itself. Set, it arms one
 shared timer; a further change within the window re-arms it, and the fire snapshots and clears
@@ -974,13 +980,14 @@ public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object
     }
 
     // A list or array element is the field Blazor names by the collection and the index, so
-    // the brackets go. Only a non-generic IList counts, which every array, List<T> and
-    // Collection<T> is: FluentValidation numbers a dictionary's entries by position, while
-    // Blazor names an entry by its key, so an entry keeps its brackets rather than meet another
-    // entry's input. A collection that implements only the generic IList<T> keeps them too.
-    if (field.Owner is IList
+    // the brackets go. Only a non-generic IList that is not a dictionary counts (every array,
+    // List<T> and Collection<T>). FluentValidation numbers a dictionary's entries by position,
+    // while Blazor names an entry by its key, so an entry keeps its brackets rather than meet
+    // another entry's input; an OrderedDictionary is a list as well, and keeps them too. So
+    // does a collection that implements only the generic IList<T>.
+    if (IsIndexedList(field.Owner)
         && field.PropertyName is ['[', .., ']'] name
-        && int.TryParse(name.AsSpan(1, name.Length - 2), NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+        && TryParseIndex(name.AsSpan(1, name.Length - 2), out var index))
     {
         return new FieldIdentifier(field.Owner, index.ToString(CultureInfo.InvariantCulture));
     }
@@ -1002,10 +1009,22 @@ as `"[0]"`, while `FieldIdentifier.Create(() => model.Tags[i])` gives the list a
 `"0"`. Dropping the brackets is what lets a row with no members (a string, a number) meet the input
 bound to it.
 
-Only a non-generic `IList` owner (an array, a `List<T>`, a `Collection<T>`) takes the branch. A
-dictionary entry keeps its brackets, because FluentValidation numbers entries by position and Blazor
-names one by its key. An element of a collection that implements only the generic `IList<T>` keeps
-them too, so its rows' messages never reach inputs bound by index.
+Only an owner `IsIndexedList` accepts takes the branch: a non-generic `IList` that is not an
+`IDictionary` (an array, a `List<T>`, a `Collection<T>`). The token between the brackets must be a
+whole index too, digits alone, which is what `TryParseIndex` reads.
+
+A dictionary entry keeps its brackets, because FluentValidation numbers entries by position and
+Blazor names one by its key. An `OrderedDictionary<TKey, TValue>` is a list as well as a dictionary,
+and its entries keep them too; otherwise a failure reported at position 1 would land on the input
+bound to key 1.
+
+With its brackets kept, an entry's failure reaches no input. Where it is the form's only failure, a
+submit discloses nothing and [the gate](#the-gate-latch) shows, as for a `Dictionary<TKey, TValue>`
+entry.
+
+An element of a collection that implements only the generic `IList<T>` keeps its brackets as well,
+so its rows' messages never reach inputs bound by index. A `List<KeyValuePair<TKey, TValue>>` is a
+list and not a dictionary, so its elements are named by index like any other list's.
 
 `FieldIdentifier` compares by the owner reference and the field name. For a row that is an object,
 one built this way equals one built from the same instance and name wherever that object sits in

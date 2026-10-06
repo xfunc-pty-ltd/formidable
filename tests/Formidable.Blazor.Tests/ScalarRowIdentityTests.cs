@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using Bunit;
 using FluentValidation;
+using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -219,6 +220,63 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.Equal("true", rows.Input(0).GetAttribute("aria-required"));
         Assert.Equal("true", rows.Input(1).GetAttribute("aria-required"));
         Assert.Equal(FieldRequirement.Required, rows.Engine.GetFieldRequirement(rows.Field(0)));
+    }
+
+    // An OrderedDictionary is a list as well as a dictionary. FluentValidation reports key 2's
+    // empty answer at position 1, and key 1's input is the field named "1", so a failure named by
+    // position would sit on the wrong key's input. A dictionary's entry keeps its brackets, so the
+    // failure reaches no input and the submit shows the defensive gate, as for a Dictionary.
+    // Mutation that must break it: drop the dictionary exclusion from the list test, and key 1's
+    // passing input turns invalid and shows the message.
+    [Fact]
+    public void A_failing_ordered_dictionary_entry_reaches_no_key_s_input()
+    {
+        var model = new OrderedAnswers();
+        model.Answers.Add(1, "fine");
+        model.Answers.Add(2, "");
+        model.Answers.Add(3, "ok");
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<OrderedAnswers>>(0);
+            builder.AddComponentParameter(1, "Model", model);
+            builder.AddComponentParameter(2, "Validator", (IModelValidator<OrderedAnswers>)new FluentValidationModelValidator<OrderedAnswers>(new OrderedAnswersValidator()));
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                foreach (var key in model.Answers.Keys.ToList())
+                {
+                    RenderCell(inner, key, $"{key}", () => model.Answers[key], v => model.Answers[key] = v);
+                }
+            }));
+            builder.CloseComponent();
+        });
+        var engine = cut.FindComponent<FormidableForm<OrderedAnswers>>().Instance.Engine!;
+
+        cut.Find("form").Submit();
+        cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
+
+        var key1 = cut.Find("[data-cell=\"1\"] input");
+        Assert.DoesNotContain("formidable-invalid", key1.GetAttribute("class") ?? string.Empty);
+        Assert.Null(key1.GetAttribute("aria-invalid"));
+        Assert.Empty(cut.FindAll("[data-cell=\"1\"] li"));
+        Assert.Contains(engine.GetVisibleIssues(), v => v.Issue.Message == engine.Options.DefensiveGateMessage);
+    }
+
+    /// <summary>Renders one kit input and its message, bound to <paramref name="accessor"/>, inside an element marked <c>data-cell</c>.</summary>
+    private void RenderCell(RenderTreeBuilder builder, int region, string cell, Expression<Func<string?>> accessor, Action<string?> assign)
+    {
+        builder.OpenRegion(region);
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "data-cell", cell);
+        builder.OpenComponent<FormidableInputText>(2);
+        builder.AddComponentParameter(3, "Value", accessor.Compile()());
+        builder.AddComponentParameter(4, "ValueChanged", EventCallback.Factory.Create(this, assign));
+        builder.AddComponentParameter(5, "ValueExpression", accessor);
+        builder.CloseComponent();
+        builder.OpenComponent<FormidableFieldMessage<string?>>(6);
+        builder.AddComponentParameter(7, "For", accessor);
+        builder.CloseComponent();
+        builder.CloseElement();
+        builder.CloseRegion();
     }
 
     // A row with no members is identified by its index, so removing the failing row 0 moves the

@@ -3015,16 +3015,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <returns><see langword="true"/> when a value was read; <see langword="false"/> for a member or element that cannot be read.</returns>
     // An element is named by its index (ToFieldIdentifier), and the introspector reads members,
     // never elements (IModelIntrospector.TryReadValue reports false for an index), so the element
-    // comes from the collection itself, read through IList. Its declared type is the one
-    // DeclaredElementType finds; for any other list the value's own type stands in, which reads
-    // an element declared as a Nullable<T>, object or an interface and holding a value type's
-    // default as empty, the silent direction IsEmptyValue already errs in. A digits-only name is
-    // never a member, so no member read is displaced.
+    // comes from the collection itself, read through IList. Only a list ToFieldIdentifier names
+    // by index is read this way: a dictionary's entry is never read by position, an
+    // OrderedDictionary's included, since FluentValidation's position and Blazor's key name
+    // different entries. Its declared type is the one DeclaredElementType finds; for any other
+    // list the value's own type stands in, which reads an element declared as a Nullable<T>,
+    // object or an interface and holding a value type's default as empty, the silent direction
+    // IsEmptyValue already errs in. A digits-only name is never a member, so no member read is
+    // displaced.
     private bool TryReadLoadedValue(FieldIdentifier field, out object? value, out Type? declaredType)
     {
-        if (field.Model is System.Collections.IList elements
-            && int.TryParse(field.FieldName, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index))
+        if (ResolvedFieldExtensions.IsIndexedList(field.Model)
+            && ResolvedFieldExtensions.TryParseIndex(field.FieldName, out var index))
         {
+            var elements = (System.Collections.IList)field.Model;
             value = null;
             declaredType = null;
             try

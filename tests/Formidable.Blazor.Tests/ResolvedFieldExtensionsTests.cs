@@ -1,3 +1,4 @@
+using System.Collections;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -93,6 +94,57 @@ public class ResolvedFieldExtensionsTests
         Assert.Equal(new FieldIdentifier(model.List, "[5].Length"), remainder);
     }
 
+    // An OrderedDictionary is a non-generic IList as well as a dictionary. FluentValidation numbers
+    // its entries by position, while Blazor names an input bound to one by its key, so an entry
+    // keeps its brackets as any dictionary's does. The list interface is asserted first, so the
+    // test cannot pass for want of it. Mutation that must break it: drop the dictionary exclusion
+    // from the list test, and the entry reads "1".
+    [Fact]
+    public void An_OrderedDictionary_entry_keeps_its_brackets()
+    {
+        var model = new ScalarRows { Ordered = { [1] = "fine", [2] = "", [3] = "ok" } };
+        Assert.IsAssignableFrom<IList>(model.Ordered);
+
+        var entry = _introspector.Resolve(model, "Ordered[1]").ToFieldIdentifier(model, "Ordered[1]");
+
+        Assert.Same(model.Ordered, entry.Model);
+        Assert.Equal("[1]", entry.FieldName);
+    }
+
+    // A list of key-value pairs is a list and not a dictionary, so its elements keep their index
+    // naming whatever they hold. A pin. Mutation that must break it: exclude every collection of
+    // key-value pairs from the list test as well, and the element keeps its brackets.
+    [Fact]
+    public void A_list_of_key_value_pairs_keeps_its_index_naming()
+    {
+        var model = new ScalarRows { Pairs = [new(1, "fine"), new(2, "")] };
+
+        var element = _introspector.Resolve(model, "Pairs[1]").ToFieldIdentifier(model, "Pairs[1]");
+
+        Assert.Same(model.Pairs, element.Model);
+        Assert.Equal("1", element.FieldName);
+        Assert.Equal(FieldIdentifier.Create(() => model.Pairs[1]), element);
+    }
+
+    // A field names an element when its model is a list named by index and its name is a whole
+    // index, the shape FieldIdentifier.Create(() => model.Tags[i]) gives. A dictionary's entry is
+    // not one under a numeric key, an ordered one's included, and neither is a bracketed or signed
+    // name. Mutations that must break it: drop the dictionary exclusion from the list test (both
+    // dictionary entries read as elements), or parse the name with the default number style (the
+    // signed name reads as one).
+    [Fact]
+    public void An_indexed_element_is_a_whole_index_on_a_list_that_is_not_a_dictionary()
+    {
+        var model = new ScalarRows { List = ["a", "b"], Array = ["a", "b"], Keyed = { [1] = "red" }, Ordered = { [1] = "fine" } };
+
+        Assert.True(ResolvedFieldExtensions.IsIndexedElement(FieldIdentifier.Create(() => model.List[1])));
+        Assert.True(ResolvedFieldExtensions.IsIndexedElement(FieldIdentifier.Create(() => model.Array[1])));
+        Assert.False(ResolvedFieldExtensions.IsIndexedElement(FieldIdentifier.Create(() => model.Keyed[1])));
+        Assert.False(ResolvedFieldExtensions.IsIndexedElement(FieldIdentifier.Create(() => model.Ordered[1])));
+        Assert.False(ResolvedFieldExtensions.IsIndexedElement(new FieldIdentifier(model.List, "[1]")));
+        Assert.False(ResolvedFieldExtensions.IsIndexedElement(new FieldIdentifier(model.List, "+1")));
+    }
+
     private sealed class ScalarRows
     {
         public List<string> List { get; set; } = [];
@@ -100,5 +152,9 @@ public class ResolvedFieldExtensionsTests
         public string[] Array { get; set; } = [];
 
         public Dictionary<int, string> Keyed { get; } = [];
+
+        public OrderedDictionary<int, string?> Ordered { get; } = new();
+
+        public List<KeyValuePair<int, string?>> Pairs { get; set; } = [];
     }
 }
