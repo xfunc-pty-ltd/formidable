@@ -1042,7 +1042,8 @@ revealed) stays there and applies to whatever value now sits in it. A filed verd
 the value that left until the next pass files the new value's own.
 
 The reveal ledger is the visible case. After a blocked submit, a failing value moved onto an index
-the submit did not reveal stays silent until the next submit, or until an edit engages that index.
+the reveal ledger does not hold stays silent until a submit or a server apply reveals it, or until
+an edit engages that index.
 
 ### What a component registers and re-reads
 

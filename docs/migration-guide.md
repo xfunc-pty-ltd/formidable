@@ -103,7 +103,8 @@ on the old one implicitly.
   `FormidableOptions.DisclosureOverride` says to show it.
 
   Disclosure is decided at the submit rather than at the mount, so a later-mounted field's error
-  waits for the next submit. Between submits, live checking answers to engagement instead (see
+  waits for the next submit, unless a submit or server reply has already shown an error on that
+  field. Between submits, live checking answers to engagement instead (see
   [Disclosure](disclosure.md)).
 
   Fields wrapped in a Formidable component get this automatically. A raw or foreign control needs a

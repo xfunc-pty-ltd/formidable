@@ -222,8 +222,9 @@ or edited it, and what the last submit showed there), not the value that moved i
 
 So a position the user has edited stays edited, and a passing value that moves into it turns green.
 And after a blocked submit, a remove or a reorder can move a failing value onto a row that passed at
-that submit. If the user has not edited that row, the value's message shows there at the next
-submit. Until then the row stays silent, never green.
+that submit. If no earlier submit or server reply has shown an error on that row and the user has
+not edited it, the value's message shows there at the next submit. Until then the row stays
+silent, never green.
 
 Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
 

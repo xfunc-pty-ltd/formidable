@@ -241,13 +241,14 @@ commentary in different places renders a summary per band instead, with
 ## How long does a warning stay on screen?
 
 Until the rule stops failing or the form is reset. It comes back if the rule fails again: on the
-live channel for a field the visitor has engaged, and on the submit channel for a field a submit has
-shown.
+live channel for a field the visitor has engaged, and on the submit channel for a field a submit or
+a server reply has shown.
 
 On a field the visitor has committed a change to, a warning or an info appears on the field's own
 row at that edit, exactly as an error would. What waits for the next submit is a warning on a field
-nobody has engaged, or one whose rule the form's `LiveProfile` narrows past. A warning a server
-reply put on screen follows the server round trip's own rule instead
+no submit or server reply has shown, when nobody has engaged the field or the form's `LiveProfile`
+narrows past its rule. A warning a server reply put on screen follows the server round trip's own
+rule instead
 ([Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)).
 
 A warning that was showing when the user last submitted keeps refreshing live as they keep editing.

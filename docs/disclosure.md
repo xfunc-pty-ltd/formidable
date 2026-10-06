@@ -204,9 +204,9 @@ change to which fields are on screen), at the next submit, or when a page disclo
 values. A client rule failing the same way keeps its message through the client's own answer
 ([Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)).
 
-A field no submit has shown stays quiet on the submit side even while it is failing, and rendering
-it later does not change that: it surfaces at the *next* submit. Whether anything speaks for it
-meanwhile is the live channel's business, on its own rule
+A field no submit or server reply has shown an error on stays quiet on the submit side even while
+it is failing, and rendering it later does not change that: it surfaces at the *next* submit.
+Whether anything speaks for it meanwhile is the live channel's business, on its own rule
 ([above](#why-isnt-my-message-showing-yet)).
 
 Why: [how the engine works: what a re-check leaves standing](how-the-engine-works.md#the-reveal-ledgers).
