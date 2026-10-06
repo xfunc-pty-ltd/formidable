@@ -51,10 +51,11 @@ flowchart TD
 ## The five pass kinds
 
 Every pass runs one lifecycle (`RunPassAsync`): begin, taking a version and a cancellation token;
-validate under its profile; dispatch the verdict only if the pass is still the current one; end
-exactly once however it left. The kinds differ in what they hand in, not in how they run. Four
-kinds are passes; the [`TrackFormValidity` probe](#the-trackformvalidity-probe) is the fifth
-thing the engine runs and is not a pass.
+validate under its profile; dispatch the verdict only if the pass is still the current one and
+its caller has not cancelled it; end exactly once however it left. The kinds differ in what they
+hand in, not in how they run. Four kinds are passes; the
+[`TrackFormValidity` probe](#the-trackformvalidity-probe) is the fifth thing the engine runs and
+is not a pass.
 
 **Live.** Started by a committed field change (the `EditContext`'s field-changed notification),
 and by the load pass's tail for the fields it adopted. It runs [`LiveProfile`](options.md#liveprofile)
@@ -371,6 +372,11 @@ superseding, and which pass yields to which is written in kinds.
   superseded before its verdict landed reports blocked with an empty summary and writes nothing,
   leaving whatever preceded it on screen. Its report is empty when the validator honoured the
   cancellation and its own otherwise.
+
+A caller's cancellation of a submit or a load holds even under a rule that ignores the token. The
+verdict dispatch reads the caller's token before anything lands, so the pass ends without landing,
+as it does when the rule reads the token, and the call throws `OperationCanceledException`. A pass
+both superseded and cancelled throws too.
 
 A timer fire that defers arms nothing. It records that it waited, and the end of the pass it
 deferred to, landed or not, arms its timer once at its own debounce. A superseded pass's end arms

@@ -1254,6 +1254,48 @@ public class NeverClosingWindowValidityTests
         Assert.True(engine.IsFormValid);
     }
 
+    // The same, under a rule that ignores the token: the submit's rule answers after the caller
+    // cancelled, the submit still ends unanswered, and its end arms the check that waited on it.
+    // Mutation: end the pass inside the dispatch that finds the token cancelled, rather than
+    // leaving its end to RunPassAsync's finally. Nothing then arms the check, and IsFormValid
+    // stays false.
+    [Fact]
+    public async Task A_check_that_fires_during_a_submit_runs_once_a_token_ignoring_submit_is_cancelled()
+    {
+        var order = new EngineOrder { Description = "ok" };
+        var editContext = new EditContext(order);
+        var time = new FakeTimeProvider();
+        var validator = new CancellationIgnoringValidator(); // passes once released
+        var options = NeverClosing();
+
+        // Built untracked, so no first check starts at construction and waits on the one gate
+        // this rule has, then tracked from the edit on.
+        options.TrackFormValidity = false;
+        using var engine = Build(
+            order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
+            options, time);
+        options.TrackFormValidity = true;
+        Assert.False(engine.IsFormValid);
+
+        editContext.NotifyFieldChanged(Description(order)); // arms the validity check
+        using var cancel = new CancellationTokenSource();
+        var submit = engine.ValidateForSubmitAsync(cancel.Token);
+        time.Advance(Refresh); // the check fires while the submit is still out
+
+        cancel.Cancel();
+        validator.Gate.SetResult(); // the submit's rule answers anyway
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit);
+        Assert.False(engine.HasSubmitted);
+        Assert.Equal(1, validator.Started);
+        Assert.False(engine.IsFormValid);
+
+        time.Advance(Refresh);
+        await UntilAsync(() => engine.IsFormValid);
+
+        Assert.True(engine.IsFormValid);
+        Assert.Equal(2, validator.Started);
+    }
+
     // Mutation: stand the fire down on HasSubmitted, which a server reply sets, rather than on a
     // submit having answered. The check armed just before the reply then never runs, and nothing
     // answers IsFormValid for that edit.

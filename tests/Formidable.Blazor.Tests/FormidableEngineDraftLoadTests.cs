@@ -563,6 +563,136 @@ public class FormidableEngineDraftLoadTests
         Assert.Equal(["Title is required"], engine.GetIssues(title).Select(i => i.Message));
     }
 
+    // The rule never reads its token, so cancelling cannot stop it: it runs to completion and
+    // fails the value the load found. The call still throws for the caller's token, and the load
+    // marks nothing touched, engages nothing and starts no live check.
+    // Mutation: drop the token check at the verdict dispatch, and the call returns with the
+    // description touched, engaged and showing the rule's message.
+    [Fact]
+    public async Task A_load_cancelled_while_a_token_ignoring_rule_runs_discloses_nothing()
+    {
+        var order = new EngineOrder { Description = "Loaded" };
+        var editContext = new EditContext(order);
+        var validator = new CancellationIgnoringValidator { ShouldPass = false };
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions(),
+            new FakeTimeProvider());
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var checksBegun = CountChecksBegun(engine);
+        using var cts = new CancellationTokenSource();
+
+        var pending = engine.DiscloseLoadedValuesAsync(cts.Token);
+        Assert.Equal(1, validator.Started);
+        cts.Cancel();
+        validator.Gate.SetResult(); // the rule answers (and fails) whatever the token says
+
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Equal(cts.Token, thrown.CancellationToken);
+        Assert.False(engine.GetFieldState(description).IsTouched);
+        Assert.Empty(engine.GetIssues(description));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, description));
+        Assert.Equal(1, checksBegun()); // the load's own, and no live check after it
+        Assert.False(engine.IsValidating);
+
+        // Engagement, read through a live check: a change to another field answers every engaged
+        // field, so a description the load had engaged would show its failing message here.
+        editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
+        await Task.Yield();
+        Assert.Equal(2, checksBegun()); // the control: that live check ran
+        Assert.Empty(engine.GetIssues(description));
+    }
+
+    // A visitor opens one record, then another while the first record's email is still being
+    // checked. The page cancels the first load's token as the second record opens, and the check
+    // ignores it and answers anyway. Only the record on screen may speak.
+    // Mutation: drop the token check at the verdict dispatch, and the first record's wrong email
+    // is disclosed, and stays marked through the second record's load.
+    [Fact]
+    public async Task A_load_cancelled_by_the_next_record_open_discloses_nothing()
+    {
+        var draft = new LoadedDraft { Title = "First record", ContactEmail = "first.record" };
+        var editContext = new EditContext(draft);
+        var validator = new SlowEmailCheckValidator();
+        using var engine = Engine(draft, editContext, new FluentValidationModelValidator<LoadedDraft>(validator));
+        var title = new FieldIdentifier(draft, nameof(LoadedDraft.Title));
+        var email = new FieldIdentifier(draft, nameof(LoadedDraft.ContactEmail));
+
+        using var firstOpen = new CancellationTokenSource();
+        var firstLoad = engine.DiscloseLoadedValuesAsync(firstOpen.Token);
+        Assert.Equal(1, validator.Started);
+
+        // The visitor opens the second record, and the page cancels the first record's load.
+        firstOpen.Cancel();
+        validator.Gate.SetResult(); // the email check answers for the first record anyway
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => firstLoad);
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, title));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, email));
+        Assert.Empty(engine.GetVisibleIssues());
+
+        // The second record holds a title and no email.
+        draft.Title = "Second record";
+        draft.ContactEmail = string.Empty;
+        using var secondOpen = new CancellationTokenSource();
+        await engine.DiscloseLoadedValuesAsync(secondOpen.Token);
+
+        Assert.Equal("formidable-valid", BothSeams(engine, editContext, title));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, email));
+        Assert.Empty(engine.GetVisibleIssues());
+    }
+
+    /// <summary>Counts the checks that begin, as the moments <see cref="FormidableEngine{TModel}.IsValidating"/> turns true.</summary>
+    private static Func<int> CountChecksBegun<TModel>(FormidableEngine<TModel> engine)
+        where TModel : class
+    {
+        var begun = 0;
+        var validating = engine.IsValidating;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating && !validating)
+            {
+                begun++;
+            }
+
+            validating = engine.IsValidating;
+        };
+        return () => begun;
+    }
+
+    /// <summary>
+    /// A record form whose email check waits on <see cref="Gate"/> and never reads its token, so
+    /// it answers however long ago the caller stopped caring. The title's presence rule answers
+    /// at once.
+    /// </summary>
+    private sealed class SlowEmailCheckValidator : DraftSubmitValidator<LoadedDraft>
+    {
+        public TaskCompletionSource Gate { get; } = new();
+
+        public int Started;
+
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(d => d.Title).NotEmpty().WithMessage("Title is required");
+            RuleFor(d => d.ContactEmail)
+                .MustAsync(async (email, _) =>
+                {
+                    Started++;
+                    await Gate.Task;
+                    return email.Contains('@', StringComparison.Ordinal);
+                })
+                .WithMessage("That is not a valid email address")
+                .When(d => d.ContactEmail.Length > 0);
+        }
+    }
+
     /// <summary>
     /// A render dispatch that records how deeply dispatches nest, standing in for the engine's
     /// own <c>renderDispatch</c>. Every delegate the engine hands it completes inside the

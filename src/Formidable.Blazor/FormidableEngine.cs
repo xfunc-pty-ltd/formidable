@@ -1568,7 +1568,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters.</param>
     /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it; it receives the report and the edit stamp the pass read at begin.</param>
     /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load; a validator's exception under either kind propagates as well.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load before the verdict landed, whether or not the validator read it; a validator's exception under either kind propagates as well.</exception>
     // One skeleton for every kind: the kinds differ in what they hand in, not in how they run,
     // and a copy hand-rolled per kind is one where a single copy can quietly stop raising a
     // notification, or stop clearing a flag, that the others still do.
@@ -1622,8 +1622,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return null;
             }
 
+            var cancelled = false;
             await _renderDispatch(() =>
             {
+                // The caller's cancellation is read here rather than left to the validator: a rule
+                // that ignores its token runs to completion, and its answer must land nothing, as
+                // the answer of a rule that honoured the token never arrives. Read in the dispatch
+                // that lands, so nothing lands between the read and the writes below, and a token
+                // cancelled after them changes nothing. Read before the version, so a pass both
+                // superseded and cancelled throws to its caller, as one whose rule honoured the
+                // token does.
+                if (external.IsCancellationRequested)
+                {
+                    cancelled = true;
+                    return Task.CompletedTask;
+                }
+
                 if (pass.Version != _version)
                 {
                     return Task.CompletedTask; // superseded by a newer pass
@@ -1677,6 +1691,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 RebuildStore();
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            if (cancelled)
+            {
+                // The pass ends in the finally below, as a pass whose rule honoured the token
+                // ends: without landing, and arming the fires that deferred to it.
+                throw new OperationCanceledException(external);
+            }
 
             return report;
         }
@@ -2913,7 +2934,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // what it loaded leaves every readable field merely unfilled — and skipping the
                 // pass there would leave that field's filed verdict describing the values the
                 // load overwrote. A null adopted set is the other case: the pass was superseded,
-                // so the pass that took it over owns what happens next.
+                // so the pass that took it over owns what happens next. A cancelled load never
+                // gets here: it throws first.
                 await RunLivePassAsync(adopted);
             }
         }).ConfigureAwait(false);

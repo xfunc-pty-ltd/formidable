@@ -279,6 +279,57 @@ public class FormidableValidatorComponentTests : BunitContext
         });
     }
 
+    // Mirrors FormidableForm's test of the same name: the token cancelled while the load runs,
+    // under a rule that never reads it. The rule answers and fails the loaded value, and the call
+    // still throws and leaves the rendered input bare.
+    // Mutation: drop the token check at the engine's verdict dispatch, and the call returns with
+    // the description touched and its input painted formidable-invalid.
+    [Fact]
+    public async Task A_root_load_cancelled_while_a_token_ignoring_rule_runs_discloses_nothing()
+    {
+        var order = new EngineOrder { Description = "Loaded" };
+        var validator = new CancellationIgnoringValidator { ShouldPass = false };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<EditForm>(0);
+            builder.AddComponentParameter(1, nameof(EditForm.Model), order);
+            builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                inner.AddComponentParameter(
+                    1,
+                    nameof(FormidableValidator<EngineOrder>.Validator),
+                    new FluentValidationModelValidator<EngineOrder>(validator));
+                inner.AddComponentParameter(
+                    2,
+                    nameof(FormidableValidator<EngineOrder>.ChildContent),
+                    (RenderFragment<FormidableFormContext>)(_ => ctx =>
+                    {
+                        ctx.OpenComponent<FormidableInputText>(0);
+                        ctx.AddComponentParameter(1, "For", (Expression<Func<string?>>)(() => order.Description));
+                        ctx.AddComponentParameter(2, "Value", order.Description);
+                        ctx.AddComponentParameter(3, "ValueChanged",
+                            EventCallback.Factory.Create<string?>(this, v => order.Description = v ?? string.Empty));
+                        ctx.CloseComponent();
+                    }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        });
+        var attached = cut.FindComponent<FormidableValidator<EngineOrder>>();
+        using var cts = new CancellationTokenSource();
+
+        var load = cut.InvokeAsync(() => attached.Instance.DiscloseLoadedValuesAsync(cts.Token));
+        cut.WaitForAssertion(() => Assert.True(validator.Started >= 1));
+        cts.Cancel();
+        validator.Gate.SetResult(); // the rule answers (and fails) whatever the token says
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.DoesNotContain("formidable-", cut.Find("input").GetAttribute("class") ?? string.Empty);
+        Assert.False(attached.Instance.Engine!.GetFieldState(
+            new FieldIdentifier(order, nameof(EngineOrder.Description))).IsTouched);
+    }
+
     // Mirrors FormidableForm's identical guard test: both forwarders beat the engine's first
     // build the same way, and say so by name rather than a bare NullReferenceException.
     [Fact]

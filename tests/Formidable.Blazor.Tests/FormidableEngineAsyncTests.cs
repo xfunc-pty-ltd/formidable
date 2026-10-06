@@ -59,6 +59,103 @@ public class FormidableEngineAsyncTests
         Assert.False(engine.IsValidating);
     }
 
+    // The rule never reads its token, so the caller's cancellation cannot stop it short: the rule
+    // runs to completion and fails. The call still throws for the caller's own token, and nothing
+    // the rule answered lands.
+    // Mutation: drop the token check at the verdict dispatch, and the call returns a blocked
+    // outcome with HasSubmitted true and the rule's message showing.
+    [Fact]
+    public async Task A_submit_cancelled_while_a_token_ignoring_rule_runs_throws_and_lands_nothing()
+    {
+        var order = new EngineOrder();
+        var validator = new CancellationIgnoringValidator { ShouldPass = false };
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            new FakeTimeProvider());
+        using var cts = new CancellationTokenSource();
+
+        var pending = engine.ValidateForSubmitAsync(cts.Token);
+        Assert.Equal(1, validator.Started);
+        cts.Cancel();
+        validator.Gate.SetResult(); // the rule answers (and fails) whatever the token says
+
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Equal(cts.Token, thrown.CancellationToken);
+        Assert.False(engine.HasSubmitted);
+        Assert.Empty(engine.GetVisibleIssues());
+        Assert.False(engine.IsValidating);
+    }
+
+    // A pin: a token cancelled once the answer has landed changes nothing. The cancel comes from a
+    // handler of the landing's own notification, after every write and before the call returns.
+    // Mutation: throw whenever the caller's token reads cancelled after the landing dispatch, not
+    // only when that dispatch found it cancelled, and the call throws OperationCanceledException.
+    [Fact]
+    public async Task A_token_cancelled_after_the_answer_lands_changes_nothing()
+    {
+        var order = new EngineOrder();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            new FakeTimeProvider());
+        using var cts = new CancellationTokenSource();
+        var sawValidating = false;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating)
+            {
+                sawValidating = true;
+            }
+            else if (sawValidating)
+            {
+                cts.Cancel(); // the landing's rebuild: the answer is written
+            }
+        };
+
+        var outcome = await engine.ValidateForSubmitAsync(cts.Token);
+
+        Assert.True(cts.IsCancellationRequested); // the control: the cancel came before the return
+        Assert.False(outcome.CanProceed);
+        Assert.NotEmpty(outcome.VisibleErrorSummary);
+        Assert.True(engine.HasSubmitted);
+        Assert.NotEmpty(engine.GetVisibleIssues());
+    }
+
+    // A caller who cancelled hears so even when a newer submit also displaced the check, as it
+    // would from a rule that read the token. The newer submit's own answer is untouched.
+    // Mutation: test the version before the token at the verdict dispatch, and the first call
+    // returns the displaced, blocked outcome instead of throwing.
+    [Fact]
+    public async Task A_submit_both_displaced_and_cancelled_throws_for_its_caller()
+    {
+        var order = new EngineOrder();
+        var validator = new CancellationIgnoringValidator();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order),
+            new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            new FakeTimeProvider());
+        using var cts = new CancellationTokenSource();
+
+        var first = engine.ValidateForSubmitAsync(cts.Token);
+        var second = engine.ValidateForSubmitAsync();
+        Assert.Equal(2, validator.Started);
+        cts.Cancel();
+        validator.Gate.SetResult();
+
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        Assert.Equal(cts.Token, thrown.CancellationToken);
+        Assert.True((await second).CanProceed);
+        Assert.True(engine.HasSubmitted);
+        Assert.False(engine.IsValidating);
+    }
+
     [Fact]
     public async Task IsValidating_stays_true_while_a_newer_pass_supersedes()
     {

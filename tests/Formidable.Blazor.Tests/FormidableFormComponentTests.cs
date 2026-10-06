@@ -581,6 +581,37 @@ public class FormidableFormComponentTests : BunitContext
         });
     }
 
+    // The token cancelled while the load runs, under a rule that never reads it: the rule answers
+    // and fails the loaded value, and the call still throws and leaves the rendered input bare.
+    // Mutation: drop the token check at the engine's verdict dispatch, and the call returns with
+    // the description touched and its input painted formidable-invalid.
+    [Fact]
+    public async Task A_root_load_cancelled_while_a_token_ignoring_rule_runs_discloses_nothing()
+    {
+        var order = new EngineOrder { Description = "Loaded" };
+        var validator = new CancellationIgnoringValidator { ShouldPass = false };
+        var cut = Render(builder =>
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, "Model", order);
+            builder.AddComponentParameter(2, "Validator", new FluentValidationModelValidator<EngineOrder>(validator));
+            builder.AddComponentParameter(3, "ChildContent", InputBoundTo(order, this));
+            builder.CloseComponent();
+        });
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>();
+        using var cts = new CancellationTokenSource();
+
+        var load = form.InvokeAsync(() => form.Instance.DiscloseLoadedValuesAsync(cts.Token));
+        form.WaitForAssertion(() => Assert.True(validator.Started >= 1));
+        cts.Cancel();
+        validator.Gate.SetResult(); // the rule answers (and fails) whatever the token says
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => load);
+        Assert.DoesNotContain("formidable-", cut.Find("input").GetAttribute("class") ?? string.Empty);
+        Assert.False(form.Instance.Engine!.GetFieldState(
+            new FieldIdentifier(order, nameof(EngineOrder.Description))).IsTouched);
+    }
+
     // The server round trip is the one pipeline step a page drives itself, and reaching it through
     // the engine property costs two null-forgiving operators on a reference the page already holds.
     [Fact]
