@@ -200,13 +200,24 @@ whatever the form's history.
 
 The engine does not hear the registry's `Changed` event, so the root makes that call.
 `FormidableValidator` makes it from a continuation posted past the render batch that changed a
-registration (`NotifyFieldSetChanged()` makes the same call at once). `FormidableForm` makes it from
-its `OnAfterRenderAsync` whenever the registry's version moved.
+registration (`NotifyFieldSetChanged()` makes the same call at once). One post serves the whole
+batch: the first change requests it, and every later change in the batch finds it already
+waiting. `FormidableForm` makes the call from its `OnAfterRenderAsync` whenever the registry's
+version moved.
 
 A nested component re-rendering alone moves the registry without bringing the form there, so the
 form posts the same continuation the validator does. While a render of the form has yet to reach
 its `OnAfterRenderAsync`, a registry change posts nothing, because that method reconciles whatever
-the registry then holds. Each root's version tracker keeps one move from being reconciled twice.
+the registry then holds.
+
+On Blazor Server that method runs only once the client acknowledges the render batch. A field
+the form's own render removed keeps its live message (in the summary and the `EditContext`) until
+the acknowledgement arrives.
+
+Each root's version tracker keeps one move from being reconciled twice. It records a move only
+once the call has returned, so a consumer's `OnValidationStateChanged` or `StateChanged` handler
+that throws during the call leaves the move, and the refresh it arms, to the form's next render,
+the next post, or a `NotifyFieldSetChanged()` call in attach mode.
 
 A pass in flight across that move still publishes its verdict, but its store write is refused:
 `TryFile` checks the generation the pass captured at begin, so the clear cannot be undone by work

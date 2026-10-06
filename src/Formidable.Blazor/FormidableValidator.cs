@@ -21,20 +21,16 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     private FormidableOptions? _boundOptions;
     private FormidableFormContext? _context;
 
-    // Latches the Registry.Version last actually reconciled, mirroring FormidableForm's own
-    // _renderedFieldSetVersion — reset to -1 whenever the engine is (re)built, so the first
-    // signal after a fresh registry always finds something to do. Read and written only from the
-    // renderer's synchronization context: the automatic path reaches it via a posted
-    // continuation captured on that same context, and NotifyFieldSetChanged is documented to be
-    // called from one of a consumer's own event handlers, never from a background thread.
-    private int _lastReconciledFieldSetVersion = -1;
+    // The rendered-field-set reconcile, shared in shape with FormidableForm, reset whenever the
+    // engine is rebuilt. Built on first use, because its delegates read this component's fields
+    // and a field initializer cannot reach the instance.
+    private RenderedFieldSetReconciler? _reconciler;
 
-    // How many times ReconcileIfChanged has actually run the reconcile (as opposed to skipping
-    // on the version gate) since the engine was built. Internal rather than removed once the
-    // signal exists, because it is the only way a test can tell a batch of N registry changes
-    // that coalesced into one reconcile apart from one that ran the reconcile N times and merely
-    // produced the same final state either way.
-    internal int ReconcileCount { get; private set; }
+    // Forwarded for the tests: the only way to tell a batch of N registry changes that coalesced
+    // into one reconcile, or one post, from one that ran N times and reached the same state.
+    internal int ReconcileCount => Reconciler.ReconcileCount;
+
+    internal int ReconcilePostCount => Reconciler.PostCount;
 
     // The displaced-click guard's half. The module is this component's own, on the same terms
     // FormidableForm holds one: whoever holds a FormidableJsModule disposes it, and this is the
@@ -145,8 +141,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 renderDispatch: work => InvokeAsync(work));
             _context = new FormidableFormContext(_engine, FocusFirstErrorAsync);
             _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
-            _lastReconciledFieldSetVersion = -1;
-            _engine.Registry.Changed += OnFieldRegistryChanged;
+            Reconciler.Reset();
+            _engine.Registry.Changed += Reconciler.OnRegistryChanged;
         }
         else
         {
@@ -320,71 +316,17 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     /// removing a field, from the renderer's synchronization context; with no engine, or no change
     /// after the last reconcile, it does nothing.
     /// </remarks>
-    public void NotifyFieldSetChanged() => ReconcileIfChanged();
+    public void NotifyFieldSetChanged() => Reconciler.ReconcileIfChanged();
 
-    /// <summary>Defers the reconcile past the render batch that changed a registration: through the current <see cref="SynchronizationContext"/>, or through the thread pool where none exists.</summary>
-    // FieldRegistry.Changed fires synchronously from inside the render batch that changed a
-    // registration, so reacting inline here, or through this component's own InvokeAsync (which
-    // runs inline whenever the caller is already on the dispatcher, as this call site is), would
-    // observe that batch's still-settling state. Two genuinely deferring paths follow, each the
-    // standard one on its host: on Blazor Server (and in bUnit, which resolves the same dispatcher
-    // shape) a real SynchronizationContext is always current here, and posting to it runs the
-    // continuation only once every registration change in the batch has landed; on Blazor
-    // WebAssembly's default single-threaded runtime no SynchronizationContext is ever installed,
-    // so DeferReconcileAsync is the only branch that host ever takes. Either way the version gate
-    // in ReconcileIfChanged collapses however many of these fire in one batch to one reconcile.
-    private void OnFieldRegistryChanged()
-    {
-        var context = SynchronizationContext.Current;
-        if (context is null)
-        {
-            _ = DeferReconcileAsync();
-            return;
-        }
-
-        context.Post(_ => ReconcileIfChanged(), null);
-    }
-
-    /// <summary>Defers <see cref="ReconcileIfChanged"/> through the thread pool on a host with no <see cref="SynchronizationContext"/>, which is WebAssembly's default.</summary>
-    // Task.Yield() queues the rest of this method through the thread pool; on a single-threaded
-    // host that still means the continuation only runs once the call stack that queued it has
-    // unwound all the way back to the browser's own event loop, which restores the same "after
-    // the batch" guarantee the Post branch gives on a host that has a context to post through.
-    // Fire-and-forget by design: ReconcileIfChanged invokes nothing that runs a consumer's own
-    // code (no validator, no user delegate, only the registry's and the engine's bookkeeping), so
-    // nothing reachable from here is expected to throw, the same premise the Post branch's own
-    // equally unguarded call relies on; a genuine defect surfaces as an unobserved task exception
-    // rather than being caught and silently discarded.
-    private async Task DeferReconcileAsync()
-    {
-        await Task.Yield();
-        ReconcileIfChanged();
-    }
-
-    /// <summary>Runs the engine's field-set reconcile once per registry version, and nothing once the engine is torn down.</summary>
-    // Comparing against _lastReconciledFieldSetVersion before latching is what lets several
-    // registry changes in one batch, each deferring its own continuation, coalesce to one
-    // reconcile: whichever continuation runs first finds the version has moved and does the work,
-    // and every later one for the same settled state finds nothing new and skips. The null guard
-    // on _engine is also what keeps a continuation still pending when Dispose ran from reconciling
-    // against the engine Dispose already tore down; TearDownEngine nulls the field for that.
-    private void ReconcileIfChanged()
-    {
-        if (_engine is null)
-        {
-            return;
-        }
-
-        var version = _engine.Registry.Version;
-        if (version == _lastReconciledFieldSetVersion)
-        {
-            return;
-        }
-
-        _lastReconciledFieldSetVersion = version;
-        ReconcileCount++;
-        _engine.OnRenderedFieldsChanged();
-    }
+    /// <summary>The component's rendered-field-set reconciler, built on first use over whichever engine the component holds when it runs.</summary>
+    // Every batch of registry changes posts one reconcile, because this component has no render of
+    // its own that reconciles. The registry reader answers null once TearDownEngine has cleared
+    // the engine, which keeps a reconcile posted before Dispose from reaching the engine Dispose
+    // tore down.
+    private RenderedFieldSetReconciler Reconciler => _reconciler ??= new RenderedFieldSetReconciler(
+        registry: () => _engine?.Registry,
+        reconcile: () => _engine!.OnRenderedFieldsChanged(),
+        renderWillReconcile: static () => false);
 
     /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the component bound to its cascaded <see cref="EditContext"/>.</summary>
     /// <returns>The built engine.</returns>
@@ -437,7 +379,7 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
             return;
         }
 
-        _engine.Registry.Changed -= OnFieldRegistryChanged;
+        _engine.Registry.Changed -= Reconciler.OnRegistryChanged;
         _engine.Dispose();
         _engine = null;
     }

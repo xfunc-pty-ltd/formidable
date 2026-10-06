@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -590,20 +591,19 @@ public class FormidableValidatorComponentTests : BunitContext
         var baseline = validator.Instance.ReconcileCount;
 
         // All three removed in the SAME render: each disposing anchor's Unregister fires
-        // FieldRegistry.Changed and posts its own continuation to the same captured
-        // synchronization context, in the order the diff disposes them.
+        // FieldRegistry.Changed, and the first of them posts the one reconcile the batch gets to
+        // the captured synchronization context.
         order.Items.Remove(doomed1);
         order.Items.Remove(doomed2);
         order.Items.Remove(doomed3);
         host.Render(parameters => parameters.Add(p => p.Order, order));
 
-        // Enqueued behind all three posted continuations on that same synchronization context —
-        // by the time this round trip completes, every one of them has already run: the first to
-        // run did the reconcile and latched Registry.Version, and the other two found it
-        // unchanged and skipped. A settled count read straight after, rather than through
-        // WaitForAssertion's render-driven polling (nothing here re-renders on engine state
-        // changes for it to catch), is deliberate: a dropped version gate would let the count
-        // climb to baseline + 3 instead of stopping at baseline + 1.
+        // Enqueued behind that posted reconcile on the same synchronization context, so by the
+        // time this round trip completes, it has run. A settled count read straight after, rather
+        // than through WaitForAssertion's render-driven polling (nothing here re-renders on engine
+        // state changes for it to catch), is deliberate: dropping both BatchPost's pending flag
+        // and the reconciler's version gate would let the count climb to baseline + 3 instead of
+        // stopping at baseline + 1.
         await host.InvokeAsync(() => { });
 
         Assert.Equal(baseline + 1, validator.Instance.ReconcileCount);
@@ -692,7 +692,7 @@ public class FormidableValidatorComponentTests : BunitContext
     }
 
     // Blazor WebAssembly's default single-threaded runtime never installs a
-    // SynchronizationContext on any thread, ever — OnFieldRegistryChanged's null-context branch
+    // SynchronizationContext on any thread, ever — BatchPost.Request's null-context branch
     // is that host's ONLY path, every time, not a rare fallback. Reproduced here by nulling
     // SynchronizationContext.Current for the extent of a direct Registry mutation (bypassing any
     // rendered component, so nothing else about the render pipeline is in play) and restoring it
@@ -726,7 +726,7 @@ public class FormidableValidatorComponentTests : BunitContext
             try
             {
                 // Fires FieldRegistry.Changed with SynchronizationContext.Current == null —
-                // OnFieldRegistryChanged's null-context branch, exactly as it always runs on
+                // BatchPost.Request's null-context branch, exactly as it always runs on
                 // single-threaded WASM.
                 registration!.Dispose();
             }
@@ -747,6 +747,124 @@ public class FormidableValidatorComponentTests : BunitContext
         }
 
         Assert.Equal(baseline + 1, validator.ReconcileCount);
+    }
+
+    // A consumer's OnValidationStateChanged handler throws once, from inside the reconcile
+    // NotifyFieldSetChanged runs after a field with a live error leaves the page. The reconcile
+    // the removal posted then runs it again: both attempts count, the departed field's message
+    // stays out of the EditContext, and the whole-form re-check the reconcile owes runs once the
+    // clock reaches RefreshDebounce. Mutation: record the registry version before the reconcile
+    // runs, and the posted retry finds nothing to do, so one attempt counts and the re-check
+    // never runs.
+    [Fact]
+    public async Task An_attach_mode_reconcile_whose_handler_threw_is_retried()
+    {
+        var clock = new FakeTimeProvider();
+        Services.AddSingleton<TimeProvider>(clock);
+        var rules = new RuleRunCountingValidator();
+        var order = new EngineOrder();
+        var host = Render<AttachDescriptionHost>(parameters => parameters
+            .Add(p => p.Order, order)
+            .Add(p => p.Options, new FormidableOptions { RefreshDebounce = RetryRefreshDebounce })
+            .Add(p => p.Validator, new FluentValidationModelValidator<EngineOrder>(rules)));
+        var validator = host.FindComponent<FormidableValidator<EngineOrder>>().Instance;
+        var engine = validator.Engine!;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        // The re-check the first render's reconcile owes runs first, so the only one left to run
+        // is the one the reconcile under test owes.
+        await host.InvokeAsync(() => { });
+        clock.Advance(RetryRefreshDebounce);
+        await WaitUntil(host, () => rules.SubmitRuleRuns == 1);
+
+        await host.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(description));
+        await WaitUntil(host, () => engine.EditContext.GetValidationMessages(description).Any());
+        var runs = rules.SubmitRuleRuns;
+        var baseline = validator.ReconcileCount;
+
+        var armed = true;
+        engine.EditContext.OnValidationStateChanged += (_, _) =>
+        {
+            if (armed)
+            {
+                armed = false;
+                throw new InvalidOperationException("a consumer handler throws");
+            }
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.InvokeAsync(() =>
+        {
+            host.Render(parameters => parameters.Add(p => p.ShowDescription, false));
+            validator.NotifyFieldSetChanged();
+        }));
+        await host.InvokeAsync(() => { });
+
+        Assert.False(armed);
+        Assert.Equal(baseline + 2, validator.ReconcileCount);
+        Assert.Empty(engine.EditContext.GetValidationMessages(description));
+
+        clock.Advance(RetryRefreshDebounce);
+        await WaitUntil(host, () => rules.SubmitRuleRuns > runs);
+        Assert.Equal(runs + 1, rules.SubmitRuleRuns);
+    }
+
+    private static readonly TimeSpan RetryRefreshDebounce = TimeSpan.FromSeconds(1);
+
+    // Polls on real time, draining the dispatcher between reads, because a pass the fake clock
+    // starts runs on the dispatcher and renders nothing a WaitForAssertion could wait on.
+    private static async Task WaitUntil<TComponent>(IRenderedComponent<TComponent> host, Func<bool> condition)
+        where TComponent : IComponent
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+            await host.InvokeAsync(() => { });
+        }
+    }
+
+    /// <summary>
+    /// An <c>EditForm</c> with a <see cref="FormidableValidator{TModel}"/> over the
+    /// <see cref="Options"/> and <see cref="Validator"/> given, and an anchor registering the
+    /// description while <see cref="ShowDescription"/> is set.
+    /// </summary>
+    private sealed class AttachDescriptionHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public FormidableOptions Options { get; set; } = default!;
+
+        [Parameter]
+        public IModelValidator<EngineOrder> Validator { get; set; } = default!;
+
+        [Parameter]
+        public bool ShowDescription { get; set; } = true;
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<EditForm>(0);
+            builder.AddComponentParameter(1, nameof(EditForm.Model), Order);
+            builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Options), Options);
+                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.Validator), Validator);
+                inner.AddComponentParameter(3, nameof(FormidableValidator<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => ctx =>
+                {
+                    if (ShowDescription)
+                    {
+                        ctx.OpenComponent<FormidableFieldAnchor<string>>(0);
+                        ctx.AddComponentParameter(
+                            1, nameof(FormidableFieldAnchor<string>.For), (Expression<Func<string>>)(() => Order.Description));
+                        ctx.CloseComponent();
+                    }
+                }));
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
     }
 
     /// <summary>

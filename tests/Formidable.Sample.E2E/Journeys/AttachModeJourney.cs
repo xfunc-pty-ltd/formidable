@@ -9,10 +9,10 @@ namespace Formidable.Sample.E2E;
 /// no NotifyFieldSetChanged call anywhere on this page, no OnAfterRenderAsync of its own to poll
 /// with. This is the real-runtime counterpart of the bUnit pin
 /// Removing_a_row_in_attach_mode_clears_its_issues in FormidableValidatorComponentTests, and the
-/// load-bearing evidence for the Task.Yield deferral FormidableValidator.OnFieldRegistryChanged
-/// takes as the standard path on this host's actual single-threaded WASM runtime, where no
-/// SynchronizationContext is ever installed: revert the FieldRegistry.Changed subscription in
-/// FormidableValidator (or its WASM-side deferral) and the removed row's error lingers here
+/// load-bearing evidence for the Task.Yield deferral BatchPost.Request takes as the standard
+/// path on this host's actual single-threaded WASM runtime, where no SynchronizationContext is
+/// ever installed: revert the FieldRegistry.Changed subscription in FormidableValidator (or
+/// BatchPost's WASM-side deferral) and the removed row's error lingers here
 /// exactly as it would in that bUnit pin, since nothing else on the page ever re-validates the
 /// model once submit's own pass has run — no live edit touches the departed field, and no page
 /// code calls the engine again. The second test below is the real-runtime counterpart of the live

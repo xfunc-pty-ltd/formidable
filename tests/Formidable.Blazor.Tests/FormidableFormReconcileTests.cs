@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -150,8 +151,8 @@ public class FormidableFormReconcileTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // Three inputs leave in one nested render, and each departure posts a reconcile. Mutation:
-    // drop the version gate in ReconcileIfChanged, and the count climbs by three.
+    // Three inputs leave in one nested render, and the batch reconciles once. Mutation: drop both
+    // BatchPost's pending flag and the reconciler's version gate, and the count climbs by three.
     [Fact]
     public async Task A_batch_of_nested_removals_reconciles_once()
     {
@@ -189,12 +190,14 @@ public class FormidableFormReconcileTests : BunitContext
         var faults = 0;
         engine.ValidationFaulted += (_, _) => faults++;
 
-        // A registration and its end each raise Changed, so each posts one reconcile.
+        // A registration and its end each raise Changed in one call stack, and the form posts one
+        // reconcile for the pair: a root posts once per batch of registry changes, not once per
+        // change.
         var before = new RecordingContext();
         await cut.InvokeAsync(() => WithContext(
             before, () => engine.Registry.Register(new FieldIdentifier(order, "Phantom")).Dispose()));
         await cut.InvokeAsync(before.RunPosted);
-        Assert.Equal(2, before.Posts);
+        Assert.Equal(1, before.Posts);
 
         await DisposeComponentsAsync();
         var reconciled = form.ReconcileCount;
@@ -241,8 +244,8 @@ public class FormidableFormReconcileTests : BunitContext
 
     // A pin, passing before the form posted anything because nothing was posted then. A reconcile
     // posted just before disposal runs after it. The removed row shows an error, so a reconcile
-    // reaching the engine would drop it and republish the store. Mutation: drop the
-    // disposed test from ReconcileIfChanged, and the posted reconcile is counted and puts the
+    // reaching the engine would drop it and republish the store. Mutation: drop the disposed test
+    // from the form's registry reader, and the posted reconcile is counted and puts the
     // description's error back into the store Dispose had cleared.
     [Fact]
     public async Task A_reconcile_posted_before_Dispose_reaches_nothing_after_it()
@@ -276,6 +279,183 @@ public class FormidableFormReconcileTests : BunitContext
         Assert.Empty(engine.EditContext.GetValidationMessages());
 
         await Services.DisposeAsync();
+    }
+
+    // A nested render removes a field with a live error, and a consumer's OnValidationStateChanged
+    // handler throws once from inside the reconcile that removal posted. The form's next render
+    // reconciles again: both attempts count, the departed field's message stays out of the
+    // EditContext, and the whole-form re-check the reconcile owes runs once the clock reaches
+    // RefreshDebounce. A pin: the form records the registry version only once the reconcile has
+    // returned. Mutation: record it before the reconcile runs, and the render finds nothing to do,
+    // so one attempt counts and the re-check never runs.
+    [Fact]
+    public async Task A_form_reconcile_whose_handler_threw_is_retried()
+    {
+        var clock = new FakeTimeProvider();
+        Services.AddSingleton<TimeProvider>(clock);
+        var rules = new RuleRunCountingValidator();
+        var order = new EngineOrder();
+        var cut = Render<RetryHost>(parameters => parameters
+            .Add(p => p.Order, order)
+            .Add(p => p.Options, new FormidableOptions { RefreshDebounce = RetryRefreshDebounce })
+            .Add(p => p.Validator, new FluentValidationModelValidator<EngineOrder>(rules)));
+        var form = cut.FindComponent<FormidableForm<EngineOrder>>().Instance;
+        var engine = form.Engine!;
+        var section = cut.FindComponent<DescriptionSection>().Instance;
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+
+        // The re-check the first render's reconcile owes runs first, so the only one left to run
+        // is the one the reconcile under test owes.
+        await Settle(cut);
+        clock.Advance(RetryRefreshDebounce);
+        await WaitUntil(cut, () => rules.SubmitRuleRuns == 1);
+
+        await cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(description));
+        await WaitUntil(cut, () => engine.EditContext.GetValidationMessages(description).Any());
+        var runs = rules.SubmitRuleRuns;
+        var baseline = form.ReconcileCount;
+
+        var armed = true;
+        engine.EditContext.OnValidationStateChanged += (_, _) =>
+        {
+            if (armed)
+            {
+                armed = false;
+                throw new InvalidOperationException("a consumer handler throws");
+            }
+        };
+
+        await cut.InvokeAsync(section.Hide);
+        await Settle(cut);
+        Assert.False(armed);
+        Assert.Equal(baseline + 1, form.ReconcileCount);
+
+        await cut.InvokeAsync(() => cut.Render(parameters => parameters.Add(p => p.Renders, 1)));
+        await Settle(cut);
+
+        Assert.Equal(baseline + 2, form.ReconcileCount);
+        Assert.Empty(engine.EditContext.GetValidationMessages(description));
+
+        clock.Advance(RetryRefreshDebounce);
+        await WaitUntil(cut, () => rules.SubmitRuleRuns > runs);
+        Assert.Equal(runs + 1, rules.SubmitRuleRuns);
+
+        await Services.DisposeAsync();
+    }
+
+    // A nested component's own render adds four rows while no render of the form is pending, so
+    // four registrations raise Changed in one batch. The root posts one reconcile for them, and it
+    // runs once. Mutation: drop BatchPost's pending flag, and the batch posts four.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_nested_batch_of_registry_changes_posts_one_reconcile(bool attach)
+    {
+        var order = new EngineOrder
+        {
+            Customer = new EngineCustomer(),
+            Items = [new EngineItem(), new EngineItem(), new EngineItem(), new EngineItem()],
+        };
+        var cut = Render<BatchHost>(parameters => parameters
+            .Add(p => p.Order, order)
+            .Add(p => p.Attach, attach));
+        var nested = cut.FindComponent<NestedInputs>();
+        Func<int> reconciles;
+        Func<int> posts;
+        if (attach)
+        {
+            var validator = cut.FindComponent<FormidableValidator<EngineOrder>>().Instance;
+            reconciles = () => validator.ReconcileCount;
+            posts = () => validator.ReconcilePostCount;
+        }
+        else
+        {
+            var form = cut.FindComponent<FormidableForm<EngineOrder>>().Instance;
+            reconciles = () => form.ReconcileCount;
+            posts = () => form.ReconcilePostCount;
+        }
+
+        await Settle(cut);
+        var reconciled = reconciles();
+        var posted = posts();
+
+        await cut.InvokeAsync(() => nested.Render(parameters => parameters.Add(p => p.Rows, true)));
+        await Settle(cut);
+
+        Assert.Equal(4, cut.FindAll("input[data-name=row]").Count);
+        Assert.Equal(posted + 1, posts());
+        Assert.Equal(reconciled + 1, reconciles());
+
+        await Services.DisposeAsync();
+    }
+
+    // A pin: a nested render adds rows and posts a reconcile, and in the same dispatcher turn the
+    // root reconciles the move itself (the form through its own render, attach mode through
+    // NotifyFieldSetChanged). The post then finds the version already recorded and does nothing.
+    // Mutation: drop the reconciler's version gate, and the post reconciles the same move again.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_move_the_root_already_reconciled_is_not_reconciled_again_by_its_post(bool attach)
+    {
+        var order = new EngineOrder
+        {
+            Customer = new EngineCustomer(),
+            Items = [new EngineItem(), new EngineItem()],
+        };
+        var cut = Render<BatchHost>(parameters => parameters
+            .Add(p => p.Order, order)
+            .Add(p => p.Attach, attach));
+        var nested = cut.FindComponent<NestedInputs>();
+        Func<int> reconciles;
+        Func<int> posts;
+        Action reconcileNow;
+        if (attach)
+        {
+            var validator = cut.FindComponent<FormidableValidator<EngineOrder>>().Instance;
+            reconciles = () => validator.ReconcileCount;
+            posts = () => validator.ReconcilePostCount;
+            reconcileNow = validator.NotifyFieldSetChanged;
+        }
+        else
+        {
+            var form = cut.FindComponent<FormidableForm<EngineOrder>>().Instance;
+            reconciles = () => form.ReconcileCount;
+            posts = () => form.ReconcilePostCount;
+            reconcileNow = () => cut.Render(parameters => parameters.Add(p => p.Renders, 1));
+        }
+
+        await Settle(cut);
+        var reconciled = reconciles();
+        var posted = posts();
+
+        await cut.InvokeAsync(() =>
+        {
+            nested.Render(parameters => parameters.Add(p => p.Rows, true));
+            reconcileNow();
+        });
+        await Settle(cut);
+
+        Assert.Equal(2, cut.FindAll("input[data-name=row]").Count);
+        Assert.Equal(posted + 1, posts());
+        Assert.Equal(reconciled + 1, reconciles());
+
+        await Services.DisposeAsync();
+    }
+
+    private static readonly TimeSpan RetryRefreshDebounce = TimeSpan.FromSeconds(1);
+
+    // Polls on real time, settling the dispatcher between reads, because a check the fake clock
+    // starts runs on the dispatcher and renders nothing a WaitForAssertion could wait on.
+    private static async Task WaitUntil<TComponent>(IRenderedComponent<TComponent> cut, Func<bool> condition)
+        where TComponent : IComponent
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+            await Settle(cut);
+        }
     }
 
     // The dispatcher runs one piece of work at a time, so a no-op queued behind a posted reconcile
@@ -467,6 +647,106 @@ public class FormidableFormReconcileTests : BunitContext
             _seen = Recorder;
             Recorder.Registrations++;
             WithContext(Recorder, () => Context.Registry.Register(new FieldIdentifier(Order, $"Probe{Recorder.GetHashCode()}")));
+        }
+    }
+
+    /// <summary>Test-only host: a form over <see cref="Order"/> with the <see cref="Options"/> and <see cref="Validator"/> given, around a <see cref="DescriptionSection"/>; a new <see cref="Renders"/> value renders the form again.</summary>
+    private sealed class RetryHost : ComponentBase
+    {
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public FormidableOptions Options { get; set; } = default!;
+
+        [Parameter]
+        public IModelValidator<EngineOrder> Validator { get; set; } = default!;
+
+        [Parameter]
+        public int Renders { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+            builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+            builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), Options);
+            builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.Validator), Validator);
+            builder.AddComponentParameter(4, nameof(FormidableForm<EngineOrder>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<DescriptionSection>(0);
+                inner.AddComponentParameter(1, nameof(DescriptionSection.Order), Order);
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
+        }
+    }
+
+    /// <summary>Test-only component inside the form: the description's input until <see cref="Hide"/> removes it in a render of this component alone, which a later render of the form does not undo.</summary>
+    private sealed class DescriptionSection : ComponentBase
+    {
+        private bool _showing = true;
+
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        public void Hide()
+        {
+            _showing = false;
+            StateHasChanged();
+        }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            if (_showing)
+            {
+                AddDescriptionInput(builder, 0, this, Order, "section");
+            }
+        }
+    }
+
+    /// <summary>Test-only host: a <see cref="NestedInputs"/> over <see cref="Order"/> inside a form, or inside an <c>EditForm</c> with a validator when <see cref="Attach"/> is set; a new <see cref="Renders"/> value renders the root again.</summary>
+    private sealed class BatchHost : ComponentBase
+    {
+        private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+
+        [Parameter]
+        public EngineOrder Order { get; set; } = default!;
+
+        [Parameter]
+        public bool Attach { get; set; }
+
+        [Parameter]
+        public int Renders { get; set; }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            RenderFragment<FormidableFormContext> content = _ => inner =>
+            {
+                inner.OpenComponent<NestedInputs>(0);
+                inner.AddComponentParameter(1, nameof(NestedInputs.Order), Order);
+                inner.CloseComponent();
+            };
+
+            if (!Attach)
+            {
+                builder.OpenComponent<FormidableForm<EngineOrder>>(0);
+                builder.AddComponentParameter(1, nameof(FormidableForm<EngineOrder>.Model), Order);
+                builder.AddComponentParameter(2, nameof(FormidableForm<EngineOrder>.Options), _options);
+                builder.AddComponentParameter(3, nameof(FormidableForm<EngineOrder>.ChildContent), content);
+                builder.CloseComponent();
+                return;
+            }
+
+            builder.OpenComponent<EditForm>(4);
+            builder.AddComponentParameter(5, nameof(EditForm.Model), Order);
+            builder.AddComponentParameter(6, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableValidator<EngineOrder>>(0);
+                inner.AddComponentParameter(1, nameof(FormidableValidator<EngineOrder>.Options), _options);
+                inner.AddComponentParameter(2, nameof(FormidableValidator<EngineOrder>.ChildContent), content);
+                inner.CloseComponent();
+            }));
+            builder.CloseComponent();
         }
     }
 
