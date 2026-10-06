@@ -552,7 +552,7 @@ picking any colour sets the others to their light defaults until the page reload
       count line and the four names, nothing before the submit and nothing twice. At step 5,
       <kbd>Escape</kbd> hands focus back to *Submit* as the dialog closes, then the page moves
       it on: you hear "Submit, button", then "Invoice reference, edit". That order passes;
-      whether the pair is worth it is a judgement to note for Tim
+      note whether hearing the pair is worth it
 - [ ] Step 2, in both colour schemes: the list reads as four field NAMES, not four sentences, with
       `2 more to fix` under them. Hovering a name pills the name. Hovering the overflow line does
       nothing: it is a count, not something to click, and it never takes a focus ring or a pointer

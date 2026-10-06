@@ -8,8 +8,8 @@
          message handler that answers the sample's API calls in-browser, for GitHub Pages, which
          hosts static files only. The switch also leaves MudBlazor, its services and its page out
          of that build, and a notice page takes the page's route. A plain build/publish never
-         defines HOSTED_DEMO, so ordinary local runs keep talking to the real API and keep the
-         MudBlazor page exactly as before. -->
+         defines HOSTED_DEMO, so it compiles the MudBlazor page and its services, and the app
+         talks to the real API. -->
     <PropertyGroup Condition="'$(HostedDemo)' == 'true'">
         <DefineConstants>$(DefineConstants);HOSTED_DEMO</DefineConstants>
     </PropertyGroup>

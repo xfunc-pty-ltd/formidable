@@ -13,7 +13,7 @@ namespace Formidable.Sample;
 // same Shared validators, under the same Submit profile, that the real API's endpoint filter
 // runs, and answers in the same wire shapes - so the round-trip and coupon-rejection lessons on
 // /server and /workout survive without a server behind them. It only exists in HOSTED_DEMO
-// builds; a normal build never compiles this type and talks to the real API exactly as before.
+// builds; a normal build never compiles this type and talks to the real API.
 internal sealed class HostedDemoApiHandler : DelegatingHandler
 {
     private const string ProblemType = "https://tools.ietf.org/html/rfc9110#section-15.5.1";
