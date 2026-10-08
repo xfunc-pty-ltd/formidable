@@ -80,7 +80,7 @@ and read the flag off the context:
 
 ```razor
 <FormidableField For="() => _contact.Email" Context="field">
-    <label>Email
+    <label>Email <FormidableRequiredIndicator For="() => _contact.Email" />
         <FormidableInputText @bind-Value="_contact.Email" />
     </label>
     <span role="status">@(field.State.IsValidating ? "checking…" : null)</span>

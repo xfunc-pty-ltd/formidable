@@ -35,7 +35,7 @@ Render one block per member, inside a `FormidableField` wrapping the whole list:
     @foreach (var member in _contact.Members)
     {
         <div @key="member">
-            <label>Member name
+            <label>Member name <FormidableRequiredIndicator For="() => member.Name" />
                 <FormidableInputText @bind-Value="member.Name" />
             </label>
             <FormidableFieldMessage For="() => member.Name" />

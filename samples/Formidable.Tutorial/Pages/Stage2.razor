@@ -8,12 +8,12 @@
     <FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
         <FormidableSummary />
 
-        <label>Name
+        <label>Name <FormidableRequiredIndicator For="() => _contact.Name" />
             <FormidableInputText @bind-Value="_contact.Name" />
         </label>
         <FormidableFieldMessage For="() => _contact.Name" />
 
-        <label>Email
+        <label>Email <FormidableRequiredIndicator For="() => _contact.Email" />
             <FormidableInputText @bind-Value="_contact.Email" />
         </label>
         <FormidableFieldMessage For="() => _contact.Email" />

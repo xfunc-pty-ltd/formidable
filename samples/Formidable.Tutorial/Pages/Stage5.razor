@@ -9,13 +9,13 @@
     <FormidableForm Model="_contact" OnValidSubmit="HandleValid" OnInvalidSubmit="_ => _saved = false">
         <FormidableSummary />
 
-        <label>Name
+        <label>Name <FormidableRequiredIndicator For="() => _contact.Name" />
             <FormidableInputText @bind-Value="_contact.Name" />
         </label>
         <FormidableFieldMessage For="() => _contact.Name" />
 
         <FormidableField For="() => _contact.Email" Context="field">
-            <label>Email
+            <label>Email <FormidableRequiredIndicator For="() => _contact.Email" />
                 <FormidableInputText @bind-Value="_contact.Email" />
             </label>
             <span role="status">@(field.State.IsValidating ? "checking…" : null)</span>
@@ -33,7 +33,7 @@
             @foreach (var member in _contact.Members)
             {
                 <div @key="member">
-                    <label>Member name
+                    <label>Member name <FormidableRequiredIndicator For="() => member.Name" />
                         <FormidableInputText @bind-Value="member.Name" />
                     </label>
                     <FormidableFieldMessage For="() => member.Name" />

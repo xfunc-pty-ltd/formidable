@@ -215,6 +215,30 @@ nothing wrong and would pass a submit. Warning, info and pending arrive in later
 The message rules reach both places a message appears: under its own field, and in the summary. Each
 list drops its bullets, and each severity takes a colour of its own.
 
+One more thing is worth showing before anyone types: which fields a submit will demand. Put a
+`FormidableRequiredIndicator` in the Name and Email labels, naming its field with `For` as the
+message does:
+
+```razor
+<label>Name <FormidableRequiredIndicator For="() => _contact.Name" />
+    <FormidableInputText @bind-Value="_contact.Name" />
+</label>
+<FormidableFieldMessage For="() => _contact.Name" />
+
+<label>Email <FormidableRequiredIndicator For="() => _contact.Email" />
+    <FormidableInputText @bind-Value="_contact.Email" />
+</label>
+```
+
+<!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage2.razor` -->
+
+Each one reads the rules a submit runs, and draws an asterisk when they demand a value for its
+field. Name and Email carry `NotEmpty()` in the submit bucket, so both are marked. Bio has only a
+length limit, so it is not, and a mark placed in its label would draw nothing.
+
+The asterisk is a `formidable-required` span in the label's own colour, so the stylesheet needs no
+new rule.
+
 Submit again, with Email still holding `not-an-email` and Name still empty:
 
 ![Name and Email outlined red with their messages beneath them, both also listed in the summary, and Bio in its plain border](../assets/tutorial/stage2-draft-vs-submit.png)
