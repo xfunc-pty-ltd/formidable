@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace Formidable.Blazor;
@@ -88,6 +89,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private readonly ClickRecoveryGuard _clickRecovery = new();
 
     private bool _disposed;
+
+    // The engine's logger, resolved as the engine is built and kept for the one report written
+    // after Dispose: a handler's throw that arrives once the form has left the page.
+    private ILogger? _logger;
 
     /// <summary>The model the form edits; a different instance rebuilds the <see cref="EditContext"/> and the engine. Required.</summary>
     [Parameter, EditorRequired]
@@ -536,7 +541,9 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             Services,
             Validator,
             Options,
-            renderDispatch: work => InvokeAsync(work));
+            renderDispatch: work => InvokeAsync(work),
+            postedFault: DispatchPostedFault);
+        _logger = FormidableEngineFactory.ResolveLogger(Services);
         // The reader answers null once the form is disposed: Dispose keeps the engine it tore down
         // so Engine can still return it, and no report belongs there.
         _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _disposed ? null : _engine);
@@ -562,7 +569,28 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     private RenderedFieldSetReconciler Reconciler => _reconciler ??= new RenderedFieldSetReconciler(
         registry: () => _disposed ? null : _engine?.Registry,
         reconcile: () => _engine!.OnRenderedFieldsChanged(),
-        renderWillReconcile: () => _afterRenderPending);
+        renderWillReconcile: () => _afterRenderPending,
+        postedFault: DispatchPostedFault);
+
+    /// <summary>Hands a posted callback's throw to the nearest <c>ErrorBoundary</c> above the form, or to the renderer's unhandled path where there is none; once the form is disposed it logs the throw and drops it.</summary>
+    /// <param name="exception">What the callback threw, from a consumer's handler.</param>
+    // Such a callback has no caller to throw to, so the throw goes where one from this form's own
+    // lifecycle would. A form the renderer has removed has no place left to dispatch from (the
+    // renderer throws for a component it has removed), so a throw that arrives after Dispose is
+    // written to Trace and the host's logger and then dropped, never dispatched or rethrown, as
+    // every late call on a disposed form does nothing. The registry reader and the engine's own
+    // disposed test stop a post that runs after Dispose before it reaches any handler, so what
+    // meets the disposed check here is a handler that removes the form and then throws.
+    private void DispatchPostedFault(Exception exception)
+    {
+        if (_disposed)
+        {
+            FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableForm<TModel>), exception);
+            return;
+        }
+
+        _ = DispatchExceptionAsync(exception);
+    }
 
     /// <summary>Returns the form to pristine by rebuilding the engine over the current model, or over <paramref name="newModel"/> when <c>@bind-Model</c> is bound.</summary>
     /// <param name="newModel">The model to edit instead, or <see langword="null"/> to keep the current instance.</param>

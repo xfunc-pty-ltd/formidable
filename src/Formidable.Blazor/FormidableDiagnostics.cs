@@ -29,6 +29,18 @@ internal static class FormidableDiagnostics
     internal static void Warn(ILogger? logger, string traceMessage, string logTemplate, params object?[] args) =>
         Write(logger, LogLevel.Warning, traceMessage, logTemplate, args);
 
+    /// <summary>Writes <paramref name="traceMessage"/> to Trace and, when <paramref name="logger"/> is given, logs <paramref name="logTemplate"/> with <paramref name="args"/> as a warning carrying <paramref name="exception"/>.</summary>
+    /// <param name="logger">The resolved logger, or <see langword="null"/> when the host registered no <see cref="ILoggerFactory"/>.</param>
+    /// <param name="exception">The exception the logged entry carries, so the host's logger keeps its stack.</param>
+    /// <param name="traceMessage">The line the Trace channel gets, already formatted.</param>
+    /// <param name="logTemplate">The structured logging template, with placeholders <paramref name="args"/> fills.</param>
+    /// <param name="args">The values the template's placeholders bind to, in order.</param>
+    internal static void Warn(ILogger? logger, Exception exception, string traceMessage, string logTemplate, params object?[] args)
+    {
+        System.Diagnostics.Trace.WriteLine(traceMessage);
+        logger?.LogWarning(exception, logTemplate, args);
+    }
+
     /// <summary>Writes <paramref name="traceMessage"/> to Trace and, when <paramref name="logger"/> is given, logs <paramref name="logTemplate"/> with <paramref name="args"/> at <paramref name="level"/>.</summary>
     /// <param name="logger">The resolved logger, or <see langword="null"/> when the host registered no <see cref="ILoggerFactory"/>.</param>
     /// <param name="level">The level the logged entry carries; the Trace line carries none.</param>

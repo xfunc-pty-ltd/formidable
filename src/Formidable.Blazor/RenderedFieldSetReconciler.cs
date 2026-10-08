@@ -15,22 +15,29 @@ internal sealed class RenderedFieldSetReconciler
     private readonly Func<FieldRegistry?> _registry;
     private readonly Action _reconcile;
     private readonly Func<bool> _renderWillReconcile;
+    private readonly Action<Exception> _postedFault;
     private readonly BatchPost _post;
 
     // The registry version the last completed reconcile answered; -1 before the first, and again
     // after Reset, so the first change a fresh registry reports always finds something to do.
     private int _reconciledVersion = -1;
 
-    /// <summary>Creates the reconciler over a root's current registry, its engine's reconcile and its render's own reconcile.</summary>
+    /// <summary>Creates the reconciler over a root's current registry, its engine's reconcile, its render's own reconcile and its hand-off for a posted reconcile's throw.</summary>
     /// <param name="registry">The current engine's registry, or <see langword="null"/> while the root has no engine to reconcile: none built yet, torn down, or disposed.</param>
     /// <param name="reconcile">The current engine's <see cref="FormidableEngine{TModel}.OnRenderedFieldsChanged"/>.</param>
     /// <param name="renderWillReconcile">Whether a render of the root is still to reach a reconcile of its own, which a post would only duplicate.</param>
-    internal RenderedFieldSetReconciler(Func<FieldRegistry?> registry, Action reconcile, Func<bool> renderWillReconcile)
+    /// <param name="postedFault">Takes what a posted reconcile throws, which no caller waits to receive.</param>
+    internal RenderedFieldSetReconciler(
+        Func<FieldRegistry?> registry,
+        Action reconcile,
+        Func<bool> renderWillReconcile,
+        Action<Exception> postedFault)
     {
         _registry = registry;
         _reconcile = reconcile;
         _renderWillReconcile = renderWillReconcile;
-        _post = new BatchPost(ReconcileIfChanged);
+        _postedFault = postedFault;
+        _post = new BatchPost(RunPosted);
     }
 
     /// <summary>How many times <see cref="ReconcileIfChanged"/> has run the reconcile rather than skipping on the version, an attempt that threw included.</summary>
@@ -53,13 +60,33 @@ internal sealed class RenderedFieldSetReconciler
         _post.Request();
     }
 
+    /// <summary>Runs a posted reconcile, handing whatever it throws to the root.</summary>
+    // A posted reconcile has no caller to throw to. Left to the dispatcher, a throw from a
+    // consumer's handler ends a Blazor Server circuit whether or not an ErrorBoundary surrounds
+    // the root, and on WebAssembly it vanishes. The root hands it to the ErrorBoundary above the
+    // root instead, or to the renderer's own unhandled path where there is none, as a throw from
+    // its own lifecycle would go. The render's reconcile and NotifyFieldSetChanged call
+    // ReconcileIfChanged directly, so a throw there reaches their own caller.
+    private void RunPosted()
+    {
+        try
+        {
+            ReconcileIfChanged();
+        }
+        catch (Exception exception)
+        {
+            _postedFault(exception);
+        }
+    }
+
     /// <summary>Runs the reconcile when the registry's version has moved since the last completed one, and nothing while the root has no engine.</summary>
     // The version is recorded only once the reconcile has returned. The reconcile can rebuild the
     // message store, which raises EditContext.OnValidationStateChanged and the engine's
     // StateChanged into a consumer's own handlers. A throw from one leaves the version behind the
-    // registry, so the next render, post or direct call runs the reconcile again, with the
-    // re-check it arms. The version is read before the call, so a registry change the reconcile
-    // itself causes still finds a later reconcile with something to do.
+    // registry, so while the root stays on the page the next render, post or direct call runs the
+    // reconcile again, with the re-check it arms. An ErrorBoundary that shows the throw takes the
+    // root away, and nothing runs again. The version is read before the call, so a registry change
+    // the reconcile itself causes still finds a later reconcile with something to do.
     internal void ReconcileIfChanged()
     {
         var registry = _registry();

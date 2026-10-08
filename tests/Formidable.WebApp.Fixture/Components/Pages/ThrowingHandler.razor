@@ -1,0 +1,74 @@
+@*
+    A handler of the page's own, on the form's EditContext.OnValidationStateChanged, throws once
+    when the section inside the form takes its field off the page or starts it waiting for submit.
+    The section re-renders alone, so the form answers that change by itself, outside any call the
+    page made. The ErrorBoundary around the form is where the throw lands, and the Ping button
+    outside it shows the circuit still answering. Query: root=form (the default) or root=attach.
+*@
+@page "/throwing-handler"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Microsoft.AspNetCore.Components.Forms
+
+<h1>Throwing handler</h1>
+
+<p>Pings: <span id="pings">@_pings</span> <button id="ping" type="button" @onclick="() => _pings++">Ping</button></p>
+
+<ErrorBoundary>
+    <ChildContent>
+        @if (Root == "attach")
+        {
+            <EditForm Model="_contact">
+                <FormidableValidator TModel="Contact" Context="formidable" @ref="_validator">
+                    <FormidableFieldMessage For="() => _contact.Email" />
+                    <HandlerSection Contact="_contact" Arm="Arm" />
+                </FormidableValidator>
+            </EditForm>
+        }
+        else
+        {
+            <FormidableForm Model="_contact" Context="formidable" @ref="_form">
+                <FormidableFieldMessage For="() => _contact.Email" />
+                <HandlerSection Contact="_contact" Arm="Arm" />
+            </FormidableForm>
+        }
+    </ChildContent>
+    <ErrorContent Context="exception">
+        <p id="boundary-error">@exception.Message</p>
+    </ErrorContent>
+</ErrorBoundary>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? Root { get; set; }
+
+    private readonly Contact _contact = new();
+    private FormidableForm<Contact>? _form;
+    private FormidableValidator<Contact>? _validator;
+    private int _pings;
+    private bool _armed;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var engine = Root == "attach" ? _validator?.Engine : _form?.Engine;
+        engine!.EditContext.OnValidationStateChanged += ThrowOnceArmed;
+    }
+
+    // Armed by the section's own click, through a plain delegate, so arming renders nothing here.
+    private void Arm() => _armed = true;
+
+    private void ThrowOnceArmed(object? sender, ValidationStateChangedEventArgs e)
+    {
+        if (!_armed)
+        {
+            return;
+        }
+
+        _armed = false;
+        throw new InvalidOperationException("A handler on this page threw.");
+    }
+}

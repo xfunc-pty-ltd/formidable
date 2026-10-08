@@ -353,7 +353,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         editContext.OnFieldChanged += HandleFieldChanged;
         editContext.SetFieldCssClassProvider(new FormidableFieldCssClassProvider(this));
         Registry = new FieldRegistry();
-        _heldStatePublish = new BatchPost(PublishHeldStateChanges);
+        _heldStatePublish = new BatchPost(RunHeldStatePublish);
         Registry.HeldStateChanged += OnHeldStateChanged;
 
         if (options.TrackFormValidity)
@@ -1403,6 +1403,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             PatchStoreFor(field);
             _heldStatePublish.Request();
+        }
+    }
+
+    /// <summary>Takes what the posted hold notification throws, which no caller waits to receive; set by the root that built the engine.</summary>
+    // Internal and init-only rather than a constructor parameter, because the constructor is
+    // public. Both roots set it through FormidableEngineFactory, and hand the throw to the
+    // ErrorBoundary above them as RenderedFieldSetReconciler.RunPosted hands a posted reconcile's.
+    // An engine built directly sets none, and the throw goes to the context the notification was
+    // posted to.
+    internal Action<Exception>? PostedFault { get; init; }
+
+    /// <summary>Runs the posted hold notification, handing a throw to <see cref="PostedFault"/> where a root set one.</summary>
+    private void RunHeldStatePublish()
+    {
+        try
+        {
+            PublishHeldStateChanges();
+        }
+        catch (Exception exception) when (PostedFault is { } postedFault)
+        {
+            postedFault(exception);
         }
     }
 

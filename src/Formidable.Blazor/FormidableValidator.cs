@@ -49,6 +49,11 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     // for that purpose.
     private bool _disposed;
 
+    // The engine's logger, resolved as the engine is built and kept for the one report written
+    // after Dispose (a handler's throw that arrives once this component has left the page), when
+    // TearDownEngine has already cleared the engine.
+    private ILogger? _logger;
+
     [CascadingParameter]
     private EditContext? CascadedEditContext { get; set; }
 
@@ -139,7 +144,9 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 Services,
                 Validator,
                 Options,
-                renderDispatch: work => InvokeAsync(work));
+                renderDispatch: work => InvokeAsync(work),
+                postedFault: DispatchPostedFault);
+            _logger = FormidableEngineFactory.ResolveLogger(Services);
             // The reader answers the engine this component holds when it is called: the one a
             // replaced EditContext rebuilt here, or null once Dispose has cleared it.
             _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _engine);
@@ -351,7 +358,25 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     private RenderedFieldSetReconciler Reconciler => _reconciler ??= new RenderedFieldSetReconciler(
         registry: () => _engine?.Registry,
         reconcile: () => _engine!.OnRenderedFieldsChanged(),
-        renderWillReconcile: static () => false);
+        renderWillReconcile: static () => false,
+        postedFault: DispatchPostedFault);
+
+    /// <summary>Hands a posted callback's throw to the nearest <c>ErrorBoundary</c> above this component, or to the renderer's unhandled path where there is none; once it is disposed it logs the throw and drops it.</summary>
+    /// <param name="exception">What the callback threw, from a consumer's handler.</param>
+    // As FormidableForm's own: the throw goes where one from this component's lifecycle would, and
+    // a component the renderer has removed has no place left to dispatch from, so a throw that
+    // arrives after Dispose is written to Trace and the host's logger and then dropped, never
+    // dispatched or rethrown, as every late call on a disposed component does nothing.
+    private void DispatchPostedFault(Exception exception)
+    {
+        if (_disposed)
+        {
+            FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableValidator<TModel>), exception);
+            return;
+        }
+
+        _ = DispatchExceptionAsync(exception);
+    }
 
     /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the component bound to its cascaded <see cref="EditContext"/>.</summary>
     /// <returns>The built engine.</returns>

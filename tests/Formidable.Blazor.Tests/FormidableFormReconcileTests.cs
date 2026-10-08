@@ -282,12 +282,15 @@ public class FormidableFormReconcileTests : BunitContext
     }
 
     // A nested render removes a field with a live error, and a consumer's OnValidationStateChanged
-    // handler throws once from inside the reconcile that removal posted. The form's next render
-    // reconciles again: both attempts count, the departed field's message stays out of the
-    // EditContext, and the whole-form re-check the reconcile owes runs once the clock reaches
-    // RefreshDebounce. A pin: the form records the registry version only once the reconcile has
-    // returned. Mutation: record it before the reconcile runs, and the render finds nothing to do,
-    // so one attempt counts and the re-check never runs.
+    // handler throws once from inside the reconcile that removal posted. No ErrorBoundary surrounds
+    // the form, so the form hands the throw to the renderer's own unhandled path, as a throw from
+    // its lifecycle would go: bUnit completes Renderer.UnhandledException with it and rethrows it
+    // from the next render call. The form stays on the page, and that render reconciles again:
+    // both attempts count, the departed field's message stays out of the EditContext, and the
+    // whole-form re-check the reconcile owes runs once the clock reaches RefreshDebounce. A pin:
+    // the form records the registry version only once the reconcile has returned. Mutation: record
+    // it before the reconcile runs, and the render finds nothing to do, so one attempt counts and
+    // the re-check never runs.
     [Fact]
     public async Task A_form_reconcile_whose_handler_threw_is_retried()
     {
@@ -329,10 +332,14 @@ public class FormidableFormReconcileTests : BunitContext
         await Settle(cut);
         Assert.False(armed);
         Assert.Equal(baseline + 1, form.ReconcileCount);
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.Equal("a consumer handler throws", (await Renderer.UnhandledException).Message);
 
-        await cut.InvokeAsync(() => cut.Render(parameters => parameters.Add(p => p.Renders, 1)));
+        var rethrown = await Record.ExceptionAsync(
+            () => cut.InvokeAsync(() => cut.Render(parameters => parameters.Add(p => p.Renders, 1))));
         await Settle(cut);
 
+        Assert.Equal("a consumer handler throws", Assert.IsType<InvalidOperationException>(rethrown).Message);
         Assert.Equal(baseline + 2, form.ReconcileCount);
         Assert.Empty(engine.EditContext.GetValidationMessages(description));
 

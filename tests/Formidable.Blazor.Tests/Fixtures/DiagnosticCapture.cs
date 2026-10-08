@@ -67,13 +67,16 @@ internal static class TraceCapture
     }
 }
 
-/// <summary>A logger that records every entry's level and formatted message, from any thread.</summary>
+/// <summary>A logger that records every entry's level and formatted message, and the exception each carried, from any thread.</summary>
 internal sealed class CapturingLogger : ILogger
 {
-    private readonly ConcurrentQueue<(LogLevel Level, string Message)> _entries = new();
+    private readonly ConcurrentQueue<(LogLevel Level, string Message, Exception? Exception)> _entries = new();
 
     /// <summary>The entries logged so far, in order.</summary>
-    public IReadOnlyList<(LogLevel Level, string Message)> Entries => [.. _entries];
+    public IReadOnlyList<(LogLevel Level, string Message)> Entries => [.. _entries.Select(entry => (entry.Level, entry.Message))];
+
+    /// <summary>The exception each entry carried, <see langword="null"/> for none, in the order of <see cref="Entries"/>.</summary>
+    public IReadOnlyList<Exception?> Exceptions => [.. _entries.Select(entry => entry.Exception)];
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -85,7 +88,7 @@ internal sealed class CapturingLogger : ILogger
         TState state,
         Exception? exception,
         Func<TState, Exception?, string> formatter) =>
-        _entries.Enqueue((logLevel, formatter(state, exception)));
+        _entries.Enqueue((logLevel, formatter(state, exception), exception));
 }
 
 /// <summary>
@@ -98,6 +101,9 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
 
     /// <summary>The entries logged through any category so far, in order.</summary>
     public IReadOnlyList<(LogLevel Level, string Message)> Entries => _logger.Entries;
+
+    /// <summary>The exception each of <see cref="Entries"/> carried, in the same order.</summary>
+    public IReadOnlyList<Exception?> Exceptions => _logger.Exceptions;
 
     public ILogger CreateLogger(string categoryName) => _logger;
 

@@ -18,6 +18,7 @@ internal static class FormidableEngineFactory
     /// <param name="validator">The root's <c>Validator</c> parameter, or <see langword="null"/> to resolve one.</param>
     /// <param name="options">The root's <c>Options</c> parameter, or <see langword="null"/> to resolve the registered options or build defaults.</param>
     /// <param name="renderDispatch">Runs work on the renderer's dispatcher.</param>
+    /// <param name="postedFault">The root's hand-off for what the engine's posted hold notification throws.</param>
     /// <returns>The engine, holding the options instance it was built with.</returns>
     /// <exception cref="InvalidOperationException">No validator was handed in and none resolves from <paramref name="services"/>, or no <see cref="IModelIntrospector"/> is registered there.</exception>
     internal static FormidableEngine<TModel> Create<TModel>(
@@ -26,7 +27,8 @@ internal static class FormidableEngineFactory
         IServiceProvider services,
         IModelValidator<TModel>? validator,
         FormidableOptions? options,
-        Func<Func<Task>, Task> renderDispatch)
+        Func<Func<Task>, Task> renderDispatch,
+        Action<Exception> postedFault)
         where TModel : class =>
         new(
             model,
@@ -36,7 +38,10 @@ internal static class FormidableEngineFactory
             options ?? ResolveOptions(services),
             timeProvider: ResolveTimeProvider(services),
             renderDispatch: renderDispatch,
-            logger: ResolveLogger(services));
+            logger: ResolveLogger(services))
+        {
+            PostedFault = postedFault,
+        };
 
     /// <summary>Throws when a root's <c>Options</c> parameter is not the instance it was when the engine was built, which read it once.</summary>
     /// <param name="host">The root's name, for the message.</param>
@@ -60,6 +65,31 @@ internal static class FormidableEngineFactory
             "instance cannot take effect on its own — Options is read once, when the engine is built. Build " +
             "FormidableOptions once and hold it in a field (see docs/options.md), mutate that instance's " +
             $"properties to change behaviour mid-form, or {rebuildHint}.");
+    }
+
+    /// <summary>Reports a handler's throw that reached a root after the renderer removed it, which no <c>ErrorBoundary</c> can then show: a Trace line, and a logged warning carrying the exception.</summary>
+    /// <typeparam name="TModel">The root's model type, which the report names.</typeparam>
+    /// <param name="logger">The logger the root kept as it built its engine, or <see langword="null"/> when the host registered no <c>ILoggerFactory</c>.</param>
+    /// <param name="host">The root's name, for the report.</param>
+    /// <param name="exception">What the handler threw.</param>
+    // Here beside VerifyOptionsUnchanged for the same reason: both roots write it, so it reads the
+    // same from either. The exception is reported, never dispatched or rethrown: the root has no
+    // place in the tree left to dispatch from, and a rethrow from a posted callback ends a Blazor
+    // Server circuit.
+    internal static void ReportDroppedThrow<TModel>(ILogger? logger, string host, Exception exception)
+    {
+        var model = FriendlyTypeName.Of(typeof(TModel));
+        var type = exception.GetType().FullName;
+        FormidableDiagnostics.Warn(
+            logger,
+            exception,
+            $"Formidable: a handler threw after the {host} for {model} left the page, so no " +
+            $"ErrorBoundary is left to show it and the exception is dropped ({type}: {exception.Message}). " +
+            "Catch it in the handler to act on it.",
+            "Formidable: a handler threw after the {Host} for {Model} left the page, so no " +
+            "ErrorBoundary is left to show it and the exception is dropped ({ExceptionType}: {ExceptionMessage}). " +
+            "Catch it in the handler to act on it.",
+            host, model, type, exception.Message);
     }
 
     private static IModelValidator<TModel> ResolveValidator<TModel>(IServiceProvider services)

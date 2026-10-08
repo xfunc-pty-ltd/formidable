@@ -1310,10 +1310,14 @@ public class WaitForSubmitTests : BunitContext
     // A consumer's OnValidationStateChanged handler throws once, as a waiting input mounts over a
     // field that is engaged and failing with nothing else registered for it. The mount's
     // notification is posted past the render batch, so no consumer code runs while the input
-    // registers, and the input holds its registration's handle. Removing the input therefore ends
-    // the registration. Mutation: raise the two notifications inside the engine's held-state
-    // handler, and the handler's throw escapes the registration before its handle is returned,
-    // so the field stays registered after the input has gone.
+    // registers, and the input holds its registration's handle. The throw comes from that post,
+    // and the form hands it to the nearest ErrorBoundary above the form. The boundary here sits
+    // inside the form, around the input, so it shows nothing, and the throw takes the renderer's
+    // own unhandled path: bUnit completes Renderer.UnhandledException with it and rethrows it from
+    // the next render call. Removing the input in that render still ends the registration.
+    // Mutation: raise the two notifications inside the engine's held-state handler, and the throw
+    // comes out of the input's mount instead, so the boundary around the input shows it and
+    // nothing reaches the renderer's unhandled path.
     [Fact]
     public async Task A_throwing_validation_state_handler_during_a_waiting_mount_leaks_no_registration()
     {
@@ -1352,11 +1356,15 @@ public class WaitForSubmitTests : BunitContext
         await Settle(cut);
         await Settle(cut);
         Assert.False(armed);
+        Assert.Empty(cut.FindAll("p.section-failed"));
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.Equal("a consumer handler throws", (await Renderer.UnhandledException).Message);
 
-        host.Render(parameters => parameters.Add(p => p.ShowInput, false));
+        var rethrown = Record.Exception(() => host.Render(parameters => parameters.Add(p => p.ShowInput, false)));
         await Settle(cut);
         await Settle(cut);
 
+        Assert.Equal("a consumer handler throws", Assert.IsType<InvalidOperationException>(rethrown).Message);
         Assert.Empty(cut.FindAll("input"));
         Assert.False(engine.Registry.IsRegistered(description));
 

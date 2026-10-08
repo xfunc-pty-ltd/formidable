@@ -129,6 +129,27 @@ dropped, so its handler needs no check that the form is still there.
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before the first render and after disposal alike.
 
+**A throw from your `OnValidationStateChanged` or `Engine.StateChanged` handler goes to the boundary
+around the form when a render changes the form's fields.** A render does that when it adds or
+removes a field, or when it starts or stops one
+[waiting for submit](options.md#waitforsubmit-per-component-not-a-formidableoptions-property). The
+form can raise both events by itself at those moments, outside any call of yours.
+
+The throw reaches the nearest `ErrorBoundary` around the form, which then shows its error content in
+the form's place. A boundary inside the form never sees it.
+
+With no boundary around the form, the throw takes Blazor's own unhandled-error path: a Blazor Server
+circuit ends, and WebAssembly shows its error UI and keeps running.
+
+An `OnValidationStateChanged` handler that throws on every call ends a Server circuit even with a
+boundary. As the boundary removes the form, the form raises `OnValidationStateChanged` once more
+(never `StateChanged`), and a throw there ends the circuit. To keep the form on the page whatever
+your handler meets, catch the exception inside the handler.
+
+A handler that removes the form from the page and then throws leaves nothing to show the throw. The
+form writes it to `Trace` and drops it. Where the host registers an `ILoggerFactory`, the form also
+logs it there as a warning carrying the exception.
+
 **The `<form>` takes four positions of its own against the splat**, across the five attributes it
 can render:
 
@@ -1097,6 +1118,15 @@ after the component is disposed is dropped.
 
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before binding and after disposal alike.
+
+A throw from your own `OnValidationStateChanged` or `Engine.StateChanged` handler, when a render
+changes the form's fields, reaches the nearest `ErrorBoundary` around this component, as
+[under `FormidableForm`](#formidableformtmodel). A `NotifyFieldSetChanged()` call is the exception:
+it throws to you.
+
+An `OnValidationStateChanged` handler that throws on every call ends a Server circuit here too,
+even with a boundary, because removing this component raises that event once more. Once this
+component has left the page, it logs such a throw and drops it, as the form does.
 
 **The `<form>` is the page's, and so is everything `FormidableForm` renders on one:**
 

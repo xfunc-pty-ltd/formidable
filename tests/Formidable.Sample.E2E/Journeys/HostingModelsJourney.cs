@@ -7,11 +7,12 @@ namespace Formidable.Sample.E2E;
 /// <summary>
 /// The three hosting shapes the standalone WASM sample cannot reach, driven against the Blazor
 /// Web App host fixture: a form on a server circuit, the window between a prerendered form and a
-/// working one, and a page with no render mode at all.
+/// working one, and a page with no render mode at all. Beside them, where a page's own handler's
+/// throw lands on a server circuit.
 /// </summary>
 /// <remarks>
-/// Every page here hosts the same <c>ContactForm</c> component, so the render mode is what
-/// differs between them. Component tests hold both ends of the prerender window as
+/// The three hosting-shape pages host the same <c>ContactForm</c> component, so the render mode is
+/// what differs between them. Component tests hold both ends of the prerender window as
 /// states — a static renderer with a render mode assigned, and an interactive one — but only a
 /// browser holds the crossing, and only a real request has a status code.
 /// </remarks>
@@ -119,5 +120,53 @@ public sealed class HostingModelsJourney(SampleAppFixture app)
         // No form element either: the refusal replaces the form rather than disabling one, so
         // there is nothing on the page for the platform's own 400 to be provoked out of.
         await Expect(page.Locator("form")).ToHaveCountAsync(0);
+    }
+
+    // A page's own OnValidationStateChanged handler throws while the form answers a field leaving
+    // or starting to wait, in a render of a component inside the form alone. On a server circuit
+    // the ErrorBoundary around the form shows the throw and the circuit answers the next click.
+    // Without the form handing the throw to that boundary, the circuit ends: nothing on the page
+    // answers, and the boundary never shows.
+    [E2EFact]
+    public Task A_throwing_handler_as_a_field_leaves_a_form_on_a_server_circuit_shows_the_boundary() =>
+        AssertBoundaryAndLiveCircuitAsync("form", "#hide-field");
+
+    [E2EFact]
+    public Task A_throwing_handler_as_a_field_starts_waiting_in_a_form_on_a_server_circuit_shows_the_boundary() =>
+        AssertBoundaryAndLiveCircuitAsync("form", "#wait-field");
+
+    [E2EFact]
+    public Task A_throwing_handler_as_a_field_leaves_in_attach_mode_on_a_server_circuit_shows_the_boundary() =>
+        AssertBoundaryAndLiveCircuitAsync("attach", "#hide-field");
+
+    [E2EFact]
+    public Task A_throwing_handler_as_a_field_starts_waiting_in_attach_mode_on_a_server_circuit_shows_the_boundary() =>
+        AssertBoundaryAndLiveCircuitAsync("attach", "#wait-field");
+
+    private async Task AssertBoundaryAndLiveCircuitAsync(string root, string trigger)
+    {
+        await using var session = await app.NewSessionAsync();
+        var page = session.Page;
+
+        await page.GotoAsync(app.WebAppOrigin + "/throwing-handler?root=" + root);
+
+        // Prerendering is off, so the field appearing is the circuit connecting.
+        var email = Field(page, "email");
+        await Expect(email).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
+
+        // A live message gives the field something to take off the page when it leaves or waits.
+        await TypeAsync(email, "x");
+        await TabAsync(page);
+        await Expect(MessagesFor(page, "email")).ToHaveTextAsync(["Enter a valid email address"]);
+
+        var pings = page.Locator("#pings");
+        await page.Locator("#ping").ClickAsync();
+        await Expect(pings).ToHaveTextAsync("1");
+
+        await page.Locator(trigger).ClickAsync();
+        await Expect(page.Locator("#boundary-error")).ToHaveTextAsync("A handler on this page threw.");
+
+        await page.Locator("#ping").ClickAsync();
+        await Expect(pings).ToHaveTextAsync("2");
     }
 }

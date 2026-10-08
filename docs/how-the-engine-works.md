@@ -254,6 +254,15 @@ once the call has returned, so a consumer's `OnValidationStateChanged` or `State
 that throws during the call leaves the move, and the refresh it arms, to the form's next render,
 the next post, or a `NotifyFieldSetChanged()` call in attach mode.
 
+A posted reconcile has no caller to throw to. The root catches what it throws and hands it to
+`DispatchExceptionAsync`, the path a throw from its own lifecycle takes: the nearest
+`ErrorBoundary` above the root, or the renderer's unhandled path where there is none. A boundary
+that shows it removes the root, so nothing reconciles again.
+
+A root already disposed when the throw arrives hands on nothing: it writes the throw to Trace, and
+as a warning to the host's logger, then drops it. A direct call (`OnAfterRenderAsync`,
+`NotifyFieldSetChanged()`) throws to its own caller.
+
 A pass in flight across that move still publishes its verdict, but its store write is refused:
 `TryFile` checks the generation the pass captured at begin, so the clear cannot be undone by work
 that predates it.
@@ -577,6 +586,9 @@ The patch is synchronous, so a component rendering later in the same batch reads
 `ValidationMessage` in a mounting waiting row shows nothing. A surface that rendered earlier in the
 batch (a summary above those rows) catches up in the posted round. No consumer event handler runs
 inside the registry, so one that throws cannot keep a registration's handle from its component.
+
+A throw from a handler in the posted notification goes to the root, as a posted reconcile's does
+([the verdict store](#the-verdict-store)).
 
 One consumer delegate can run there. Under `EngagedAndVisible`, patching a field that stops being
 held reads `DisclosureOverride` for each issue, through `LiveViewOf`. If it throws as a plain

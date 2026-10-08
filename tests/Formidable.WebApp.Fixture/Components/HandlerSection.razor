@@ -1,0 +1,38 @@
+@*
+    The field and the two buttons that change it. The buttons belong to this component, so a click
+    re-renders this component alone, and the form around it answers the change by itself.
+*@
+<div class="handler-section">
+    @if (_showing)
+    {
+        <label>Email
+            <FormidableInputText @bind-Value="Contact.Email" WaitForSubmit="_waiting" />
+        </label>
+    }
+
+    <button id="hide-field" type="button" @onclick="Hide">Hide the field</button>
+    <button id="wait-field" type="button" @onclick="Wait">Wait for submit</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Contact Contact { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Action Arm { get; set; } = default!;
+
+    private bool _showing = true;
+    private bool _waiting;
+
+    private void Hide()
+    {
+        Arm();
+        _showing = false;
+    }
+
+    private void Wait()
+    {
+        Arm();
+        _waiting = true;
+    }
+}
