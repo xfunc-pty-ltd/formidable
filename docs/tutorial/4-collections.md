@@ -123,15 +123,22 @@ belongs to a row, never to a position in a list.
 The list can carry a rule of its own. This one sits beside the row rules in the submit bucket:
 
 ```razor
-RuleFor(c => c.Members).Must(m => m.Count >= 1).WithMessage("Add at least one member");
+RuleFor(c => c.Members).NotEmpty().WithMessage("Add at least one member");
 ```
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
+> [!TIP]
+> `NotEmpty()` is a rule the form reads as a demand, so it also lets the list carry a required
+> mark beside **Members**, which a `Must` count alone never does
+> ([a list that needs at least N items](../recipes.md#i-want-a-list-to-hold-at-least-one-item-or-at-least-n)).
+
 A `List<Member>` property has no input of its own, so that failure has nowhere to appear.
-`FormidableCollectionMessage` gives it somewhere:
+`FormidableCollectionMessage` gives it somewhere. Put it under a heading for the list, above the
+`FormidableField`, and give the heading the list's mark:
 
 ```razor
+<h2>Members <FormidableRequiredIndicator For="() => _contact.Members" /></h2>
 <FormidableCollectionMessage For="() => _contact.Members" />
 ```
 

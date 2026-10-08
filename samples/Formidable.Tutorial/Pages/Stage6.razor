@@ -29,7 +29,7 @@
         </label>
         <FormidableFieldMessage For="() => _contact.Bio" />
 
-        <h2>Members</h2>
+        <h2>Members <FormidableRequiredIndicator For="() => _contact.Members" /></h2>
         <FormidableCollectionMessage For="() => _contact.Members" />
         <FormidableField For="() => _contact.Members" Context="membersField">
             @foreach (var member in _contact.Members)
@@ -167,7 +167,7 @@
                 .NotEmpty().WithMessage("Email is required")
                 .MustAsync(async (email, ct) => !await _directory.IsTakenAsync(email, ct))
                     .WithMessage("That email is already registered");
-            RuleFor(c => c.Members).Must(m => m.Count >= 1).WithMessage("Add at least one member");
+            RuleFor(c => c.Members).NotEmpty().WithMessage("Add at least one member");
             RuleForEach(c => c.Members).ChildRules(member =>
             {
                 member.RuleFor(m => m.Name).NotEmpty().WithMessage("Member name is required");
