@@ -11,8 +11,8 @@
             <li>Click <strong>Submit</strong> with every field empty.<div class="teaching__result"><span class="teaching__label">You see:</span> a message under each marked field, "Category is required" among them, and none under <strong>Review note</strong>.</div></li>
             <li>Pick an option in <strong>Category</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Category is required" stays while the list has focus.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Category</strong> sets <code>UpdateOn="OnBlur"</code>, so its check waits until you leave it.</div></li>
             <li>Press Tab to leave <strong>Category</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> its message clears and the list turns green.</div></li>
-            <li>Type <code>e3</code> into <strong>Read minutes</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> the box empties, and "Read time is required" stays.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Read minutes</strong> clears text it cannot read as a number when you leave it.</div></li>
-            <li>Fill in <strong>Title</strong>, <strong>Slug</strong>, <strong>Read minutes</strong> and <strong>Publish date</strong> (<strong>Category</strong> keeps its pick), then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the status line ends "accepted", with <strong>Review note</strong> still empty.</div></li>
+            <li>Type <code>e3</code> into <strong>Read time (minutes)</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> the box empties, and "Read time is required" stays.</div><div class="teaching__why"><span class="teaching__label">Why:</span> <strong>Read time (minutes)</strong> clears text it cannot read as a number when you leave it.</div></li>
+            <li>Fill in <strong>Title</strong>, <strong>Slug</strong>, <strong>Read time (minutes)</strong> and <strong>Publish date</strong> (<strong>Category</strong> keeps its pick), then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the status line ends "accepted", with <strong>Review note</strong> still empty.</div></li>
             <li>Select <strong>Admin review</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> every box empties, the status line clears and <strong>Review note</strong> gains an asterisk.</div><div class="teaching__why"><span class="teaching__label">Why:</span> The picked profile sits in the form's <code>Options</code>, adopted only with a fresh model.</div></li>
             <li>Type something into <strong>Review note</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Review note</strong> turns green.</div></li>
             <li>Clear <strong>Review note</strong> and leave the field.<div class="teaching__result"><span class="teaching__label">You see:</span> "A review note is required for admin review", with no submit since the switch.</div><div class="teaching__why"><span class="teaching__label">Why:</span> Checks as you edit follow the picked profile, because <code>LiveProfile</code> is left unset.</div></li>
@@ -27,14 +27,14 @@
             <li><strong>Title</strong>: required.</li>
             <li><strong>Slug</strong>: required.</li>
             <li><strong>Category</strong>: required.</li>
-            <li><strong>Read minutes</strong>: required; a whole number from 1 to 180.</li>
+            <li><strong>Read time (minutes)</strong>: required; a whole number from 1 to 180.</li>
             <li><strong>Publish date</strong>: required.</li>
             <li><strong>Review note</strong>: required only under <strong>Admin review</strong>.</li>
         </ul>
     </Rules>
     <HowItWorks>
         <p>Formidable has two built-in profiles, <code>Draft</code> and <code>Submit</code>, and <code>DraftSubmitValidator&lt;T&gt;</code> is the base class for a validator built around them. This page's validator derives from <code>ProfiledValidator&lt;T&gt;</code> instead: the base class for a validator that declares rulesets (named groups of rules) of its own.</p>
-        <p>This page's validator holds three groups. <strong>Title</strong>'s rule is a common rule, written outside any ruleset. <strong>Slug</strong>, <strong>Category</strong>, <strong>Read minutes</strong> and <strong>Publish date</strong> sit in a <code>Submit</code> ruleset, and <strong>Review note</strong> in an <code>AdminReview</code> ruleset. The validator class also defines a third profile, <code>AdminReview</code>.</p>
+        <p>This page's validator holds three groups. <strong>Title</strong>'s rule is a common rule, written outside any ruleset. <strong>Slug</strong>, <strong>Category</strong>, <strong>Read time (minutes)</strong> and <strong>Publish date</strong> sit in a <code>Submit</code> ruleset, and <strong>Review note</strong> in an <code>AdminReview</code> ruleset. The validator class also defines a third profile, <code>AdminReview</code>.</p>
         <p><strong>Standard submit</strong> picks the built-in <code>Submit</code> profile, which runs the common rule and the <code>Submit</code> ruleset. <strong>Admin review</strong> picks <code>AdminReview</code>, which runs those and the <code>AdminReview</code> ruleset too. The page has no draft save, so it never uses <code>Draft</code>.</p>
         <p>The picker hands the form new <code>Options</code> (a <code>FormidableOptions</code>, the form's settings) whose <code>SubmitProfile</code>, the profile a submit runs, is the one you picked. The page leaves <code>LiveProfile</code>, the profile for checks as you edit, unset, so those checks run the same profile as a submit and move with the picker.</p>
         <p>Under <strong>Admin review</strong>, clearing <strong>Review note</strong> shows its message before any submit. Under <strong>Standard submit</strong> no message shows, because that profile selects no rule for the field. Before any submit, a field you have never changed stays quiet under either profile.</p>
@@ -43,7 +43,7 @@
         <p>The asterisks come from the validator. Each <code>FormidableRequiredIndicator</code> (the component that draws the mark) asks what the <code>SubmitProfile</code> in the form's <code>Options</code> demands, and the picker sets that profile. So <strong>Review note</strong> carries a mark under <strong>Admin review</strong> and none under <strong>Standard submit</strong>.</p>
         <p><strong>Category</strong> is a <code>FormidableInputSelect</code> (Formidable's drop-down list) with <code>UpdateOn="OnBlur"</code>. Picking an option sets the value at once, but the check waits until you leave the list, so a message already showing stays until then.</p>
         <p><strong>Publish date</strong> is a <code>FormidableInputDate</code> (Formidable's date box) with <code>UpdateOn="OnBlur"</code>, the recommended pairing for a date input. In Chromium a date box reports each typed part (day, month, year) as a change, so the check waits for the whole date.</p>
-        <p><strong>Read minutes</strong> is a <code>FormidableInputNumber</code>, Formidable's number box. Text the box cannot read as a number never reaches the model and raises no message of its own. The box clears it when you leave, so the only messages on the field are the validator's: required, and the 1 to 180 range.</p>
+        <p><strong>Read time (minutes)</strong> is a <code>FormidableInputNumber</code>, Formidable's number box. Text the box cannot read as a number never reaches the model and raises no message of its own. The box clears it when you leave, so the only messages on the field are the validator's: required, and the 1 to 180 range.</p>
         <p>For the built-in pair on its own, see <a href="profiles">Draft vs Submit</a>.</p>
     </HowItWorks>
     <Demo>
@@ -72,7 +72,7 @@
                 </FormidableInputSelect>
                 <FormidableFieldMessage For="() => _post.Category" />
             </div>
-            <div class="field"><label>Read minutes <FormidableRequiredIndicator For="() => _post.ReadMinutes" /> <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
+            <div class="field"><label>Read time (minutes) <FormidableRequiredIndicator For="() => _post.ReadMinutes" /> <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
                 <FormidableFieldMessage For="() => _post.ReadMinutes" /></div>
             <div class="field"><label>Publish date <FormidableRequiredIndicator For="() => _post.PublishDate" /> <FormidableInputDate @bind-Value="_post.PublishDate" UpdateOn="InputUpdateMode.OnBlur" /></label>
                 <FormidableFieldMessage For="() => _post.PublishDate" /></div>

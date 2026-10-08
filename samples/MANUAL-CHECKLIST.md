@@ -159,22 +159,22 @@ Start here to Workout follow the sidebar's groups; Docs, Tutorial and Hosted dem
 
 ### Custom profiles
 
-- [ ] Step 1, with *Standard submit* selected: Title, Slug, Category, Read minutes and Publish
-      date each carry an asterisk. Review note has none
+- [ ] Step 1, with *Standard submit* selected: Title, Slug, Category, Read time (minutes) and
+      Publish date each carry an asterisk. Review note has none
 - [ ] Steps 2 to 4: Category is a select (`FormidableInputSelect`, `UpdateOn="OnBlur"`). After
       the empty submit, picking a category leaves "Category is required" as it was. It clears
       only when you press Tab
-- [ ] Step 5: Read minutes is a number input (`FormidableInputNumber`). Typing `e3` and
-      pressing Tab clears the box, so text the model never accepted does not linger. The
+- [ ] Step 5: Read time (minutes) is a number input (`FormidableInputNumber`). Typing `e3`
+      and pressing Tab clears the box, so text the model never accepted does not linger. The
       submit's "Read time is required" sits over a box that visibly agrees with it
-- [ ] Before step 6, type `0` into Read minutes and click *Submit*. The range message shows: "Read
-      time must be between 1 and 180 minutes". The native spinner chrome matches the theme in both
-      colour schemes
+- [ ] Before step 6, type `0` into Read time (minutes) and click *Submit*. The range message
+      shows: "Read time must be between 1 and 180 minutes". The native spinner chrome matches the
+      theme in both colour schemes
 - [ ] Step 6, Publish date: it is a date input (`FormidableInputDate`, `UpdateOn="OnBlur"`).
       Typing a date and pressing Tab commits it, with no stray validation flash mid-type. The
       calendar picker chrome is legible in both colour schemes
-- [ ] Step 6, the submit: Title, Slug, Category, Read minutes and Publish date are filled, and
-      Review note is empty. The submit goes through under *Standard submit*
+- [ ] Step 6, the submit: Title, Slug, Category, Read time (minutes) and Publish date are
+      filled, and Review note is empty. The submit goes through under *Standard submit*
 - [ ] Steps 7 to 9: *Admin review* RESETS the form, and Review note gains an asterisk. Before
       submitting anything, type into Review note and leave it, then clear it and leave it
       again. "A review note is required for admin review" appears with no submit since the switch,

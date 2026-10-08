@@ -16,7 +16,7 @@ and the behaviour a signature does not give away.
 | [`FormidableInputText` and `FormidableInputBase<TValue>`](#formidableinputtext-and-formidableinputbasetvalue) | input | The kit's text box, and the base every input here shares. | [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor) |
 | [`FormidableInputSelect<TValue>`](#formidableinputselecttvalue) | input | A `<select>` over a typed field, converting the string the DOM reports. | [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`Category`, under `UpdateOn="OnBlur"`) |
 | [`FormidableInputTextArea`](#formidableinputtextarea) | input | The multiline sibling of `FormidableInputText`, differing only in the element tag. | [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) (`Body`) |
-| [`FormidableInputNumber<TValue>`](#formidableinputnumbertvalue) | input | An `<input type="number">` converted through the invariant culture. | [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`Read minutes`, required and range-checked) |
+| [`FormidableInputNumber<TValue>`](#formidableinputnumbertvalue) | input | An `<input type="number">` converted through the invariant culture. | [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`Read time (minutes)`, required and range-checked) |
 | [`FormidableInputDate<TValue>`](#formidableinputdatetvalue) | input | An `<input type="date">` formatted and parsed through the invariant culture. | [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) (`Publish date`, under `UpdateOn="OnBlur"`) |
 | [`FormidableFieldMessage<TValue>`](#formidablefieldmessagetvalue) | message | One field's current issues, any severity, as a persistent list. | [`/`](../samples/Formidable.Sample/Pages/Quickstart.razor) |
 | [`FormidableModelMessage`](#formidablemodelmessage) | message | A message list for verdicts about the form rather than about any field. | [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) (*Without a summary*: submit with details collapsed) |
@@ -542,7 +542,7 @@ comma-decimal culture that pairing reads `12.5` as `125` rather than failing lou
 no parameters of its own to [the shared set](#formidableinputtext-and-formidableinputbasetvalue).
 
 ```razor
-<div class="field"><label>Read minutes <FormidableRequiredIndicator For="() => _post.ReadMinutes" /> <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
+<div class="field"><label>Read time (minutes) <FormidableRequiredIndicator For="() => _post.ReadMinutes" /> <FormidableInputNumber @bind-Value="_post.ReadMinutes" /></label>
     <FormidableFieldMessage For="() => _post.ReadMinutes" /></div>
 ```
 
