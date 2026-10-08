@@ -46,6 +46,10 @@ If you'd rather see it than read about it, there is a [live demo](#live-demo) an
   touched stays silent whatever its rules say; once they have engaged it, it tells them what would
   actually block the save. At submit, which errors show is decided by what is on screen at that
   moment, and a defensive gate catches the case where every failure would otherwise go unseen.
+- **Warnings and infos that never block**: a FluentValidation check followed by
+  `.WithSeverity(Severity.Warning)` or `Severity.Info` fails as a warning or an info. Either one
+  shows in the same field messages and summary as an error, with its own CSS class, but only
+  errors stop a submit.
 - **Collections that keep their errors** — a message on a row object belongs to the object, not to
   the row number, so adding, removing, and reordering rows can never move its error onto the wrong
   row.
