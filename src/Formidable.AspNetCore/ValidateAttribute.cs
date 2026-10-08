@@ -16,13 +16,14 @@ namespace Formidable.AspNetCore;
 /// <summary>Action filter that validates the action's model arguments with a validation profile and answers a report with errors as a 400 validation problem.</summary>
 /// <remarks>
 /// A model implementing <see cref="INormalizableModel"/> is normalized first. A
-/// <see langword="null"/> argument is skipped; whether the action runs with one is MVC's decision,
-/// and it does for a nullable parameter under <c>[ApiController]</c> and for any body parameter on
-/// a plain <c>Controller</c>. Validated arguments aggregate into one report
+/// <see langword="null"/> argument is skipped; MVC runs the action with one for a nullable
+/// parameter under <c>[ApiController]</c> and any body parameter on a plain <c>Controller</c>.
+/// Validated arguments aggregate into one report
 /// (<see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>) and, on rejection,
-/// into one 400: <c>errors</c> keyed by property path with no per-argument prefix, so two models
-/// sharing a property name merge under one key, and warnings and infos under the
-/// <c>advisories</c> extension.
+/// one 400: <c>errors</c> keyed by unprefixed property path, so two models' same-named properties
+/// share a key, and warnings and infos under <c>advisories</c>. MVC does not support Native AOT; a
+/// Native AOT app validates with
+/// <see cref="FormidableEndpointFilterExtensions.Validate{TModel}(Microsoft.AspNetCore.Builder.RouteHandlerBuilder, ValidationProfile, string)"/>.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 [RequiresUnreferencedCode(
@@ -30,6 +31,10 @@ namespace Formidable.AspNetCore;
     "Type.MakeGenericType and invokes ValidateAsync via MethodInfo.Invoke; trimming can " +
     "remove the closed generic instantiation or the ValidateAsync method for argument " +
     "types not otherwise statically referenced, breaking validation for those types.")]
+[RequiresDynamicCode(
+    "ASP.NET Core MVC does not support Native AOT, and this filter closes IModelValidator<T> " +
+    "over each validated argument's type at run time. A Native AOT app validates a " +
+    "minimal-API endpoint with Validate<TModel>() instead.")]
 public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConvention, IControllerModelConvention
 {
     private readonly Type[] _modelTypes;

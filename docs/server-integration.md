@@ -56,7 +56,7 @@ Blazor dependency.
 | `errors` and `advisories` | one shared mapper: the same paths in the report's own order, the same messages, an empty message kept empty | the same dictionary, from the same mapper |
 | The envelope around them | `TypedResults.ValidationProblem` | the app's own `ProblemDetailsFactory` |
 | `traceId` | written only under `AddProblemDetails()` | written whatever the host configured |
-| A declared body that bound to `null` | left to the platform, and a refusal is enriched only where the request delegate generator is off | where MVC binds `null` and runs the action (a nullable parameter under `[ApiController]`, any body parameter on a plain `Controller`), that argument is skipped |
+| A declared body that bound to `null` | left to the platform, and a refusal is enriched only where ASP.NET Core's [request delegate generator](#a-body-bound-to-null) is off | where MVC binds `null` and runs the action (a nullable parameter under `[ApiController]`, any body parameter on a plain `Controller`), that argument is skipped |
 
 Both of the last two rows are the framework's doing rather than Formidable's. A client keying on
 paths and reading messages never sees a `traceId` either way. The null-bound body is the one place
@@ -681,6 +681,30 @@ endpoint's request handling. That code answers a required body that failed to bi
 an app that publishes with Native AOT or trimming, and in any app that sets
 `EnableRequestDelegateGenerator` to `true`. A nullable parameter behaves the same either way: the
 handler runs with `null`.
+
+So to send a message for a missing body whether or not the generator is on, declare the parameter
+nullable and answer `null` in the handler:
+
+```csharp
+using Microsoft.AspNetCore.Http.HttpResults;
+
+app.MapPost("/orders", Results<Ok, ValidationProblem> (Order? order) =>
+{
+    if (order is null)
+    {
+        return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+        {
+            [""] = ["A request body is required."]
+        });
+    }
+
+    return TypedResults.Ok();
+})
+.Validate<Order>();
+```
+
+The filter calls `next` for the `null`, so the handler's 400 goes out as written. It is the shape the
+filter itself sends for a refusal it sees: one model-level error under the `""` path.
 
 MVC lands somewhere else. For a nullable parameter under `[ApiController]`, and for any body
 parameter on a plain `Controller`, it binds `null` and runs the action, so `[Validate]` has nothing

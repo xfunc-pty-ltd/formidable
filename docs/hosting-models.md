@@ -160,22 +160,47 @@ the few lines in the open.
 
 ## Trimming and AOT
 
-All three packages are marked trimmable. A WebAssembly publish trims `Formidable` and
-`Formidable.Blazor` along with the framework's own assemblies; `Formidable.AspNetCore` is a server
-package. `Formidable` and `Formidable.Blazor` are also marked AOT-compatible. `Formidable.AspNetCore`
-is not.
+All three packages are marked trimmable and AOT-compatible. A WebAssembly publish trims `Formidable`
+and `Formidable.Blazor` along with the framework's own assemblies; `Formidable.AspNetCore` is a
+server package.
 
 | Package | Trimmable | AOT-compatible |
 |---|---|---|
 | `Formidable` | yes | yes |
 | `Formidable.Blazor` | yes | yes |
-| `Formidable.AspNetCore` | yes | no |
+| `Formidable.AspNetCore` | yes | yes, through `Validate<TModel>()`; `[Validate]` is for MVC, which Native AOT does not support |
 
 AOT-compatible means an app published with Native AOT gets no trimming or AOT warning from inside
-that package. `Formidable.AspNetCore` is not marked because `[Validate]` looks up a validator for
-each action argument's type while the app runs, which builds generic types at run time. The
-`Validate<TModel>()` endpoint filter does none of that, but the package is unmarked as a whole, so
-treat a Native AOT app using the filter as untested.
+that package. A Native AOT server app validates a minimal-API endpoint or route group with
+`Validate<TModel>()`.
+
+`[Validate]` is for MVC, which does not support Native AOT. The attribute
+builds generic types at run time to look up each argument's validator. So in a project set to
+publish with Native AOT, the AOT analyser raises its IL3050 warning at each place your own code
+uses `[Validate]`.
+
+A Native AOT app needs two lines of setup before the filter's 400 reaches a client intact. Call
+`AddProblemDetails()`, and add Formidable's JSON metadata (`FormidableValidationProblemJsonContext`,
+in the `Formidable` namespace) to the HTTP JSON options:
+
+```csharp
+builder.Services.AddProblemDetails();
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.TypeInfoResolverChain.Add(FormidableValidationProblemJsonContext.Default));
+```
+
+With neither line, every 400 the filter returns fails as a 500 with an empty body. With
+`AddProblemDetails()` alone, a 400 whose report carries a warning or an info still fails as a 500,
+because its `advisories` need Formidable's metadata. Nothing warns at build time, so send the
+published app a rejected request before you ship it.
+
+In a Native AOT app, ASP.NET Core's request delegate generator is on by default. Where it produced
+an endpoint's request handling, a required body that is missing or `null` gets the platform's own
+empty 400 before the filter runs. The filter's `missingBodyMessage` then goes unused.
+
+A nullable parameter reaches the handler with `null`. So to send a message for a missing body,
+declare the parameter nullable and return the 400 from the handler
+([A body bound to null](server-integration.md#a-body-bound-to-null) has the code).
 
 Trimming asks two things of an app. The first is how it reads a 400 body: through
 `FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`, not the generic

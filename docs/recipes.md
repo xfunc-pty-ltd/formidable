@@ -1108,9 +1108,8 @@ was.
 
 **Server-side, one string takes a different seam.** The endpoint filter fills an otherwise-empty 400
 with `"A request body is required."` where the platform refuses a request whose body bound to null.
-Where the request delegate generator produced the endpoint's request handling (a Native AOT app,
-say), the platform's empty 400 stands instead. The message is a response rather than something a
-form renders, so it comes from the call site instead of the options:
+The message is a response rather than something a form renders, so it comes from the call site
+instead of the options:
 
 ```csharp
 app.MapPost("/orders", (Order order) => Results.Ok(order))
@@ -1118,6 +1117,10 @@ app.MapPost("/orders", (Order order) => Results.Ok(order))
 ```
 
 Pass nothing and the English default stands.
+
+ASP.NET Core's [request delegate generator](server-integration.md#a-body-bound-to-null) refuses
+before the filter runs, so where it produced the endpoint's request handling, the platform's empty
+400 stands instead. It is on by default in an app that publishes with Native AOT or trimming.
 
 **Read more:**
 
