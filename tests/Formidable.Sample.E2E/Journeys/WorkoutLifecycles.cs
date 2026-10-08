@@ -23,7 +23,7 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
     // it rather than matching loosely.
     private const string AttendeeNameRequired = "Attendee name is required";
     private const string TooManyAttendees = "More than 10 attendees needs approval — submission is not blocked";
-    private const string DietaryNotesRequired = "Dietary notes are required for catering";
+    private const string DietaryNotesRequired = "Dietary notes are required";
     private const string HiddenIssueGate = "The form cannot be submitted because information that is not currently displayed is invalid.";
     private const string CouponRejected = "Coupon code is not recognised";
     private const string SeatsOutOfRange = "Seats must be a whole number between 0 and 500";

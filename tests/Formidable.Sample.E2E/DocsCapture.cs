@@ -164,7 +164,7 @@ public sealed class DocsCapture(SampleAppFixture app)
         // error band names, and the eleven-row list is what the warning band names. Waiting on
         // them (rather than a fixed delay) also absorbs the contact email's 300ms availability
         // check and the debounced live passes every fill above started.
-        await Expect(SummaryEntry(page, "Dietary notes are required for catering"))
+        await Expect(SummaryEntry(page, "Dietary notes are required"))
             .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, "More than 10 attendees needs approval — submission is not blocked"))
             .ToBeVisibleAsync(new() { Timeout = AsyncTimeoutMs });

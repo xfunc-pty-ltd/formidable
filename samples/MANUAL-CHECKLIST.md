@@ -783,8 +783,8 @@ The full set:
       inline on Coupon code with the rest of the form already clean
 - [ ] The tour's step 4: change to `WELCOME10` and resubmit. The new answer REPLACES the old one,
       with no stale coupon error, and the registration is accepted
-- [ ] With everything else valid, clear Dietary notes and press Tab. "Dietary notes are required
-      for catering" answers your edit as soon as its check does, with no submit
+- [ ] With everything else valid, clear Dietary notes and press Tab. "Dietary notes are required"
+      answers your edit as soon as its check does, with no submit
 - [ ] Untick *Include catering*: the field leaves and takes its message with it, under the box
       and in the error summary alike
 - [ ] Submit: the form blocks with "information that is not currently displayed is invalid"

@@ -126,7 +126,7 @@ public class EventRegistrationValidator : DraftSubmitValidator<EventRegistration
         // Deliberately unconditional: the UI alone gates this field's visibility, so the rule
         // stays registered whether or not catering is selected - the one shape that exercises
         // disclosure suppression and its all-suppressed defensive gate.
-        RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required for catering");
+        RuleFor(r => r.DietaryNotes).NotEmpty().WithMessage("Dietary notes are required");
     }
 
     protected override void ConfigureSubmitRules()
