@@ -95,5 +95,32 @@ window.formidableSample = {
             });
         }
         return scripts[src];
+    },
+    // A stylesheet added once the app is running applies when its download finishes, and the
+    // page draws without it until then. This adds the stylesheet's link to the head and returns
+    // a promise that settles once it has loaded, so a page can hold back what would draw wrongly
+    // without it. The link goes straight after the sample's own stylesheet, ahead of anything a
+    // page's HeadContent adds, so a page's own rules still come after the library's. A link that
+    // fails to load is taken out again, so the next call asks for the file afresh.
+    loadStylesheet: href => new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        link.onload = () => resolve();
+        link.onerror = () => {
+            link.remove();
+            reject(new Error('Could not load ' + href));
+        };
+        document.head.querySelector('link[rel="stylesheet"]').after(link);
+    }),
+    // The page that loaded a stylesheet takes it out as it closes, so the next page keeps its
+    // own look. A link still loading goes too, and its promise never settles: the page that
+    // asked has gone.
+    unloadStylesheet: href => {
+        for (const link of document.head.querySelectorAll('link[rel="stylesheet"]')) {
+            if (link.getAttribute('href') === href) {
+                link.remove();
+            }
+        }
     }
 };

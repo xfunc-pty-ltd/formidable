@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 
@@ -61,6 +62,39 @@ internal static class SamplePage
     /// whole name in the element's class list, so it never matches part of another class.</summary>
     public static Regex StateClass(string state) =>
         new(@"(^|\s)" + Regex.Escape("formidable-" + state) + @"(\s|$)");
+
+    /// <summary>The stylesheet links of the two UI libraries the sample fits. Each belongs to its
+    /// own page, so every other page has none.</summary>
+    public static ILocator LibraryStylesheets(IPage page) =>
+        page.Locator("link[href*='MudBlazor.min.css'], link[href*='bootstrap.min.css']");
+
+    /// <summary>Opens a sample page from the sidebar, as a visitor moves between pages, and waits
+    /// for its heading, which on the pages this serves reads as the sidebar's link. The app keeps
+    /// running across the move, so a file an earlier page loaded stays loaded.</summary>
+    public static async Task OpenFromSidebarAsync(IPage page, string name)
+    {
+        await page.GetByRole(AriaRole.Navigation, new() { Name = "Sample pages" })
+            .GetByRole(AriaRole.Link, new() { Name = name, Exact = true })
+            .ClickAsync();
+        await Assertions.Expect(page.Locator("h1")).ToHaveTextAsync(name);
+    }
+
+    /// <summary>Starts recording what the page reports as broken: an uncaught script error, or an
+    /// error written to the console, which is where Blazor reports an exception no component
+    /// handled. Read it once the step under test has had its chance to fail.</summary>
+    public static ConcurrentQueue<string> RecordErrors(IPage page)
+    {
+        var errors = new ConcurrentQueue<string>();
+        page.PageError += (_, error) => errors.Enqueue(error);
+        page.Console += (_, message) =>
+        {
+            if (message.Type == "error")
+            {
+                errors.Enqueue(message.Text);
+            }
+        };
+        return errors;
+    }
 
     /// <summary>Real keystrokes into a field: click to focus, then type character by character.
     /// The typing policy's tool — fill() sets a whole value in one event and cannot exercise

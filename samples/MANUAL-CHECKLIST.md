@@ -429,6 +429,18 @@ Work top to bottom: the steps build on each other.
 
 ### Fitting a UI library
 
+- [ ] Open this page from the sidebar, then reload it here. Each time, the form appears once
+      Bootstrap's stylesheet has loaded, already in Bootstrap's look. It never shows in the
+      sample's own style first and then jumps. The heading and the sidebar show from the start and
+      change once, when the stylesheet arrives
+- [ ] With the network tab's throttling on, open this page from another page. "Loading Bootstrap…"
+      stands where the form goes until the stylesheet has loaded, then the form appears in
+      Bootstrap's look
+- [ ] A failed stylesheet load, in both colour schemes. Reload the app on another page, block
+      `bootstrap.min.css` in devtools (the Network panel's request blocking), then open this page.
+      Where the form would be, a sentence says Bootstrap's stylesheet did not load, with a *Retry*
+      button under it. Both are legible, and *Retry* reads as a button. Unblock the request and
+      click *Retry*: the form appears as it does on a first visit
 - [ ] Before step 1, in both colour schemes: *Submit* is Bootstrap's own primary button
       (`btn btn-primary`), not the site theme's orange. It is the same Bootstrap blue in each
       scheme, and hovering it darkens the blue
@@ -455,6 +467,12 @@ Work top to bottom: the steps build on each other.
 Walk this section on the local build. The hosted demo shows a note at `/mudblazor` instead, which
 the Hosted demo section walks.
 
+- [ ] Open this page from the sidebar, then reload it here. Each time, the form appears once
+      MudBlazor's script and stylesheet have both loaded, already in MudBlazor's look. Nothing
+      shows on the way: no large black triangle, and no heading in a serif font
+- [ ] With the network tab's throttling on, open this page from another page.
+      "Loading MudBlazor…" stands where the form goes until both files have loaded, then the form
+      appears in MudBlazor's look
 - [ ] Before step 1, in both colour schemes: the text field, the select and the *Submit* button
       wear MudBlazor's own look. That is an underlined field with a floating label and a filled
       button, in MudBlazor's palette for that scheme
@@ -482,6 +500,9 @@ the Hosted demo section walks.
       Where the form would be, a sentence says MudBlazor's script did not load, with a *Retry*
       button under it. Both are legible, and *Retry* reads as a button. Unblock the request and
       click *Retry*: the form appears as it does on a first visit
+- [ ] A failed stylesheet load: the row above again, blocking `MudBlazor.min.css` instead. The
+      sentence says MudBlazor's stylesheet did not load, and *Retry* brings the form in
+      MudBlazor's look
 
 ### CSS colours
 

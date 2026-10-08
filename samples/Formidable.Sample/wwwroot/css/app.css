@@ -94,8 +94,8 @@ html {
     }
 }
 
-/* The Bootstrap fitting page loads Bootstrap's stylesheet after this one (via a HeadContent
-   outlet), and Bootstrap 5.3 without data-bs-theme carries its own light-only `body` rule;
+/* The Bootstrap fitting page adds Bootstrap's stylesheet straight after this one, and
+   Bootstrap 5.3 without data-bs-theme carries its own light-only `body` rule;
    being later, it wins the equal-specificity tie in dark mode and flips the whole shell light.
    `html body` out-specifies it while leaving the demo area to theme itself through its own
    data-bs-theme attribute. */

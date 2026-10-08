@@ -1,9 +1,6 @@
 @page "/bootstrap"
 
 <PageTitle>Fitting a UI library</PageTitle>
-<HeadContent>
-    <link rel="stylesheet" href="lib/bootstrap.min.css" />
-</HeadContent>
 <h1>Fitting a UI library</h1>
 <p>This page shows the <a href="">Quickstart</a> page's form, a name and an email address, styled by Bootstrap's stylesheet. One form setting, <code>CssClasses</code>, gives each field Bootstrap's class names for its state, so a blocked submit draws Bootstrap's red border and a fixed field its green one.</p>
 
@@ -28,24 +25,37 @@
         <p>The markup uses Bootstrap's classes as any Bootstrap form would (<code>form-control</code>, <code>form-label</code>, <code>btn</code>), and Formidable's inputs pass them through. The message and summary components keep their <code>formidable-*</code> classes, which the sample's own stylesheet styles, as on every other page.</p>
         <p><code>FormidableCssClasses</code>, the type <code>CssClasses</code> takes, names five states: invalid, valid, warning, info and pending (a check is running). Bootstrap's form styles draw the first two, so the page maps those and leaves <code>Warning</code>, <code>Info</code> and <code>Pending</code> at Formidable's defaults. Neither field's rules raise a warning or an info, and neither field has an async rule, so nothing on this page wears them.</p>
         <p>The model and validator are the <a href="">Quickstart</a> page's. <strong>Email</strong>'s two rules sit in one chain that stops at the first failure, so the field shows one message at a time. It reads "Email is required" while the box is empty, and "A valid email is required" once it holds something that is not an address.</p>
-        <p>The page puts Bootstrap's stylesheet in the document head through <code>HeadContent</code>, so while you are on this page it styles the whole document, not only the form. In light mode that gives the rest of the page a slightly Bootstrap look too. In dark mode the sample keeps its own background and text colours.</p>
+        <p>The page adds Bootstrap's stylesheet to the document head when you open it and takes it out when you leave. While you are on this page it styles the whole document, not only the form. In light mode that gives the rest of the page a slightly Bootstrap look too. In dark mode the sample keeps its own background and text colours.</p>
+        <p>The form appears once the stylesheet has loaded, so it never shows in the sample's own style first. The heading and the sidebar show from the start and change when the stylesheet arrives. If the download fails, the page says so and offers <strong>Retry</strong>, which asks for the stylesheet again. In your own app Bootstrap's stylesheet goes in the host page.</p>
         <p>Bootstrap themes itself through one attribute, <code>data-bs-theme</code>. A few lines of page script set it on the box around the form to match your system's colour scheme, and follow a change while the page is open. Formidable is not involved.</p>
     </HowItWorks>
     <Demo>
-        <div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
-            <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
-                <div class="summary-slot">
-                    <FormidableSummary />
-                </div>
+        @if (_stylesheetLoaded)
+        {
+            <div id="bootstrap-demo" class="bootstrap-demo p-3 border rounded">
+                <FormidableForm Model="_contact" Options="_options" OnValidSubmit="HandleValid">
+                    <div class="summary-slot">
+                        <FormidableSummary />
+                    </div>
 
-                <div class="mb-3"><label class="form-label">Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
-                    <FormidableFieldMessage For="() => _contact.Name" /></div>
-                <div class="mb-3"><label class="form-label">Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
-                    <FormidableFieldMessage For="() => _contact.Email" /></div>
+                    <div class="mb-3"><label class="form-label">Name <FormidableRequiredIndicator For="() => _contact.Name" /> <FormidableInputText class="form-control" @bind-Value="_contact.Name" /></label>
+                        <FormidableFieldMessage For="() => _contact.Name" /></div>
+                    <div class="mb-3"><label class="form-label">Email <FormidableRequiredIndicator For="() => _contact.Email" /> <FormidableInputText class="form-control" @bind-Value="_contact.Email" /></label>
+                        <FormidableFieldMessage For="() => _contact.Email" /></div>
 
-                <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>
-            </FormidableForm>
-        </div>
+                    <div class="actions"><button type="submit" class="btn btn-primary">Submit</button></div>
+                </FormidableForm>
+            </div>
+        }
+        else if (_failed)
+        {
+            <p role="alert">Bootstrap's stylesheet did not load, so the form cannot show.</p>
+            <div class="actions"><button type="button" @onclick="Retry">Retry</button></div>
+        }
+        else
+        {
+            <p>Loading Bootstrap…</p>
+        }
 
         <p role="status">@_status</p>
     </Demo>
