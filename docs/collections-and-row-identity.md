@@ -139,7 +139,8 @@ Why: [how the engine works: what a row leaving changes](how-the-engine-works.md#
 No: dictionaries are not supported for per-entry validation. FluentValidation names a dictionary's
 entries by their position (`Answers[1]`), while an input bound to `model.Answers[key]` is named by
 its key, so an entry's message never reaches its input. An `OrderedDictionary<TKey, TValue>` is no
-different, though it is a list too: a failure at position 1 never lands on the input bound to key 1.
+different. It is a list too, but a failure at position 1 still never lands on the input bound to
+key 1.
 
 Hold the entries as a list of rows instead, each row an object carrying its key and its value:
 
@@ -173,8 +174,9 @@ public sealed class SurveyValidator : AbstractValidator<Survey>
 }
 ```
 
-Each row is an object, so its message, its invalid state and its green stay with it when the list
-reorders, as [what `@key` buys](#what-does-key-actually-buy) explains. A child validator,
+Each row is an object, so its message, its invalid state and its valid state (the green a passing
+field wears) stay with it when the list reorders, as [what `@key` buys](#what-does-key-actually-buy)
+explains. A child validator,
 `RuleForEach(m => m.Answers).SetValidator(new AnswerValidator())`, works the same way.
 
 Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
@@ -186,15 +188,20 @@ nothing on it says whether its value passes. A failing entry still blocks the su
 summary lists it. When no other failing field is on screen, a `FormidableSummary` shows instead
 the form's own sentence, that something off screen is invalid
 ([a blocked submit with no message in sight](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
-The warning the submit logs names the failing entry by its position:
+
+The submit also writes a warning to `Trace` and to the app's logging (the browser console on
+WebAssembly), naming the failing entry by its position:
 `Formidable: issue at 'Answers[1]' is suppressed`.
 
 An entry holding an object is worse off. An input bound to one of its members, such as
 `model.Answers[key].Value`, can still turn green while that value fails, because the failure never
 reaches the object.
 
-A load never reads an entry by its position either, so it leaves every entry's input silent, unless
-your own `IModelIntrospector` names and reads entries by key. Even then, no entry turns green.
+A load ([`DiscloseLoadedValuesAsync`](component-kit.md#saying-what-loaded-values-have-earned), which
+shows what a loaded record's values have earned) leaves every entry's input silent as well, because
+it never reads an entry by its position. The exception is your own `IModelIntrospector` (the service
+that resolves a path to the object and member it names) when it names and reads entries by key.
+Even with one, no entry turns green, so the list of rows above stays the way to validate each entry.
 
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 
