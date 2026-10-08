@@ -100,7 +100,8 @@ on the old one implicitly.
 - **Disclosure changes what "always visible" used to mean.** A prior integration may have run every
   rule and tried to show every failed field's message, rendered or not. Some of those submit errors
   are suppressed here: a submit that finds the field unrendered leaves its error out, unless a
-  `FormidableOptions.DisclosureOverride` says to show it.
+  `FormidableOptions.DisclosureOverride` says to show it. The error also stays in when a submit or
+  server reply has already shown one on that field.
 
   Disclosure is decided at the submit rather than at the mount, so a later-mounted field's error
   waits for the next submit, unless a submit or server reply has already shown an error on that

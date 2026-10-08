@@ -602,7 +602,7 @@ for this component and every other input.
 
 | When | What you see |
 |---|---|
-| Nothing else registers the field | Live messages still arrive; a submit's are suppressed. Pair it with an input, `FormidableField` or `FormidableFieldAnchor` ([Disclosure](disclosure.md#why-isnt-my-message-showing-yet)). |
+| Nothing else registers the field | Live messages still arrive; a submit's are suppressed unless a `DisclosureOverride` says to show them or an earlier submit or server reply has shown the field's error. Pair it with an input, `FormidableField` or `FormidableFieldAnchor` ([Disclosure](disclosure.md#why-isnt-my-message-showing-yet)). |
 | The field has no issues | An empty `<ul>`, still rendered: your CSS can transition it, and a configured [`InlineMessageLive`](options.md#inlinemessagelive) sits on an element that persists. |
 
 **The list takes three positions of its own against the splat:**

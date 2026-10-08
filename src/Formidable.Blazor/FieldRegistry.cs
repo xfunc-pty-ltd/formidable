@@ -6,7 +6,8 @@ namespace Formidable.Blazor;
 /// <summary>The fields currently on the page, registered by the components that render them and read at submit to decide which errors may show.</summary>
 /// <remarks>
 /// At submit, which errors show is decided by what is on screen at that moment: a field nothing
-/// registered discloses no submit error. The live channel shows an engaged field's messages
+/// registered discloses no submit error unless <see cref="FormidableOptions.DisclosureOverride"/> or
+/// an earlier submit or server reply revealed it. The live channel shows an engaged field's messages
 /// whether or not anything renders it, unless <see cref="FormidableOptions.LiveDisclosure"/> is
 /// <see cref="LiveIssueDisclosure.EngagedAndVisible"/>; under either setting, a field that leaves
 /// the page stops showing live messages. A field a component renders with <c>WaitForSubmit</c>

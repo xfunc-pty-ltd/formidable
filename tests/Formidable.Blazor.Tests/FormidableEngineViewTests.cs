@@ -617,6 +617,44 @@ public class FormidableEngineViewTests
     }
 
     [Fact]
+    public async Task A_field_a_server_reply_revealed_discloses_its_own_error_at_a_later_submit_with_nothing_rendering_it()
+    {
+        // A pin: a server reply that names a field nothing renders reveals the field, and the
+        // reveal outlasts the reply. The next blocked submit clears the reply, and the field's own
+        // client error still discloses: in its messages, in the outcome summary, and not reported
+        // suppressed. Mutations that must break it: the server apply no longer adding the field
+        // to the error reveal ledger, or a blocked submit clearing that ledger before its union.
+        var suppressed = new List<ValidationIssue>();
+        var order = new EngineOrder();
+        var editContext = new EditContext(order);
+        using var engine = Build(
+            order, editContext,
+            new FormidableOptions { SuppressedIssueDiagnostic = suppressed.Add },
+            new FakeTimeProvider());
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
+        using var descReg = engine.Registry.Register(description);
+
+        // Nothing ever renders the customer, so the first submit suppresses its error.
+        Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
+        Assert.Empty(editContext.GetValidationMessages(customer));
+        Assert.Contains(suppressed, i => i.Path == nameof(EngineOrder.Customer));
+
+        engine.ApplyServerIssues([new ValidationIssue("Customer", "Server needs a customer")]);
+        suppressed.Clear();
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(outcome.CanProceed);
+        var messages = editContext.GetValidationMessages(customer).ToList();
+        Assert.DoesNotContain("Server needs a customer", messages);
+        Assert.Single(messages);
+        Assert.Contains(engine.GetIssues(customer), i => i.Severity == ValidationSeverity.Error);
+        Assert.Contains("Customer", outcome.VisibleErrorSummary);
+        Assert.DoesNotContain(suppressed, i => i.Path == nameof(EngineOrder.Customer));
+    }
+
+    [Fact]
     public async Task A_submit_replaces_the_server_verdict()
     {
         // The server verdict is a snapshot of a round trip. A new submit produces a newer
