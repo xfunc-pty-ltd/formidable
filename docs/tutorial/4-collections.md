@@ -66,14 +66,18 @@ Two habits keep each row's messages on that row. Key the row's root element by t
 `@key="member"`, never the loop index. And write every `For` lambda as a closure over that same
 instance, the way `() => member.Name` does.
 
-Switch on the row-key check in `Program.cs`, so a forgotten `@key` throws in Development instead of
-filing messages under the wrong row:
+Switch on the row-key check in `Program.cs`:
 
 ```csharp
 builder.Services.AddFormidableBlazor(options => options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment());
 ```
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Program.cs` -->
+
+With the check on, a forgotten `@key` throws in Development the moment you remove a row that has
+rows below it. The exception names the fix. It does not stop the misfiling, though: a message on a
+row below the one you removed still lands on the wrong row. Without the check, that misplaced
+message may be the only sign.
 
 ## Give each row its rules
 
@@ -128,11 +132,6 @@ RuleFor(c => c.Members).NotEmpty().WithMessage("Add at least one member");
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
-> [!TIP]
-> `NotEmpty()` is a rule the form reads as a demand, so it also lets the list carry a required
-> mark beside **Members**, which a `Must` count alone never does
-> ([a list that needs at least N items](../recipes.md#i-want-a-list-to-hold-at-least-one-item-or-at-least-n)).
-
 A `List<Member>` property has no input of its own, so that failure has nowhere to appear.
 `FormidableCollectionMessage` gives it somewhere. Put it under a heading for the list, above the
 `FormidableField`, and give the heading the list's mark:
@@ -145,6 +144,12 @@ A `List<Member>` property has no input of its own, so that failure has nowhere t
 <!-- Excerpt from `samples/Formidable.Tutorial/Pages/Stage4.razor` -->
 
 Remove both rows and the message lands there straight away, before you submit.
+
+> [!TIP]
+> **Members** carries a mark because `NotEmpty()` is a rule the form reads as a demand. A count you
+> write yourself over `Must`, for two members or more, is a predicate the form cannot read that way,
+> so on its own it draws no mark
+> ([a list that needs at least N items](../recipes.md#i-want-a-list-to-hold-at-least-one-item-or-at-least-n)).
 
 ## Recap
 

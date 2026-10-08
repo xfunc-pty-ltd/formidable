@@ -43,8 +43,15 @@ public sealed class InMemoryEmailDirectory : IEmailDirectory
 
 <!-- Excerpt from `samples/Formidable.Tutorial/Services/EmailDirectory.cs` -->
 
-Register it in `Program.cs` beside the validator. A validator is a service like any other, so it can
-take one in its constructor:
+Register it in `Program.cs` beside the validator:
+
+```csharp
+builder.Services.AddScoped<IEmailDirectory, InMemoryEmailDirectory>();
+```
+
+<!-- Excerpt from `samples/Formidable.Tutorial/Program.cs` -->
+
+A validator is a service like any other, so it can take one in its constructor:
 
 ```razor
 public class ContactValidator : DraftSubmitValidator<Contact>
