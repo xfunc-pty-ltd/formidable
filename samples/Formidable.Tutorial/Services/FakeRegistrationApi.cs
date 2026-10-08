@@ -6,8 +6,8 @@ namespace Formidable.Tutorial.Services;
 
 /// <summary>
 /// Stands in for a real HTTP endpoint so Stage 6's round trip runs entirely in the browser.
-/// Registered as the browser <see cref="HttpClient"/>'s handler (see <c>Program.cs</c>) — the
-/// page code posts and reads exactly as it would against a real API; this is the only place
+/// Registered as the browser <see cref="HttpClient"/>'s handler (see <c>Program.cs</c>). The
+/// page code posts and reads exactly as it would against a real API, and this is the only place
 /// that knows the API isn't real.
 /// </summary>
 public sealed class FakeRegistrationApi : HttpMessageHandler
@@ -17,7 +17,7 @@ public sealed class FakeRegistrationApi : HttpMessageHandler
     private const string RejectionBody = """
         {
           "errors": {
-            "Email": ["Use your work email address — personal domains are not accepted for team accounts"]
+            "Email": ["Use your work email address. Personal domains are not accepted for team accounts."]
           }
         }
         """;
@@ -46,7 +46,7 @@ public sealed class FakeRegistrationApi : HttpMessageHandler
     }
 
     // PostAsJsonAsync serializes with the System.Net.Http.Json web defaults, which write property
-    // names in camelCase - "email", not "Email" - regardless of what the C# property is called.
+    // names in camelCase ("email", not "Email") regardless of what the C# property is called.
     private static string? ReadEmail(string requestBody)
     {
         using var document = JsonDocument.Parse(requestBody);

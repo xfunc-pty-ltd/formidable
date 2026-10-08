@@ -89,7 +89,7 @@
             return;
         }
 
-        // A 400 says the request was rejected, not that this endpoint is what rejected it - a
+        // A 400 says the request was rejected, not that this endpoint is what rejected it: a
         // reverse proxy or a gateway in front of it answers with its own HTML page or its own
         // JSON, and either can be something this page cannot make sense of.
         FormidableValidationProblem? problem;
@@ -150,7 +150,7 @@
                 .MaximumLength(280).WithMessage("Bio is 280 characters max")
                 .MaximumLength(200).WithSeverity(Severity.Warning).WithMessage("Bios over 200 characters may be truncated");
 
-            // Format only, same guarded-shape idiom as the top-level Email above - presence is a
+            // Format only, same guarded-shape idiom as the top-level Email above. Presence is a
             // submit question, so an empty row's email stays quiet on draft.
             RuleForEach(c => c.Members).ChildRules(member =>
             {

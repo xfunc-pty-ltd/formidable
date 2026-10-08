@@ -1,7 +1,7 @@
 namespace Formidable.Tutorial.Services;
 
 /// <summary>
-/// Stands in for a real directory lookup — the kind of check only a server can answer, because
+/// Stands in for a real directory lookup: the kind of check only a server can answer, because
 /// the browser has no view of who else has already registered.
 /// </summary>
 public interface IEmailDirectory
