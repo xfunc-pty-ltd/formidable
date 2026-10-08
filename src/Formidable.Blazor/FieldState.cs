@@ -39,7 +39,9 @@ public readonly record struct FieldState
     /// <remarks>
     /// <see cref="IFormidableEngine.IsFormValid"/> is the whole-form counterpart, kept current
     /// only under <see cref="FormidableOptions.TrackFormValidity"/>. A <c>default(FieldState)</c>
-    /// reads <see langword="false"/> here.
+    /// reads <see langword="false"/> here. A field bound to a dictionary's entry always reads
+    /// <see langword="false"/>: FluentValidation names a failing entry by its position, never its
+    /// key, so no answer can be matched to the entry.
     /// </remarks>
     public bool WouldPassSubmit { get; init; } = true;
 }

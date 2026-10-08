@@ -134,6 +134,70 @@ current.
 
 Why: [how the engine works: what a row leaving changes](how-the-engine-works.md#the-verdict-store).
 
+## Can I validate each entry of a dictionary?
+
+No: dictionaries are not supported for per-entry validation. FluentValidation names a dictionary's
+entries by their position (`Answers[1]`), while an input bound to `model.Answers[key]` is named by
+its key, so an entry's message never reaches its input. An `OrderedDictionary<TKey, TValue>` is no
+different, though it is a list too: a failure at position 1 never lands on the input bound to key 1.
+
+Hold the entries as a list of rows instead, each row an object carrying its key and its value:
+
+```csharp
+public sealed class Answer
+{
+    public string Key { get; set; } = "";
+    public string? Value { get; set; }
+}
+
+public sealed class Survey
+{
+    public List<Answer> Answers { get; set; } = [];
+}
+
+public sealed class SurveyValidator : AbstractValidator<Survey>
+{
+    public SurveyValidator() =>
+        RuleForEach(m => m.Answers).ChildRules(answer =>
+            answer.RuleFor(a => a.Value).NotEmpty().WithMessage("Answer required"));
+}
+```
+
+```razor
+@foreach (var answer in model.Answers)
+{
+    <div class="field" @key="answer">
+        <label>@answer.Key <FormidableInputText @bind-Value="answer.Value" /></label>
+        <FormidableFieldMessage For="() => answer.Value" />
+    </div>
+}
+```
+
+Each row is an object, so its message, its invalid state and its green stay with it when the list
+reorders, as [what `@key` buys](#what-does-key-actually-buy) explains. A child validator,
+`RuleForEach(m => m.Answers).SetValidator(new AnswerValidator())`, works the same way.
+
+Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
+
+### What do I see if I bind a dictionary anyway?
+
+An input bound to an entry holding a string or a number shows no message and never turns green, so
+nothing on it says whether its value passes. A failing entry still blocks the submit, and no
+summary lists it. When nothing else on screen fails, a `FormidableSummary` lists only the form's own
+sentence, that something not on screen is invalid
+([a blocked submit with no message in sight](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
+The warning the submit logs names the failing entry by its position:
+`Formidable: issue at 'Answers[1]' is suppressed`.
+
+An entry holding an object is worse off. An input bound to one of its members, such as
+`model.Answers[key].Value`, can still turn green while that value fails, because the failure never
+reaches the object.
+
+A load never reads an entry by its position either, so it leaves every entry's input silent, unless
+your own `IModelIntrospector` names and reads entries by key. Even then, no entry turns green.
+
+Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
+
 ## How do I bind a list of strings or numbers?
 
 Bind each row by its index, give each row its own message, and key the element around the loop by
@@ -184,12 +248,7 @@ generic `IList<T>` is one exception: Formidable does not identify its rows by in
 messages never reach inputs bound that way.
 
 A dictionary is the other exception, an `OrderedDictionary<TKey, TValue>` included, though it is a
-list too. FluentValidation numbers its entries by position, while an input bound to
-`model.Answers[key]` is named by its key. So an entry's message reaches no input rather than land on
-another key's. When nothing on screen explains a blocked submit, the
-[defensive gate](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight) does. A load
-never reads an entry by its position either, so it leaves every entry's input silent (unless your
-own `IModelIntrospector` names and reads entries by key).
+list too: [dictionaries are not supported for per-entry validation](#can-i-validate-each-entry-of-a-dictionary).
 
 A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
 written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a `List<T>`

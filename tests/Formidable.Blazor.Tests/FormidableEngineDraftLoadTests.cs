@@ -321,9 +321,10 @@ public class FormidableEngineDraftLoadTests
 
     // An introspector may name an ordered dictionary's entry by its key, as Blazor does, and read
     // it by key. A load then asks that introspector for the entry's value, never the dictionary by
-    // position: the filled keys are confirmed and key 2's empty answer stays silent. Mutation that
+    // position: the filled keys are taken up as touched and key 2's empty answer stays silent. No
+    // entry turns green, because a dictionary's entry never reads as passing submit. Mutation that
     // must break it: let the load read any IList owner by position, and key 2 reads position 2
-    // (key 3, filled), so its failure shows, while key 3 reads past the end and stays silent.
+    // (key 3, filled), so its failure shows, while key 3 reads past the end and is never touched.
     [Fact]
     public async Task A_load_asks_the_introspector_for_a_dictionary_entry_it_names_by_key()
     {
@@ -342,9 +343,15 @@ public class FormidableEngineDraftLoadTests
 
         await engine.DiscloseLoadedValuesAsync();
 
-        Assert.Equal("formidable-valid", BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[1])));
-        Assert.Equal(string.Empty, BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[2])));
-        Assert.Equal("formidable-valid", BothSeams(engine, editContext, FieldIdentifier.Create(() => model.Answers[3])));
+        var key1 = FieldIdentifier.Create(() => model.Answers[1]);
+        var key2 = FieldIdentifier.Create(() => model.Answers[2]);
+        var key3 = FieldIdentifier.Create(() => model.Answers[3]);
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, key1));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, key2));
+        Assert.Equal(string.Empty, BothSeams(engine, editContext, key3));
+        Assert.True(engine.GetFieldState(key1).IsTouched);
+        Assert.False(engine.GetFieldState(key2).IsTouched);
+        Assert.True(engine.GetFieldState(key3).IsTouched);
     }
 
     /// <summary>Names an <see cref="OrderedAnswers"/> entry by its key and reads it by key; every other path and member goes to the reflection introspector.</summary>

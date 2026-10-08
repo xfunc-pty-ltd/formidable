@@ -268,10 +268,21 @@ when the field has no error, is touched or modified, carries no warning or info,
 `SubmitCoverageTracker`. [CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)
 has what a reader sees; this section has the read behind it.
 
-**What the vouch reads.** `WouldPassSubmit` is true for a field when three things hold: the
+**What the vouch reads.** `WouldPassSubmit` is true for a field when four things hold: the
 submit-selected coverage reads fresh (earned at the current edit stamp, or held as below); none
-of its answers carries an error for the field, disclosed or not; and the field is not one edited
-past a held answer being served.
+of its answers carries an error for the field, disclosed or not; the field is not one edited past
+a held answer being served; and the field's model is not a dictionary.
+
+A dictionary's entry is never vouched for. FluentValidation names a failing entry by its position
+and Blazor names the input bound to it by its key, so no answer can be matched to the entry
+([the walk](#the-walk) keeps an entry's brackets). `SubmitCoverageTracker.IsDictionary` reads a
+non-generic `IDictionary`, or any other collection that is not a list and yields `KeyValuePair`
+items, remembering the answer per type.
+
+It reads the items rather than the type's interfaces because asking a type for its interfaces trips
+the trimming analysers in this AOT-compatible package. A dictionary that holds objects is beyond
+it: the field bound to a member of one of those objects belongs to the object, and can still wear
+green while its value fails.
 
 Freshness is judged form-level, deliberately. Which fields a passing rule speaks for is
 unknowable, so one form-wide answer covers every field, while a failing answer names its fields

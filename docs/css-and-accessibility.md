@@ -74,6 +74,10 @@ rather than a note that the visitor stopped by, so a failing answer counts even 
 shows it. That is why an emptied required box wears no confirmation border. Until an answer has
 landed, a clean-looking field wears no tier class rather than a green one.
 
+An input bound to a dictionary's entry never wears `Valid`, whatever its value, because the form
+cannot tell which entry a failure belongs to
+([Can I validate each entry of a dictionary?](collections-and-row-identity.md#can-i-validate-each-entry-of-a-dictionary)).
+
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 
 ### Which check turns a field green?

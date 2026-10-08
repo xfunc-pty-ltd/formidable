@@ -1,12 +1,15 @@
+using System.Collections;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
 /// <summary>The vouch behind the valid state class: whether the submit rules have answered for the model as it stands, which fields they fail, and the held answer served while the store is empty or an edit's re-answer is in flight.</summary>
 /// <remarks>
-/// Every member expects the renderer's context, and none locks or dispatches. Reading is what
-/// mutates: a <see cref="WouldPassSubmit"/> ask whose coordinates moved recomputes the cached
-/// answer, the held answer and the edited-field record in place, on the render path that asked.
+/// Every instance member expects the renderer's context, and none locks or dispatches. Reading
+/// is what mutates: a <see cref="WouldPassSubmit"/> ask whose coordinates moved recomputes the
+/// cached answer, the held answer and the edited-field record in place, on the render path that
+/// asked.
 /// </remarks>
 /// <param name="store">The verdict store the rule walk plans against, through <see cref="SetVerdictStore.Plan"/> alone.</param>
 /// <param name="reAnswerOnItsWay">Whether a re-answer of the submit-selected coverage is demonstrably on its way: the engine's <see cref="FormidableEngine{TModel}.ReAnswerOnItsWay"/>, which reads scheduler state the tracker never holds.</param>
@@ -96,12 +99,12 @@ internal sealed class SubmitCoverageTracker(
     private int _lastSubmitAnswerStamp = -1;
     private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
-    /// <summary>Whether <paramref name="field"/> would pass a submit: the submit rules have answered for the model as it stands, none fails the field, and the field was not edited past a held answer being served.</summary>
+    /// <summary>Whether <paramref name="field"/> would pass a submit: the submit rules have answered for the model as it stands, none fails the field, the field was not edited past a held answer, and it is no dictionary's entry.</summary>
     /// <param name="field">The field the state class is being computed for.</param>
     /// <param name="editStamp">The current edit stamp.</param>
     /// <param name="profile">The submit profile.</param>
     /// <param name="selectRules">The validator's rule selection, or <see langword="null"/> for a validator that cannot validate rule by rule.</param>
-    /// <returns><see langword="true"/> when the engine can vouch for the field; <see langword="false"/> when coverage is stale, an answer fails the field, or the field was edited past the held answer being served.</returns>
+    /// <returns><see langword="true"/> when the engine can vouch for the field; <see langword="false"/> when coverage is stale, an answer fails the field, the field was edited past the held answer being served, or its model is a dictionary (<see cref="IsDictionary"/>).</returns>
     // The ask's coordinates arrive from the engine at each ask, which keeps the options' and the
     // capability's read-at-each-use contracts the engine's to honour.
     internal bool WouldPassSubmit(
@@ -113,7 +116,86 @@ internal sealed class SubmitCoverageTracker(
         EnsureSubmitCoverageCurrent(editStamp, profile, selectRules);
         return _coverageFresh
             && (_coverageErrorFields is null || !_coverageErrorFields.Contains(field))
-            && (!_coverageServedAcrossEdit || !_editedPastHold.Contains(field));
+            && (!_coverageServedAcrossEdit || !_editedPastHold.Contains(field))
+            // A dictionary's entry is never vouched for. FluentValidation names a failing entry by
+            // its position and Blazor names the input bound to it by its key, so no answer can be
+            // matched to the entry, and one that fails would otherwise read as passing.
+            && !IsDictionary(field.Model);
+    }
+
+    // Whether each collection type that is neither a list nor a non-generic IDictionary yields
+    // key-value pairs, which is how a type implementing only the generic dictionary interfaces
+    // shows itself. Asking the type for those interfaces walks its interface list, which the
+    // trimming analysers flag (IL2075) in this AOT-compatible package, so the answer is read from
+    // the first item instead and remembered per type. The types are the app's own models, so the
+    // cache settles at the few collection types the app binds.
+    private static readonly ConcurrentDictionary<Type, bool> YieldsPairs = new();
+
+    /// <summary>Whether <paramref name="model"/> is a dictionary: a non-generic <see cref="IDictionary"/>, or a collection other than a list whose items are <see cref="KeyValuePair{TKey, TValue}"/> values.</summary>
+    /// <param name="model">A field's model.</param>
+    /// <returns><see langword="true"/> for a non-generic <see cref="IDictionary"/>, as most base class library dictionaries are, and for a type implementing only <see cref="IDictionary{TKey, TValue}"/> or <see cref="IReadOnlyDictionary{TKey, TValue}"/> (an <see cref="System.Dynamic.ExpandoObject"/>, say) once one of its instances holds an entry; <see langword="false"/> for a list, an array or any other model.</returns>
+    // Per call: a type test or two for a dictionary, a list or a model that is no collection, and
+    // one cache read keyed by type for any other collection. An empty collection of a type not yet
+    // seen has no item to read, so it answers false uncached; with no entry, none can fail.
+    internal static bool IsDictionary(object model)
+    {
+        if (model is IDictionary)
+        {
+            return true;
+        }
+
+        if (model is not IEnumerable items || model is IList)
+        {
+            return false;
+        }
+
+        var type = model.GetType();
+        if (YieldsPairs.TryGetValue(type, out var known))
+        {
+            return known;
+        }
+
+        if (!TryReadFirst(items, out var first))
+        {
+            return false;
+        }
+
+        var pairs = first is not null
+            && first.GetType() is { IsGenericType: true } itemType
+            && itemType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
+        YieldsPairs.TryAdd(type, pairs);
+        return pairs;
+    }
+
+    /// <summary>Reads the first item of <paramref name="items"/>.</summary>
+    /// <param name="items">The collection.</param>
+    /// <param name="first">The first item; <see langword="null"/> when there is none or the read throws.</param>
+    /// <returns><see langword="true"/> when an item was read.</returns>
+    // A collection that refuses enumeration claims nothing, as a list that refuses an element
+    // read does for a load.
+    private static bool TryReadFirst(IEnumerable items, out object? first)
+    {
+        first = null;
+        IEnumerator? enumerator = null;
+        try
+        {
+            enumerator = items.GetEnumerator();
+            if (!enumerator.MoveNext())
+            {
+                return false;
+            }
+
+            first = enumerator.Current;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            (enumerator as IDisposable)?.Dispose();
+        }
     }
 
     /// <summary>Recomputes the cached coverage answer when the stamp, the version or the profile moved, or a held answer served across an edit finds no re-answer on its way; a throwing selection reads as stale, nothing held standing in.</summary>
