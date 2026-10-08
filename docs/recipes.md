@@ -566,8 +566,10 @@ finds the field rendered, and `FormidableOptions.SuppressedIssueDiagnostic` repo
 back. When every failing field is hidden, the form blocks anyway and explains itself with one
 model-level message rather than failing silently.
 
-A field whose error a submit or server reply has already shown does not wait. Hidden, it keeps its
-errors in the summary, and a later submit shows them rather than the model-level message.
+A field whose error a submit or server reply has already shown does not wait for a submit that finds
+it rendered. Hidden, it keeps its errors in the summary, and a later submit lists them there again. If that submit finds every
+failing field hidden, the model-level message shows beside them, since no field on screen explains
+the block.
 
 **Reach past what is rendered with `DisclosureOverride`:** it answers for an issue whose field
 nothing renders, and at submit `true` reveals that field while `false` withholds the issue's own

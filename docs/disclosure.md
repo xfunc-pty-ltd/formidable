@@ -27,7 +27,7 @@ flowchart TD
     L --> E{"Is the field engaged?"}
     E -- "no" --> QUIET["Nothing shows yet"]
     E -- "yes" --> SHOW["The message shows at the field"]
-    S --> R{"Was the field revealed?"}
+    S --> R{"Is the field on screen?"}
     R -- "yes" --> SHOW
     R -- "nothing on screen could show it" --> G["The defensive gate explains the block"]
     V --> SHOW
@@ -112,10 +112,12 @@ A warning or an info at submit shows only where something renders its field too;
 dropped in silence, since it blocks nothing.
 
 The decision is taken as you press Submit, not continuously, and it decides which fields the form
-watches. That set only grows: a later blocked submit adds to it, and so does a server reply. A
-watch also outlives the markup. Until the form passes or is reset, the field's answer keeps
+watches. That set only grows: a later blocked submit adds to it, and so does a server reply.
+
+A watch also outlives the markup. Until the form passes or is reset, the field's answer keeps
 surfacing whether or not anything still renders it, so a field one submit showed and you hid again
-still discloses at the next.
+still discloses at the next, in a summary. The field's own message left with the field, so a submit
+with every failing field hidden also shows [the gate](#why-is-the-submit-blocked-with-no-message-in-sight).
 
 Pressing Submit also replaces every live message with the submit's own answer; on a rendered field
 you see no change, because the submit shows the same message.
@@ -139,7 +141,7 @@ Why: [how the engine works: what a server reply reveals](how-the-engine-works.md
 
 ## Why is the submit blocked with no message in sight?
 
-Because everything that is failing is hidden and unwatched. With nothing on screen to point at, a
+Because every field that is failing is off screen. With no field on screen to point at, a
 defensive gate blocks the submit with a model-level explanation of its own rather than letting the
 button quietly do nothing:
 
@@ -171,16 +173,26 @@ announcement the gate exists to make is the one most likely to be dropped
 ([CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why).
 
 The gate gives way the moment there is a real message to give way to: an error the user can see, a
-server error arriving, or an answer that comes back clean. Nothing short of a reset removes it: an
-edit, and the whole-form re-check that follows one after a submit, leave it standing while nothing
-on screen explains the block. Every submit decides it again from scratch, so it can stand at one
-submit, give way at the next, and come back at the one after that.
+server error arriving, or an answer that comes back clean. Short of one of those, only a reset takes
+it down.
 
-The gate never stands in for a failure the form is still watching, because that field's own
-message explains the block. What raises it is a failure nothing currently discloses, by one of two
+An edit, and the whole-form re-check that follows one after a submit, leave it standing while
+nothing on screen explains the block. Every submit decides it again from scratch, so it can stand
+at one submit, give way at the next, and come back at the one after that.
+
+A failure the form is still watching explains the block only while its field is on screen. Hide
+the field and its own message goes with it, so a submit that finds every failing field off screen
+raises the gate even where an earlier submit showed those fields. A `FormidableSummary` on that
+form lists their errors, with the gate's line beside them.
+
+Bring such a field back and its message returns at once, and the gate gives way with no submit.
+Hide it again and the gate comes back, until the next submit decides it afresh.
+
+So what raises the gate is a blocked submit with no failing field on screen, by one of three
 routes. The first is a field nothing has ever shown, its section still collapsed at the submit
 where everything visible finally passes. The second is a field an earlier submit did show: a
 successful submit has since ended every watch, and a later submit finds the field hidden again.
+The third is a field the form is still watching, hidden again before the next submit.
 
 Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 

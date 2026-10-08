@@ -44,7 +44,7 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         // stays collapsed, so its (still-empty) rule is the only failure left — suppressed, and
         // revealed by no submit so far, which leaves the blocked submit with nothing on screen
         // to explain itself. That is what the defensive gate stands in for: not an error never
-        // shown in the form's life, but one nothing currently discloses. An error a submit has
+        // shown in the form's life, but one no field on screen shows. An error a submit has
         // disclosed holds its own entry until the answer comes clean, and a submit that goes
         // through clears what earlier submits revealed, so either route can stage the gate
         // again.
@@ -80,16 +80,16 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
 
         // Once shown, watched: collapsing the section takes the inline message with the
-        // markup, but the summary keeps the entry, and another submit keeps it listed rather
-        // than trading it back for the gate — a field a submit has disclosed stays watched
-        // until the form passes or resets. Same property
+        // markup, but the summary keeps the entry, and another submit keeps it listed. A field a
+        // submit has disclosed stays watched until the form passes or resets. Same property
         // FormidableEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
         // pins at the engine level. On their own the two persistence asserts would hold
         // against the pre-submit DOM just as well, so the submit is given a flip only its own
         // landing can produce: switching the accommodation type to Accessible first renders
         // the special-requirements field, empty and quiet (nothing has engaged it), and that
-        // submit is what discloses its error — the asserts wait behind it and therefore read
-        // the pass's own answer.
+        // submit is what discloses its error. The asserts wait behind it and therefore read
+        // the pass's own answer. The gate stays away because that error is on screen: the
+        // traveler name's error alone, off screen, would bring the gate's entry in beside its own.
         await page.GetByRole(AriaRole.Button, new() { Name = "Hide traveler details", Exact = true }).ClickAsync();
         await Expect(MessagesFor(page, "travelername")).ToHaveCountAsync(0);
         await Expect(SummaryEntry(page, TravelerNameRequired)).ToBeVisibleAsync();
@@ -145,7 +145,8 @@ public sealed class DisclosureJourney(SampleAppFixture app)
     /// <summary>
     /// The page's summary-less variant: the gate's model-level explanation reaches the screen
     /// through <c>FormidableModelMessage</c>'s persistent list, and gives way once an inline
-    /// error is on screen to explain the block instead. The list is addressed by the model-level
+    /// error is on screen to explain the block instead. A later submit with those fields hidden
+    /// brings it back, and showing them again takes it away. The list is addressed by the model-level
     /// id convention (the form id plus <c>-messages</c>); only the variant renders one, so the
     /// tail-match is unambiguous even though the page holds two forms. The variant's own
     /// options set <c>InlineMessageLive</c>, since the list is the only surface the gate has on a
@@ -175,6 +176,25 @@ public sealed class DisclosureJourney(SampleAppFixture app)
         await variant.GetByRole(AriaRole.Button, new() { Name = "Show trip details", Exact = true }).ClickAsync();
         await Expect(Field(variant, "travelername")).ToBeVisibleAsync();
         await variant.GetByRole(AriaRole.Button, new() { Name = "Request trip", Exact = true }).ClickAsync();
+        await Expect(MessagesFor(variant, "travelername")).ToHaveTextAsync([TravelerNameRequired]);
+        await Expect(modelMessages).ToHaveCountAsync(0);
+
+        // Hide the section and submit once more. The fields whose errors that submit showed are
+        // off screen, and this form has no summary to keep listing them, so the gate's
+        // explanation is back in the form-level list. The list is still empty after the hide,
+        // because the last submit showed an error on a visible field and so raised no gate for
+        // the hide to bring back; the assert after the click reads the submit's own answer.
+        // Mutation that must break the empty-list assert: force the arming to
+        // `_gateArmed = true`, and the hide alone brings the gate into the list.
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Hide trip details", Exact = true }).ClickAsync();
+        await Expect(Field(variant, "travelername")).ToHaveCountAsync(0);
+        await Expect(modelMessages).ToHaveCountAsync(0);
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Request trip", Exact = true }).ClickAsync();
+        await Expect(modelMessages).ToHaveTextAsync([HiddenIssueGate]);
+
+        // Show the section with no submit: the fields bring their messages back, and the gate
+        // gives way to them.
+        await variant.GetByRole(AriaRole.Button, new() { Name = "Show trip details", Exact = true }).ClickAsync();
         await Expect(MessagesFor(variant, "travelername")).ToHaveTextAsync([TravelerNameRequired]);
         await Expect(modelMessages).ToHaveCountAsync(0);
     }

@@ -323,9 +323,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         // unconditional while the checkbox above it decides whether the field is on screen at
         // all. Unticking BEFORE any submit is one way to stage the gate: the note's rule fails
         // from the start and no submit gets the chance to show it, so the blocked submit has
-        // nothing on screen to explain itself. It is not the only route — a submit that goes
-        // through clears what earlier submits revealed, so a note an earlier submit HAS shown
-        // stages the same gate once the form has passed in between.
+        // nothing on screen to explain itself. It is not the only route: a note an earlier submit
+        // HAS shown stages the same gate while it is off screen, as the end of this test shows.
         await FillValidRegistrationAsync(page, dietaryNotes: "");
         await Field(page, "includecatering").UncheckAsync();
         await SubmitAsync(page);
@@ -384,9 +383,8 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
 
         // Once shown, watched: unticking takes the field and its inline message off screen,
-        // but the summary keeps the entry, and another submit keeps it listed rather than
-        // trading it back for the gate — a field a submit has disclosed stays watched until
-        // the form passes or resets. Same property
+        // but the summary keeps the entry, and another submit keeps it listed. A field a submit
+        // has disclosed stays watched until the form passes or resets. Same property
         // FormidableEngineViewTests.A_field_revealed_at_an_earlier_submit_still_counts_disclosed_after_leaving_the_page
         // pins at the engine level.
         await Field(page, "includecatering").UncheckAsync();
@@ -412,17 +410,21 @@ public sealed class WorkoutLifecycles(SampleAppFixture app)
         await Field(page, "contactemail").FillAsync("workout-e2e-gate-resubmit@example.com");
         await SubmitAsync(page);
 
-        // Both closing asserts describe a summary the submit leaves unchanged, so on their own
-        // they would hold against the pre-submit DOM just as well and prove nothing about what
-        // the submit decided. Pending on the edited field cannot drain before every in-flight
-        // pass over it has landed — the form-wide submit included — so riding it through
-        // appear and drain first means the asserts read the pass's own answer.
+        // The note's error is the only failure, and the note is off screen, so this blocked
+        // submit has no error on screen to explain it: the gate's entry joins the note's own.
+        // The note's entry stands before the submit as well, so that assert alone would hold
+        // against the pre-submit DOM and prove nothing about what the submit decided. Pending
+        // on the edited field cannot drain before every in-flight pass over it has landed (the
+        // form-wide submit included), so riding it through appear and drain first means the
+        // asserts read the pass's own answer. Same property
+        // GateRevealedOffScreenTests.A_summary_lists_the_hidden_revealed_errors_and_the_gate_beside_them
+        // pins in the kit.
         await Expect(Field(page, "contactemail")).ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
         await Expect(Field(page, "contactemail")).Not.ToHaveClassAsync(
             Pending, new() { Timeout = AsyncTimeoutMs });
         await Expect(SummaryEntry(page, DietaryNotesRequired)).ToBeVisibleAsync();
-        await Expect(SummaryEntry(page, HiddenIssueGate)).ToHaveCountAsync(0);
+        await Expect(SummaryEntry(page, HiddenIssueGate)).ToBeVisibleAsync();
     }
 
     [E2EFact]

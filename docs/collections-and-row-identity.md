@@ -183,8 +183,8 @@ Why: [how the engine works: how a path resolves to an object](how-the-engine-wor
 
 An input bound to an entry holding a string or a number shows no message and never turns green, so
 nothing on it says whether its value passes. A failing entry still blocks the submit, and no
-summary lists it. When nothing else on screen fails, a `FormidableSummary` lists only the form's own
-sentence, that something not on screen is invalid
+summary lists it. When no other failing field is on screen, a `FormidableSummary` shows instead
+the form's own sentence, that something off screen is invalid
 ([a blocked submit with no message in sight](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
 The warning the submit logs names the failing entry by its position:
 `Formidable: issue at 'Answers[1]' is suppressed`.

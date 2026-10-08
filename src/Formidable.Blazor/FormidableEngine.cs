@@ -11,10 +11,10 @@ namespace Formidable.Blazor;
 /// <remarks>
 /// <para>
 /// The sources: the live channel's per-field verdicts, the engaged set, the registry's submit
-/// holds, the last submit-profile answer, the two reveal ledgers, the server-issue store, the gate
-/// latch, the fault issue and <see cref="HasSubmitted"/>, with the per-set verdict store and the
-/// submit-coverage vouch beside them. Every issue read computes from them; the message store is a
-/// projection rebuilt when a source moves.
+/// holds and registrations, the last submit-profile answer, both reveal ledgers, the server-issue
+/// store, the gate latch, the fault issue and <see cref="HasSubmitted"/>, with the per-set
+/// verdict store and submit-coverage vouch beside them. Every issue read computes from them;
+/// the message store is a projection rebuilt when a source moves.
 /// </para>
 /// <para>
 /// The passes: live, submit, refresh and load; the <see cref="FormidableOptions.TrackFormValidity"/>
@@ -143,8 +143,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private int _serverAnswerEditStamp;
     private int _serverAnswerGeneration;
 
-    // Armed by a blocked submit that disclosed no error at all — the all-suppressed case the
-    // defensive gate exists for — and disarmed by any submit that disclosed something or passed.
+    // Armed by a blocked submit that disclosed no error on a field on screen (the all-suppressed
+    // case the defensive gate exists for, and the case where every field an earlier submit
+    // revealed has left the page), and disarmed by any submit that disclosed an error on a field
+    // on screen, or passed.
     // Whether the gate actually SHOWS is the GateActive predicate over this and the sources
     // above; no refresh touches this flag, which is half of what makes the gate un-erasable.
     private bool _gateArmed;
@@ -788,12 +790,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>The gate's model-level issue, built from <see cref="FormidableOptions.DefensiveGateMessage"/> at each read, which the submit views synthesize while <see cref="GateActive"/> holds.</summary>
     private ValidationIssue GateIssue => new(string.Empty, _options.DefensiveGateMessage);
 
-    /// <summary>Whether the gate shows: a blocked submit that disclosed nothing armed it, no server error stands, the submit answer carries errors no revealed field discloses, and the live view carries no error.</summary>
+    /// <summary>Whether the gate shows: a blocked submit that disclosed no visible error armed it, no server error stands, the submit answer carries errors, none on a revealed field <see cref="IsVisible"/> passes now, and the live view carries no error.</summary>
     // A predicate over the sources rather than a stored entry, recomputed on every read, which
     // is what makes it impossible for a refresh to delete. Only an error dissolves it: a warning
     // does not say why a submit was refused. The arming half matters too: an error that starts
-    // failing on a never-revealed field after a submit that disclosed everything it had raises
-    // no gate, because no blocked submit was ever short an explanation.
+    // failing on a never-revealed field after a submit that showed an error on a visible field
+    // raises no gate, because no blocked submit was ever short an explanation.
     private bool GateActive
     {
         get
@@ -803,9 +805,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 return false;
             }
 
-            if (_revealedErrorFields.Overlaps(_submitVerdictErrors.Keys))
+            // A revealed field explains the block only while it is on screen. It stays revealed
+            // when it leaves (a summary keeps listing it, and its message is back the moment it
+            // returns), but on a form with no summary nothing else shows its error, so while it
+            // is off screen it counts for nothing here. Asked per issue, the way the ledger admits
+            // fields: an override that forces one issue visible keeps the gate down for the whole
+            // field, as it revealed the whole field. OnRenderedFieldsChanged republishes when a
+            // move can change this answer (GateTurnsOnVisibility).
+            foreach (var (errorField, errors) in _submitVerdictErrors)
             {
-                return false;
+                if (_revealedErrorFields.Contains(errorField) && errors.Any(error => IsVisible(error, errorField)))
+                {
+                    return false;
+                }
             }
 
             // The live channel explains a block just as well as the submit channel does, so it
@@ -827,6 +839,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return true;
         }
     }
+
+    /// <summary>Whether a move in the rendered field set can change <see cref="GateActive"/>'s answer: the gate is armed, no server error stands, and a revealed field carries a submit error, whose visibility then decides.</summary>
+    // No other conjunct of the gate changes with a move unless OnRenderedFieldsChanged already
+    // republishes for it: the live view loses a departed field's verdict through the prune's own
+    // rebuild, and under EngagedAndVisible it has a republish of its own. So when this is false,
+    // whatever a move does to the gate is republished already, and a page whose rows churn pays
+    // nothing more for it.
+    private bool GateTurnsOnVisibility =>
+        _gateArmed && _serverErrors.Count == 0 && _revealedErrorFields.Overlaps(_submitVerdictErrors.Keys);
 
     /// <summary>One field's live view: the verdict the last live pass filed for it while the field is engaged, read through <see cref="LiveViewOf"/>.</summary>
     /// <param name="field">The field.</param>
@@ -1202,10 +1223,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <remarks>
     /// Departed means registered once and no longer rendered, so a field nothing ever
     /// registered keeps its verdict, and a row held by keep-registered keeps its messages.
-    /// Beyond the settle, dropping is all this does: an issue a departure causes shows only once a
-    /// later pass computes it, by default the refresh this arms, and on a form never submitted
-    /// that refresh discloses nothing. A model whose contents changed still owes a field-changed
-    /// notification of its own.
+    /// An issue a departure causes shows only once a later pass computes it (by default the
+    /// refresh this arms, which discloses nothing on a form never submitted). The gate alone
+    /// republishes at once, while a revealed field's visibility decides it. A model whose
+    /// contents changed still owes a field-changed notification of its own.
     /// </remarks>
     // Nothing announces a row removed, a section collapsed or a branch swapped as a field change,
     // so this call is the engine's only word that the page its verdicts describe is not the page
@@ -1271,15 +1292,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // Under the opt-in live-disclosure policy the registered field set is one of the live
         // view's own inputs — a field REGISTERING can disclose a live verdict the store was not
         // projecting, exactly as a departure can retract one — so a field-set change with filed
-        // verdicts standing owes a republish in that mode. The default policy consults
-        // registration only through the submit hold, whose flips reach the engine through the
-        // registry's HeldStateChanged (see OnHeldStateChanged): a hold starting or changing as it
-        // happens, whatever rendered the change, and a hold an ended registration left at the
-        // settle above. That keeps the default's churn cost here at the departure-only republish
-        // above.
+        // verdicts standing owes a republish in that mode. The gate reads the registered field
+        // set too, under either policy, while a revealed field's visibility decides it
+        // (GateTurnsOnVisibility): such a field returning takes the gate down, and leaving again
+        // brings it back. Both are republished here, from the sources as they stand, so neither
+        // runs a rule, and neither waits for the refresh this arms below. Otherwise the default
+        // policy consults registration only through the submit hold, whose flips reach the engine
+        // through the registry's HeldStateChanged (see OnHeldStateChanged): a hold starting or
+        // changing as it happens, whatever rendered the change, and a hold an ended registration
+        // left at the settle above. That keeps the default's churn cost here at the departure-only
+        // republish above whenever no gate turns on a revealed field.
         if (!dropped
-            && _liveVerdicts.Count > 0
-            && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)
+            && (GateTurnsOnVisibility
+                || (_liveVerdicts.Count > 0 && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)))
         {
             RebuildStore();
         }
@@ -2560,8 +2585,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // The EditContext API takes writes, so the projection runs at every round that moves what the
     // store projects, and the store between rebuilds is what the views said the last time a
     // source moved. Those rounds: a pass's verdict apply, a server apply, a fault report, a
-    // departure that dropped a filed verdict, and under EngagedAndVisible a field-set change with
-    // verdicts standing. A hold starting or stopping, before the first answered submit or server
+    // departure that dropped a filed verdict, a field-set change while a revealed field's
+    // visibility decides the gate, and under EngagedAndVisible a field-set change with verdicts
+    // standing. A hold starting or stopping, before the first answered submit or server
     // apply, on a field that is engaged, has an issue filed and has not departed rewrites that
     // field's entries alone (PatchStoreFor, from OnHeldStateChanged). A round that moves only a
     // pass's own state or the submit coverage notifies without rebuilding (PublishPassStateAsync,
@@ -2725,12 +2751,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     }
 
                     // The full resolved answer is the channel's source; the ledger is what the
-                    // view reads it through. Arming follows the disclosure count: a blocked
-                    // submit that disclosed nothing is the case the defensive gate explains, and
-                    // the views synthesize its form-level issue for as long as GateActive holds —
-                    // there is no entry to write, so there is no entry a refresh can delete.
+                    // view reads it through. Arming asks what is on screen: a blocked submit
+                    // whose disclosed errors all sit on fields IsVisible fails now (none at all,
+                    // or only fields an earlier submit revealed that have since left the page)
+                    // is the case the defensive gate explains. The views synthesize its
+                    // form-level issue for as long as GateActive holds. There is no entry to
+                    // write, so there is no entry a refresh can delete.
                     _submitVerdictErrors = GroupByResolvedField(resolvedErrors);
-                    _gateArmed = disclosed.Count == 0;
+                    _gateArmed = !disclosed.Any(x => IsVisible(x.Issue, x.Field));
 
                     // Advisory sites are not necessarily error sites: a visible field can carry a
                     // warning while passing every error rule. The advisory ledger unions the same

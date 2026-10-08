@@ -186,9 +186,9 @@ public class FieldOrderTests : BunitContext
     }
 
     // Being IN the request is not the same as sorting first — that only shows up once the
-    // model-level field's issue coexists with another visible one. The all-suppressed gate can
-    // never demonstrate this: by definition it is the form's only visible issue. A live-pass
-    // fault can, because it does not clear whatever a prior submit already made visible - so this
+    // model-level field's issue coexists with another visible one. On the all-suppressed route no
+    // field's error shows beside the gate. A live-pass fault can coexist with one, because it does
+    // not clear whatever a prior submit already made visible - so this
     // stages a submit's field error, then a live-pass fault on top of it, and checks the sort.
     [Fact]
     public async Task The_model_level_field_sorts_first_among_coexisting_visible_issues()

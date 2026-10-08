@@ -224,15 +224,22 @@ Work top to bottom: the steps build on each other.
 - [ ] Show traveler details again: the field renders with no message, and the form-level entry
       stays. Submit, and the traveler error lands inline and in the error summary, and the
       form-level entry gives way to it. Hide the section once more and submit: the entry stays
-      listed with the field gone. A field whose error a submit has shown stays listed until the
-      form passes or resets
+      listed with the field gone, and the form-level entry comes back beside it, since no error
+      shows under a field. A field whose error a submit has shown stays listed until the form
+      passes or resets. Show the section: the traveler message is back at once, and the
+      form-level entry leaves with no submit
 - [ ] **The second form, in both colour schemes.** *Without a summary* sits in its own bordered
       card, with a clear gap above it and its heading inside. Its button is named *Request trip*,
       so it stands apart from the first form's *Submit*
-- [ ] Steps 11 to 13 walk as written on the *Without a summary* form. The gate's explanation
+- [ ] Steps 11 and 12 walk as written on the *Without a summary* form. The gate's explanation
       arrives through the form-level message list at the top of that form, with a gap between it
       and *Show trip details*. It gives way to the three inline messages once the trip details
-      show. The completed form (answer No) confirms on its own status line
+      show
+- [ ] **The gate comes back for hidden fields.** After step 12, click *Hide trip details*, then
+      *Request trip*. The three messages left with their fields, and this form has no summary,
+      so the gate's explanation is back in the form-level list. Click *Show trip details*: the
+      three messages return and the list empties, with no submit
+- [ ] Step 13: the completed form (answer No) confirms on its own status line
 - [ ] In both colour schemes, that form-level list takes no visible space while it is empty:
       before the first submit, and again once the inline messages take over. The gate's
       explanation slides open into it on the blocked submit, the way a field's message does
@@ -781,8 +788,9 @@ The full set:
 - [ ] Untick *Include catering*: the field leaves and takes its message with it, under the box
       and in the error summary alike
 - [ ] Submit: the form blocks with "information that is not currently displayed is invalid"
-      (the tour's step 5). The one rule that can block has nowhere to show. The accepted submit
-      above cleared what earlier submits had shown, so nothing on screen explains it
+      (the tour's step 5). The one rule that can block has nowhere to show, so nothing on screen
+      explains it. The accepted submit above cleared what earlier submits had shown, so the
+      error summary has no entry for the note either
 - [ ] **The gate survives editing.** While the form stays blocked, type into Description and
       press Tab. The box turns green, the sign a check answered for it, yet the form-level entry
       stays in the error summary. No re-check retires the gate; an error reaching the screen
@@ -795,9 +803,10 @@ The full set:
       and stays quiet. Submit, and its message appears inline and in the error summary, and the
       form-level line gives way to it
 - [ ] **A shown error stays listed.** Untick once more: the field goes and takes its inline
-      message with it, but the error summary keeps the entry. Submit again and it is still listed.
-      Once a submit has shown a field's error, the form keeps listing it until a submit goes
-      through or the form resets
+      message with it, but the error summary keeps the entry. Submit again and it is still listed,
+      with the form-level entry beside it, since no error shows under a field. Once a submit has
+      shown a field's error, the form keeps listing it until a submit goes through or the form
+      resets
 - [ ] **Where that entry lands.** Click that entry: the field it names is off the page, so
       focus lands on **Include catering** instead. That is the checkbox whose state is the
       reason the field is gone. Re-tick and fill in a note before moving on

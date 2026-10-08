@@ -229,7 +229,7 @@ public sealed class FormidableOptions
     // read back every message still standing.
     public string? InlineMessageLive { get; set; }
 
-    /// <summary>The sentence a blocked submit shows when every failing field is hidden and nothing on screen accounts for the block. Defaults to <c>"The form cannot be submitted because information that is not currently displayed is invalid."</c>.</summary>
+    /// <summary>The sentence a blocked submit shows when every failing field is hidden, even where a summary lists their errors. Defaults to <c>"The form cannot be submitted because information that is not currently displayed is invalid."</c>.</summary>
     public string DefensiveGateMessage { get; set; } =
         "The form cannot be submitted because information that is not currently displayed is invalid.";
 

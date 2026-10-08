@@ -311,7 +311,7 @@ public class FormidableEngineViewTests
     [Fact]
     public async Task A_hidden_error_appearing_after_a_clean_submit_raises_no_gate()
     {
-        // The gate speaks only for a submit that was blocked with nothing disclosed. A submit
+        // The gate speaks only for a submit that was blocked with no error on screen. A submit
         // that PASSED disclosed everything there was; a rule that starts failing afterwards on a
         // never-revealed field stays quiet until the next submit — submit is the disclosure
         // event — and no form-level explanation appears in its place.

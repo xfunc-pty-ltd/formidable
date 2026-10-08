@@ -31,6 +31,9 @@ live verdicts read through the engaged set, then through the submit hold and the
 read through the reveal ledgers, merged with the server store, plus the gate issue the view
 synthesizes while the gate predicate holds.
 
+The gate predicate also asks which revealed fields render now, so the rendered field set is one of
+its inputs ([the gate latch](#the-gate-latch)).
+
 The `ValidationMessageStore` a native `ValidationMessage` renders from is a materialized
 projection of the same views, rebuilt whenever a source moves. A derived answer therefore cannot
 be deleted piecemeal or disagree with the state it derives from.
@@ -42,6 +45,7 @@ flowchart TD
     RL["Reveal ledgers: error sites and advisory sites"] --> SUB
     SS["Server issue store"] --> SUB
     GA["Gate arming"] --> SUB
+    RF["Rendered field set: which revealed fields render now"] --> SUB
     LIVE --> READ["Every issue read computes from the views"]
     SUB --> READ
     FI["Fault issue"] --> READ
@@ -222,8 +226,11 @@ answered runs.
 **The rendered field set moving** is the one silent change the engine can see unaided. A row
 leaving, a section collapsing or a branch swapping can change the model behind the page with no
 notification anywhere, so `OnRenderedFieldsChanged` empties the store outright and moves its
-generation. The same call prunes departed fields from the engaged set and arms a refresh,
-whatever the form's history.
+generation.
+
+`OnRenderedFieldsChanged` also prunes departed fields from the engaged set and arms a refresh,
+whatever the form's history. When a revealed field's visibility decides the gate, it republishes the
+message store as well ([the gate latch](#the-gate-latch)).
 
 The engine does not hear the registry's `Changed` event, so the root makes that call.
 `FormidableValidator` makes it from a continuation posted past the render batch that changed a
@@ -268,16 +275,22 @@ when the field has no error, is touched or modified, carries no warning or info,
 `SubmitCoverageTracker`. [CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)
 has what a reader sees; this section has the read behind it.
 
-**What the vouch reads.** `WouldPassSubmit` is true for a field when four things hold: the
-submit-selected coverage reads fresh (earned at the current edit stamp, or held as below); none
-of its answers carries an error for the field, disclosed or not; the field is not one edited past
-a held answer being served; and the field's model is not a dictionary.
+**What the vouch reads.** `WouldPassSubmit` is true for a field when four things hold:
+
+- the submit-selected coverage reads fresh (earned at the current edit stamp, or held as below);
+- none of its answers carries an error for the field, disclosed or not;
+- the field is not one edited past a held answer being served;
+- the field's model is not a dictionary.
 
 A dictionary's entry is never vouched for. FluentValidation names a failing entry by its position
-and Blazor names the input bound to it by its key, so no answer can be matched to the entry
-([the walk](#the-walk) keeps an entry's brackets). `SubmitCoverageTracker.IsDictionary` reads a
-non-generic `IDictionary`, or any other collection that is not a list and yields `KeyValuePair`
-items, remembering the answer per type.
+and Blazor names the input bound to it by its key, so no answer can be matched to the entry:
+[the walk](#the-walk) files a failure at `Answers[1]` under `[1]` on the dictionary, brackets kept,
+which never equals the field Blazor names by the key.
+
+`SubmitCoverageTracker.IsDictionary` reads a non-generic `IDictionary`, empty or not, or any other
+collection that is not a list and yields `KeyValuePair` items, remembering the answer per type.
+Such a collection of a type it has not yet seen has no item to read while it is empty, so it reads
+as no dictionary until it holds an entry; with no entry, none can fail.
 
 It reads the items rather than the type's interfaces because asking a type for its interfaces trips
 the trimming analysers in this AOT-compatible package. A dictionary that holds objects is beyond
@@ -616,15 +629,40 @@ never meets a hold, because only an answered submit arms it, and that submit has
 
 ### The gate latch
 
-A blocked submit that disclosed no error at all arms the gate; any submit
-that disclosed something or passed disarms it. Whether the gate shows is a predicate over the
-sources, recomputed on every read: armed, no server error standing, the submit answer carrying
-errors that no revealed field discloses, and the live view carrying no error.
+A blocked submit that disclosed no error on a visible field arms the gate. It disclosed either no
+error at all, or only errors on fields that are off the page now, which an earlier submit or a
+server apply revealed. Any submit that disclosed an error on a visible field, or passed, disarms it. Visible is the reveal's
+own override-aware test ([`DisclosureOverride`](options.md#disclosureoverride) first, rendered
+registration otherwise), asked as the arming runs.
+
+Whether the gate shows is a predicate over the sources and the rendered field set, recomputed on
+every read: armed, no server error standing, the submit answer carrying errors, none of them on a
+revealed field that is visible now, and the live view carrying no error.
+
+A revealed field stays revealed off the page, so the summary keeps listing it and its message is
+back the moment it returns, but it explains the block only while it renders.
+
+A field-set move can therefore change the answer while the gate is armed, no server error stands
+and a revealed field carries an error. `OnRenderedFieldsChanged` rebuilds the store in exactly that
+case (`GateTurnsOnVisibility`), with no pass: a revealed field returning takes the gate down at
+once, and leaving again brings it back.
+
+Outside the case `GateTurnsOnVisibility` names, a move changes the gate only through the live view.
+The live view's own rebuilds (the departure prune's, and the `EngagedAndVisible` republish) already
+cover such a change, so a churning page pays nothing more for the gate.
 
 The arming half matters: an error that starts failing on a never-revealed field after a submit
-that disclosed everything it had raises no gate, because no blocked submit was ever short an
-explanation, and on the submit channel the field stays quiet until a submit or a server apply
+that disclosed an error on a visible field raises no gate, because no blocked submit was ever short
+an explanation, and on the submit channel the field stays quiet until a submit or a server apply
 reveals it.
+
+`FirstErrorFocus` takes the first error in the visible list. Under `FormidableForm`, a reading order
+resolved for the page as it stands holds the form itself and only the fields with an element on
+the page, and `GetVisibleIssues` sorts every other field after them. So a submit that raises the
+gate beside a hidden revealed field's entry moves focus to the form.
+
+Before an order has resolved, the engine's own order applies, as it always does in attach mode.
+There the revealed fields come before the gate, so the move aims at the hidden field and misses.
 
 While the predicate holds, the views synthesize one model-level issue from
 [`DefensiveGateMessage`](options.md#defensivegatemessage), built afresh from the option at each
@@ -641,15 +679,18 @@ submit view is not already showing for that field. Advisories never enter the st
 `ValidationMessage` sees errors only.
 
 The rebuild runs at every round that moves what the store projects: a pass's verdict apply, a
-server apply, a fault report, a departure that dropped a filed verdict, and under
-`EngagedAndVisible` a field-set change with filed verdicts standing.
+server apply, a fault report, a departure that dropped a filed verdict, a field-set change when a
+revealed field's visibility decides the gate, and under `EngagedAndVisible` a field-set change with
+filed verdicts standing.
 
 A hold starting or stopping before `HasSubmitted`, on a field that is engaged, has an issue filed
 and has not departed, rebuilds nothing. It patches that field's entries alone and requests one
 notification for the render batch ([the live view](#the-live-view)).
 
 The gate latch, though a source, adds no round of its own: it arms and disarms only inside a
-submit's verdict apply, whose rebuild the list above already counts.
+submit's verdict apply, whose rebuild the list above already counts. The round for a field-set
+change when a revealed field's visibility decides the gate belongs to the gate predicate, which
+reads which fields render.
 
 A round that moves only a pass's own state or the submit coverage publishes a notification and
 rebuilds nothing.
