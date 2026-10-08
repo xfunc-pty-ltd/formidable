@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.png">
-    <img src="docs/assets/hero-light.png" alt="The Formidable sample app after a blocked submit: a validation summary listing several errors and an advisory, with red-bordered required fields below it." width="820">
+    <img src="docs/assets/hero-light.png" alt="The Formidable sample's full workout page: a summary listing one error and one advisory, above fields with green borders." width="820">
   </picture>
 </p>
 
