@@ -34,7 +34,7 @@ dotnet run --project samples/Formidable.Sample
 ```
 
 Then open <http://localhost:5181>. Every page and Navigation come first; the sections from
-Start here to Workout follow the sidebar's groups; Docs and Hosted demo come last.
+Start here to Workout follow the sidebar's groups; Docs, Tutorial and Hosted demo come last.
 
 ## Every page
 
@@ -807,7 +807,7 @@ The full set:
       with the form-level entry beside it, since no error shows under a field. Once a submit has
       shown a field's error, the form keeps listing it until a submit goes through or the form
       resets
-- [ ] **Where that entry lands.** Click that entry: the field it names is off the page, so
+- [ ] **Where that entry lands.** Click the note's entry: the field it names is off the page, so
       focus lands on **Include catering** instead. That is the checkbox whose state is the
       reason the field is gone. Re-tick and fill in a note before moving on
 - [ ] `nope@` in Contact email, then *Save draft* (a draft save, as in the tour's step 1). The
@@ -925,6 +925,46 @@ Also reading checks, done from the repo.
       three things in order: validating a model with no renderer, rendering the form under bUnit
       with doubles for the focus and DOM-sync services, and waiting for a verdict that lands a
       render later
+
+---
+
+## Tutorial
+
+No browser test drives the tutorial app, so these rows walk it, behaviour included. Each row
+follows one stage's *Run it* as its page words it (Stage 1's is in `docs/quickstart.md`, the rest
+in `docs/tutorial/`). At the step a page's screenshot shows, the app should match the screenshot.
+Start the app from the repo root:
+
+```bash
+dotnet run --project samples/Formidable.Tutorial
+```
+
+Then open <http://localhost:5182>. The nav lists Home and all six stages.
+
+- [ ] **Stage 1** (`/stage1`): submit the empty form. "Name is required" and "Email is required"
+      show in the summary and under each field. Type a name and leave the field, and its message
+      goes with no second submit. Fill in a valid email and submit for `Saved.`, then empty a
+      field and submit again, and `Saved.` goes
+- [ ] **Stage 2** (`/stage2`): Name and Email carry an asterisk and Bio does not. *Save draft* on
+      the empty form reads `0 finding(s)`, and *Submit* shows both presence messages. With
+      `not-an-email` in Email, *Save draft* reads `1 finding(s)`. The next *Submit* outlines Name
+      and Email in red, lists both messages in the summary, and leaves Bio's border plain
+- [ ] **Stage 3** (`/stage3`): with `Jane Doe` in Name, `jane@example.com` in Email and the
+      page's sentence pasted four times into Bio, *Submit* shows `Saved.`. Bio's border, its
+      message and its summary entry are orange. Empty Name and submit: the submit blocks, Bio
+      stays orange, and the summary lists one error and one warning
+- [ ] **Stage 4** (`/stage4`): the Members heading carries an asterisk, and so does each row's
+      Member name. Add three members, type `invalid` into the second row's Member email, leave
+      the field, then remove the first row. The message stays with the row holding `invalid`,
+      which is the top row. Remove the other two rows, and "Add at least one member" appears
+      under the heading and in the summary with no submit
+- [ ] **Stage 5** (`/stage5`): type `taken@example.com` into Email and leave the field. Email's
+      border turns dashed grey and "checking…" shows under it. Both go when "That email is
+      already registered" arrives, with no submit
+- [ ] **Stage 6** (`/stage6`): fill in Name, put `me@personal.example` in Email, add a member,
+      give it a name and submit. "Use your work email address. Personal domains are not accepted
+      for team accounts." shows under Email and in the summary, and Email's border turns red.
+      Submit again, and the message still shows once in each place, not twice
 
 ---
 

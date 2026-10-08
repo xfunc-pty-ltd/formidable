@@ -74,9 +74,10 @@ local run is the only thing that actually exercises it.
    command. Clear it once verification is done so a later plain `dotnet test` in the same session
    doesn't unexpectedly try to run the gated suite again: `Remove-Item Env:FORMIDABLE_E2E`.
 
-4. **Walk the sample by eye.** The [manual checklist](../samples/MANUAL-CHECKLIST.md) is the pass a
-   headless browser cannot do for you: colour, contrast, spacing, focus cues and native-control
-   chrome, in both light and dark OS colour schemes.
+4. **Walk the sample and the tutorial app.** The [manual checklist](../samples/MANUAL-CHECKLIST.md)
+   is the pass a headless browser cannot do for you: colour, contrast, spacing, focus cues and
+   native-control chrome, in both light and dark OS colour schemes. Its Tutorial section walks each
+   stage of the tutorial app for behaviour as well, since no browser test drives that app.
 
 ## How a release ships
 
