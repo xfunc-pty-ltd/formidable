@@ -172,5 +172,6 @@ A PR is ready for review once:
 
 ## Code of conduct
 
-Be respectful and assume good faith. Anything else gets moderated at the maintainer's
-discretion.
+Formidable's [code of conduct](CODE_OF_CONDUCT.md) is the Contributor Covenant 3.0. It says
+what is expected of everyone taking part, and how to report a problem. Here, its community
+spaces are this repository's issues, pull requests and Discussions.
