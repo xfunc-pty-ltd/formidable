@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <Description>Form validation for Blazor built on FluentValidation: validation profiles, progressive disclosure, collection paths with row-stable identity, client + server.</Description>
+        <Description>The shared core of Formidable, for the project of models and validators that client and server both reference. It carries Draft, Submit and custom validation profiles over one FluentValidation validator, the validation report, and the 400 response shape. It has no Blazor or ASP.NET Core dependency. For Blazor form validation, install Formidable.Blazor; for server validation, Formidable.AspNetCore. Both bring this package with them.</Description>
         <PackageTags>blazor;validation;fluentvalidation;forms</PackageTags>
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>

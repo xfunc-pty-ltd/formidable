@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <Description>ASP.NET Core server validation for Formidable: minimal-API endpoint filter and MVC action filter running validation profiles, with ProblemDetails output in the same path format the Blazor client consumes.</Description>
-        <PackageTags>aspnetcore;validation;fluentvalidation;problemdetails;blazor</PackageTags>
+        <Description>ASP.NET Core validation for Formidable on FluentValidation. A minimal-API endpoint filter and an MVC [Validate] attribute run a validation profile and answer an error with a 400 ValidationProblemDetails. Its paths are the ones the Blazor client applies back onto its fields. A Native AOT app validates its minimal APIs with the endpoint filter; [Validate] is for MVC, which Native AOT does not support.</Description>
+        <PackageTags>aspnetcore;validation;fluentvalidation;problemdetails;blazor;minimal-api;mvc</PackageTags>
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
     <ItemGroup>

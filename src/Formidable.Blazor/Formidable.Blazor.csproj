@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
     <PropertyGroup>
-        <Description>Blazor validation engine for Formidable: EditContext integration, validation profiles, render-registration progressive disclosure, and row-stable collection error identity.</Description>
-        <PackageTags>blazor;validation;fluentvalidation;forms;editform</PackageTags>
+        <Description>Blazor form validation on FluentValidation: the validation engine and a headless component kit, for WebAssembly and every interactive render mode. Use FormidableForm, or attach to the EditForm and EditContext you already have. A message waits until the visitor has earned it. Warnings never block a submit, and errors stay on their row object when a list reorders.</Description>
+        <PackageTags>blazor;validation;fluentvalidation;forms;editform;blazor-webassembly;blazor-server;headless</PackageTags>
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
     <ItemGroup>
