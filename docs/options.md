@@ -187,7 +187,7 @@ not the cost:
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
 has what you see in each order. Why: [how the engine works: the two timers](how-the-engine-works.md#the-five-pass-kinds).
 
-**Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) — a checkbox swaps the
+**Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor): a checkbox swaps the
 immediate default for a 400 ms window.
 
 ### `TrackFormValidity`
@@ -258,7 +258,7 @@ not, or one edited under a window that never closes
 ([CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)). Why:
 [how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
 
-**Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor) — a
+**Sample:** [`/field-state`](../samples/Formidable.Sample/Pages/FieldStateVisualizer.razor): a
 Submit button disabled until the validity check says yes.
 
 ### `NormalizeOnSubmit`
@@ -273,7 +273,7 @@ bound input straight from the normalized model, with no extra wiring. Calling `m
 yourself takes one more step this option does for free: the engine starts a live check only when it
 hears `EditContext.NotifyFieldChanged`, so name each field the mutation changed.
 
-**Sample:** [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor) — a checkbox, and a
+**Sample:** [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor): a checkbox, and a
 Submit button that never calls `Normalize()` itself.
 
 ### `ClickRecovery`
@@ -519,7 +519,7 @@ It is `aria-live` rather than a `role`:
 [Component kit](component-kit.md#formidablefieldmessagetvalue) has what a `role` on the list would
 cost, and why the list element renders even when empty.
 
-**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the summary-less
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor): the summary-less
 variant form under *Without a summary* sets it to `"polite"` on options of its own.
 
 ### `DefensiveGateMessage`
@@ -646,7 +646,8 @@ blur keeps doing so after the mode is switched on.
 full behaviour table (all three modes, against a rule the live channel selects and one it does not)
 and [Component kit](component-kit.md#formidableinputdatetvalue) for why `FormidableInputDate` in
 particular prefers `OnBlur`.
-**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) —
+
+**Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor):
 `Publish date` is the typed date input under `OnBlur`;
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows `OnBlur` on the
 string-modelled pattern instead.
@@ -689,6 +690,7 @@ that component's next render, on every surface.
 
 **Read:** [Recipes](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit) for the
 wait beside the three modes' behaviour table.
+
 **Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) sets it on Summary's
 input.
 
@@ -839,5 +841,5 @@ don't reach: [`/scroll-focus`](../samples/Formidable.Sample/Pages/ScrollFocus.ra
 `ResetAsync()`. Both are component surface rather than engine settings, so they live in
 [Component kit](component-kit.md#formidableformtmodel).
 
-**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) — the page this one
+**Sample:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor): the page this one
 quotes for the shape of a well-behaved `Options` field.
