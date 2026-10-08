@@ -4,7 +4,8 @@
 .SYNOPSIS
     Builds the GitHub Pages-ready hosted-demo artifact for the Formidable sample and serves it
     locally, so a review happens on the exact bits a deploy would ship before anything is ever
-    published.
+    published. CI's build has neither stale intermediates nor a relinked runtime, so this one
+    starts from a clean sample build and publishes without native relinking.
 
 .DESCRIPTION
     Publishes samples/Formidable.Sample with -p:HostedDemo=true (Release), which compiles in the
@@ -17,6 +18,12 @@
     <base href="/formidable/"> (a project page is served under that path), index.html is copied
     to 404.html so a deep link falls back to the SPA shell, and .nojekyll is added so GitHub
     Pages serves the underscore-prefixed _framework folder unmodified.
+
+    Two steps keep the local build the same as CI's. First, the script deletes the sample's
+    obj/Release and bin/Release before publishing. A WebAssembly AOT publish leaves IL-stripped
+    assemblies under obj/Release. A later Release publish can reuse them, and dotnet clean
+    leaves them in place. Second, the script passes -p:WasmBuildNative=false. A machine with the
+    wasm-tools workload relinks the runtime on publish, and CI's runner has no such workload.
 
     This script never pushes, deploys, or publishes anything - it only builds and, by default,
     serves the result locally for review.
@@ -34,7 +41,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = $PSScriptRoot
-$sampleProject = Join-Path $repoRoot 'samples/Formidable.Sample/Formidable.Sample.csproj'
+$sampleDir = Join-Path $repoRoot 'samples/Formidable.Sample'
+$sampleProject = Join-Path $sampleDir 'Formidable.Sample.csproj'
 $publishRoot = Join-Path $repoRoot 'artifacts/pages'
 $siteDir = Join-Path $publishRoot 'wwwroot'
 $basePath = '/formidable/'
@@ -45,8 +53,17 @@ if (Test-Path $publishRoot) {
     Remove-Item -Path $publishRoot -Recurse -Force
 }
 
-Write-Host "Publishing the hosted-demo build (HostedDemo=true, Release)..."
-dotnet publish $sampleProject -c Release -p:HostedDemo=true -o $publishRoot
+# A fresh clone has neither folder, so each is removed only when present.
+foreach ($staleOutput in @('obj/Release', 'bin/Release')) {
+    $stalePath = Join-Path $sampleDir $staleOutput
+    if (Test-Path $stalePath) {
+        Write-Host "Removing the sample's previous Release output at '$stalePath'..."
+        Remove-Item -Path $stalePath -Recurse -Force
+    }
+}
+
+Write-Host "Publishing the hosted-demo build (HostedDemo=true, WasmBuildNative=false, Release)..."
+dotnet publish $sampleProject -c Release -p:HostedDemo=true -p:WasmBuildNative=false -o $publishRoot
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish exited with code $LASTEXITCODE."
 }
