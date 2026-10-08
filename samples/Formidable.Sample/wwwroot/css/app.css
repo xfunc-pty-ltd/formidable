@@ -554,18 +554,18 @@ button {
     cursor: pointer;
 }
 
-/* These two rules leave a Bootstrap button (.btn) to Bootstrap's own colours. :where() gives
-   the exclusion no weight, so MudBlazor's filled-button colour outranks the first rule; a bare
-   :not(.btn) would outweigh it and turn MudBlazor's button orange. */
-button[type=submit]:where(:not(.btn)),
-button.primary:where(:not(.btn)) {
+/* These two rules leave a Bootstrap button (.btn) and a MudBlazor button (.mud-button-root) to
+   their own library's look. :where() gives the exclusions no weight, so for every other button
+   the rules weigh what button[type=submit] and button.primary weigh. */
+button[type=submit]:where(:not(.btn):not(.mud-button-root)),
+button.primary:where(:not(.btn):not(.mud-button-root)) {
     background: var(--cta);
     color: var(--cta-text);
     border: 1px solid transparent;
 }
 
-button[type=submit]:where(:not(.btn)):hover,
-button.primary:where(:not(.btn)):hover {
+button[type=submit]:where(:not(.btn):not(.mud-button-root)):hover,
+button.primary:where(:not(.btn):not(.mud-button-root)):hover {
     filter: brightness(1.06);
 }
 
