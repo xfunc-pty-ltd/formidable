@@ -1108,8 +1108,9 @@ was.
 
 **Server-side, one string takes a different seam.** The endpoint filter fills an otherwise-empty 400
 with `"A request body is required."` where the platform refuses a request whose body bound to null.
-That is a response rather than something a form renders, so it comes from the call site instead of
-the options:
+Where the request delegate generator produced the endpoint's request handling (a Native AOT app,
+say), the platform's empty 400 stands instead. The message is a response rather than something a
+form renders, so it comes from the call site instead of the options:
 
 ```csharp
 app.MapPost("/orders", (Order order) => Results.Ok(order))

@@ -56,7 +56,7 @@ Blazor dependency.
 | `errors` and `advisories` | one shared mapper: the same paths in the report's own order, the same messages, an empty message kept empty | the same dictionary, from the same mapper |
 | The envelope around them | `TypedResults.ValidationProblem` | the app's own `ProblemDetailsFactory` |
 | `traceId` | written only under `AddProblemDetails()` | written whatever the host configured |
-| A declared body that bound to `null` | left to the platform, and only a refusal is enriched | where MVC binds `null` and runs the action (a nullable parameter under `[ApiController]`, any body parameter on a plain `Controller`), that argument is skipped |
+| A declared body that bound to `null` | left to the platform, and a refusal is enriched only where the request delegate generator is off | where MVC binds `null` and runs the action (a nullable parameter under `[ApiController]`, any body parameter on a plain `Controller`), that argument is skipped |
 
 Both of the last two rows are the framework's doing rather than Formidable's. A client keying on
 paths and reading messages never sees a `traceId` either way. The null-bound body is the one place
@@ -383,9 +383,10 @@ anything to validate, decided from the action's declared parameters: at model bu
 types, at model build and then the action's first request for discovery.
 
 A declared body that bound to `null` is a different case, and the two adapters part company on it.
-The minimal-API filter leaves the decision to the platform and enriches only a refusal. Where MVC
-binds `null` and runs the action (a nullable parameter under `[ApiController]`, any body parameter
-on a plain `Controller`), `[Validate]` skips the argument. The tail has the rest:
+The minimal-API filter leaves the decision to the platform and enriches only a refusal it sees (by
+default it sees none in a Native AOT app). Where MVC binds `null` and runs the action (a nullable
+parameter under `[ApiController]`, any body parameter on a plain `Controller`), `[Validate]` skips
+the argument. The tail has the rest:
 [`Validate<TModel>()` on minimal APIs](#validatetmodel-on-minimal-apis) and
 [the attribute on MVC](#validate-on-mvc).
 
@@ -662,8 +663,9 @@ Declare the parameter nullable and the handler runs with `null`, as it would wit
 of it. Declare it non-nullable and the platform refuses the request itself.
 
 The platform's own refusal is a bare 400 with `Content-Length: 0`, cause-blind even with
-`AddProblemDetails()` and `UseStatusCodePages()` configured. The filter replaces that empty body
-with a model-level error, through the same mapping every other rejection in this document uses.
+`AddProblemDetails()` and `UseStatusCodePages()` configured. Where the filter sees that refusal,
+it replaces the empty body with a model-level error, through the same mapping every other rejection
+in this document uses.
 
 That message is `"A request body is required."` unless the call site named another one:
 `Validate<TModel>(missingBodyMessage: ...)`. Passing null keeps the default; any other string is
@@ -672,6 +674,13 @@ used as given, which is where a localized application replaces it.
 The filter replaces the body only where the platform is visibly the one refusing: an empty result
 came back, a 400 stands on the response, and nothing has been written yet. Anything else (a
 downstream filter's own 400, a response already on the wire) passes through untouched.
+
+The filter never sees the refusal where ASP.NET Core's request delegate generator produced the
+endpoint's request handling. That code answers a required body that failed to bind with the empty
+400 before any filter runs, so `missingBodyMessage` goes unused. The generator is on by default in
+an app that publishes with Native AOT or trimming, and in any app that sets
+`EnableRequestDelegateGenerator` to `true`. A nullable parameter behaves the same either way: the
+handler runs with `null`.
 
 MVC lands somewhere else. For a nullable parameter under `[ApiController]`, and for any body
 parameter on a plain `Controller`, it binds `null` and runs the action, so `[Validate]` has nothing

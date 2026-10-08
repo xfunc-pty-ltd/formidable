@@ -34,10 +34,13 @@ internal sealed class ValidationEndpointFilter<TModel> : IEndpointFilter
             // is the PLATFORM's decision and is made from the DECLARATION — nullability, a
             // default value, an EmptyBodyBehavior — none of which a filter can read from a null
             // argument: the null branch is reached for a non-nullable parameter and a nullable
-            // one alike. So the decision is delegated by calling next, exactly as if this filter
-            // were not installed, and a consumer who declared the parameter optional is never
-            // second-guessed. Reproducing the rule instead would mean owning a replica of it
-            // that already differs between the two hosting models in one framework version.
+            // one alike where the request delegate is built by reflection. (Code the request
+            // delegate generator wrote refuses a required body before any filter runs, so there
+            // only the nullable case arrives.) So the decision is delegated by calling next,
+            // exactly as if this filter were not installed, and a consumer who declared the
+            // parameter optional is never second-guessed. Reproducing the rule instead would mean
+            // owning a replica of it that already differs between the two hosting models in one
+            // framework version.
             var passed = await next(context);
             var response = context.HttpContext.Response;
 

@@ -12,7 +12,7 @@ public static class FormidableEndpointFilterExtensions
     /// <typeparam name="TModel">The model type to validate; the handler must declare a parameter whose type is assignable to it.</typeparam>
     /// <param name="builder">The route handler.</param>
     /// <param name="profile">The profile to validate with. Defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <param name="missingBodyMessage">The model-level message the 400 carries when the platform refuses a body that bound to <see langword="null"/>; <see langword="null"/> keeps "A request body is required.", any other string is used as given.</param>
+    /// <param name="missingBodyMessage">The model-level message the 400 carries when the platform refuses a body that bound to <see langword="null"/>; <see langword="null"/> keeps "A request body is required.", any other string is used as given. Unused where the request delegate generator produced the endpoint's request handling (on by default in a Native AOT publish): that code refuses before the filter runs, and the platform's empty 400 stands.</param>
     /// <returns><paramref name="builder"/>, for chaining.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">The handler declares no parameter assignable to <typeparamref name="TModel"/>; thrown while the endpoint's request pipeline is built, not at a request.</exception>
@@ -23,7 +23,7 @@ public static class FormidableEndpointFilterExtensions
     /// <see cref="FormidableHttpContextExtensions.GetFormidableValidationReport"/>. A parameter
     /// bound <see langword="null"/> is left to the platform's own rule for its declaration: an
     /// optional parameter reaches the handler as <see langword="null"/> with no report recorded,
-    /// and a refused one gets a 400 validation problem carrying
+    /// and a refused one the filter sees gets a validation problem carrying
     /// <paramref name="missingBodyMessage"/> in place of the platform's bodiless 400. With several
     /// arguments assignable to <typeparamref name="TModel"/>, the first bound non-null is validated.
     /// </remarks>
@@ -38,7 +38,7 @@ public static class FormidableEndpointFilterExtensions
     /// <typeparam name="TModel">The model type to validate; every endpoint in the group must declare a parameter whose type is assignable to it.</typeparam>
     /// <param name="builder">The route group.</param>
     /// <param name="profile">The profile to validate with, for every endpoint in the group. Defaults to <see cref="ValidationProfile.Submit"/>.</param>
-    /// <param name="missingBodyMessage">The model-level message a 400 carries when the platform refuses a body that bound to <see langword="null"/>, for every endpoint in the group; <see langword="null"/> keeps "A request body is required.", any other string is used as given.</param>
+    /// <param name="missingBodyMessage">The model-level message a 400 carries when the platform refuses a body that bound to <see langword="null"/>, for every endpoint in the group; <see langword="null"/> keeps "A request body is required.", any other string is used as given. Unused for an endpoint whose request handling the request delegate generator produced (on by default in a Native AOT publish): that code refuses before the filter runs, and the platform's empty 400 stands.</param>
     /// <returns><paramref name="builder"/>, for chaining.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">An endpoint in the group declares no parameter assignable to <typeparamref name="TModel"/>, whatever its siblings declare; thrown while that endpoint's request pipeline is built, not at a request.</exception>
