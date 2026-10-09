@@ -622,7 +622,7 @@ public class FormidableEngineViewTests
         // A pin: a server reply that names a field nothing renders reveals the field, and the
         // reveal outlasts the reply. The next blocked submit clears the reply, and the field's own
         // client error still discloses: in its messages, in the outcome summary, and not reported
-        // suppressed. Mutations that must break it: the server apply no longer adding the field
+        // suppressed. Mutations that must break it: the server apply not adding the field
         // to the error reveal ledger, or a blocked submit clearing that ledger before its union.
         var suppressed = new List<ValidationIssue>();
         var order = new EngineOrder();
