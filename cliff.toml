@@ -20,7 +20,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
-- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xfunc-pty-ltd/formidable/commit/{{ commit.id }}){% for f in commit.footers %}{% if f.separator == " #" %}, #{{ f.value }}{% elif f.value is starting_with("#") %}, {{ f.value }}{% endif %}{% endfor %})
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking and commit.breaking_description %}{{ commit.breaking_description | split(pat="\n") | join(sep=" ") | upper_first }}{% else %}{{ commit.message | upper_first }}{% endif %} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xfunc-pty-ltd/formidable/commit/{{ commit.id }}){% for f in commit.footers %}{% if f.separator == " #" %}, #{{ f.value }}{% elif f.value is starting_with("#") %}, {{ f.value }}{% endif %}{% endfor %})
 {%- endfor %}
 {% endfor %}
 """
@@ -39,10 +39,17 @@ filter_unconventional = false
 tag_pattern = "v[0-9].*"
 sort_commits = "oldest"
 commit_parsers = [
-  { message = "^feat", group = "<!-- 0 -->Added" },
-  { message = "^fix", group = "<!-- 1 -->Fixed" },
-  { message = "^perf", group = "<!-- 2 -->Performance" },
+  # 1.0.0 was the first release, so it keeps the groups it was published with.
+  { sha = "9f057647c0e122d34f0f05354f5dcdfecef22b69", skip = true },
+  { sha = "ccd8ea932cdb52fee2b26b369dd78d601a935f8b", skip = true },
+  { sha = "da1f8f044d351b450e8a20a881211d817a751391", group = "<!-- 1 -->Added" },
+  { sha = "d7d8df7b8dd3af29ece1e5f8a81a06b1a4d2561c", group = "<!-- 1 -->Added" },
+  { sha = "5105111789feddef99ed8595a45efd19eb83ae92", group = "<!-- 2 -->Fixed" },
+  { field = "breaking", pattern = "true", group = "<!-- 0 -->Breaking changes" },
+  { message = "^feat", group = "<!-- 1 -->Added" },
+  { message = "^fix", group = "<!-- 2 -->Fixed" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
   { message = "^docs: release [0-9]", skip = true },
-  { message = "^docs", group = "<!-- 3 -->Documentation" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
   { message = "^refactor|^style|^test|^build|^chore|^ci", skip = true },
 ]
