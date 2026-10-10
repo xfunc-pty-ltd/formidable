@@ -100,11 +100,11 @@ public class SignupFormTests : BunitContext
     }
 
     [Fact]
-    public void Blocked_submit_shows_the_message_where_the_field_renders()
+    public async Task Blocked_submit_shows_the_message_where_the_field_renders()
     {
         var cut = Render<SignupPage>();
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() =>
             Assert.Contains("Name is required", cut.Find("ul.formidable-message-list").TextContent));
@@ -374,7 +374,7 @@ from under the pointer.
 ### Waiting for the answer
 
 A verdict lands a render or two after the event that asked for it, and an async rule lands later
-still. Two habits cover it:
+still. Three habits cover it:
 
 - **Assert through `WaitForAssertion`.** It retries until the assertion passes or the timeout ends,
   which is what makes a message that arrives one render later a pass rather than a race.
@@ -384,6 +384,12 @@ still. Two habits cover it:
   renderer's synchronization context. Reach the component with `FindComponent`:
   `var form = cut.FindComponent<FormidableForm<Signup>>();` then
   `await form.InvokeAsync(() => form.Instance.SubmitAsync());`.
+- **Fire events through `InvokeAsync` too.** Find the element and fire its event in one call:
+  `await cut.InvokeAsync(() => cut.Find("input").Change("Ada"));`. Each time a kit input renders,
+  its value handler is new. A verdict that lands while the test finds an input and fires its
+  event can aim that event at the old handler, which fails the test with
+  `UnknownEventHandlerIdException`. Inside `InvokeAsync`, a render from anything else waits until
+  the lambda returns or awaits.
 
 Pinning a *pending* state needs one more thing, because "checking…" is by definition gone by the
 time the rule answers. Hold the rule open with a `TaskCompletionSource` the test controls: assert

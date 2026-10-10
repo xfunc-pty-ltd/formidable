@@ -1373,6 +1373,7 @@ service outright, so a form rendering one needs it present either way.
 Assert through bUnit's `WaitForAssertion`, since a verdict lands a render later than the event that
 asked for it, and call the form's own methods (`SubmitAsync()`, `ResetAsync()`,
 `ApplyServerIssues(...)`) through `InvokeAsync`, since all three trigger renders.
+Fire events the same way: find the element and fire its event inside one `InvokeAsync` call.
 
 **Read more:**
 
