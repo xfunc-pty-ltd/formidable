@@ -222,6 +222,8 @@ public class FormidableInputBindingTests : BunitContext
 
         await form.InvokeAsync(() => form.Find("input").Change("committed"));
         var blur = form.InvokeAsync(() => form.Find("input").BlurAsync(new FocusEventArgs()));
+        // Completes only once the blur's work item has yielded, whether it ran at once or queued.
+        await form.InvokeAsync(() => { });
         Assert.Empty(log);
 
         gate.SetResult();
