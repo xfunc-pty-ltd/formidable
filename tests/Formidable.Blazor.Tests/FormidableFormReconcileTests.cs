@@ -39,7 +39,7 @@ public class FormidableFormReconcileTests : BunitContext
         var editContext = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!.EditContext;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         AssertShowing(cut, editContext, description);
 
@@ -69,7 +69,7 @@ public class FormidableFormReconcileTests : BunitContext
         var engine = form.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         AssertShowing(cut, engine.EditContext, description);
         var baseline = form.ReconcileCount;
@@ -106,7 +106,7 @@ public class FormidableFormReconcileTests : BunitContext
         var editContext = form.Engine!.EditContext;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         AssertShowing(cut, editContext, description);
         var baseline = form.ReconcileCount;
@@ -259,8 +259,8 @@ public class FormidableFormReconcileTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         var sku = new FieldIdentifier(item, nameof(EngineItem.Sku));
 
-        cut.Find("input[data-name=outer]").Change(TooLong);
-        cut.Find("input[data-name=row]").Change(string.Empty);
+        await cut.InvokeAsync(() => cut.Find("input[data-name=outer]").Change(TooLong));
+        await cut.InvokeAsync(() => cut.Find("input[data-name=row]").Change(string.Empty));
         await Settle(cut);
         Assert.NotEmpty(engine.EditContext.GetValidationMessages(description));
         Assert.NotEmpty(engine.EditContext.GetValidationMessages(sku));

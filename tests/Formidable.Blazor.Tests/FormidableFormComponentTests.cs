@@ -83,12 +83,12 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
-    public void Invalid_submit_invokes_callback_with_outcome_and_shows_messages()
+    public async Task Invalid_submit_invokes_callback_with_outcome_and_shows_messages()
     {
         SubmitOutcome? outcome = null;
         var cut = RenderForm(new EngineOrder(), onInvalid: context => outcome = context.Outcome);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() =>
         {
@@ -282,13 +282,13 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
-    public void Valid_submit_invokes_valid_callback()
+    public async Task Valid_submit_invokes_valid_callback()
     {
         var valid = false;
         var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
         var cut = RenderForm(order, onValid: () => valid = true);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.True(valid));
     }
@@ -311,11 +311,11 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
-    public void Model_swap_rebuilds_edit_context_and_resets_state()
+    public async Task Model_swap_rebuilds_edit_context_and_resets_state()
     {
         var first = new EngineOrder();
         var cut = RenderForm(first);
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() => Assert.True(cut.Instance.Engine!.HasSubmitted));
 
         var second = new EngineOrder();
@@ -387,7 +387,7 @@ public class FormidableFormComponentTests : BunitContext
         cut.Instance.Engine!.MarkTouched(descriptionField);
         Assert.True(cut.Instance.Engine!.GetFieldState(descriptionField).IsTouched);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() => Assert.True(cut.Instance.Engine!.HasSubmitted));
         Assert.NotEmpty(cut.Instance.Engine!.GetVisibleIssues());
 
@@ -709,7 +709,7 @@ public class FormidableFormComponentTests : BunitContext
         var order = new EngineOrder();
         var cut = RenderForm(order, focusFirstErrorOnInvalidSubmit: false);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() => Assert.True(cut.Instance.Engine!.HasSubmitted));
         Assert.NotEmpty(cut.Instance.Engine!.GetVisibleIssues());
         Assert.DoesNotContain("focusField", module.Invocations.Identifiers);
@@ -1036,7 +1036,7 @@ public class FormidableFormComponentTests : BunitContext
     }
 
     [Fact]
-    public void Removing_a_row_after_a_submit_clears_its_summary_entry()
+    public async Task Removing_a_row_after_a_submit_clears_its_summary_entry()
     {
         // The summary is the only component here that injects one, and the moves it would make are
         // beside the point.
@@ -1056,7 +1056,7 @@ public class FormidableFormComponentTests : BunitContext
             // for most of a second waiting for it.
             .Add(p => p.Options, new FormidableOptions { RefreshDebounce = TimeSpan.FromMilliseconds(20) }));
 
-        host.Find("form").Submit();
+        await host.InvokeAsync(() => host.Find("form").Submit());
 
         // Two disclosed errors, so what follows can tell a summary that dropped one entry from a
         // summary that stopped rendering. Awaited rather than read straight off the markup: the

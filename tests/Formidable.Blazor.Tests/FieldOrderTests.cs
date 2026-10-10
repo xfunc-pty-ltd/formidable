@@ -127,7 +127,7 @@ public class FieldOrderTests : BunitContext
         SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.Equal(DocumentOrderMessages, SummaryEntries(cut)));
 
@@ -313,7 +313,7 @@ public class FieldOrderTests : BunitContext
         SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         // The order GetVisibleIssues reports is the contract; what is already on screen picks it
         // up on its next render, which every pass and every edit triggers anyway.
@@ -340,7 +340,7 @@ public class FieldOrderTests : BunitContext
         SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.Equal(
             [
@@ -377,7 +377,7 @@ public class FieldOrderTests : BunitContext
         SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.Equal(
             DocumentOrderMessages,
@@ -401,7 +401,7 @@ public class FieldOrderTests : BunitContext
         SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator(), new FormidableOptions());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.Equal(DocumentOrderMessages, SummaryEntries(cut)));
 
@@ -442,7 +442,7 @@ public class FieldOrderTests : BunitContext
         };
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator(), options);
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() => Assert.Equal(
             [
@@ -546,7 +546,7 @@ public class FieldOrderTests : BunitContext
         var module = SetUpJsModule();
 
         var cut = RenderHostForm(order, new DeclarationOrderValidator());
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() => Assert.Equal(DocumentOrderMessages, SummaryEntries(cut)));
 
         var resolvesBeforeTheMove = fieldOrder.Requests.Count;

@@ -56,7 +56,7 @@ public class FormidableFieldContextEditTests : BunitContext
     {
         var host = RenderHost(listStartsEmpty: true);
 
-        await host.Host.Find("#assign-false").ClickAsync(new());
+        await host.Host.InvokeAsync(() => host.Host.Find("#assign-false").ClickAsync(new()));
 
         Assert.False(host.Model.Flag);
         Assert.True(host.IsModified());
@@ -283,17 +283,17 @@ public class FormidableFieldContextEditTests : BunitContext
     public async Task Lambdas_in_markup_bind_the_reporting_overloads()
     {
         var edited = RenderHost();
-        await edited.Host.Find("#edit-remove-absent").ClickAsync(new());
+        await edited.Host.InvokeAsync(() => edited.Host.Find("#edit-remove-absent").ClickAsync(new()));
         Assert.Same(edited.Present, Assert.Single(edited.Model.Items));
         Assert.True(edited.IsModified());
 
         var absent = RenderHost();
-        await absent.Host.Find("#try-remove-absent").ClickAsync(new());
+        await absent.Host.InvokeAsync(() => absent.Host.Find("#try-remove-absent").ClickAsync(new()));
         Assert.Same(absent.Present, Assert.Single(absent.Model.Items));
         Assert.False(absent.IsModified());
 
         var present = RenderHost();
-        await present.Host.Find("#try-remove-present").ClickAsync(new());
+        await present.Host.InvokeAsync(() => present.Host.Find("#try-remove-present").ClickAsync(new()));
         Assert.Empty(present.Model.Items);
         Assert.True(present.IsModified());
 
@@ -500,7 +500,7 @@ public class FormidableFieldContextEditTests : BunitContext
     private async Task<BindingHost> ClickBehindTheGateAsync(string button)
     {
         var host = RenderHost();
-        var click = host.Host.Find(button).ClickAsync(new());
+        var click = host.Host.InvokeAsync(() => host.Host.Find(button).ClickAsync(new()));
         await host.Host.InvokeAsync(() => { });
         Assert.False(host.IsModified());
         Assert.Same(host.Present, Assert.Single(host.Model.Items));

@@ -69,35 +69,35 @@ public class FormidableInputTextAreaTests : BunitContext
     }
 
     [Fact]
-    public void Change_updates_model_and_triggers_live_validation()
+    public async Task Change_updates_model_and_triggers_live_validation()
     {
         var order = new EngineOrder();
         var form = RenderTextArea(order);
 
-        form.Find("textarea").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("textarea").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("textarea").GetAttribute("class")));
     }
 
     [Fact]
-    public void Input_mode_binds_oninput()
+    public async Task Input_mode_binds_oninput()
     {
         var order = new EngineOrder();
         var form = RenderTextArea(order, InputUpdateMode.OnInput);
 
-        form.Find("textarea").Input("hello");
+        await form.InvokeAsync(() => form.Find("textarea").Input("hello"));
 
         form.WaitForAssertion(() => Assert.Equal("hello", order.Description));
     }
 
     [Fact]
-    public void Aria_attributes_reflect_error_state()
+    public async Task Aria_attributes_reflect_error_state()
     {
         var order = new EngineOrder { Description = new string('x', 11) };
         var form = RenderTextArea(order);
 
-        form.Find("textarea").Change(order.Description); // same value; still triggers validation
+        await form.InvokeAsync(() => form.Find("textarea").Change(order.Description)); // same value; still triggers validation
 
         form.WaitForAssertion(() =>
         {
@@ -119,12 +119,12 @@ public class FormidableInputTextAreaTests : BunitContext
     }
 
     [Fact]
-    public void Splatted_class_merges_with_the_computed_state_class()
+    public async Task Splatted_class_merges_with_the_computed_state_class()
     {
         var order = new EngineOrder();
         var form = RenderTextAreaWithAttributes(order, ("class", "form-control"));
 
-        form.Find("textarea").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("textarea").Change(new string('x', 11)));
 
         form.WaitForAssertion(() =>
         {
@@ -179,7 +179,7 @@ public class FormidableInputTextAreaTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
 
-        form.Find("textarea").Change("hi"); // starts the live pass; GatedValidator's async rule blocks on Gate
+        await form.InvokeAsync(() => form.Find("textarea").Change("hi")); // starts the live pass; GatedValidator's async rule blocks on Gate
 
         form.WaitForAssertion(() => Assert.Contains("formidable-pending", form.Find("textarea").GetAttribute("class")));
 

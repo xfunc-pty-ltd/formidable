@@ -65,24 +65,24 @@ public class FormidableInputBaseTests : BunitContext
     }
 
     [Fact]
-    public void Change_updates_model_and_triggers_live_validation()
+    public async Task Change_updates_model_and_triggers_live_validation()
     {
         var order = new EngineOrder();
         var form = RenderInput(order);
 
-        form.Find("input").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
 
     [Fact]
-    public void Input_mode_binds_oninput()
+    public async Task Input_mode_binds_oninput()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnInput);
 
-        form.Find("input").Input("hello");
+        await form.InvokeAsync(() => form.Find("input").Input("hello"));
 
         form.WaitForAssertion(() => Assert.Equal("hello", order.Description));
     }
@@ -92,12 +92,12 @@ public class FormidableInputBaseTests : BunitContext
     // to the model but starts no live pass, and the class stays exactly what an untouched field
     // renders (empty; see FormidableCss.Compute).
     [Fact]
-    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    public async Task Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
@@ -106,13 +106,13 @@ public class FormidableInputBaseTests : BunitContext
     // The other half: once the committed value above is followed by blur, the engine is notified
     // and the live pass that was withheld on change now runs.
     [Fact]
-    public void Blur_mode_notifies_the_engine_on_blur()
+    public async Task Blur_mode_notifies_the_engine_on_blur()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change(new string('x', 11));
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
@@ -122,14 +122,14 @@ public class FormidableInputBaseTests : BunitContext
     // OnFieldChanged, touches nothing, and paints no state class. An unconditional blur
     // notification breaks all three.
     [Fact]
-    public void A_blur_with_no_committed_change_notifies_nothing()
+    public async Task A_blur_with_no_committed_change_notifies_nothing()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnBlur);
         var notifications = 0;
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         Assert.Equal(0, notifications);
         Assert.False(form.Instance.Engine!.GetFieldState(
@@ -141,20 +141,20 @@ public class FormidableInputBaseTests : BunitContext
     // it, and the second blur — with nothing committed in between — delivers nothing. Notifying
     // per blur, or delivering without disarming, breaks the final count.
     [Fact]
-    public void A_second_blur_after_one_commit_notifies_once()
+    public async Task A_second_blur_after_one_commit_notifies_once()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnBlur);
         var notifications = 0;
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
 
-        form.Find("input").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
         Assert.Equal(0, notifications);
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
         form.WaitForAssertion(() => Assert.Equal(1, notifications));
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
         Assert.Equal(1, notifications);
     }
 
@@ -162,29 +162,29 @@ public class FormidableInputBaseTests : BunitContext
     // events produce — arm one notification, delivered once at the next blur. Notifying per
     // commit breaks the count.
     [Fact]
-    public void Two_commits_before_one_blur_notify_once()
+    public async Task Two_commits_before_one_blur_notify_once()
     {
         var order = new EngineOrder();
         var form = RenderInput(order, InputUpdateMode.OnBlur);
         var notifications = 0;
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
 
-        form.Find("input").Change("first");
-        form.Find("input").Change("second");
+        await form.InvokeAsync(() => form.Find("input").Change("first"));
+        await form.InvokeAsync(() => form.Find("input").Change("second"));
         Assert.Equal(0, notifications);
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Equal(1, notifications));
     }
 
     [Fact]
-    public void Aria_attributes_reflect_error_state()
+    public async Task Aria_attributes_reflect_error_state()
     {
         var order = new EngineOrder { Description = new string('x', 11) };
         var form = RenderInput(order);
 
-        form.Find("input").Change(order.Description); // same value; still triggers validation
+        await form.InvokeAsync(() => form.Find("input").Change(order.Description)); // same value; still triggers validation
 
         form.WaitForAssertion(() =>
         {
@@ -200,12 +200,12 @@ public class FormidableInputBaseTests : BunitContext
     // Mutation that must break it: gating on "any issue" instead of error severity — the field
     // below would then read aria-invalid="true" for a warning.
     [Fact]
-    public void Aria_invalid_is_written_for_error_severity_only()
+    public async Task Aria_invalid_is_written_for_error_severity_only()
     {
         var order = new EngineOrder { Description = "abc-def" };
         var form = RenderInput(order);
 
-        form.Find("input").Change(order.Description); // same value; still triggers validation
+        await form.InvokeAsync(() => form.Find("input").Change(order.Description)); // same value; still triggers validation
 
         form.WaitForAssertion(() =>
         {
@@ -245,12 +245,12 @@ public class FormidableInputBaseTests : BunitContext
     // would silently kill the invalid/valid styling); a splatted `id` must LOSE, because messages,
     // aria-describedby and the focus service all address the field by its deterministic id.
     [Fact]
-    public void Splatted_class_merges_with_the_computed_state_class()
+    public async Task Splatted_class_merges_with_the_computed_state_class()
     {
         var order = new EngineOrder();
         var form = RenderInputWithAttributes(order, ("class", "form-control"));
 
-        form.Find("input").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
 
         form.WaitForAssertion(() =>
         {
@@ -277,12 +277,12 @@ public class FormidableInputBaseTests : BunitContext
     // it, and appending keeps the hint at the head of the announced sequence across the
     // clean-to-erroring transition instead of reshuffling it.
     [Fact]
-    public void Splatted_describedby_merges_with_the_computed_messages_id_while_the_field_has_issues()
+    public async Task Splatted_describedby_merges_with_the_computed_messages_id_while_the_field_has_issues()
     {
         var order = new EngineOrder();
         var form = RenderInputWithAttributes(order, ("aria-describedby", "order-hint"));
 
-        form.Find("input").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
 
         form.WaitForAssertion(() =>
         {
@@ -323,7 +323,7 @@ public class FormidableInputBaseTests : BunitContext
     // IsFixed=false (the sequence regresses to the pre-commit value after the fresh commit render)
     // and passes once the cascade is IsFixed=true.
     [Fact]
-    public void A_bare_input_is_never_handed_back_the_value_it_just_replaced()
+    public async Task A_bare_input_is_never_handed_back_the_value_it_just_replaced()
     {
         var order = new EngineOrder();
         var cut = Render(builder =>
@@ -336,7 +336,7 @@ public class FormidableInputBaseTests : BunitContext
         var tracker = cut.FindComponent<ValueTrackingInput>().Instance;
         tracker.RenderedValues.Clear(); // only the renders caused by the commit below matter
 
-        cut.Find("input").Change("hello");
+        await cut.InvokeAsync(() => cut.Find("input").Change("hello"));
 
         cut.WaitForAssertion(() => Assert.Contains("hello", tracker.RenderedValues));
 

@@ -94,12 +94,12 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void Change_updates_model_and_triggers_live_validation()
+    public async Task Change_updates_model_and_triggers_live_validation()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order);
 
-        form.Find("select").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
@@ -117,12 +117,12 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void Aria_attributes_reflect_error_state()
+    public async Task Aria_attributes_reflect_error_state()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order);
 
-        form.Find("select").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
 
         form.WaitForAssertion(() =>
         {
@@ -133,12 +133,12 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void Splatted_class_merges_with_the_computed_state_class()
+    public async Task Splatted_class_merges_with_the_computed_state_class()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, attributes: ("class", "form-select"));
 
-        form.Find("select").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
 
         form.WaitForAssertion(() =>
         {
@@ -170,7 +170,7 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void Input_mode_coerces_to_change_and_still_triggers_live_validation()
+    public async Task Input_mode_coerces_to_change_and_still_triggers_live_validation()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, InputUpdateMode.OnInput);
@@ -178,7 +178,7 @@ public class FormidableInputSelectTests : BunitContext
         // A <select> has no meaningful "input" event distinct from "change"; OnInput coerces to
         // OnChange, so firing the DOM "change" event both commits the value and starts the live
         // pass immediately, exactly as the default mode does.
-        form.Find("select").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
@@ -189,12 +189,12 @@ public class FormidableInputSelectTests : BunitContext
     // max) commits to the model but starts no live pass, and the class stays exactly what an
     // untouched field renders (empty; see FormidableCss.Compute).
     [Fact]
-    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    public async Task Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
 
-        form.Find("select").Change(new string('x', 11));
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
 
         form.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         Assert.Equal(string.Empty, form.Find("select").GetAttribute("class"));
@@ -203,13 +203,13 @@ public class FormidableInputSelectTests : BunitContext
     // The other half: once the committed value above is followed by blur, the engine is notified
     // and the live pass that was withheld on change now runs.
     [Fact]
-    public void Blur_mode_notifies_the_engine_on_blur()
+    public async Task Blur_mode_notifies_the_engine_on_blur()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
 
-        form.Find("select").Change(new string('x', 11));
-        form.Find("select").Blur();
+        await form.InvokeAsync(() => form.Find("select").Change(new string('x', 11)));
+        await form.InvokeAsync(() => form.Find("select").Blur());
 
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("select").GetAttribute("class")));
     }
@@ -218,14 +218,14 @@ public class FormidableInputSelectTests : BunitContext
     // change delivers nothing — no OnFieldChanged, no touch, no state class. An unconditional
     // blur notification breaks all three.
     [Fact]
-    public void A_select_blur_with_no_committed_change_notifies_nothing()
+    public async Task A_select_blur_with_no_committed_change_notifies_nothing()
     {
         var order = new EngineOrder();
         var form = RenderColourSelect(order, InputUpdateMode.OnBlur);
         var notifications = 0;
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
 
-        form.Find("select").Blur();
+        await form.InvokeAsync(() => form.Find("select").Blur());
 
         Assert.Equal(0, notifications);
         Assert.False(form.Instance.Engine!.GetFieldState(
@@ -259,7 +259,7 @@ public class FormidableInputSelectTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
 
-        form.Find("select").Change("Red"); // starts the live pass; GatedValidator's async rule blocks on Gate
+        await form.InvokeAsync(() => form.Find("select").Change("Red")); // starts the live pass; GatedValidator's async rule blocks on Gate
 
         form.WaitForAssertion(() => Assert.Contains("formidable-pending", form.Find("select").GetAttribute("class")));
 
@@ -269,40 +269,40 @@ public class FormidableInputSelectTests : BunitContext
     }
 
     [Fact]
-    public void Enum_conversion_parity_with_native_InputSelect()
+    public async Task Enum_conversion_parity_with_native_InputSelect()
     {
         var ticket = new Ticket();
         var form = RenderPrioritySelect(ticket);
 
-        form.Find("select").Change("Medium");
+        await form.InvokeAsync(() => form.Find("select").Change("Medium"));
 
         form.WaitForAssertion(() => Assert.Equal(Priority.Medium, ticket.Priority));
     }
 
     [Fact]
-    public void Blank_option_parses_to_null_for_a_nullable_enum()
+    public async Task Blank_option_parses_to_null_for_a_nullable_enum()
     {
         var ticket = new Ticket { Priority = Priority.High };
         var form = RenderPrioritySelect(ticket);
 
-        form.Find("select").Change("");
+        await form.InvokeAsync(() => form.Find("select").Change(""));
 
         form.WaitForAssertion(() => Assert.Null(ticket.Priority));
     }
 
     [Fact]
-    public void Unparseable_value_leaves_the_model_unchanged()
+    public async Task Unparseable_value_leaves_the_model_unchanged()
     {
         var ticket = new Ticket { Priority = Priority.Low };
         var form = RenderPrioritySelect(ticket);
 
-        form.Find("select").Change("NotAPriority");
+        await form.InvokeAsync(() => form.Find("select").Change("NotAPriority"));
 
         Assert.Equal(Priority.Low, ticket.Priority);
     }
 
     [Fact]
-    public void Unsupported_value_type_throws_like_native_InputSelect()
+    public async Task Unsupported_value_type_throws_like_native_InputSelect()
     {
         var widget = new Widget();
         var cut = Render(builder =>
@@ -322,10 +322,8 @@ public class FormidableInputSelectTests : BunitContext
             builder.CloseComponent();
         });
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-        {
-            cut.Find("select").Change("x");
-        });
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            cut.InvokeAsync(() => cut.Find("select").Change("x")));
         Assert.Contains("does not support the type", ex.Message);
     }
 

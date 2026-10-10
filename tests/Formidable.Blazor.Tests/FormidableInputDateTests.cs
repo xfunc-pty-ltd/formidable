@@ -126,12 +126,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Change_updates_model_and_triggers_live_validation()
+    public async Task Change_updates_model_and_triggers_live_validation()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip);
 
-        form.Find("input").Change("1999-01-01"); // fails TripValidator's GreaterThan rule
+        await form.InvokeAsync(() => form.Find("input").Change("1999-01-01")); // fails TripValidator's GreaterThan rule
 
         form.WaitForAssertion(() => Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
@@ -149,12 +149,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Aria_attributes_reflect_error_state()
+    public async Task Aria_attributes_reflect_error_state()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip);
 
-        form.Find("input").Change("1999-01-01");
+        await form.InvokeAsync(() => form.Find("input").Change("1999-01-01"));
 
         form.WaitForAssertion(() =>
         {
@@ -165,12 +165,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Splatted_class_merges_with_the_computed_state_class()
+    public async Task Splatted_class_merges_with_the_computed_state_class()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip, attributes: ("class", "form-control"));
 
-        form.Find("input").Change("1999-01-01");
+        await form.InvokeAsync(() => form.Find("input").Change("1999-01-01"));
 
         form.WaitForAssertion(() =>
         {
@@ -181,12 +181,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Input_mode_binds_oninput()
+    public async Task Input_mode_binds_oninput()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip, InputUpdateMode.OnInput);
 
-        form.Find("input").Input("2026-05-05");
+        await form.InvokeAsync(() => form.Find("input").Input("2026-05-05"));
 
         form.WaitForAssertion(() => Assert.Equal(new DateTime(2026, 5, 5), trip.ReturnDate));
     }
@@ -195,25 +195,25 @@ public class FormidableInputDateTests : BunitContext
     // Chromium per-segment "change" event, but no live pass runs until blur — so a half-typed
     // date never flashes a stale verdict.
     [Fact]
-    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    public async Task Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change("1999-01-01");
+        await form.InvokeAsync(() => form.Find("input").Change("1999-01-01"));
 
         form.WaitForAssertion(() => Assert.Equal(new DateTime(1999, 1, 1), trip.ReturnDate));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
     }
 
     [Fact]
-    public void Blur_mode_notifies_the_engine_on_blur()
+    public async Task Blur_mode_notifies_the_engine_on_blur()
     {
         var trip = new Trip();
         var form = RenderReturnDate(trip, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change("1999-01-01");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("1999-01-01"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
@@ -243,7 +243,7 @@ public class FormidableInputDateTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<Trip>>();
 
-        form.Find("input").Change("2026-05-05"); // starts the live pass; the gated async rule blocks on Gate
+        await form.InvokeAsync(() => form.Find("input").Change("2026-05-05")); // starts the live pass; the gated async rule blocks on Gate
 
         form.WaitForAssertion(() => Assert.Contains("formidable-pending", form.Find("input").GetAttribute("class")));
 
@@ -253,12 +253,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Unparseable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
+    public async Task Unparseable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
     {
         var trip = new Trip { ReturnDate = new DateTime(2026, 3, 7) };
         var form = RenderReturnDate(trip);
 
-        form.Find("input").Change("not-a-date");
+        await form.InvokeAsync(() => form.Find("input").Change("not-a-date"));
 
         Assert.Equal(new DateTime(2026, 3, 7), trip.ReturnDate);
 
@@ -268,12 +268,12 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Emptied_non_nullable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
+    public async Task Emptied_non_nullable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
     {
         var trip = new Trip { ReturnDate = new DateTime(2026, 3, 7) };
         var form = RenderReturnDate(trip);
 
-        form.Find("input").Change("");
+        await form.InvokeAsync(() => form.Find("input").Change(""));
 
         Assert.Equal(new DateTime(2026, 3, 7), trip.ReturnDate);
 
@@ -283,18 +283,18 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Emptied_nullable_value_commits_null()
+    public async Task Emptied_nullable_value_commits_null()
     {
         var trip = new Trip { DepartureDate = new DateOnly(2026, 3, 7) };
         var form = RenderDepartureDate(trip);
 
-        form.Find("input").Change("");
+        await form.InvokeAsync(() => form.Find("input").Change(""));
 
         form.WaitForAssertion(() => Assert.Null(trip.DepartureDate));
     }
 
     [Fact]
-    public void DateOnly_conversion_is_culture_invariant_not_culture_sensitive()
+    public async Task DateOnly_conversion_is_culture_invariant_not_culture_sensitive()
     {
         var original = CultureInfo.CurrentCulture;
         try
@@ -307,7 +307,7 @@ public class FormidableInputDateTests : BunitContext
             var trip = new Trip();
             var form = RenderDepartureDate(trip);
 
-            form.Find("input").Change("2024-01-15");
+            await form.InvokeAsync(() => form.Find("input").Change("2024-01-15"));
 
             form.WaitForAssertion(() => Assert.Equal(new DateOnly(2024, 1, 15), trip.DepartureDate));
         }
@@ -340,18 +340,18 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void Emptied_nullable_DateTimeOffset_value_commits_null()
+    public async Task Emptied_nullable_DateTimeOffset_value_commits_null()
     {
         var trip = new Trip { BookedAt = new DateTimeOffset(2026, 3, 7, 0, 0, 0, TimeSpan.Zero) };
         var form = RenderBookedAt(trip);
 
-        form.Find("input").Change("");
+        await form.InvokeAsync(() => form.Find("input").Change(""));
 
         form.WaitForAssertion(() => Assert.Null(trip.BookedAt));
     }
 
     [Fact]
-    public void DateTimeOffset_conversion_is_culture_invariant_not_culture_sensitive()
+    public async Task DateTimeOffset_conversion_is_culture_invariant_not_culture_sensitive()
     {
         var original = CultureInfo.CurrentCulture;
         try
@@ -369,7 +369,7 @@ public class FormidableInputDateTests : BunitContext
             var trip = new Trip();
             var form = RenderBookedAt(trip);
 
-            form.Find("input").Change("2024-01-15");
+            await form.InvokeAsync(() => form.Find("input").Change("2024-01-15"));
 
             var expectedOffset = TimeZoneInfo.Local.GetUtcOffset(new DateTime(2024, 1, 15));
             form.WaitForAssertion(() => Assert.Equal(new DateTimeOffset(2024, 1, 15, 0, 0, 0, expectedOffset), trip.BookedAt));
@@ -381,7 +381,7 @@ public class FormidableInputDateTests : BunitContext
     }
 
     [Fact]
-    public void A_half_typed_year_still_parses_as_a_valid_iso_date_the_page_recommends_OnBlur_for_this()
+    public async Task A_half_typed_year_still_parses_as_a_valid_iso_date_the_page_recommends_OnBlur_for_this()
     {
         // Documents the known Chromium per-segment "change" firing behaviour: a syntactically
         // well-formed but implausible partial year is not this component's business to reject —
@@ -391,7 +391,7 @@ public class FormidableInputDateTests : BunitContext
         var trip = new Trip();
         var form = RenderReturnDate(trip);
 
-        form.Find("input").Change("0019-01-15");
+        await form.InvokeAsync(() => form.Find("input").Change("0019-01-15"));
 
         form.WaitForAssertion(() => Assert.Equal(new DateTime(19, 1, 15), trip.ReturnDate));
     }

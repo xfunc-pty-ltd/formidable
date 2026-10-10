@@ -306,7 +306,7 @@ public class HandlerThrowBoundaryTests : BunitContext
             : cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         await Settle(cut);
         Assert.NotEmpty(engine.EditContext.GetValidationMessages(description));

@@ -125,19 +125,19 @@ public class DictionaryEntryValidityTests : BunitContext
     [InlineData("ReadOnlyDictionary", true)]
     [InlineData("AnswerSheet", false)]
     [InlineData("AnswerSheet", true)]
-    public void A_cleared_entry_never_wears_green_before_or_after_a_blocked_submit(string shape, bool native)
+    public async Task A_cleared_entry_never_wears_green_before_or_after_a_blocked_submit(string shape, bool native)
     {
         var entries = RenderShape(shape, native);
 
-        entries.Input("b").Change("");
+        await entries.Cut.InvokeAsync(() => entries.Input("b").Change(""));
         Settle(entries);
-        entries.Input("title").Change("Survey 2");
+        await entries.Cut.InvokeAsync(() => entries.Input("title").Change("Survey 2"));
         Settle(entries);
 
         Assert.Contains("formidable-valid", entries.Class("title"));
         AssertNeverGreen(entries, "b");
 
-        Submit(entries);
+        await SubmitAsync(entries);
 
         Assert.False(entries.Engine.GetFieldState(entries.Title).HasErrors);
         Assert.Contains("formidable-valid", entries.Class("title"));
@@ -151,7 +151,7 @@ public class DictionaryEntryValidityTests : BunitContext
     // and dropping the logged warning from the engine's suppressed-issue report (no warning names
     // Answers[1]).
     [Fact]
-    public void A_blocked_submit_over_a_failing_entry_names_it_by_position_in_its_warning()
+    public async Task A_blocked_submit_over_a_failing_entry_names_it_by_position_in_its_warning()
     {
         var loggerProvider = new CapturingLoggerProvider();
         Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
@@ -169,12 +169,12 @@ public class DictionaryEntryValidityTests : BunitContext
         Settle(entries);
         Assert.True(entries.Engine.IsFormValid);
 
-        entries.Input("b").Change("");
+        await entries.Cut.InvokeAsync(() => entries.Input("b").Change(""));
         Settle(entries);
 
         Assert.False(entries.Engine.IsFormValid);
 
-        Submit(entries);
+        await SubmitAsync(entries);
 
         Assert.NotNull(outcome);
         Assert.False(outcome.CanProceed);
@@ -198,17 +198,17 @@ public class DictionaryEntryValidityTests : BunitContext
     [InlineData("List", true)]
     [InlineData("Array", false)]
     [InlineData("Array", true)]
-    public void A_passing_value_keeps_green_on_a_list_row_and_an_array_element(string collection, bool native)
+    public async Task A_passing_value_keeps_green_on_a_list_row_and_an_array_element(string collection, bool native)
     {
         var rows = collection == "List" ? RenderList(native) : RenderArray(native);
 
-        rows.Input("1").Change("z");
+        await rows.Cut.InvokeAsync(() => rows.Input("1").Change("z"));
         Settle(rows);
 
         Assert.Contains("formidable-valid", rows.Class("1"));
         Assert.True(rows.Engine.GetFieldState(rows.Field("1")).WouldPassSubmit);
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.Contains("formidable-valid", rows.Class("1"));
         Assert.True(rows.Engine.GetFieldState(rows.Field("1")).WouldPassSubmit);
@@ -473,9 +473,9 @@ public class DictionaryEntryValidityTests : BunitContext
     }
 
     /// <summary>Submits and waits for the submit's answer to render.</summary>
-    private static void Submit(Rendered rendered)
+    private static async Task SubmitAsync(Rendered rendered)
     {
-        rendered.Cut.Find("form").Submit();
+        await rendered.Cut.InvokeAsync(() => rendered.Cut.Find("form").Submit());
         rendered.Cut.WaitForState(() => rendered.Engine.HasSubmitted && !rendered.Engine.IsValidating);
     }
 

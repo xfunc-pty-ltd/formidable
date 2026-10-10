@@ -441,7 +441,8 @@ public class FormidableSummaryDisplayTests : BunitContext
             Assert.Equal("formidable-summary__link", button.GetAttribute("class"));
         });
 
-        buttons[0].Click();
+        await form.InvokeAsync(() =>
+            form.Find("ul.formidable-summary__group--error").QuerySelectorAll("li.formidable-summary__item > button")[0].Click());
 
         form.WaitForAssertion(() => Assert.Single(_focus.Requests));
         var field = Assert.Single(_focus.Requests);
@@ -461,7 +462,7 @@ public class FormidableSummaryDisplayTests : BunitContext
         var form = RenderSummary((_, _) => { });
 
         Submit(form);
-        form.FindAll("button.formidable-summary__link")[2].Click();
+        await form.InvokeAsync(() => form.FindAll("button.formidable-summary__link")[2].Click());
 
         form.WaitForAssertion(() => Assert.Single(_focus.Requests));
         var field = Assert.Single(_focus.Requests);
@@ -495,7 +496,7 @@ public class FormidableSummaryDisplayTests : BunitContext
         var button = host.Find("li.formidable-summary__item > button");
         Assert.Equal(expected, button.TextContent);
 
-        button.Click();
+        await host.InvokeAsync(() => host.Find("li.formidable-summary__item > button").Click());
 
         host.WaitForAssertion(() => Assert.Single(_focus.Requests));
         Assert.Equal(entry.Field, Assert.Single(_focus.Requests));

@@ -111,49 +111,49 @@ public class FormidableInputDomSyncTests : BunitContext
     }
 
     [Fact]
-    public void Number_blur_rewrites_the_dom_value_to_the_model()
+    public async Task Number_blur_rewrites_the_dom_value_to_the_model()
     {
         var booking = new Booking { Seats = 3 };
         var form = RenderSeats(booking);
 
         // The browser reports an unparseable entry as "": the model keeps 3, but the box keeps
         // displaying what was typed. Blur is where the control writes the model's value back.
-        form.Find("input").Change("not-a-number");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("not-a-number"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         var expectedId = FormidableFieldId.For(new FieldIdentifier(booking, nameof(Booking.Seats)));
         form.WaitForAssertion(() => Assert.Equal([(expectedId, "3")], _domSync.Calls));
     }
 
     [Fact]
-    public void Number_blur_syncs_null_as_the_cleared_value()
+    public async Task Number_blur_syncs_null_as_the_cleared_value()
     {
         var booking = new Booking { Price = 12.5m };
         var form = RenderPrice(booking);
 
         // For a nullable field the reported-empty commit legitimately lands null — the sync
         // carries null so the ghost text is cleared rather than restored.
-        form.Find("input").Change("");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change(""));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         var expectedId = FormidableFieldId.For(new FieldIdentifier(booking, nameof(Booking.Price)));
         form.WaitForAssertion(() => Assert.Equal([(expectedId, (string?)null)], _domSync.Calls));
     }
 
     [Fact]
-    public void Date_blur_rewrites_the_dom_value_to_the_model()
+    public async Task Date_blur_rewrites_the_dom_value_to_the_model()
     {
         var outing = new Outing { Day = new DateOnly(2024, 1, 15) };
         var form = RenderOuting(outing);
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         var expectedId = FormidableFieldId.For(new FieldIdentifier(outing, nameof(Outing.Day)));
         form.WaitForAssertion(() => Assert.Equal([(expectedId, "2024-01-15")], _domSync.Calls));
     }
 
     [Fact]
-    public void Blur_mode_syncs_before_notifying_the_engine()
+    public async Task Blur_mode_syncs_before_notifying_the_engine()
     {
         var outing = new Outing { Day = new DateOnly(2024, 1, 15) };
         var form = RenderOuting(outing, InputUpdateMode.OnBlur);
@@ -163,8 +163,8 @@ public class FormidableInputDomSyncTests : BunitContext
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("notify");
 
         // The committed change arms the notification the blur delivers.
-        form.Find("input").Change("2024-02-20");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("2024-02-20"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         // The DOM is reconciled before the engine is told the field settled, so the live pass
         // renders against a box that already matches the model.
@@ -172,7 +172,7 @@ public class FormidableInputDomSyncTests : BunitContext
     }
 
     [Fact]
-    public void A_splatted_onblur_runs_before_the_sync()
+    public async Task A_splatted_onblur_runs_before_the_sync()
     {
         var log = new List<string>();
         _domSync.OnSync = () => log.Add("sync");
@@ -181,7 +181,7 @@ public class FormidableInputDomSyncTests : BunitContext
         var form = RenderSeats(booking, attributes: ("onblur",
             EventCallback.Factory.Create<FocusEventArgs>(this, () => log.Add("consumer"))));
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         // Binding blur for the sync must not swallow a consumer's own handler: it chains first,
         // the same contract InputUpdateMode.OnBlur documents.
@@ -189,14 +189,15 @@ public class FormidableInputDomSyncTests : BunitContext
     }
 
     [Fact]
-    public void Text_input_binds_no_blur_outside_blur_mode()
+    public async Task Text_input_binds_no_blur_outside_blur_mode()
     {
         var outing = new Outing();
         var form = RenderOuting(outing, textInput: true);
 
         // A text input's DOM never disagrees with what it reports, so the sync stays scoped to
         // the two controls whose DOM can lie — no blur handler is bound here.
-        Assert.Throws<MissingEventHandlerException>(() => form.Find("input").Blur());
+        await Assert.ThrowsAsync<MissingEventHandlerException>(() =>
+            form.InvokeAsync(() => form.Find("input").Blur()));
         Assert.Empty(_domSync.Calls);
     }
 }

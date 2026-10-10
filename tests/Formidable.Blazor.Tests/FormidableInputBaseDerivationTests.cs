@@ -74,12 +74,12 @@ public class FormidableInputBaseDerivationTests : BunitContext
     }
 
     [Fact]
-    public void Derived_control_commits_its_value_and_takes_the_state_class()
+    public async Task Derived_control_commits_its_value_and_takes_the_state_class()
     {
         var feedback = new Feedback();
         var form = RenderRating(feedback, ("class", "rating"));
 
-        form.Find("input").Change("9"); // outside the draft rule's 1..5
+        await form.InvokeAsync(() => form.Find("input").Change("9")); // outside the draft rule's 1..5
 
         form.WaitForAssertion(() => Assert.Equal(9, feedback.Rating));
         form.WaitForAssertion(() =>
@@ -100,7 +100,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
     /// like <c>aria-invalid</c> and the pre-pass assertion fails alone.
     /// </summary>
     [Fact]
-    public void Derived_control_gets_the_aria_wiring()
+    public async Task Derived_control_gets_the_aria_wiring()
     {
         var feedback = new Feedback();
         var form = RenderRating(feedback);
@@ -110,7 +110,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
         Assert.Null(clean.GetAttribute("aria-invalid"));
         Assert.Null(clean.GetAttribute("aria-describedby"));
 
-        form.Find("input").Change("9");
+        await form.InvokeAsync(() => form.Find("input").Change("9"));
 
         form.WaitForAssertion(() =>
         {
@@ -219,7 +219,7 @@ public class FormidableInputBaseDerivationTests : BunitContext
     // delivered before the sync would start a live pass against a box that does not yet match
     // the model. The mutation that breaks it is reordering HandleBlurAsync.
     [Fact]
-    public void A_syncing_deriver_sees_splat_then_sync_then_notification_on_blur()
+    public async Task A_syncing_deriver_sees_splat_then_sync_then_notification_on_blur()
     {
         var feedback = new Feedback();
         var log = new List<string>();
@@ -246,10 +246,10 @@ public class FormidableInputBaseDerivationTests : BunitContext
         var form = cut.FindComponent<FormidableForm<Feedback>>();
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("notify");
 
-        cut.Find("input").Change("9"); // commits under OnBlur; arms the notification, delivers nothing
+        await cut.InvokeAsync(() => cut.Find("input").Change("9")); // commits under OnBlur; arms the notification, delivers nothing
         Assert.DoesNotContain("notify", log);
 
-        cut.Find("input").Blur();
+        await cut.InvokeAsync(() => cut.Find("input").Blur());
 
         cut.WaitForAssertion(() => Assert.Equal(new[] { "splat", "sync", "notify" }, log));
     }

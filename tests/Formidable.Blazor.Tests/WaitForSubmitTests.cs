@@ -125,8 +125,10 @@ public class WaitForSubmitTests : BunitContext
         builder.CloseComponent();
     }
 
-    // The dispatcher runs one piece of work at a time, so a no-op queued behind the change handler
-    // completes only once that handler (commit, notification and the synchronous live pass) has.
+    // The dispatcher runs one piece of work at a time. This no-op completes only once the work
+    // queued ahead of it has, such as a round posted past a render batch. By the time a change
+    // fired inside InvokeAsync completes, its handler's synchronous part (commit, notification and
+    // the synchronous live pass) has run.
     private static Task Settle<TComponent>(IRenderedComponent<TComponent> cut)
         where TComponent : IComponent =>
         cut.InvokeAsync(() => { });
@@ -208,7 +210,7 @@ public class WaitForSubmitTests : BunitContext
         var form = RenderForm(order, waitForSubmit);
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        form.Find("input").Change(TooLong);
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong));
         await Settle(form);
 
         Assert.Equal(TooLong, order.Description);
@@ -244,11 +246,11 @@ public class WaitForSubmitTests : BunitContext
         var order = new EngineOrder();
         var form = RenderForm(order, waitForSubmit: true);
 
-        form.Find("input").Change(TooLong);
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong));
         await Settle(form);
         Assert.Empty(form.FindAll("ul.formidable-message-list li"));
 
-        form.Find("form").Submit();
+        await form.InvokeAsync(() => form.Find("form").Submit());
 
         form.WaitForAssertion(() =>
         {
@@ -272,10 +274,10 @@ public class WaitForSubmitTests : BunitContext
         var order = new EngineOrder();
         var form = RenderForm(order, waitForSubmit: true);
 
-        form.Find("input").Change("ok");
+        await form.InvokeAsync(() => form.Find("input").Change("ok"));
         form.WaitForAssertion(() => Assert.Contains("formidable-valid", form.Find("input").GetAttribute("class")));
 
-        form.Find("input").Change(TooLong);
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong));
         await Settle(form);
         form.WaitForAssertion(() => Assert.Equal(string.Empty, form.Find("input").GetAttribute("class") ?? string.Empty));
 
@@ -293,7 +295,7 @@ public class WaitForSubmitTests : BunitContext
         var order = new EngineOrder();
         var form = RenderForm(order, waitForSubmit: true);
 
-        form.Find("input").Change("abc");
+        await form.InvokeAsync(() => form.Find("input").Change("abc"));
         form.WaitForAssertion(() => Assert.Contains("formidable-pending", form.Find("input").GetAttribute("class")));
 
         await form.InvokeAsync(() => validator.Gate.SetResult());
@@ -330,7 +332,7 @@ public class WaitForSubmitTests : BunitContext
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        form.Find("input[data-name=plain]").Change(TooLong);
+        await form.InvokeAsync(() => form.Find("input[data-name=plain]").Change(TooLong));
         form.WaitForAssertion(() =>
         {
             Assert.Contains(form.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
@@ -380,7 +382,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = form.Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        form.Find("input[data-name=plain]").Change(TooLong);
+        await form.InvokeAsync(() => form.Find("input[data-name=plain]").Change(TooLong));
         await Settle(form);
         AssertQuiet(cut, engine.EditContext, description);
 
@@ -405,14 +407,14 @@ public class WaitForSubmitTests : BunitContext
         var order = new EngineOrder();
         var form = RenderForm(order, waitForSubmit: true);
 
-        form.Find("input").Change(TooLong);
-        form.Find("form").Submit();
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong));
+        await form.InvokeAsync(() => form.Find("form").Submit());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("ul.formidable-message-list li")));
 
         await form.InvokeAsync(() => form.Instance.ResetAsync());
         form.WaitForAssertion(() => Assert.False(form.Instance.Engine!.HasSubmitted));
 
-        form.Find("input").Change(TooLong + "y");
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong + "y"));
         await Settle(form);
 
         Assert.True(form.Instance.Engine!.GetFieldState(new FieldIdentifier(order, nameof(EngineOrder.Description))).IsModified);
@@ -440,8 +442,8 @@ public class WaitForSubmitTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<EngineOrder>>();
 
-        form.Find("input").Change(TooLong);
-        form.Find("form").Submit();
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong));
+        await form.InvokeAsync(() => form.Find("form").Submit());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("ul.formidable-message-list li")));
         Assert.True(form.Instance.Engine!.HasSubmitted);
 
@@ -452,7 +454,7 @@ public class WaitForSubmitTests : BunitContext
             .Add(p => p.ChildContent, secondContent));
         form.WaitForAssertion(() => Assert.False(form.Instance.Engine!.HasSubmitted));
 
-        form.Find("input").Change(TooLong + "y");
+        await form.InvokeAsync(() => form.Find("input").Change(TooLong + "y"));
         await Settle(form);
 
         Assert.True(form.Instance.Engine!.GetFieldState(new FieldIdentifier(second, nameof(EngineOrder.Description))).IsModified);
@@ -502,7 +504,7 @@ public class WaitForSubmitTests : BunitContext
         var validator = cut.FindComponent<FormidableValidator<EngineOrder>>();
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await cut.InvokeAsync(() => { });
         Assert.True(validator.Instance.Engine!.GetFieldState(description).IsModified);
 
@@ -523,7 +525,7 @@ public class WaitForSubmitTests : BunitContext
             Assert.Contains(cut.FindAll("ul.formidable-summary__group--error li"), li => li.TextContent.Contains("10"));
         });
 
-        cut.Find("input").Change(TooLong + "yy");
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong + "yy"));
 
         cut.WaitForAssertion(() =>
             Assert.Contains(cut.FindAll("ul.formidable-message-list li"), li => li.TextContent.Contains("13")));
@@ -543,14 +545,14 @@ public class WaitForSubmitTests : BunitContext
         var engine = form.Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        form.Find("input").Input(TooLong);
+        await form.InvokeAsync(() => form.Find("input").Input(TooLong));
         await Settle(form);
 
         Assert.Equal(TooLong, order.Description);
         Assert.True(engine.GetFieldState(description).IsModified);
         AssertQuiet(form, engine.EditContext, description);
 
-        form.Find("form").Submit();
+        await form.InvokeAsync(() => form.Find("form").Submit());
 
         form.WaitForAssertion(() => AssertShowing(form, engine.EditContext, description, nativeMessage: false));
 
@@ -577,7 +579,7 @@ public class WaitForSubmitTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         var input = cut.FindComponent<FormidableInputText>().Instance;
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         cut.WaitForAssertion(() => AssertShowing(cut, engine.EditContext, description, nativeMessage: true));
 
         host.Render(parameters => parameters.Add(p => p.Wait, true));
@@ -608,7 +610,7 @@ public class WaitForSubmitTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         var input = cut.FindComponent<FormidableInputText>().Instance;
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         Assert.True(engine.GetFieldState(description).IsModified);
         AssertQuiet(cut, engine.EditContext, description);
@@ -639,7 +641,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         cut.WaitForAssertion(() => AssertShowing(cut, engine.EditContext, description, nativeMessage: true));
 
         nested.Render(parameters => parameters.Add(p => p.Wait, true));
@@ -671,7 +673,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input[data-name=plain]").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input[data-name=plain]").Change(TooLong));
         cut.WaitForAssertion(() =>
         {
             Assert.Contains(cut.FindAll("div.validation-message"), div => div.TextContent.Contains("10"));
@@ -713,7 +715,7 @@ public class WaitForSubmitTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
         nested.Render(parameters => parameters.Add(p => p.Wait, true));
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         Assert.True(engine.GetFieldState(description).IsModified);
         AssertQuiet(cut, engine.EditContext, description);
@@ -759,7 +761,7 @@ public class WaitForSubmitTests : BunitContext
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
         nested.Render(parameters => parameters.Add(p => p.Wait, true));
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         AssertQuiet(cut, engine.EditContext, description);
 
@@ -798,7 +800,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableValidator<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         cut.WaitForAssertion(() => AssertShowing(cut, engine.EditContext, description, nativeMessage: true));
 
         host.Render(parameters => parameters.Add(p => p.Wait, true));
@@ -855,14 +857,14 @@ public class WaitForSubmitTests : BunitContext
         var engine = form.Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(form);
 
         Assert.True(engine.GetFieldState(description).IsModified);
         Assert.Equal("0", cut.Find("input").GetAttribute("data-issues"));
         AssertQuiet(cut, engine.EditContext, description);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() =>
         {
@@ -910,7 +912,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = form.Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(form);
 
         Assert.True(engine.GetFieldState(description).IsModified);
@@ -918,7 +920,7 @@ public class WaitForSubmitTests : BunitContext
         Assert.DoesNotContain("formidable-invalid", cut.Find("input").GetAttribute("class") ?? string.Empty);
         Assert.Empty(cut.FindAll("ul.formidable-summary__group--error li"));
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() =>
         {
@@ -976,7 +978,7 @@ public class WaitForSubmitTests : BunitContext
         Assert.Empty(cut.FindAll("ul.formidable-summary__group--error li"));
         Assert.Empty(engine.EditContext.GetValidationMessages(itemsField));
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
 
         cut.WaitForAssertion(() =>
         {
@@ -1009,7 +1011,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong));
         await Settle(cut);
         AssertQuiet(cut, engine.EditContext, description);
 
@@ -1024,7 +1026,7 @@ public class WaitForSubmitTests : BunitContext
         // The plain registration ends the retention's hold, and that change re-renders the input
         // from a round posted past the render batch; it runs before the input is found.
         await Settle(cut);
-        cut.Find("input").Change(TooLong + "y");
+        await cut.InvokeAsync(() => cut.Find("input").Change(TooLong + "y"));
 
         cut.WaitForAssertion(() => AssertShowing(cut, engine.EditContext, description, nativeMessage: false));
         Assert.False(engine.HasSubmitted);
@@ -1065,7 +1067,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input[data-name=row]").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input[data-name=row]").Change(TooLong));
         await Settle(cut);
         Assert.True(engine.GetFieldState(description).IsModified);
         AssertNothingShows(cut, engine.EditContext, description);
@@ -1120,7 +1122,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input[data-name=row]").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input[data-name=row]").Change(TooLong));
         await Settle(cut);
         AssertNothingShows(cut, engine.EditContext, description);
 
@@ -1148,7 +1150,7 @@ public class WaitForSubmitTests : BunitContext
         Assert.Single(cut.FindAll("input"));
         AssertNothingShows(cut, engine.EditContext, description);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() =>
         {
             Assert.Contains(cut.FindAll("div.waiting-row ul.formidable-message-list li"), li => li.TextContent.Contains("10"));
@@ -1180,7 +1182,7 @@ public class WaitForSubmitTests : BunitContext
         var engine = cut.FindComponent<FormidableForm<EngineOrder>>().Instance.Engine!;
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Find("input[data-name=row]").Change(TooLong);
+        await cut.InvokeAsync(() => cut.Find("input[data-name=row]").Change(TooLong));
         await Settle(cut);
         AssertNothingShows(cut, engine.EditContext, description);
 
@@ -1197,7 +1199,7 @@ public class WaitForSubmitTests : BunitContext
             AssertNothingShows(cut, engine.EditContext, description);
         }
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForAssertion(() =>
         {
             Assert.Contains(cut.FindAll("div.waiting-row ul.formidable-message-list li"), li => li.TextContent.Contains("10"));
@@ -1281,7 +1283,7 @@ public class WaitForSubmitTests : BunitContext
 
         for (var i = 0; i < order.Items.Count; i++)
         {
-            cut.Find($"input[data-name=plain-{i}]").Change($"sku-{i}");
+            await cut.InvokeAsync(() => cut.Find($"input[data-name=plain-{i}]").Change($"sku-{i}"));
         }
 
         await Settle(cut);

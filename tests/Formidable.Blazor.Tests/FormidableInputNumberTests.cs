@@ -120,12 +120,12 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Change_updates_model_and_triggers_live_validation()
+    public async Task Change_updates_model_and_triggers_live_validation()
     {
         var booking = new Booking();
         var form = RenderSeats(booking);
 
-        form.Find("input").Change("20");
+        await form.InvokeAsync(() => form.Find("input").Change("20"));
 
         form.WaitForAssertion(() => Assert.Equal(20, booking.Seats));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
@@ -143,12 +143,12 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Aria_attributes_reflect_error_state()
+    public async Task Aria_attributes_reflect_error_state()
     {
         var booking = new Booking();
         var form = RenderSeats(booking);
 
-        form.Find("input").Change("20");
+        await form.InvokeAsync(() => form.Find("input").Change("20"));
 
         form.WaitForAssertion(() =>
         {
@@ -159,12 +159,12 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Splatted_class_merges_with_the_computed_state_class()
+    public async Task Splatted_class_merges_with_the_computed_state_class()
     {
         var booking = new Booking();
         var form = RenderSeats(booking, attributes: ("class", "form-control"));
 
-        form.Find("input").Change("20");
+        await form.InvokeAsync(() => form.Find("input").Change("20"));
 
         form.WaitForAssertion(() =>
         {
@@ -175,36 +175,36 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Input_mode_binds_oninput()
+    public async Task Input_mode_binds_oninput()
     {
         var booking = new Booking();
         var form = RenderSeats(booking, InputUpdateMode.OnInput);
 
-        form.Find("input").Input("4");
+        await form.InvokeAsync(() => form.Find("input").Input("4"));
 
         form.WaitForAssertion(() => Assert.Equal(4, booking.Seats));
     }
 
     [Fact]
-    public void Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
+    public async Task Blur_mode_commits_the_value_on_change_without_starting_a_live_pass()
     {
         var booking = new Booking();
         var form = RenderSeats(booking, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change("20");
+        await form.InvokeAsync(() => form.Find("input").Change("20"));
 
         form.WaitForAssertion(() => Assert.Equal(20, booking.Seats));
         Assert.Equal(string.Empty, form.Find("input").GetAttribute("class"));
     }
 
     [Fact]
-    public void Blur_mode_notifies_the_engine_on_blur()
+    public async Task Blur_mode_notifies_the_engine_on_blur()
     {
         var booking = new Booking();
         var form = RenderSeats(booking, InputUpdateMode.OnBlur);
 
-        form.Find("input").Change("20");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("20"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
@@ -213,7 +213,7 @@ public class FormidableInputNumberTests : BunitContext
     // contract), so the following blur syncs the box back to the model without delivering any
     // notification. Arming the blur-time notification on a failed parse breaks the count.
     [Fact]
-    public void An_unparseable_change_then_blur_syncs_without_notifying()
+    public async Task An_unparseable_change_then_blur_syncs_without_notifying()
     {
         var booking = new Booking { Seats = 3 };
         var form = RenderSeats(booking, InputUpdateMode.OnBlur);
@@ -221,8 +221,8 @@ public class FormidableInputNumberTests : BunitContext
         var notifications = 0;
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => notifications++;
 
-        form.Find("input").Change("not-a-number");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("not-a-number"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         var expectedId = FormidableFieldId.For(new FieldIdentifier(booking, nameof(Booking.Seats)));
         form.WaitForAssertion(() => Assert.Equal([(expectedId, "3")], domSync.Calls));
@@ -254,7 +254,7 @@ public class FormidableInputNumberTests : BunitContext
         });
         var form = cut.FindComponent<FormidableForm<Booking>>();
 
-        form.Find("input").Change("4"); // starts the live pass; the gated async rule blocks on Gate
+        await form.InvokeAsync(() => form.Find("input").Change("4")); // starts the live pass; the gated async rule blocks on Gate
 
         form.WaitForAssertion(() => Assert.Contains("formidable-pending", form.Find("input").GetAttribute("class")));
 
@@ -264,12 +264,12 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Unparseable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
+    public async Task Unparseable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
     {
         var booking = new Booking { Seats = 3 };
         var form = RenderSeats(booking);
 
-        form.Find("input").Change("not-a-number");
+        await form.InvokeAsync(() => form.Find("input").Change("not-a-number"));
 
         Assert.Equal(3, booking.Seats);
 
@@ -281,12 +281,12 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Emptied_non_nullable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
+    public async Task Emptied_non_nullable_value_leaves_the_model_unchanged_and_the_rendered_value_reverts()
     {
         var booking = new Booking { Seats = 3 };
         var form = RenderSeats(booking);
 
-        form.Find("input").Change("");
+        await form.InvokeAsync(() => form.Find("input").Change(""));
 
         Assert.Equal(3, booking.Seats);
 
@@ -296,18 +296,18 @@ public class FormidableInputNumberTests : BunitContext
     }
 
     [Fact]
-    public void Emptied_nullable_value_commits_null()
+    public async Task Emptied_nullable_value_commits_null()
     {
         var booking = new Booking { Price = 12.5m };
         var form = RenderPrice(booking);
 
-        form.Find("input").Change("");
+        await form.InvokeAsync(() => form.Find("input").Change(""));
 
         form.WaitForAssertion(() => Assert.Null(booking.Price));
     }
 
     [Fact]
-    public void Decimal_conversion_is_culture_invariant_not_culture_sensitive()
+    public async Task Decimal_conversion_is_culture_invariant_not_culture_sensitive()
     {
         var original = CultureInfo.CurrentCulture;
         try
@@ -320,7 +320,7 @@ public class FormidableInputNumberTests : BunitContext
             var booking = new Booking();
             var form = RenderPrice(booking);
 
-            form.Find("input").Change("12.5");
+            await form.InvokeAsync(() => form.Find("input").Change("12.5"));
 
             form.WaitForAssertion(() => Assert.Equal(12.5m, booking.Price));
         }
@@ -336,7 +336,7 @@ public class FormidableInputNumberTests : BunitContext
     // FormidableInputBindingTests) survives through this overload too. A committed change
     // precedes the blur so a notification is pending for the chain's library half to deliver.
     [Fact]
-    public void A_splatted_onblur_runs_before_the_library_notifies_the_engine()
+    public async Task A_splatted_onblur_runs_before_the_library_notifies_the_engine()
     {
         var booking = new Booking();
         var log = new List<string>();
@@ -344,8 +344,8 @@ public class FormidableInputNumberTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
-        form.Find("input").Change("4");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("4"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Equal(["consumer", "library"], log));
     }

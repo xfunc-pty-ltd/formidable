@@ -51,7 +51,7 @@ public class FormidableInputBindingTests : BunitContext
     // the field actually resolved (registration, aria and focus all key off it), and the live pass
     // proves the registration reached the engine rather than merely not throwing.
     [Fact]
-    public void Bind_only_markup_resolves_the_field_and_validates()
+    public async Task Bind_only_markup_resolves_the_field_and_validates()
     {
         var order = new EngineOrder();
         var cut = Render(builder =>
@@ -63,7 +63,7 @@ public class FormidableInputBindingTests : BunitContext
 
         Assert.Equal(ExpectedId(order), cut.Find("input").GetAttribute("id"));
 
-        cut.Find("input").Change(new string('x', 11));
+        await cut.InvokeAsync(() => cut.Find("input").Change(new string('x', 11)));
 
         cut.WaitForAssertion(() => Assert.Equal(new string('x', 11), order.Description));
         cut.WaitForAssertion(() => Assert.Contains("formidable-invalid", cut.Find("input").GetAttribute("class")));
@@ -115,7 +115,7 @@ public class FormidableInputBindingTests : BunitContext
     // EditContext.OnFieldChanged is the library half's own event, so the recorded order is the
     // real dispatch order rather than a proxy for it.
     [Fact]
-    public void A_splatted_onblur_runs_before_the_library_notifies_the_engine()
+    public async Task A_splatted_onblur_runs_before_the_library_notifies_the_engine()
     {
         var order = new EngineOrder();
         var log = new List<string>();
@@ -128,8 +128,8 @@ public class FormidableInputBindingTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
-        form.Find("input").Change("committed");
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change("committed"));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Equal(["consumer", "library"], log));
     }
@@ -138,7 +138,7 @@ public class FormidableInputBindingTests : BunitContext
     // of them: @onblur in Razor markup compiles to an EventCallback<FocusEventArgs>, while markup
     // assembled by hand can pass the untyped EventCallback or a bare delegate of either arity.
     [Fact]
-    public void Every_handler_shape_a_splatted_onblur_can_carry_is_invoked()
+    public async Task Every_handler_shape_a_splatted_onblur_can_carry_is_invoked()
     {
         var log = new List<string>();
         (string Name, Func<Action, object> Build)[] shapes =
@@ -170,7 +170,7 @@ public class FormidableInputBindingTests : BunitContext
                 ("UpdateOn", InputUpdateMode.OnBlur),
                 ("onblur", build(() => log.Add(name))));
 
-            form.Find("input").Blur();
+            await form.InvokeAsync(() => form.Find("input").Blur());
             lastForm = form;
         }
 
@@ -180,7 +180,7 @@ public class FormidableInputBindingTests : BunitContext
     // The same chain, reached through the other shapes a splat can carry: a plain delegate rather
     // than the EventCallback the Razor compiler emits for @onblur.
     [Fact]
-    public void A_splatted_onblur_delegate_is_invoked_and_the_live_pass_still_runs()
+    public async Task A_splatted_onblur_delegate_is_invoked_and_the_live_pass_still_runs()
     {
         var order = new EngineOrder();
         var log = new List<string>();
@@ -192,8 +192,8 @@ public class FormidableInputBindingTests : BunitContext
             ("UpdateOn", InputUpdateMode.OnBlur),
             ("onblur", (Action)(() => log.Add("consumer"))));
 
-        form.Find("input").Change(new string('x', 11));
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Equal(["consumer"], log));
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
@@ -220,8 +220,8 @@ public class FormidableInputBindingTests : BunitContext
 
         form.Instance.Engine!.EditContext.OnFieldChanged += (_, _) => log.Add("library");
 
-        form.Find("input").Change("committed");
-        var blur = form.Find("input").BlurAsync(new FocusEventArgs());
+        await form.InvokeAsync(() => form.Find("input").Change("committed"));
+        var blur = form.InvokeAsync(() => form.Find("input").BlurAsync(new FocusEventArgs()));
         Assert.Empty(log);
 
         gate.SetResult();
@@ -233,7 +233,7 @@ public class FormidableInputBindingTests : BunitContext
     // A string splat is an ordinary HTML attribute value, not a .NET handler — there is nothing to
     // chain, so the library's own handler is all that runs and the commit must survive it.
     [Fact]
-    public void A_splatted_onblur_string_leaves_the_library_handler_alone()
+    public async Task A_splatted_onblur_string_leaves_the_library_handler_alone()
     {
         var order = new EngineOrder();
         var form = RenderInput(
@@ -244,8 +244,8 @@ public class FormidableInputBindingTests : BunitContext
             ("UpdateOn", InputUpdateMode.OnBlur),
             ("onblur", "console.log('blur')"));
 
-        form.Find("input").Change(new string('x', 11));
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Change(new string('x', 11)));
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Contains("formidable-invalid", form.Find("input").GetAttribute("class")));
     }
@@ -254,7 +254,7 @@ public class FormidableInputBindingTests : BunitContext
     // renders no onblur of its own, so a splatted handler is the only one on the element and
     // reaches the DOM untouched.
     [Fact]
-    public void A_splatted_onblur_passes_through_untouched_in_the_combined_modes()
+    public async Task A_splatted_onblur_passes_through_untouched_in_the_combined_modes()
     {
         var order = new EngineOrder();
         var log = new List<string>();
@@ -264,7 +264,7 @@ public class FormidableInputBindingTests : BunitContext
             ("Value", order.Description),
             ("onblur", EventCallback.Factory.Create<FocusEventArgs>(this, () => log.Add("consumer"))));
 
-        form.Find("input").Blur();
+        await form.InvokeAsync(() => form.Find("input").Blur());
 
         form.WaitForAssertion(() => Assert.Equal(["consumer"], log));
     }

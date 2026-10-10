@@ -73,11 +73,11 @@ public class ScalarRowIdentityTests : BunitContext
     [InlineData("List", true)]
     [InlineData("Array", false)]
     [InlineData("Array", true)]
-    public void A_failing_row_shows_its_message_at_its_own_input_after_a_blocked_submit(string collection, bool native)
+    public async Task A_failing_row_shows_its_message_at_its_own_input_after_a_blocked_submit(string collection, bool native)
     {
         var rows = Rows(collection, native, "", "ok");
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
         Assert.Contains("formidable-invalid", rows.Class(0));
@@ -90,12 +90,12 @@ public class ScalarRowIdentityTests : BunitContext
     // row's own field. Mutation that must break it: the identity mutation, and the summary reads
     // "This form".
     [Fact]
-    public void A_blocked_submit_names_a_failing_row_by_its_display_name()
+    public async Task A_blocked_submit_names_a_failing_row_by_its_display_name()
     {
         SubmitOutcome? outcome = null;
         var rows = Rows("List", native: false, ["", "ok"], onInvalid: c => outcome = c.Outcome);
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.NotNull(outcome);
         Assert.Equal(["Tags"], outcome.VisibleErrorSummary);
@@ -112,12 +112,12 @@ public class ScalarRowIdentityTests : BunitContext
     [InlineData("List", true)]
     [InlineData("Array", false)]
     [InlineData("Array", true)]
-    public void A_committed_empty_value_leaves_the_row_invalid_and_never_valid(string collection, bool native)
+    public async Task A_committed_empty_value_leaves_the_row_invalid_and_never_valid(string collection, bool native)
     {
         var rows = Rows(collection, native, "", "ok");
 
-        rows.Input(0).Change("x");
-        rows.Input(0).Change("");
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change("x"));
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change(""));
 
         rows.Cut.WaitForAssertion(() => Assert.Contains("formidable-invalid", rows.Class(0)));
         Assert.DoesNotContain("formidable-valid", rows.Class(0));
@@ -229,7 +229,7 @@ public class ScalarRowIdentityTests : BunitContext
     // Mutation that must break it: drop the dictionary exclusion from the list test, and key 1's
     // passing input turns invalid and shows the message.
     [Fact]
-    public void A_failing_ordered_dictionary_entry_reaches_no_key_s_input()
+    public async Task A_failing_ordered_dictionary_entry_reaches_no_key_s_input()
     {
         var model = new OrderedAnswers();
         model.Answers.Add(1, "fine");
@@ -251,7 +251,7 @@ public class ScalarRowIdentityTests : BunitContext
         });
         var engine = cut.FindComponent<FormidableForm<OrderedAnswers>>().Instance.Engine!;
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
 
         var key1 = cut.Find("[data-cell=\"1\"] input");
@@ -288,12 +288,12 @@ public class ScalarRowIdentityTests : BunitContext
     [Theory]
     [InlineData(nameof(CellGridEachRowValidator))]
     [InlineData(nameof(CellGridNestedForEachValidator))]
-    public void A_nested_scalar_collection_shows_each_cell_s_message_at_its_own_input(string spelling)
+    public async Task A_nested_scalar_collection_shows_each_cell_s_message_at_its_own_input(string spelling)
     {
         var model = new CellGrid { Matrix = [["a", ""], ["", "b"]] };
         var (cut, engine) = RenderGrid(model, spelling);
 
-        cut.Find("form").Submit();
+        await cut.InvokeAsync(() => cut.Find("form").Submit());
         cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
 
         Assert.Equal([CellGridEachRowValidator.Required], CellMessages(cut, "0-1"));
@@ -363,7 +363,7 @@ public class ScalarRowIdentityTests : BunitContext
     public async Task Removing_a_failing_row_after_a_blocked_submit_leaves_the_row_that_moves_up_clean(bool native)
     {
         var rows = Rows("List", native, "", "ok");
-        Submit(rows);
+        await SubmitAsync(rows);
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
 
         await rows.Cut.InvokeAsync(() => rows.Context.RemoveItem((ICollection<string?>)rows.Collection, ""));
@@ -388,7 +388,7 @@ public class ScalarRowIdentityTests : BunitContext
     public async Task Removing_a_passing_row_moves_a_failing_value_up_and_it_speaks_at_the_next_submit(bool native)
     {
         var rows = Rows("List", native, "ok", "");
-        Submit(rows);
+        await SubmitAsync(rows);
         Assert.Equal([MustNotBeEmpty], rows.Messages(1));
         Assert.Empty(rows.Messages(0));
 
@@ -401,7 +401,7 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.DoesNotContain("formidable-invalid", rows.Class(0));
         Assert.False(rows.Engine.GetFieldState(rows.Field(0)).WouldPassSubmit);
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
         Assert.Contains("formidable-invalid", rows.Class(0));
@@ -420,7 +420,7 @@ public class ScalarRowIdentityTests : BunitContext
     public async Task A_failing_value_moved_by_a_reorder_shows_its_message_at_the_next_submit(string collection, bool native)
     {
         var rows = Rows(collection, native, "", "ok");
-        Submit(rows);
+        await SubmitAsync(rows);
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
 
         await rows.Cut.InvokeAsync(() => rows.Context.Edit(() =>
@@ -434,7 +434,7 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.DoesNotContain("formidable-invalid", rows.Class(1));
         Assert.False(rows.Engine.GetFieldState(rows.Field(1)).WouldPassSubmit);
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.Equal([MustNotBeEmpty], rows.Messages(1));
         Assert.Contains("formidable-invalid", rows.Class(1));
@@ -473,7 +473,7 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.Empty(unkeyed.Cut.FindAll("[data-row=\"0\"] .formidable-required"));
         Assert.Null(unkeyed.Input(0).GetAttribute("aria-required"));
         Assert.Equal(string.Empty, unkeyed.Collection[0]);
-        Submit(unkeyed);
+        await SubmitAsync(unkeyed);
         Assert.Empty(unkeyed.Messages(0));
         Assert.Equal([unkeyed.Engine.Options.DefensiveGateMessage], unkeyed.Engine.GetVisibleIssues().Select(v => v.Issue.Message));
     }
@@ -489,7 +489,7 @@ public class ScalarRowIdentityTests : BunitContext
     {
         var model = new ArrayTags { Tags = ["", "ok"] };
         var rows = RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ArrayEach(), native: false, onInvalid: null, keyByCollection: true, withIndicator: true);
-        Submit(rows);
+        await SubmitAsync(rows);
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
 
         await rows.Cut.InvokeAsync(() => rows.Context.Edit(() => model.Tags = [.. model.Tags, string.Empty]));
@@ -509,7 +509,7 @@ public class ScalarRowIdentityTests : BunitContext
             Assert.Equal("true", rows.Input(row).GetAttribute("aria-required"));
         }
 
-        Submit(rows);
+        await SubmitAsync(rows);
 
         Assert.Equal([MustNotBeEmpty], rows.Messages(0));
         Assert.Equal([MustNotBeEmpty], rows.Messages(2));
@@ -527,7 +527,7 @@ public class ScalarRowIdentityTests : BunitContext
     {
         var model = new ArrayTags { Tags = ["ok", "ok"] };
         var rows = RenderRows(model, () => model.Tags, i => () => model.Tags[i], new ArrayEach(), native: false, onInvalid: null, keyByCollection: true);
-        rows.Input(0).Change("");
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change(""));
         rows.Cut.WaitForAssertion(() => Assert.Equal([MustNotBeEmpty], rows.Messages(0)));
 
         await rows.Cut.InvokeAsync(() => rows.Context.Edit(() => model.Tags = [.. model.Tags, "x"]));
@@ -537,10 +537,10 @@ public class ScalarRowIdentityTests : BunitContext
         Assert.Empty(rows.Messages(0));
         Assert.DoesNotContain("formidable-invalid", rows.Class(0));
 
-        rows.Input(0).Change("x");
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change("x"));
         await SettleAsync(rows);
         Assert.Empty(rows.Messages(0));
-        rows.Input(0).Change("");
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change(""));
 
         rows.Cut.WaitForAssertion(() => Assert.Equal([MustNotBeEmpty], rows.Messages(0)));
         Assert.Contains("formidable-invalid", rows.Class(0));
@@ -598,7 +598,7 @@ public class ScalarRowIdentityTests : BunitContext
 
         await cut.InvokeAsync(() => captured.Value!.Edit(() => model.Matrix[0] = [.. model.Matrix[0]]));
         cut.WaitForState(() => !engine.IsValidating);
-        cut.Find("[data-cell=\"0-0\"] input").Change("");
+        await cut.InvokeAsync(() => cut.Find("[data-cell=\"0-0\"] input").Change(""));
         cut.WaitForState(() => !engine.IsValidating);
 
         Assert.Equal(string.Empty, model.Matrix[0][0]);
@@ -611,7 +611,7 @@ public class ScalarRowIdentityTests : BunitContext
         {
             Assert.Empty(CellMessages(cut, "0-0"));
             Assert.DoesNotContain("formidable-invalid", cut.Find("[data-cell=\"0-0\"] input").GetAttribute("class") ?? string.Empty);
-            cut.Find("form").Submit();
+            await cut.InvokeAsync(() => cut.Find("form").Submit());
             cut.WaitForState(() => engine.HasSubmitted && !engine.IsValidating);
             Assert.Empty(CellMessages(cut, "0-0"));
             Assert.Equal([engine.Options.DefensiveGateMessage], engine.GetVisibleIssues().Select(v => v.Issue.Message));
@@ -629,15 +629,15 @@ public class ScalarRowIdentityTests : BunitContext
         await SettleAsync(rows);
         Assert.Equal(2, rows.Cut.FindAll("[data-row]").Count);
 
-        rows.Input(0).Change("");
+        await rows.Cut.InvokeAsync(() => rows.Input(0).Change(""));
         await SettleAsync(rows);
         return rows;
     }
 
     /// <summary>Submits and waits for the submit's answer to render.</summary>
-    private static void Submit(RenderedRows rows)
+    private static async Task SubmitAsync(RenderedRows rows)
     {
-        rows.Cut.Find("form").Submit();
+        await rows.Cut.InvokeAsync(() => rows.Cut.Find("form").Submit());
         rows.Cut.WaitForState(() => rows.Engine.HasSubmitted && !rows.Engine.IsValidating);
     }
 

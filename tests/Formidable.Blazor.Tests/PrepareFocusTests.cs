@@ -300,7 +300,7 @@ public class PrepareFocusTests : BunitContext
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".formidable-summary__link")));
         Assert.Empty(_focus.Requests);
 
-        await cut.Find(".formidable-summary__link").ClickAsync(new());
+        await cut.InvokeAsync(() => cut.Find(".formidable-summary__link").ClickAsync(new()));
 
         var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
         Assert.Equal(customer, Assert.Single(probe.Fields));
@@ -358,7 +358,7 @@ public class PrepareFocusTests : BunitContext
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".formidable-summary__link")));
 
         var exception = await Record.ExceptionAsync(
-            () => cut.Find(".formidable-summary__link").ClickAsync(new()));
+            () => cut.InvokeAsync(() => cut.Find(".formidable-summary__link").ClickAsync(new())));
 
         Assert.Null(exception);
         Assert.Equal(
@@ -436,7 +436,7 @@ public class PrepareFocusTests : BunitContext
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".formidable-summary__link")));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => cut.Find(".formidable-summary__link").ClickAsync(new()));
+            () => cut.InvokeAsync(() => cut.Find(".formidable-summary__link").ClickAsync(new())));
 
         Assert.Equal("dialog", exception.Message);
         Assert.Empty(_focus.Requests);

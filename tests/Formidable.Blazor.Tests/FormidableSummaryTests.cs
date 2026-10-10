@@ -406,7 +406,7 @@ public class FormidableSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
 
-        form.FindAll("button.formidable-summary__link")[0].Click();
+        await form.InvokeAsync(() => form.FindAll("button.formidable-summary__link")[0].Click());
 
         form.WaitForAssertion(() => JSInterop.VerifyInvoke("focusField"));
 
@@ -451,7 +451,7 @@ public class FormidableSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
 
-        form.FindAll("button.formidable-summary__link")[0].Click();
+        await form.InvokeAsync(() => form.FindAll("button.formidable-summary__link")[0].Click());
 
         form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
 
@@ -481,7 +481,7 @@ public class FormidableSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
 
-        form.FindAll("button.formidable-summary__link")[0].Click();
+        await form.InvokeAsync(() => form.FindAll("button.formidable-summary__link")[0].Click());
 
         form.WaitForAssertion(() => Assert.Equal(0, fallbackCalls));
 
@@ -511,7 +511,7 @@ public class FormidableSummaryTests : BunitContext
         _ = form.InvokeAsync(() => form.Instance.SubmitAsync());
         form.WaitForAssertion(() => Assert.NotEmpty(form.FindAll("button.formidable-summary__link")));
 
-        form.FindAll("button.formidable-summary__link")[0].Click();
+        await form.InvokeAsync(() => form.FindAll("button.formidable-summary__link")[0].Click());
 
         form.WaitForAssertion(() => Assert.Equal(1, fallbackCalls));
 

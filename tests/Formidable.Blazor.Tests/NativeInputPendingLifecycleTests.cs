@@ -41,7 +41,7 @@ public class NativeInputPendingLifecycleTests : BunitContext
             builder.CloseComponent();
         });
 
-        cut.Find("input").Change("hi"); // starts the live pass; GatedValidator's async rule blocks on Gate
+        await cut.InvokeAsync(() => cut.Find("input").Change("hi")); // starts the live pass; GatedValidator's async rule blocks on Gate
 
         cut.WaitForAssertion(() =>
             Assert.Contains("formidable-pending", cut.Find("input").GetAttribute("class")));

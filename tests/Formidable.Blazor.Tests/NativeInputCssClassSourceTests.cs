@@ -24,7 +24,7 @@ public class NativeInputCssClassSourceTests : BunitContext
     /// <c>formidable-invalid</c> while the Formidable one beside it moves to <c>is-invalid</c>.
     /// </summary>
     [Fact]
-    public void Replacing_the_class_map_reaches_a_native_input_and_a_kit_one_together()
+    public async Task Replacing_the_class_map_reaches_a_native_input_and_a_kit_one_together()
     {
         var order = new EngineOrder();
         var options = new FormidableOptions();
@@ -59,7 +59,7 @@ public class NativeInputCssClassSourceTests : BunitContext
 
         // EngineOrderValidator's draft rule caps Description at ten characters, so this fails
         // both inputs at once and synchronously.
-        cut.FindAll("input")[0].Change("far more than ten characters");
+        await cut.InvokeAsync(() => cut.FindAll("input")[0].Change("far more than ten characters"));
 
         cut.WaitForAssertion(() =>
         {
@@ -72,7 +72,7 @@ public class NativeInputCssClassSourceTests : BunitContext
         // case a provider holding its construction instance could not follow.
         options.CssClasses = new FormidableCssClasses { Invalid = "is-invalid" };
 
-        cut.FindAll("input")[0].Change("still far more than ten characters");
+        await cut.InvokeAsync(() => cut.FindAll("input")[0].Change("still far more than ten characters"));
 
         cut.WaitForAssertion(() =>
         {
