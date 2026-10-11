@@ -72,6 +72,8 @@ jobs:
           dotnet pack src/Formidable/Formidable.csproj -c Release -o /tmp/formidable-feed
           dotnet pack src/Formidable.Blazor/Formidable.Blazor.csproj -c Release -o /tmp/formidable-feed
           dotnet pack src/Formidable.AspNetCore/Formidable.AspNetCore.csproj -c Release -o /tmp/formidable-feed
+      - name: Pin the consumers to the repository's SDK selection
+        run: cp global.json /tmp/global.json
       - name: Read back the packed version
         id: version
         run: |
@@ -83,9 +85,10 @@ jobs:
         env:
           FORMIDABLE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # The framework is named so that a newer SDK on the runner still makes a net10.0
-          # consumer for the 10.0.0 pins below. A template that does not offer net10.0 fails
-          # here rather than quietly targeting another framework.
+          # The consumers live under /tmp, where the copy of global.json made above gives them
+          # the same SDK selection as the checkout. The framework is named as a second guard:
+          # the 10.0.0 pins below need a net10.0 consumer, and a template that does not offer
+          # net10.0 fails here rather than quietly targeting another framework.
           dotnet new blazorwasm -o consumer-app --empty --framework net10.0
           cd consumer-app
           dotnet new nugetconfig

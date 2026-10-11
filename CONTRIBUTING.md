@@ -37,7 +37,7 @@ docs/                      the reference docs, one file per topic
 
 ## Dev setup
 
-You'll need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+You'll need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The repository's `global.json` selects the newest .NET 10 SDK even when a newer major is installed, so a .NET 10 SDK has to be present.
 
 ```bash
 dotnet build
