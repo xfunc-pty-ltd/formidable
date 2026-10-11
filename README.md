@@ -30,6 +30,9 @@ the [sample](#run-the-sample-locally) (23 pages, one feature each) and
 If you'd rather see it than read about it, there is a [live demo](#live-demo) and a
 [five-minute quickstart](#5-minute-quickstart) below.
 
+Formidable is built and maintained by [xfunc](https://xfunc.com.au/formidable), an Adelaide-based
+software development company, working across Australia.
+
 ## What it is
 
 - **Draft and Submit from one validator** — two lifecycles ship built in: a lenient Draft profile
