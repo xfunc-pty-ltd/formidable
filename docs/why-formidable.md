@@ -14,10 +14,9 @@ against the live object graph. Write that three times and you learn it isn't a w
 missing layer, and you're paying for its absence in instalments.
 
 So I wrote the layer once, with tests, and Formidable is what came out. It was born from a deadline
-rather than a hobby afternoon, and it runs that client's forms today. Battle-tested on exactly one
-real project: that's one more than a demo, and I'd rather give you the number than imply a bigger
-one. The upside of a real project is that month three already happened, so the sharp edges you'd
-normally find then are already filed off.
+rather than a hobby afternoon, and it runs that client's forms today. The upside of a real project
+is that month three already happened, so the sharp edges you'd normally find then are already filed
+off.
 
 ## The receipts
 

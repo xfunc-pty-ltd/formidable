@@ -21,9 +21,9 @@ to do when the server disagrees with the browser. That is the layer I kept rebui
 client form at a time, slightly differently each time. Formidable is that layer, built once and
 covered by tests.
 
-It runs one real client project's forms today. Exactly one: a number I'd rather give you straight
-than round up. What that buys you is a library that met a deadline before it met a README, so the
-awkward parts were found by shipping rather than by guessing. You can run two apps out of this repo:
+It runs a real client project's forms today. What that buys you is a library that met a deadline
+before it met a README, so the awkward parts were found by shipping rather than by guessing. You can
+run two apps out of this repo:
 the [sample](#run-the-sample-locally) (23 pages, one feature each) and
 `samples/Formidable.Tutorial`, which grows a single signup form across six stages.
 
