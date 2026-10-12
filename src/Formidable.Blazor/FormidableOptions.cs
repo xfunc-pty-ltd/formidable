@@ -229,7 +229,11 @@ public sealed class FormidableOptions
     // read back every message still standing.
     public string? InlineMessageLive { get; set; }
 
-    /// <summary>The sentence a blocked submit shows when every failing field is hidden, even where a summary lists their errors. Defaults to <c>"The form cannot be submitted because information that is not currently displayed is invalid."</c>.</summary>
+    /// <summary>The sentence a blocked submit or a rejected server reply shows when every failing field is hidden, even where a summary lists them. Defaults to <c>"The form cannot be submitted because information that is not currently displayed is invalid."</c>.</summary>
+    /// <remarks>
+    /// A live error takes this sentence down only on a field a component registers, or where
+    /// <see cref="DisclosureOverride"/> answers <see langword="true"/> for that error.
+    /// </remarks>
     public string DefensiveGateMessage { get; set; } =
         "The form cannot be submitted because information that is not currently displayed is invalid.";
 

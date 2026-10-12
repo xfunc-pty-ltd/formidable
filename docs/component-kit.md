@@ -689,7 +689,7 @@ field: the field, the issue, and the `DisplayName` a summary entry for the same 
 ## `FormidableModelMessage`
 
 Some verdicts are about the form rather than about any field: the defensive gate's explanation for
-a blocked submit that can show nothing
+a blocked submit or a rejected server reply with no failing field on screen
 ([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)), a server error
 applied with an empty path, and the
 [`ValidationFaultMessage`](options.md#validationfaultmessage) a throwing validator leaves behind,

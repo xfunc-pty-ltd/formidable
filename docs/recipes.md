@@ -1087,8 +1087,8 @@ RuleFor(o => o.Description).NotEmpty().WithName("Order description");
 Three strings a form puts on screen come from the engine rather than from a rule. All three ship in
 English:
 
-- **`DefensiveGateMessage`** is the explanation a blocked submit shows when every field that failed
-  is hidden.
+- **`DefensiveGateMessage`** is the explanation a blocked submit or a rejected server reply shows
+  when every field that failed is hidden.
 - **`ModelLevelDisplayName`** is the name a model-level entry is listed under, in
   `SubmitOutcome.VisibleErrorSummary` and on each visible issue's `DisplayName`.
 - **`ValidationFaultMessage`** is what the form shows when a validator throws during a live check

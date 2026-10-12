@@ -30,7 +30,7 @@ flowchart TD
     S --> R{"Is the field on screen?"}
     R -- "yes" --> SHOW
     R -- "nothing on screen could show it" --> G["The defensive gate explains the block"]
-    V --> SHOW
+    V --> R
     %% An invisible link holds the live branch left of the submit branch, which keeps the
     %% columns in the order the prose introduces them.
     L ~~~ R
@@ -93,7 +93,7 @@ Why: [how the engine works: the live view](how-the-engine-works.md#the-live-view
 
 Because Submit is the disclosure event. At submit, which errors show is decided by what is on
 screen at that moment: a field's error reaches the screen if something is rendering that field,
-and goes on showing until the answer comes clean.
+and goes on showing until the answer comes clean. A clean answer is one with no error in it.
 
 A field behind an unsatisfied `@if`, one no earlier submit or server reply has shown, has nothing
 rendering it, so its error reaches no message component, no summary and no native
@@ -137,6 +137,19 @@ has to reach the user whether or not the client happened to render its field. A 
 what is on screen, and only a `DisclosureOverride` that returns `false` for it hides one. Applying
 a reply also puts the fields it shows under the same watch a blocked submit does.
 
+On a form with no summary, though, an off-screen field's server error shows nowhere, unless a
+message component for that field is still on screen. When no field the reply names is on screen, and
+no other error shows on screen, the form's own message explains the block, as it does for [a blocked
+submit](#why-is-the-submit-blocked-with-no-message-in-sight). That message shows on a form with a
+summary too.
+
+Bring one of those fields back and its message shows at the field, and the form's message gives way.
+Showing the field changes which fields are on screen, and the whole-form re-check that follows
+replaces the server's answer with the form's own. A message no client rule repeats goes at that
+re-check ([below](#why-is-it-still-showing-and-when-does-it-clear)). If that re-check comes back
+clean, the form's message stays down. If the re-check finds an error that nothing on screen shows,
+the form's message comes back.
+
 Advisories in a server reply follow the client's own rule instead: they show only where something
 renders the field, and a hidden one reports `SuppressedIssueDiagnostic`, which a submit's own hidden
 advisories do not. Nothing is stranded by that: an advisory blocks no submit, so hiding one leaves
@@ -178,13 +191,17 @@ announcement the gate exists to make is the one most likely to be dropped
 ([CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why).
 
 The gate gives way the moment there is a real message to give way to: an error on a field something
-renders, a server error arriving, or an answer that comes back clean. Short of one of those, only a
-reset takes it down. A control Formidable does not wrap counts as rendering its field only with
-[an anchor](#formidablefieldanchor-for-raw-and-foreign-controls) beside it.
+renders, a server error on a field on screen, or an answer that comes back clean. A clean answer
+does not take the gate down while a server error still stands off screen. A submit that passes takes
+it down whatever stands. Short of one of those, only a reset takes it down.
+
+A control Formidable does not wrap counts as rendering its field only with [an
+anchor](#formidablefieldanchor-for-raw-and-foreign-controls) beside it.
 
 An edit, and the whole-form re-check that follows one after a submit, leave it standing while
 nothing on screen explains the block. Every submit decides it again from scratch, so it can stand
-at one submit, give way at the next, and come back at the one after that.
+at one submit, give way at the next, and come back at the one after that. A server reply can raise
+it between submits too.
 
 A failure the form is still watching explains the block only while its field is on screen. Hide
 the field and its own message goes with it, so a submit that finds every failing field off screen
@@ -194,11 +211,14 @@ form lists their errors, with the gate's line beside them.
 Bring such a field back and its message returns at once, and the gate gives way with no submit.
 Hide it again and the gate comes back, until the next submit decides it afresh.
 
-So what raises the gate is a blocked submit with no failing field on screen, by one of three
-routes. The first is a field nothing has ever shown, its section still collapsed at the submit
-where everything visible finally passes. The second is a field an earlier submit did show: a
-successful submit has since ended every watch, and a later submit finds the field hidden again.
+So two things raise the gate. One is a blocked submit with no failing field on screen, by one of
+three routes. The first is a field nothing has ever shown, its section still collapsed at the
+submit where everything visible finally passes. The second is a field an earlier submit did show:
+a successful submit has since ended every watch, and a later submit finds the field hidden again.
 The third is a field the form is still watching, hidden again before the next submit.
+
+The other is a server reply whose errors all name fields that are off screen. A summary lists those
+errors, but on a form without one, nothing else would say why the save was refused.
 
 Why: [how the engine works: the gate](how-the-engine-works.md#the-gate-latch).
 

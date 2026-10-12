@@ -276,6 +276,11 @@ reach the user whether or not the client rendered its field. Errors reach the fo
 moment `ApplyServerIssues` runs, with no check that anything renders the field. Only a
 `DisclosureOverride` returning `false` hides one.
 
+On a form with no summary, an off-screen field's server error shows nowhere, unless a message
+component for that field is still on screen. So when no field the reply names is on screen, and no
+other error shows there, the form's own message explains the block, as it does for a blocked submit
+([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
+
 Advisories in the same payload take the same override-aware visibility answer the client's own
 advisories do. A `DisclosureOverride` settles it in either direction, and where none speaks, one
 whose field is on screen shows there and one whose field is not is dropped. An advisory blocks

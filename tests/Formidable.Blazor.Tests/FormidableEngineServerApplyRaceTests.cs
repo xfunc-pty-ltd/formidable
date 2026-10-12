@@ -149,8 +149,9 @@ public class FormidableEngineServerApplyRaceTests
 
     // The submit's own error sits on a field nothing renders, so it discloses nothing and would
     // normally explain the block with the form-level gate. A reply that arrived while it ran
-    // stands, and the gate never shows beside a server error, so the summary names the server's
-    // error: what is on screen, and what focus lands on.
+    // stands on Customer, which is rendered, and the gate never shows beside a server error on a
+    // field on screen, so the summary names the server's error: what is on screen, and what focus
+    // lands on.
     [Fact]
     public async Task A_blocked_submit_a_reply_overtook_names_the_errors_on_screen()
     {
@@ -159,6 +160,7 @@ public class FormidableEngineServerApplyRaceTests
         var editContext = new EditContext(order);
         var options = new FormidableOptions();
         using var engine = Build(order, editContext, validator, new FakeTimeProvider(), options);
+        using var rendered = engine.Registry.Register(new FieldIdentifier(order, nameof(EngineOrder.Customer)));
 
         var submit = engine.ValidateForSubmitAsync();
         engine.ApplyServerIssues([new ValidationIssue("Customer", "Server says no")]);

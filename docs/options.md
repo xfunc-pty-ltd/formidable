@@ -63,7 +63,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`VerifyRowKeys`](#verifyrowkeys) | `bool` | `false` | Throws when a component stops speaking for its field. |
 | [`ReportStaleRegistrations`](#reportstaleregistrations) | `bool` | `false` | Reports that divergence instead of throwing. |
 | [`InlineMessageLive`](#inlinemessagelive) | `string?` | `null` (no attribute) | The `aria-live` politeness every message list carries. |
-| [`DefensiveGateMessage`](#defensivegatemessage) | `string` | `"The form cannot be submitted because information that is not currently displayed is invalid."` | The sentence a blocked submit shows when every failing field is hidden. |
+| [`DefensiveGateMessage`](#defensivegatemessage) | `string` | `"The form cannot be submitted because information that is not currently displayed is invalid."` | The sentence a blocked submit or a rejected server reply shows when every failing field is hidden. |
 | [`ModelLevelDisplayName`](#modelleveldisplayname) | `string` | `"This form"` | The name a fieldless issue is listed under. |
 | [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The form-level message shown when a live check or the whole-form re-check throws. |
 | [`OrderIssues`](#orderissues) | `Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?` | `null` (document order) | Re-sorts the order visible issues are reported in. |
@@ -544,8 +544,8 @@ variant form under *Without a summary* sets it to `"polite"` on options of its o
 ### `DefensiveGateMessage`
 
 `string`, defaults to `"The form cannot be submitted because information that is not currently
-displayed is invalid."`. It is the defensive gate's sentence, which a blocked submit shows when
-every failing field is hidden, even where a summary lists their errors (see
+displayed is invalid."`. It is the defensive gate's sentence, which a blocked submit or a rejected
+server reply shows when every failing field is hidden, even where a summary lists their errors (see
 [Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
 
 A replacement reaches the kit's components, and a direct `GetIssues` or `GetVisibleIssues` call,

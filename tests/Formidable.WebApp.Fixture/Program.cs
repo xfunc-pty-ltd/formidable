@@ -8,10 +8,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Both registrations live in the one container this single-project Web App resolves everything
+// These registrations live in the one container this single-project Web App resolves everything
 // from — the prerender pass, the circuit and the static page alike.
 builder.Services.AddFormidableBlazor();
 builder.Services.AddScoped<IValidator<Contact>, ContactValidator>();
+builder.Services.AddScoped<IValidator<Order>, OrderValidator>();
 
 var app = builder.Build();
 

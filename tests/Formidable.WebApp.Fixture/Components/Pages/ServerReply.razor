@@ -1,0 +1,66 @@
+@*
+    A form that saves from a plain button rather than a submit, and applies what a stand-in server
+    replies. The server checks the order with the form's own rules and answers with every failure,
+    keyed by its path, the shape a server's reply arrives in. The lines and the summary can each be
+    hidden, so a reply can name only lines the page does not show.
+*@
+@page "/server-reply"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using FluentValidation
+@using Formidable
+@inject IValidator<Order> Rules
+
+<h1>Server reply</h1>
+
+<p>
+    <label><input type="checkbox" id="show-lines" checked="@_showLines" @onchange="e => _showLines = (bool)e.Value!" /> Show lines</label>
+    <label><input type="checkbox" id="show-summary" checked="@_showSummary" @onchange="e => _showSummary = (bool)e.Value!" /> Show summary</label>
+</p>
+
+<FormidableForm Model="_order" Context="formidable" @ref="_form">
+    @if (_showSummary)
+    {
+        <FormidableSummary />
+    }
+    <FormidableModelMessage />
+
+    <label>Description
+        <FormidableInputText @bind-Value="_order.Description" />
+    </label>
+    <FormidableFieldMessage For="() => _order.Description" />
+
+    @if (_showLines)
+    {
+        @foreach (var line in _order.Lines)
+        {
+            <div @key="line">
+                <label>SKU
+                    <FormidableInputText @bind-Value="line.Sku" />
+                </label>
+                <FormidableFieldMessage For="() => line.Sku" />
+            </div>
+        }
+    }
+
+    <button type="button" @onclick="SendAsync">Send to server</button>
+</FormidableForm>
+
+<p id="reply">@_reply</p>
+
+@code {
+    private readonly Order _order = new();
+    private FormidableForm<Order>? _form;
+    private bool _showLines = true;
+    private bool _showSummary;
+    private string _reply = string.Empty;
+    private int _sends;
+
+    private async Task SendAsync()
+    {
+        var result = await Rules.ValidateAsync(_order);
+        var issues = result.Errors.Select(e => new ValidationIssue(e.PropertyName, e.ErrorMessage)).ToList();
+        _form!.ApplyServerIssues(issues);
+        _sends++;
+        _reply = $"Reply {_sends} applied.";
+    }
+}

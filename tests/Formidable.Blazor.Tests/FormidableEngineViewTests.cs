@@ -164,13 +164,15 @@ public class FormidableEngineViewTests
         // also reveal a client error the gate would have had to dissolve for anyway. The server
         // source alone is what the assertions below are left reading — the mutation being the
         // loss of the server-source conjunct from the gate predicate, which a field the client
-        // itself fails would go on hiding.
+        // itself fails would go on hiding. Location is registered, so its error is on screen: a
+        // server error on a field nothing renders explains nothing, and leaves the gate standing.
         var order = new EngineOrder();
         var editContext = new EditContext(order);
         var time = new FakeTimeProvider();
         using var engine = Build(order, editContext, new FormidableOptions(), time);
         var modelLevel = new FieldIdentifier(order, string.Empty);
         var location = new FieldIdentifier(order, nameof(EngineOrder.Location));
+        using var rendered = engine.Registry.Register(location);
 
         Assert.False((await engine.ValidateForSubmitAsync()).CanProceed);
         Assert.Contains(engine.GetIssues(modelLevel), i => i.Message.Contains(GateText));

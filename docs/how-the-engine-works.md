@@ -45,7 +45,7 @@ flowchart TD
     RL["Reveal ledgers: error sites and advisory sites"] --> SUB
     SS["Server issue store"] --> SUB
     GA["Gate arming"] --> SUB
-    RF["Rendered field set: which revealed fields render now"] --> SUB
+    RF["Rendered field set: which revealed, server and live-error fields render now"] --> SUB
     LIVE --> READ["Every issue read computes from the views"]
     SUB --> READ
     FI["Fault issue"] --> READ
@@ -109,7 +109,7 @@ Landing replaces the submit channel's source and reveals nothing. It clears the 
 when the edit stamp or the generation it read at begin had moved since the last apply: an edit, a
 load or a field-set move in between.
 
-On a form that has never been submitted the ledgers are empty and the gate unarmed, so a
+On a form no submit or server apply has answered, the ledgers are empty and the gate unarmed, so a
 refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
 and `IsFormValid` alone. Its pending scope names only a field an open `LiveDebounce` window still
 holds, a field edited while a submit ran that did not land, and the fields of a refresh it
@@ -242,9 +242,8 @@ notification anywhere, so `OnRenderedFieldsChanged` empties the store outright a
 generation.
 
 `OnRenderedFieldsChanged` also prunes departed fields from the engaged set and arms a refresh,
-whatever the form's history. When a revealed field's visibility decides the gate, or the move took
-down a gate the store still carries, it republishes the message store as well
-([the gate latch](#the-gate-latch)).
+whatever the form's history. When the move turns the gate on or off, it republishes the message
+store as well ([the gate latch](#the-gate-latch)).
 
 The engine does not hear the registry's `Changed` event, so the root makes that call.
 `FormidableValidator` makes it from a continuation posted past the render batch that changed a
@@ -791,16 +790,20 @@ settle. A holding retention is not a released hold: a plain registration arrivin
 Nothing else reads the hold: `IsFieldValidating`, the submit-coverage vouch behind
 `formidable-valid` and `IsFormValid` never consult it, so a held field that passes still turns
 green, its running check still shows pending, and `IsFormValid` counts a held failure. The gate
-never meets a hold, because only an answered submit arms it, and that submit has already set
-`HasSubmitted`.
+never meets a hold, because only an answered submit or a server apply arms it, and each has
+already set `HasSubmitted`.
 
 ### The gate latch
 
 A blocked submit that disclosed no error on a visible field arms the gate. It disclosed either no
 error at all, or only errors on fields that are off the page now, which an earlier submit or a
-server apply revealed. Any submit that disclosed an error on a visible field, or passed, disarms it. Visible is the reveal's
-own override-aware test ([`DisclosureOverride`](options.md#disclosureoverride) first, rendered
-registration otherwise), asked as the arming runs.
+server apply revealed. A server apply arms it too, when it landed errors and none of them is on a
+visible field.
+
+Any submit that disclosed an error on a visible field, or passed, disarms it, and nothing else
+does: an apply never disarms it. Visible is the reveal's own override-aware test
+([`DisclosureOverride`](options.md#disclosureoverride) first, rendered registration otherwise),
+asked as the arming runs.
 
 Whether the gate shows is a predicate over the sources and the rendered field set, recomputed on
 every read: armed, no server error standing, the submit answer carrying errors, none of them on a
@@ -819,29 +822,33 @@ such a field is on screen.
 A revealed field stays revealed off the page, so the summary keeps listing it and its message is
 back the moment it returns, but it explains the block only while it renders.
 
-A field-set move can therefore change the answer while the gate is armed, no server error stands
-and a revealed field carries an error. `OnRenderedFieldsChanged` rebuilds the store in exactly that
-case (`GateTurnsOnVisibility`), with no pass: a revealed field returning takes the gate down at
-once, and leaving again brings it back.
+A field-set move can therefore change the answer while the gate is armed and a server error stands
+or a revealed field shows its client errors (`GateTurnsOnVisibility`). There
+`OnRenderedFieldsChanged` rebuilds the store, with no pass, when the move flips the gate: when
+`GateActive` no longer matches the gate the store carries (`_storeShowsGate`, which `RebuildStore`
+records). A field returning takes the gate down at once, and leaving again brings it back.
+
+For a server error, the refresh that move arms then replaces the reply, since the move advanced the
+generation ([what replaces the server's answer](#what-replaces-the-servers-answer)), and a
+server-only error goes with it.
 
 Outside the case `GateTurnsOnVisibility` names, a move changes the gate through the live view, or
 through a field nothing registered that starts registering while it carries a live error. The live
 view's own rebuilds (the departure prune's, and the `EngagedAndVisible` republish) cover the first.
 
-For the second, `RebuildStore` records whether it put the gate in the store (`_storeShowsGate`), and
-`OnRenderedFieldsChanged` rebuilds when the store carries a gate the predicate no longer holds. The
-rebuild rewrites the store and notifies, so Blazor's components, which read the store, and the
-kit's, which re-render on the notification, drop the gate at the move with no pass.
+For the second, `OnRenderedFieldsChanged` rebuilds when the store carries a gate the predicate no
+longer holds. The rebuild rewrites the store and notifies, so Blazor's components, which read the
+store, and the kit's, which re-render on the notification, drop the gate at the move with no pass.
 
 The reverse needs no test of its own: at a move, the gate comes back through the live clause only
 when a registered field carrying a live error leaves, and the departure prune drops that verdict
-and rebuilds. A move that changes no gate costs one flag test, and a predicate read only while the
-store carries a gate, so a churning page pays nothing more for the gate.
+and rebuilds. While the gate is unarmed, a move pays it two flag tests; while it is armed, a
+`GateTurnsOnVisibility` read, and a predicate read while that holds or the store carries a gate.
 
 The arming half matters: an error that starts failing on a never-revealed field after a submit
-that disclosed an error on a visible field raises no gate, because no blocked submit was ever short
-an explanation, and on the submit channel the field stays quiet until a submit or a server apply
-reveals it.
+that disclosed an error on a visible field raises no gate, because no blocked submit or apply was
+ever short an explanation, and on the submit channel the field stays quiet until a submit or a
+server apply reveals it.
 
 `FirstErrorFocus` takes the first error in the visible list. Under `FormidableForm`, a reading order
 resolved for the page as it stands holds the form itself and only the fields with an element on
@@ -869,19 +876,20 @@ submit view is not already showing for that field. Advisories never enter the st
 `ValidationMessage` sees errors only.
 
 The rebuild runs at every round that moves what the store projects: a pass's verdict apply, a
-server apply, a fault report, a departure that dropped a filed verdict, a field-set change when a
-revealed field's visibility decides the gate, a field-set change that took down a gate the store
-still carries ([the gate latch](#the-gate-latch)), and under `EngagedAndVisible` a field-set change
-with filed verdicts standing.
+server apply, a fault report, a departure that dropped a filed verdict, a field-set change that
+turns the gate on or off through a revealed field's or a server error's visibility, a field-set
+change that took down a gate the store still carries ([the gate latch](#the-gate-latch)), and
+under `EngagedAndVisible` a field-set change with filed verdicts standing.
 
 A hold starting or stopping before `HasSubmitted`, on a field that is engaged, has an issue filed
 and has not departed, rebuilds nothing. It patches that field's entries alone and requests one
 notification for the render batch ([the live view](#the-live-view)).
 
-The gate latch, though a source, adds no round of its own: it arms and disarms only inside a
-submit's verdict apply, whose rebuild the list above already counts. The two field-set rounds
-that turn on the gate, one while a revealed field's visibility decides it and one that took down
-a gate the store still carries, belong to the gate predicate, which reads which fields render.
+The gate latch, though a source, adds no round of its own: a submit's verdict apply arms or
+disarms it and a server apply arms it, rounds the list above already counts. The two field-set
+rounds that turn on the gate, one when a revealed field's or a server error's visibility flips it
+and one that took down a gate the store still carries, belong to the gate predicate, which reads
+which fields render.
 
 A round that moves only a pass's own state or the submit coverage publishes a notification and
 rebuilds nothing.
@@ -1431,14 +1439,18 @@ views apply when they fold a server copy into a client one).
 
 The field of every landed issue is unioned into the matching reveal ledger, error sites or advisory
 sites ([the reveal ledgers](#the-reveal-ledgers)), which is what makes an apply a disclosure event.
-The store is rebuilt once, at the end of the apply
+
+When the apply landed errors and none of them is on a field the visible test passes, it arms the
+gate, as a blocked submit with nothing on screen does; it never disarms it
+([the gate latch](#the-gate-latch)). The store is rebuilt once, after that
 ([the message-store projection](#the-message-store-projection)).
 
 ### Which issues an apply lands
 
 The apply branches per issue on severity. An error is skipped only when
-[`DisclosureOverride`](options.md#disclosureoverride) answers `false` for it; the registry is never
-consulted, so an error lands whether or not anything renders its field. A skipped server error
+[`DisclosureOverride`](options.md#disclosureoverride) answers `false` for it; the registry is not
+consulted for that, so an error lands whether or not anything renders its field (the gate's arming,
+after the landing, does consult it). A skipped server error
 reaches no diagnostic: the override's no is decided before `ReportSuppressed` and never reaches it.
 
 A non-error issue is dropped when the override-aware visibility answer is no: `IsVisible` asks the
@@ -1479,5 +1491,6 @@ arriving after it, stands until the next edit, field-set move, submit or load.
 
 At read time the submit view merges client-first: `MergeServer` drops a server issue whose message
 and severity both match one the client already shows, and `ExceptShadowed` is the separate,
-message-only filter on the reads ([Read order](#read-order)). While a server error stands the gate
-predicate is false, so the gate never shows beside one ([the gate latch](#the-gate-latch)).
+message-only filter on the reads ([Read order](#read-order)). While a server error stands on a
+field the visible test passes, the gate predicate is false, so the gate never shows beside a server
+error on screen; one off the page counts for nothing there ([the gate latch](#the-gate-latch)).
