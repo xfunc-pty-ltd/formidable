@@ -83,11 +83,13 @@ public interface IFormidableEngine
 
     /// <summary>Validates the whole model under the submit profile, discloses what is on screen, and reports whether the submit may proceed.</summary>
     /// <param name="cancellationToken">Cancels the check.</param>
-    /// <returns>The outcome; blocked, with nothing shown, when a newer submit or load answered in its place (its report empty when the check honoured the cancellation, its own otherwise).</returns>
+    /// <returns>The outcome; blocked, with nothing shown, when a newer submit or load answered in its place (its report empty when the check honoured the cancellation, its own otherwise), and when values were edited during each of its three checks and the last found no error.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the check answered.</exception>
     /// <remarks>
-    /// With <see cref="FormidableOptions.NormalizeOnSubmit"/> on, the model is normalized first.
-    /// Call it from the renderer's synchronization context.
+    /// A value edited while the check runs makes it check again before it reports, at most
+    /// twice, so a submit that may proceed answers for the values the model holds as the check
+    /// ends. With <see cref="FormidableOptions.NormalizeOnSubmit"/> on, the model is normalized
+    /// before each check. Call it from the renderer's synchronization context.
     /// </remarks>
     Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default);
 

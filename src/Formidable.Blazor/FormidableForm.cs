@@ -642,12 +642,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Runs the submit and routes the outcome to <see cref="OnValidSubmit"/> or <see cref="OnInvalidSubmit"/>; the rendered <c>&lt;form&gt;</c>'s own submit runs the same thing.</summary>
-    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place (<see cref="OnInvalidSubmit"/> still fires); blocked and empty, with neither callback, when <see cref="ResetAsync(TModel?)"/> or a different <see cref="Model"/> rebuilt the engine, or the form was disposed, while the submit awaited its answer, and when the form was disposed before the call.</returns>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place, and when values were edited during each of its three checks and the last found no error (<see cref="OnInvalidSubmit"/> still fires); blocked and empty, with neither callback, when <see cref="ResetAsync(TModel?)"/> or a different <see cref="Model"/> rebuilt the engine, or the form was disposed, while the submit awaited its answer, and when the form was disposed before the call.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
-    /// A reset or a disposal while the submit awaits its answer abandons it: neither callback
-    /// fires, focus stays and nothing re-renders. Call it from the renderer's synchronization
-    /// context.
+    /// A value edited while the check runs makes it check again before it reports, at most twice,
+    /// so <see cref="OnValidSubmit"/> runs only on an answer for the values the model holds as
+    /// the check ends. A reset or a disposal while the submit awaits its answer abandons it:
+    /// neither callback fires, focus stays and nothing re-renders. Call it from the renderer's
+    /// synchronization context.
     /// </remarks>
     public async Task<SubmitOutcome> SubmitAsync()
     {

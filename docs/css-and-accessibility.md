@@ -138,11 +138,14 @@ With tracking off, an edit under a window that never closes, before the first su
 reply, starts no check. It takes the green off every other field unless another check is already
 on its way.
 
-The hold across an edit is bounded rather than indefinite: a check still running past thirty
-seconds loses it. A check that throws, or a submit or load its caller cancels, drops both holds
-outright (the answer kept across a row arriving, and the green kept across an edit). A check a newer one replaces is not a drop while a fresh answer is still on its way.
-Until the check behind a held answer lands, the border describes the values that answer was
-computed from.
+The hold across an edit is bounded rather than indefinite: a check still running past thirty seconds
+loses it.
+
+A check that throws, or a submit or load its caller cancels, drops both holds outright (the answer
+kept across a row arriving, and the green kept across an edit). So does a submit whose values kept
+changing through all three of its checks until the last found no error. A check a newer one replaces
+is not a drop while a fresh answer is still on its way. Until the check behind a held answer lands,
+the border describes the values that answer was computed from.
 
 Why: [how the engine works: how a green border is held](how-the-engine-works.md#the-submit-coverage-vouch).
 

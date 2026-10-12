@@ -1170,6 +1170,49 @@ public sealed class CountedDispatch
     }
 }
 
+/// <summary>A render dispatch that runs each delegate at once, one at a time, except while <see cref="Holding"/> is set: then it holds the delegate until <see cref="Drain"/> runs it. A delegate dispatched after the hold ends runs at once, ahead of the held ones, so this models a work item posted and not yet run, not the order a renderer's queue keeps.</summary>
+public sealed class HoldingDispatch
+{
+    private readonly object _sync = new();
+    private readonly Queue<(Func<Task> Work, TaskCompletionSource Done)> _held = new();
+
+    /// <summary>Whether a delegate dispatched now waits for <see cref="Drain"/>.</summary>
+    public bool Holding { get; set; }
+
+    /// <summary>How many delegates are waiting.</summary>
+    public int Waiting => _held.Count;
+
+    /// <summary>The dispatch to hand the engine.</summary>
+    public Func<Func<Task>, Task> Dispatch => Run;
+
+    /// <summary>Stops holding and runs the waiting delegates in order.</summary>
+    public void Drain()
+    {
+        Holding = false;
+        while (_held.TryDequeue(out var held))
+        {
+            _ = Run(held.Work).ContinueWith(
+                _ => held.Done.TrySetResult(),
+                TaskScheduler.Default);
+        }
+    }
+
+    private Task Run(Func<Task> work)
+    {
+        if (Holding)
+        {
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _held.Enqueue((work, done));
+            return done.Task;
+        }
+
+        lock (_sync)
+        {
+            return work();
+        }
+    }
+}
+
 /// <summary>Synchronization helpers shared by the engine's async-pass tests.</summary>
 public static class EngineTestSync
 {

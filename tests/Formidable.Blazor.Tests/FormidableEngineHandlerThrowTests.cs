@@ -55,8 +55,9 @@ public class FormidableEngineHandlerThrowTests : BunitContext
         // until the handler is subscribed.
         FirstValidityCheck,
 
-        // The TrackFormValidity check a submit's end starts when an edit during the submit made its
-        // answer out of date, under a RefreshDebounce that never passes.
+        // The TrackFormValidity check a submit's end starts when its restarts are spent and an edit
+        // made during its last check outdated the answer that landed, under a RefreshDebounce that
+        // never passes.
         CheckBehindAnOutdatedAnswer,
 
         // The validity timer's check, armed by a change under a LiveDebounce that never closes.
@@ -427,10 +428,20 @@ public class FormidableEngineHandlerThrowTests : BunitContext
                     await cut.InvokeAsync(() => gated!.Gate.SetResult());
                     break;
                 case Site.CheckBehindAnOutdatedAnswer:
-                    // The change's own live check and validity check stand down for the
-                    // submit, and the re-check it arms never fires, so the submit's end
-                    // starts the check.
-                    await cut.InvokeAsync(() => cut.Find("input").Change("ok"));
+                    // A change during each of the submit's three checks spends its restarts, so
+                    // its last answer lands older than the last change. Each change's own live
+                    // check and validity check stand down for the submit, and the re-check it
+                    // arms never fires, so the submit's end starts the check.
+                    foreach (var (value, started) in new[] { ("ok", 3), ("ok again", 4) })
+                    {
+                        await cut.InvokeAsync(() => cut.Find("input").Change(value));
+                        var outdated = gated!.Gate;
+                        gated.Reset();
+                        await cut.InvokeAsync(() => outdated.SetResult()); // the submit checks again
+                        await UntilAsync(() => gated.Started == started);
+                    }
+
+                    await cut.InvokeAsync(() => cut.Find("input").Change("ok at last"));
                     await cut.InvokeAsync(() => gated!.Gate.SetResult());
                     break;
                 case Site.ValidityTimerFire:

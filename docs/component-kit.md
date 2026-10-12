@@ -109,7 +109,7 @@ The members a page calls:
 
 | Member | What it does |
 |---|---|
-| `SubmitAsync()` | Runs the submit pipeline and routes to `OnValidSubmit` or `OnInvalidSubmit`. Also the handler wired to the rendered `EditForm`, so a toolbar button outside the form element calls the same thing the button inside it does. |
+| `SubmitAsync()` | Runs the submit pipeline and routes to `OnValidSubmit` or `OnInvalidSubmit`. A value edited while the submit is checking makes it check again first, so the answer `OnValidSubmit` receives is for the values the model held as the last check ended. A value edited after that, before or while the handler runs, is not checked first. Also the handler wired to the rendered `EditForm`, so a toolbar button outside the form element calls the same thing the button inside it does. |
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move), and answers whether an element took focus. |
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
@@ -293,7 +293,7 @@ It validates the whole model under `SubmitProfile`, then decides field by field 
 |---|---|---|
 | Holds a value no rule fails with an error | Touched and engaged | The valid class, or whichever advisory tier its warnings and infos earn |
 | Holds a value the rules do fail | Touched and engaged | Its message, inline and in the summary |
-| Holds a value, and a component renders it with `WaitForSubmit` | Touched and engaged | The valid class when no rule fails with an error, and no class otherwise. Its messages wait until a submit answers or a server reply is applied; a submit that a newer submit or load displaced, or whose validator threw, answers nothing ([the wait](options.md#waitforsubmit-per-component-not-a-formidableoptions-property)) |
+| Holds a value, and a component renders it with `WaitForSubmit` | Touched and engaged | The valid class when no rule fails with an error, and no class otherwise. Its messages wait until a submit answers or a server reply is applied; a submit that ends without an answer leaves them waiting ([the wait](options.md#waitforsubmit-per-component-not-a-formidableoptions-property)) |
 | Holds nothing: null, a blank or whitespace-only string, an empty collection, or a non-nullable value type's own default | Neither | Nothing, unstyled and silent, with any required mark it carries still standing |
 
 "Holds a value" is FluentValidation's own `NotEmpty()` negated, taken against the type the member is
@@ -1109,7 +1109,7 @@ The members a page calls:
 
 | Member | What it does |
 |---|---|
-| `ValidateForSubmitAsync()` | Runs the submit pipeline against this component's engine and hands back the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) untouched, for the page's own `EditForm` handler to route. |
+| `ValidateForSubmitAsync()` | Runs the submit pipeline against this component's engine and hands back the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) untouched, for the page's own `EditForm` handler to route. A value edited while the submit is checking makes it check again first, as under `FormidableForm`. |
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move) (the same code that submit runs) and answers whether an element took focus. |
 | `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned), that contract whole. |

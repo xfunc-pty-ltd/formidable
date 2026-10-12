@@ -11,15 +11,20 @@ using Microsoft.Extensions.Time.Testing;
 namespace Formidable.Blazor.Tests;
 
 /// <summary>
-/// An edit committed while a submit runs. The edit's own live check stands down for the submit,
-/// which read the value before the edit, so once the submit lands that check runs after all. The
-/// field then shows what the same edit made just after the landing would show: its message, its
-/// message-store entry, its summary entry, its state class and <see cref="FormidableEngine{TModel}.IsFormValid"/>.
-/// Each case runs twice on fresh forms, the edit made during the submit and then just after it
-/// lands, and compares the two. The controls keep the result they had: an edit a submit read, a
-/// field a blocked submit flags, an edit a <see cref="FormidableOptions.LiveDebounce"/> window holds
-/// until the submit ends, and an edit made during a load. Every async rule counts each run as it
-/// starts, and every case counts the checks begun, against the same edit made after the landing.
+/// An edit committed during the last check a submit makes. A submit checks again for an edit made
+/// while it runs, at most twice, so here an edit to another field during each of its first two
+/// checks spends those restarts, and the case's own edit lands during the third. The edit's live
+/// check stands down for the submit, whose last answer is for the value before the edit, so once
+/// the submit ends that check runs after all: given back as a blocking answer lands, and with the
+/// rest of what the submit displaced when a passing answer ends it unanswered. The field then
+/// shows what the same edit made just after the submit would show: its message, its message-store
+/// entry, its summary entry, its state class and <see cref="FormidableEngine{TModel}.IsFormValid"/>.
+/// Each case runs twice on fresh forms, the edit made during the last check and then just after the
+/// submit ends, and compares the two. The controls keep the result they had: an edit a submit read,
+/// a field a blocked submit flags, an edit a <see cref="FormidableOptions.LiveDebounce"/> window
+/// holds until the submit ends, and an edit made during a load, which never checks again. Every
+/// async rule counts each run as it starts, and every case counts the checks begun.
+/// <see cref="FormidableEngineOutdatedSubmitTests"/> covers the restarts themselves.
 /// </summary>
 public class EditDuringSubmitTests : BunitContext
 {
@@ -57,7 +62,7 @@ public class EditDuringSubmitTests : BunitContext
     {
         private volatile bool _hold;
         private int _runs;
-        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>How many times the async rule has started.</summary>
         public int Runs => Volatile.Read(ref _runs);
@@ -74,6 +79,14 @@ public class EditDuringSubmitTests : BunitContext
         {
             Hold = false;
             _gate.TrySetResult();
+        }
+
+        /// <summary>Lets the runs held now answer, and holds every later run on a fresh gate.</summary>
+        public void ReleaseHeldRuns()
+        {
+            var held = _gate;
+            _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            held.TrySetResult();
         }
 
         protected async Task HeldAsync(CancellationToken cancellationToken)
@@ -134,19 +147,19 @@ public class EditDuringSubmitTests : BunitContext
     /// <summary>The form each case builds, and the pass it runs the edit against.</summary>
     public enum Shape
     {
-        /// <summary>The defaults; the submit passes.</summary>
+        /// <summary>The defaults; every check the submit makes passes.</summary>
         PassingSubmit,
 
-        /// <summary>The defaults; the submit blocks on Third, which it flags.</summary>
+        /// <summary>The defaults; every check blocks on Third, which the submit flags.</summary>
         BlockedSubmit,
 
-        /// <summary><see cref="FormidableOptions.LiveProfile"/> narrowed to the draft rules; the submit passes.</summary>
+        /// <summary><see cref="FormidableOptions.LiveProfile"/> narrowed to the draft rules; every check passes.</summary>
         NarrowedLiveProfile,
 
-        /// <summary>A validator that runs the whole profile in one call; the submit passes.</summary>
+        /// <summary>A validator that runs the whole profile in one call; every check passes.</summary>
         WholeProfileValidator,
 
-        /// <summary>Confirm is engaged and the edit changes Password, so Confirm fails; the submit passes.</summary>
+        /// <summary>Confirm is engaged and the edit changes Password, so Confirm fails; every check passes.</summary>
         CrossFieldRule,
 
         /// <summary>Control: a <see cref="FormidableOptions.LiveDebounce"/> window, which closes while the submit runs.</summary>
@@ -155,10 +168,10 @@ public class EditDuringSubmitTests : BunitContext
         /// <summary>Control: a load of values in place of the submit.</summary>
         Load,
 
-        /// <summary>Control: an earlier blocked submit flagged Name, and the submit blocks on Third.</summary>
+        /// <summary>Control: an earlier blocked submit flagged Name, and every check blocks on Third.</summary>
         FlaggedEarlier,
 
-        /// <summary>Control: the submit reads Name after the edit, and blocks on it.</summary>
+        /// <summary>Control: the submit's last check reads Name after the edit, and blocks on it.</summary>
         SubmitReadsTheEdit,
     }
 
@@ -259,7 +272,20 @@ public class EditDuringSubmitTests : BunitContext
     private static string WatchedOf(Shape shape) =>
         shape == Shape.CrossFieldRule ? nameof(Account.Confirm) : nameof(Account.Name);
 
-    /// <summary>Builds the case's form, makes its edit during the submit or load, or just after it lands, and reads what the watched field shows once everything settles.</summary>
+    /// <summary>Submits, and while each of the submit's first two checks waits on the async rule, edits Other, so the submit checks again until its third check, its last, waits.</summary>
+    private static async Task SpendRestartsAsync(Form form, int runsBefore)
+    {
+        foreach (var other in new[] { "y", "z" })
+        {
+            var check = form.Validator.Runs - runsBefore;
+            form.Model.Other = other;
+            form.Notify(nameof(Account.Other));
+            form.Validator.ReleaseHeldRuns(); // the check's answer predates the edit
+            Assert.True(await UntilAsync(() => form.Validator.Runs - runsBefore == check + 1));
+        }
+    }
+
+    /// <summary>Builds the case's form, makes its edit during the submit's last check or during the load, or just after it ends, and reads what the watched field shows once everything settles.</summary>
     private static async Task<Result> RunAsync(Shape shape, bool editDuring)
     {
         using var form = Build(shape);
@@ -306,6 +332,12 @@ public class EditDuringSubmitTests : BunitContext
         var pass = shape == Shape.Load
             ? form.Engine.DiscloseLoadedValuesAsync()
             : form.Engine.ValidateForSubmitAsync();
+        Assert.True(await UntilAsync(() => form.Validator.Runs > runsBefore)); // the first check waits
+        if (shape != Shape.Load)
+        {
+            await SpendRestartsAsync(form, runsBefore);
+        }
+
         if (editDuring)
         {
             Edit();
@@ -332,20 +364,22 @@ public class EditDuringSubmitTests : BunitContext
         return new Result(shown, form.Validator.Runs - runsBefore, begun());
     }
 
-    // The edit's own live check stood down for the submit, and the submit's answer is for the value
-    // before the edit. On a rule-capable validator the async rule runs as often as it did before the
-    // landing gave that check back: the check given back runs it, and the re-check the edit armed
-    // then finds it answered. On a whole-profile validator, which reuses nothing, the check given
-    // back costs one call, so the edit costs what the same edit just after the landing costs.
-    // Mutation: skip the landing's give-back, so the landing drops the whole record. Every row then
-    // shows nothing on the watched field, against the message the same edit after the landing shows.
+    // The edit's own live check stood down for the submit, and the submit's last answer is for the
+    // value before the edit. Three checks run the async rule three times, during the edit or after
+    // it. On a rule-capable validator the edit then costs one run either way: the check given back
+    // runs it, and the re-check the edits armed waits for that check and finds it answered. On a
+    // whole-profile validator, which reuses nothing, the re-check costs one more call, as it does
+    // after the edit made just after the submit.
+    // Mutations: skip the landing's give-back, and the BlockedSubmit row, whose last answer lands,
+    // shows nothing on the watched field. Give an unanswered submit's record back without its
+    // stood-down fields, and every other row, whose last answer passes, shows nothing.
     [Theory]
-    [InlineData(Shape.PassingSubmit, NameRequired, 2)]
-    [InlineData(Shape.BlockedSubmit, NameRequired, 2)]
-    [InlineData(Shape.NarrowedLiveProfile, NameRequired, 2)]
-    [InlineData(Shape.WholeProfileValidator, NameRequired, 3)]
-    [InlineData(Shape.CrossFieldRule, ConfirmMismatch, 2)]
-    public async Task An_edit_during_a_submit_shows_its_message_once_the_submit_lands(
+    [InlineData(Shape.PassingSubmit, NameRequired, 4)]
+    [InlineData(Shape.BlockedSubmit, NameRequired, 4)]
+    [InlineData(Shape.NarrowedLiveProfile, NameRequired, 4)]
+    [InlineData(Shape.WholeProfileValidator, NameRequired, 5)]
+    [InlineData(Shape.CrossFieldRule, ConfirmMismatch, 4)]
+    public async Task An_edit_during_a_submit_s_last_check_shows_its_message_once_the_submit_ends(
         Shape shape, string message, int runs)
     {
         var during = await RunAsync(shape, editDuring: true);
@@ -358,20 +392,20 @@ public class EditDuringSubmitTests : BunitContext
         Assert.Equal(after.ChecksBegun, during.ChecksBegun);
     }
 
-    // Something besides the landing's give-back already shows these edits' messages, so each shows
-    // what it showed before the landing gave anything back, and runs the async rule as often. A
-    // window holds the edit and checks it once the submit ends. A load's own check after it answers
-    // every engaged field, so nothing is given back there: the load and that check are the only
-    // checks begun. A field a blocked submit flags shows the submit's answer, and a submit that read
-    // the edit answers it itself. In those two the landing still gives a check back, which runs the
-    // rules the re-check would have run, so the edit costs what the same edit after the landing does.
+    // Something besides the give-back would show these edits' messages too. A window holds the edit
+    // and checks it once the submit ends. A load never checks again, and its own check after it
+    // answers every engaged field, so nothing is given back there: the load and that check are the
+    // only checks begun. A field an earlier blocked submit flagged is re-checked by the whole-form
+    // re-check the edit armed, and a check that read the edit answers it itself. In those two the
+    // landing still gives a check back, which runs the rules the re-check would have run, so the
+    // edit costs what the same edit after the submit does.
     // Mutation: give back at a load's landing too. The load row then begins a third check.
     [Theory]
-    [InlineData(Shape.LiveDebounceWindow, 2)]
+    [InlineData(Shape.LiveDebounceWindow, 4)]
     [InlineData(Shape.Load, 2)]
-    [InlineData(Shape.FlaggedEarlier, 2)]
-    [InlineData(Shape.SubmitReadsTheEdit, 2)]
-    public async Task An_edit_the_landing_already_answers_shows_its_message_as_before(Shape shape, int runs)
+    [InlineData(Shape.FlaggedEarlier, 4)]
+    [InlineData(Shape.SubmitReadsTheEdit, 4)]
+    public async Task An_edit_something_else_also_answers_shows_its_message_as_after_the_submit(Shape shape, int runs)
     {
         var during = await RunAsync(shape, editDuring: true);
         var after = await RunAsync(shape, editDuring: false);
@@ -460,8 +494,10 @@ public class EditDuringSubmitTests : BunitContext
     private sealed record KitResult(string InputClass, string Message, string Summary, bool IsFormValid, int Runs, int ChecksBegun);
 
     // The same edit through the kit: a real form whose inputs register their fields, with no
-    // override. Mutation: skip the landing's give-back. The input then wears no state class, the
-    // field message is empty and the summary leaves Name out, while IsFormValid is false.
+    // override. Edits to Third during the first two checks spend the restarts, keeping Third
+    // filled or empty as the row has it. Mutation: skip the landing's give-back. In the blocked
+    // row the input then wears no state class, the field message is empty and the summary leaves
+    // Name out, while IsFormValid is false.
     [Theory]
     [InlineData(false)] // the submit passes
     [InlineData(true)] // the submit blocks on Third
@@ -543,6 +579,15 @@ public class EditDuringSubmitTests : BunitContext
         validator.Hold = true;
         var submit = cut.InvokeAsync(() => form.Instance.SubmitAsync());
         await cut.InvokeAsync(() => { }); // the submit has begun and waits on the async rule
+        Assert.True(await UntilAsync(() => validator.Runs > runsBefore));
+        foreach (var third in blocked ? new[] { " ", "  " } : ["t1", "t2"])
+        {
+            var check = validator.Runs - runsBefore;
+            await cut.InvokeAsync(() => cut.FindAll("input")[1].Change(third));
+            await cut.InvokeAsync(validator.ReleaseHeldRuns); // the check's answer predates the edit
+            Assert.True(await UntilAsync(() => validator.Runs - runsBefore == check + 1));
+        }
+
         if (editDuring)
         {
             await cut.InvokeAsync(() => cut.FindAll("input")[0].Change(string.Empty));

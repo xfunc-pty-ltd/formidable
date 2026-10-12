@@ -8,8 +8,12 @@ namespace Formidable.Blazor.Tests;
 
 public class FormidableEngineHardeningTests
 {
+    // An edit during a first submit arms the re-check, whose fire comes due while the submit runs
+    // and waits for it. The submit's first answer predates the edit, so it checks again before it
+    // reports, and that check runs the rule for the edit. The re-check then runs once the submit
+    // ends, and finds the rule answered.
     [Fact]
-    public async Task Edit_during_first_submit_gets_revalidated_after_submit_completes()
+    public async Task Edit_during_first_submit_is_checked_by_the_submit_and_the_re_check_finds_it_answered()
     {
         var order = new EngineOrder();
         var validator = new GatedValidator();
@@ -26,10 +30,24 @@ public class FormidableEngineHardeningTests
         time.Advance(TimeSpan.FromMilliseconds(301)); // debounce elapses while submit is in flight -> defers until the submit ends
 
         validator.Gate.SetResult();
-        await submit; // the live check the edit stood down for the submit runs as it lands
+        await submit; // the submit checks again for the edit before it reports
         Assert.Equal(2, validator.Started);
 
-        time.Advance(TimeSpan.FromMilliseconds(301)); // the re-armed refresh now runs, and finds the rule answered
+        var begun = 0;
+        var wasValidating = engine.IsValidating;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating && !wasValidating)
+            {
+                begun++;
+            }
+
+            wasValidating = engine.IsValidating;
+        };
+
+        time.Advance(TimeSpan.FromMilliseconds(301)); // the re-check that waited runs, and finds the rule answered
+        Assert.Equal(1, begun);
+        Assert.False(engine.IsValidating);
         Assert.Equal(2, validator.Started);
     }
 

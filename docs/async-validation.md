@@ -167,14 +167,27 @@ Why: [how the engine works: which check yields to which](how-the-engine-works.md
 
 Press Submit and every field is answered at once, whatever partial work a half-typed field had
 running: every submit rule runs, whatever a live check answered a moment before. Keep typing
-while the submit spinner turns and nothing you type cancels it. The edit is not lost. Once the
-submit lands, the field you changed is checked as an edit made just after it would be, and the
-whole form is re-checked too.
+while the submit spinner turns and nothing you type cancels it.
 
-The same holds while loaded values are being checked (`DiscloseLoadedValuesAsync`): nothing you
-type cancels that, and the edit is answered by the check that follows the load. With
-`TrackFormValidity` on, `IsFormValid` waits for the check that answers your edit too, rather than
-taking the submit's or the load's answer for the values before it.
+A change you commit while the submit is checking makes it check again before it reports. So the
+answer `OnValidSubmit` receives is for the values the form held as the last check ended: a field
+you clear blocks the submit and shows its message, and a field you fix lets it through. A change
+made after that, before or while your handler saves, is not checked first.
+
+The cost is time, one more check of the whole form, async rules included. The rules run no more
+often than they would for the same change made just after the submit. A memoized rule answers a
+repeat ask about an unchanged value from its memo, as long as the memo still holds that answer
+([below](#why-did-the-same-value-get-checked-twice-and-how-do-i-stop-it)).
+
+The submit checks at most three times: once, then again up to twice. If you keep changing values
+through all three checks, the last check decides. If it found an error, the submit reports it. If it
+found none, the submit still ends blocked, with no message. Each field you changed is then checked
+as if you had changed it just after the submit. Press Submit again.
+
+A load of values (`DiscloseLoadedValuesAsync`) never checks again: nothing you type cancels it, and
+your change is answered by the check that follows the load. With `TrackFormValidity` on,
+`IsFormValid` does not take the load's answer, which is for the values before your change. It waits
+for the check that answers your change.
 
 Only a second Submit, or a load of values, can overtake a submit; the overtaken submit blocks
 without writing an error of its own, leaving what was already showing. A blocked submit focuses
@@ -337,8 +350,11 @@ wins: time, never correctness.
 And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each
 validity check there is rule work the edits would not otherwise cost, async rules included.
 
-And an edit made while a submit or a load of values runs adds one validity check after it ends,
-only where nothing the edit started already answers `IsFormValid`.
+And an edit made while a load of values runs adds one validity check after it ends, unless a check
+already on its way answers `IsFormValid`. An edit made while a submit runs adds none, because the
+submit checks again and that check answers `IsFormValid`. Keep editing through all three of its
+checks and the submit leaves `IsFormValid` where it was. Your edits then add one validity check as
+the submit ends, unless a check already on its way answers `IsFormValid`.
 
 [Options](options.md#trackformvalidity) has the cost on a validator that cannot be taken rule by
 rule.

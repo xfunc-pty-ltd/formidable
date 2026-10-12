@@ -16,9 +16,11 @@ namespace Formidable.Blazor.Tests;
 /// <see cref="FormidableEngine{TModel}.IsFormValid"/> is owed a check only where it can be stale:
 /// a load, a cancelled re-check, or an edit since the submit or load began. That check stands down
 /// when something already on its way answers. A submit or load that lands gives back none of the
-/// checks it cancelled, because its answer stands in for them. A submit an edit outdated does give
-/// back the live check that edit stood down, which <see cref="EditDuringSubmitTests"/> covers. Every
-/// async rule here counts each run as it starts, and runs once for each check owed.
+/// checks it cancelled, because its answer stands in for them. A submit checks again for an edit
+/// made while it runs (<see cref="FormidableEngineOutdatedSubmitTests"/>). Once those restarts are
+/// spent, a blocking answer the edit outdated lands and gives back the live check the edit stood
+/// down, which <see cref="EditDuringSubmitTests"/> covers. Every async rule here counts each run as
+/// it starts, and runs once for each check owed.
 /// </summary>
 public class FormidableEngineCancelledPassTests
 {
@@ -778,49 +780,6 @@ public class FormidableEngineCancelledPassTests
         Assert.Equal(runs, validator.Runs);
         Assert.Equal(calls, whole.Calls);
         Assert.True(engine.IsFormValid);
-    }
-
-    /// <summary>A render dispatch that runs each delegate at once, one at a time, except while <see cref="Holding"/> is set: then it holds the delegate until <see cref="Drain"/> runs it. A delegate dispatched after the hold ends runs at once, ahead of the held ones, so this models a work item posted and not yet run, not the order a renderer's queue keeps.</summary>
-    private sealed class HoldingDispatch
-    {
-        private readonly object _sync = new();
-        private readonly Queue<(Func<Task> Work, TaskCompletionSource Done)> _held = new();
-
-        /// <summary>Whether a delegate dispatched now waits for <see cref="Drain"/>.</summary>
-        public bool Holding { get; set; }
-
-        /// <summary>How many delegates are waiting.</summary>
-        public int Waiting => _held.Count;
-
-        /// <summary>The dispatch to hand the engine.</summary>
-        public Func<Func<Task>, Task> Dispatch => Run;
-
-        /// <summary>Stops holding and runs the waiting delegates in order.</summary>
-        public void Drain()
-        {
-            Holding = false;
-            while (_held.TryDequeue(out var held))
-            {
-                _ = Run(held.Work).ContinueWith(
-                    _ => held.Done.TrySetResult(),
-                    TaskScheduler.Default);
-            }
-        }
-
-        private Task Run(Func<Task> work)
-        {
-            if (Holding)
-            {
-                var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                _held.Enqueue((work, done));
-                return done.Task;
-            }
-
-            lock (_sync)
-            {
-                return work();
-            }
-        }
     }
 
     // On a dispatcher that queues work, the validity timer can fire and post its check while a

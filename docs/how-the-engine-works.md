@@ -83,6 +83,11 @@ whole selection by fiat.
 A submit clears the server store too when it began after the last apply
 ([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
+A submit whose answer an edit made while it ran has outdated does not land that answer. It
+checks again, at most twice, as the same pass
+([supersession and deferral](#supersession-and-deferral)), so what lands is the answer for the
+values the model held as its last check began.
+
 **Refresh.** Started by the refresh timer, which two things arm (and the end of a pass its fire
 waited for arms again): a
 field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerIssues` also sets
@@ -429,10 +434,11 @@ superseding, and which pass yields to which is written in kinds.
   re-armed, so the submit-selected coverage waits for whatever next answers that profile. With
   the live channel narrowed and `TrackFormValidity` off, nothing refills it before a submit, a
   load or the next field-set move.
-- A **refresh** fire defers to a submit, a live pass or a load in flight, and that pass's end
-  arms it again, so the edit is still revalidated. A refresh does not defer to a refresh: the newer displaces
-  the older. An open debounce window is not a pass, so nothing defers to it; a refresh that comes
-  due first executes the stale rules, and the window's own pass then finds them answered.
+- A **refresh** fire defers to a submit, a live pass or a load in flight, or to a give-back a
+  submit or load that just ended still owes (below). The end it waited for arms it again, so the
+  edit is still revalidated. A refresh does not defer to a refresh: the newer displaces the older.
+- An **open debounce window** is not a pass, so nothing defers to it. A refresh that comes due
+  first executes the stale rules, and the window's own pass then finds them answered.
 - A **submit** and a **load** defer to nothing. Each is started and awaited by a caller, so two of
   them overlapping resolve the way two submits do: the later one takes the descriptor. A submit
   superseded before its verdict landed reports blocked with an empty summary and writes nothing,
@@ -462,9 +468,12 @@ arm (`FakeTimeProvider` does), a pass it starts would otherwise begin before the
 rebuild.
 
 A submit or a load that ends without an answer gives back what it displaced. It ends that way when
-its caller cancels it or its validator throws. As it begins it records the refresh or live pass it
-supersedes, with that pass's pending scope, and it records the fields of every immediate live pass
-that stands down for it while it runs.
+its caller cancels it or its validator throws, and a submit also when its restarts are spent on a
+passing answer an edit outdated (below).
+
+As a submit or a load begins, it records the refresh or live pass it supersedes, with that pass's
+pending scope, and it records the fields of every immediate live pass that stands down for it while
+it runs.
 
 An end without an answer gives the record back in the dispatch that arms the deferred fires:
 
@@ -475,28 +484,58 @@ An end without an answer gives the record back in the dispatch that arms the def
   ([the probe's section](#the-trackformvalidity-probe)), but only where it can be stale: a load is
   in the record, a refresh was superseded, or an edit came after the record opened.
 
-A landing drops the record, because its answer stands in for the passes it superseded. A submit an
-edit outdated is the exception. Its answer is for the values it read as it began, so an immediate
-live pass that stood down for an edit made while it ran is still owed.
+A landing drops the record, because its answer stands in for the passes it superseded. A submit
+whose answer an edit outdated does not land at first. When its verdict dispatch finds the edit
+stamp moved since its check began, it checks again, at most twice, and writes nothing. It
+normalizes the model first under `NormalizeOnSubmit`, reads the stamp and the generation again,
+and runs its whole selection once more.
 
-When the edit stamp has moved since the submit began, its landing gives back the fields of every
-live pass that stood down for it and drops the rest of the record. They go back in the same
-dispatch and by the same live-pass route, so each edited field is checked as an edit made just
-after the landing would be.
+The pass stays current through each restart. Its version, token and record are kept, `IsValidating`
+stays true with no notification in between, and every fire that defers to a submit keeps waiting.
+A server reply applied during an earlier check still stands at the landing, since the version has
+not moved.
+
+So the answer that lands, and the `CanProceed` it reports, is for the values the model held as the
+last check began. That check also answers the fields whose live pass stood down for an earlier
+check, so the landing drops the record whole. On a rule-capable validator the refresh those edits
+armed then finds every rule answered.
+
+Once the restarts are spent, an outdated passing answer ends the submit without landing, as a
+cancelled submit ends: nothing is written, the record is given back whole, and the outcome is
+blocked with an empty summary. An outdated blocking answer lands, because it lets nothing be saved.
+That landing gives back the fields of every live pass that stood down for the submit, and drops the
+rest of the record.
+
+Those fields go back in the dispatch after the landing, the one that arms the deferred fires, by the
+same live-pass route. So each edited field is checked as an edit made just after the landing would
+be.
 
 `IsFormValid` is owed only the check the outdated landing already owes. While `RefreshDebounce` can
 pass, a rule-capable validator with no later edit runs each rule once for the edit: the given-back
-pass runs it, and the refresh that edit armed finds it answered.
+pass runs it, and the refresh that edit armed waits for it and finds it answered.
 
 Under a `RefreshDebounce` that never passes, no refresh runs. With `TrackFormValidity` on, the owed
 check then starts the probe at once, beside the given-back pass, and neither can reuse what the
-other is still computing. So an async rule runs once in each, as it does for an edit made just after
-the landing, whose live pass and probe start together.
+other is still computing. So an async rule both of them run, and neither has answered yet, runs once
+in each, as it does for an edit made just after the landing, whose live pass and probe start together.
 
-A load gives back nothing at a landing, because the live pass that follows it answers every
-engaged field. A live pass can also stand down for a submit that began after its own edit, such as
-one an earlier unanswered pass gave back. That submit read the edit, so with no edit since it
-began, the stamp test drops the record whole.
+A submit that lands after checking again owes no such check, since its answer is for the latest
+edit. A load never checks again. It gives back nothing at a landing, because the live pass that
+follows it answers every engaged field.
+
+A live pass can also stand down for a submit that began after its own edit: a live pass given back
+when an earlier submit or load ended can meet a submit begun since that end. That submit read the
+edit, so with no edit since it began, the stamp test drops the record whole.
+
+A refresh fire that comes due between an end that detached a record and the dispatch that gives it
+back waits for that dispatch, as it waits for a pass in flight. Only that dispatch releases the wait,
+so a live pass, a submit or a load that begins and ends in between (the live pass a commit starts,
+say) leaves it in place.
+
+With no `LiveDebounce`, the live pass a give-back starts runs at once. It would supersede a refresh
+begun between the end and the give-back, with nothing left to re-arm it. The dispatch that gives the
+record back arms the deferred fires after the give-back, so the refresh runs behind the given-back
+pass instead.
 
 A submit or load that supersedes another takes over its record. Whichever ends as the current pass
 settles the record, so it is given back at most once. A field that has left the page is owed
@@ -615,8 +654,9 @@ released hold); or no component is registered for the field and the keep-registe
 kept holds.
 
 The first answered submit, or `ApplyServerIssues`, sets `HasSubmitted`, and the store rebuild that
-follows that write discloses the verdict with no pass of its own. A submit a newer submit or load
-superseded, or whose validator threw, never sets it, so the hold stands.
+follows that write discloses the verdict with no pass of its own. A submit that ends without landing
+never sets it, so the hold stands: one superseded, cancelled or thrown, and one whose restarts were
+spent on a passing answer an edit outdated.
 
 The registry keeps one entry per field: how many registrations stand, how many of them hold, and
 the retention the field's last visit left. A visit runs from a registration arriving on a field
@@ -908,6 +948,9 @@ A landing an edit outdated (`AdoptFormValidity` finds `_editStamp` moved past th
 writes neither `IsFormValid` nor the stamp, so a probe begun after the edit still lands. The end
 of that pass then checks for the edit unless something already on its way answers it, because a
 check beside it would run a still-unanswered async rule a second time.
+
+A submit lands such an answer only once it has checked again twice, and only a blocking one; until
+then it checks again instead ([supersession and deferral](#supersession-and-deferral)).
 
 Four things answer the edit's `IsFormValid` already: a probe begun at the current stamp
 (`_lastProbeEditStamp`), an armed validity check, an armed or waiting refresh of any origin, and an

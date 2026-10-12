@@ -210,13 +210,23 @@ same wait at any point in the form's life, and that re-check moves `IsFormValid`
 `IsFormValid` moves only on a submit or a load of values, and on the check that follows one you
 edited during (below).
 
-An edit made while a submit or a load of values is still checking leaves `IsFormValid` where it
-was, because the submit or load answers for the values it read. The edit's own check answers
-instead: its validity check, its live window, or the whole-form re-check it brings after a submit.
+An edit made while a submit is checking makes the submit check again, and that check sets
+`IsFormValid` for the edited values. A submit checks at most three times: once, then again up to
+twice.
 
-When an edit made during a submit or a load brings no check of its own (an edit during a load
-before any submit, with `LiveDebounce` unset), a validity check runs `RefreshDebounce` after the
-load ends. When `RefreshDebounce` never passes, it runs as the submit or load ends.
+An edit made while a load of values is still checking leaves `IsFormValid` where it was, because the
+load answers for the values it read. So does a submit whose values you keep changing through all
+three of its checks.
+
+For edits made during a load, or through all three of a submit's checks, the latest edit's own check
+answers `IsFormValid` instead: its own validity check under a window that never closes, the validity
+check its `LiveDebounce` window runs, or the whole-form re-check it brings after a submit.
+
+Some edits made during a load, or during a submit's third check, bring no check of their own. With
+`LiveDebounce` unset, an edit during a load before any submit or server reply brings none. A
+validity check runs for that edit `RefreshDebounce` after the load ends. When `RefreshDebounce`
+never passes, the validity check for an edit that brings no check of its own runs as the submit or
+load ends.
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
 
@@ -671,8 +681,11 @@ and engages the field, and its messages still wait.
 
 The field engages on a committed change as any field does, and its rules run. Its live messages stay
 off every surface (the inline message, the summary entry, the invalid class and `aria-invalid`)
-until a submit answers or `ApplyServerIssues` runs. A submit a newer submit or load displaced, or
-one whose validator threw, answers nothing, so the wait stands.
+until a submit answers or `ApplyServerIssues` runs.
+
+A submit that ends without an answer leaves the wait standing, whatever ended it: a newer submit or
+load, a cancellation, a validator that threw, or values that kept changing through all three of its
+checks until the last found no error.
 
 `ResetAsync` or a new `Model` starts the wait again, and `DiscloseLoadedValuesAsync` engages a
 waiting field while its messages wait. A field no waiting component has rendered yet does not wait:

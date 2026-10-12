@@ -249,10 +249,12 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Runs the submit and returns the outcome for the page's own <see cref="EditForm"/> handler to route; a blocked submit moves focus to the first error under <see cref="FocusFirstErrorOnInvalidSubmit"/>.</summary>
-    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place; blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, while the submit awaited its answer, and when this component was disposed before the call.</returns>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place, and when values were edited during each of its three checks and the last found no error; blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, while the submit awaited its answer, and when this component was disposed before the call.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
-    /// A replaced <see cref="EditContext"/> or a disposal while the submit awaits its answer
+    /// A value edited while the check runs makes it check again before it reports, at most twice,
+    /// so an outcome that may proceed answers for the values the model holds as the check ends. A
+    /// replaced <see cref="EditContext"/> or a disposal while the submit awaits its answer
     /// abandons it, and focus stays. Call it from the renderer's synchronization context.
     /// </remarks>
     public async Task<SubmitOutcome> ValidateForSubmitAsync()

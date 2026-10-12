@@ -407,7 +407,9 @@ public class FormidableEngineRuleReuseTests
     /// A live-debounce fire that finds <see cref="FormidableOptions.LiveDebounce"/> cleared out
     /// from under its own open window — options mutate in place — neither throws nor strands
     /// what the window accumulated: the accumulator empties with the window, the pass in flight
-    /// is left untouched, and the refresh the same edit armed still runs.
+    /// is left untouched, and the refresh the same edit armed still runs. The submit's first
+    /// answer predates the edit, so it checks again before it reports, and that check runs each
+    /// rule for the edit; the refresh then finds every rule answered.
     /// </summary>
     [Fact]
     public async Task A_null_LiveDebounce_fire_neither_throws_nor_strands()
@@ -429,6 +431,8 @@ public class FormidableEngineRuleReuseTests
             new ReflectionModelIntrospector(),
             options,
             time);
+        var draftBefore = validator.DraftRuleRuns;
+        var submitBefore = validator.SubmitRuleRuns;
 
         // A long submit stays in flight through the fire below, until released.
         var submit = engine.ValidateForSubmitAsync();
@@ -451,30 +455,43 @@ public class FormidableEngineRuleReuseTests
         Assert.Null(fireException);
 
         validator.Gate.SetResult();
-        await submit;
+        Assert.True((await submit).CanProceed);
 
-        var draftBefore = validator.DraftRuleRuns;
-        var submitBefore = validator.SubmitRuleRuns;
+        // Two checks: the first, whose answer the edit outdated, and the one that answered.
+        Assert.Equal(draftBefore + 2, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 2, validator.SubmitRuleRuns);
+
+        var begun = 0;
+        var wasValidating = engine.IsValidating;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating && !wasValidating)
+            {
+                begun++;
+            }
+
+            wasValidating = engine.IsValidating;
+        };
 
         // The deferred refresh comes due RefreshDebounce after the submit's end, with nothing in
         // its way, and runs; no live pass ever fires for the emptied accumulator.
         time.Advance(TimeSpan.FromMilliseconds(300));
 
-        Assert.Equal(draftBefore + 1, validator.DraftRuleRuns);
-        Assert.Equal(submitBefore + 1, validator.SubmitRuleRuns);
+        Assert.Equal(1, begun);
+        Assert.Equal(draftBefore + 2, validator.DraftRuleRuns);
+        Assert.Equal(submitBefore + 2, validator.SubmitRuleRuns);
         Assert.False(engine.IsValidating);
     }
 
-    // A pin, which a fire that re-armed itself behind the submit would pass too. An edit made
-    // during a second submit arms the refresh, which comes due while that submit is out and
-    // waits for its end; then each rule runs once more for the edit, and no more. The wait is
-    // 300 ms, not zero: every refresh arm shares one timer whose arm replaces a pending fire, so
-    // only a second way of starting the refresh could run it twice. Mutation: have the submit's
-    // end both arm the refresh timer and start the refresh at once, and the gated rule is
-    // reached twice for the edit (the timer's refresh replaces the one still waiting on the rule,
-    // and runs it again).
+    // An edit made during a second submit arms the refresh, which comes due while that submit is
+    // out and waits for its end. The submit's first answer predates the edit, so it checks again
+    // before it reports, and that check runs each rule once more for the edit; the refresh that
+    // waited then finds every rule answered and runs none. Each rule runs once for the submit and
+    // once for the edit, and no more.
+    // Mutation: let the refresh fire start while a submit is out (drop SubmitInFlight from its
+    // wait). It cancels the submit, which reports blocked.
     [Fact]
-    public async Task A_refresh_deferred_behind_a_submit_runs_each_rule_once_for_the_edit()
+    public async Task A_refresh_deferred_behind_a_submit_finds_the_edit_answered()
     {
         var customer = new EngineCustomer { Name = "Bo" };
         var order = new EngineOrder { Description = "ok", Customer = customer };
@@ -501,14 +518,33 @@ public class FormidableEngineRuleReuseTests
         editContext.NotifyFieldChanged(new FieldIdentifier(order, nameof(EngineOrder.Description)));
         time.Advance(TimeSpan.FromMilliseconds(300)); // the refresh comes due while the submit is out
 
-        // The submit ends. The rule the refresh reaches next waits on a gate of its own, so a
-        // refresh started twice would reach it twice before either could answer.
+        // The first check's answer predates the edit. The check that answers the edit reaches
+        // the rule as the first one ends, and waits on a gate of its own.
         validator.Reset();
+        var restartGate = validator.Gate;
         submitGate.SetResult();
+        for (var waited = 0; waited < 500 && validator.DraftRuleRuns < draftBefore + 2; waited++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(draftBefore + 2, validator.DraftRuleRuns);
+        restartGate.SetResult();
         Assert.True((await submit).CanProceed);
 
-        time.Advance(TimeSpan.FromMilliseconds(300));
-        validator.Gate.SetResult();
+        var begun = 0;
+        var wasValidating = engine.IsValidating;
+        engine.StateChanged += (_, _) =>
+        {
+            if (engine.IsValidating && !wasValidating)
+            {
+                begun++;
+            }
+
+            wasValidating = engine.IsValidating;
+        };
+
+        time.Advance(TimeSpan.FromMilliseconds(300)); // the refresh that waited runs
         for (var waited = 0; waited < 500 && engine.IsValidating; waited++)
         {
             await Task.Delay(10);
@@ -517,6 +553,7 @@ public class FormidableEngineRuleReuseTests
         time.Advance(TimeSpan.FromSeconds(1));
 
         // One run of each rule for the second submit, and one for the edit.
+        Assert.Equal(1, begun);
         Assert.Equal(draftBefore + 2, validator.DraftRuleRuns);
         Assert.Equal(submitBefore + 2, validator.SubmitRuleRuns);
         Assert.False(engine.IsValidating);

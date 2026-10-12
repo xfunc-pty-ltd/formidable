@@ -47,13 +47,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // follow-up check and a check given back), and is dropped or detached on the dispatcher as
     // that submit or load ends.
     // The running validity check's marker (_validityCheckRunning, _validityCheckStartedAt),
-    // _submitAnswered and _validityCheckOwedByLoad move on the dispatcher alone: the marker as the
-    // timer fires and in the probe's own exits, each dispatched, _submitAnswered in the submit's
-    // apply, and _validityCheckOwedByLoad in the dispatch after a pass ends, as a submit or load
-    // lands, and as the timer fires or its deferred check is dropped. So do the three
-    // deferral records (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set as a
-    // fire defers, or as a submit or load gives back a check it displaced, and cleared
-    // in a dispatch of their own after the end of that pass.
+    // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher alone:
+    // the marker as the timer fires and in the probe's own exits, each dispatched, _submitAnswered
+    // in the submit's apply, _validityCheckOwedByLoad in the dispatch after a pass ends, as a
+    // submit or load lands, and as the timer fires or its deferred check is dropped, and
+    // _giveBacksPending in the dispatch that ends a submit or load and the one after it. So do the
+    // three deferral records (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set
+    // as a fire defers, or as a submit or load gives back a check it displaced, and cleared in a
+    // dispatch of their own after the end of that pass. A submit that checks again because an
+    // edit outdated its answer reads the edit stamp and the generation again in its verdict
+    // dispatch, and normalizes the model there, so the begin-time readings of every check it
+    // makes are taken on the caller's context or on the dispatcher.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
     // context as a probe starts, and IsFormValid is written on the dispatcher only while that
@@ -312,12 +316,31 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
     // began, and the fields whose live check stood down for it while it ran. Opened by the first
-    // submit or load to begin, taken over whole by one that supersedes it, and detached as the
-    // current one ends: given back when it ends without an answer (GiveBack), and dropped when it
-    // lands, since its answer stands in for the checks it cancelled. A submit that lands after an
-    // edit gives back the stood-down fields first, because its answer is for the value before
-    // that edit. Null while no submit or load is in flight.
+    // submit or load to begin, taken over whole by one that supersedes it, kept whole while a
+    // submit checks again, and detached as the current one ends: given back when it ends without
+    // an answer (GiveBack), and dropped when it lands, since its answer stands in for the checks it
+    // cancelled. One exception: a submit whose restarts are spent can land an answer that an edit
+    // made while it ran has outdated. Its stood-down fields are then detached and given back in
+    // the dispatch after the landing, because that answer is for the value before the edit. Null
+    // while no submit or load is in flight.
     private DisplacedChecks? _displaced;
+
+    // How many times one submit checks again when an edit made while it ran has outdated its
+    // answer, so three checks at most. A bound, because a visitor who keeps committing edits
+    // through every check would otherwise hold the submit open for as long as they type.
+    private const int SubmitRestarts = 2;
+
+    // How many ended submits or loads have detached a record whose give-back has not run yet:
+    // raised in the dispatch that ends one, as it detaches the record, and lowered in the dispatch
+    // after that end, the one that carries the record to GiveBack. A refresh fire while it is
+    // above zero waits for the give-back, as it waits for a pass in flight. With no LiveDebounce
+    // the live check given back starts at once, and it would cancel a refresh begun in between
+    // with nothing left to start it again. A count rather than a flag, and lowered only by a
+    // dispatch that carries a record, because a live check, a submit or a load can begin and end
+    // between those two dispatches (a live check of synchronous rules a commit starts, say), and
+    // its own end must not release a wait it never raised. A refresh cannot, since its fire waits. Every raise sits beside ended = true, so the dispatch
+    // that lowers it always runs, a handler that throws as the pass ends included.
+    private int _giveBacksPending;
 
     /// <summary>Creates the engine for one model and edit context, with the system clock, inline dispatch and no logger for whichever of those is omitted.</summary>
     /// <param name="model">The model the form edits.</param>
@@ -1642,7 +1665,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // ScheduleRefresh, and before a submit the refresh belonged to a field-set change that
     // nothing re-arms, so the submit-selected coverage waits for whatever next answers that
     // profile (the live pass itself where LiveProfile resolves to the submit profile, the probe
-    // under TrackFormValidity, else a submit, a load or the next field-set change). A debounced fire must
+    // under TrackFormValidity, else a submit, a load or the next field-set change). A live check
+    // given back after a submit or load ends has no edit of its own to re-arm the refresh, and
+    // never meets one: a refresh fire between that end and the give-back waits for it
+    // (_giveBacksPending), and a fire after the give-back waits for the live check. A debounced fire must
     // defer: the edit that opened its window already happened, so nothing would re-arm a refresh
     // it cancelled, and the refresh's verdict would go stale for good.
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
@@ -1764,13 +1790,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return Task.CompletedTask;
         });
 
-    /// <summary>Runs one pass: begins it, validates under <paramref name="profile"/>, applies the verdict only while the pass is still current, and ends it exactly once however it left.</summary>
+    /// <summary>Runs one pass: begins it, validates under <paramref name="profile"/>, applies the verdict only while the pass is still current, and ends it exactly once however it left; a submit whose answer an edit outdated validates again first, at most twice more.</summary>
     /// <param name="kind">The pass kind, which decides the fault policy and whether stored verdicts are served; a submit executes its whole selection.</param>
     /// <param name="profile">The profile the model is validated under.</param>
     /// <param name="external">The caller's token; only a submit and a load carry one, so a cancellation with none requested means supersession.</param>
     /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters.</param>
-    /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it; it receives the report and the edit stamp the pass read at begin.</param>
-    /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied.</returns>
+    /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it; it receives the report and the edit stamp read as the answering check began.</param>
+    /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied, as does a submit whose last check passed once its restarts were spent but an edit outdated.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load before the verdict landed, whether or not the validator read it; a validator's exception under either kind propagates as well.</exception>
     // One skeleton for every kind: the kinds differ in what they hand in, not in how they run,
     // and a copy hand-rolled per kind is one where a single copy can quietly stop raising a
@@ -1796,9 +1822,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
         // nothing: the pass that superseded it ends later. A submit or load that ended without
         // landing also detaches the record of what it displaced, to give back (see GiveBack), and
-        // a submit that landed after an edit detaches the fields whose live check stood down.
+        // a submit that landed an answer an edit made while it ran had outdated detaches the
+        // fields whose live check stood down.
         var ended = false;
         DisplacedChecks? owed = null;
+
+        // How many more times a submit checks again before it reports an answer an edit made
+        // while it ran has outdated (see the verdict dispatch). No other kind checks again.
+        var restartsLeft = kind == PassKind.Submit ? SubmitRestarts : 0;
 
         try
         {
@@ -1806,131 +1837,173 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             _currentPassScope = scope;
             await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
 
-            ValidationReport report;
-            List<SetVerdict>? executed;
-            try
+            while (true)
             {
-                (report, executed, _) = await EvaluateAsync(
-                    profile,
-                    executeAll: kind == PassKind.Submit,
-                    editStamp,
-                    pass.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!external.IsCancellationRequested)
-            {
-                return null; // superseded by a newer pass or by Dispose, not cancelled by the caller
-            }
-            catch (Exception exception) when (kind is not (PassKind.Submit or PassKind.Load))
-            {
-                // A submit and a load are the passes someone is awaiting, so a validator that
-                // throws under either has somewhere to surface: the caller's own try/catch. A
-                // live or refresh pass is fire-and-forget, so its fault has to become form state
-                // and an event instead.
-                await ReportFaultAsync(pass, exception).ConfigureAwait(false);
-                return null;
-            }
-
-            var cancelled = false;
-            await _renderDispatch(() =>
-            {
-                // The caller's cancellation is read here rather than left to the validator: a rule
-                // that ignores its token runs to completion, and its answer must land nothing, as
-                // the answer of a rule that honoured the token never arrives. Read in the dispatch
-                // that lands, so nothing lands between the read and the writes below, and a token
-                // cancelled after them changes nothing. Read before the version, so a pass both
-                // superseded and cancelled throws to its caller, as one whose rule honoured the
-                // token does.
-                if (external.IsCancellationRequested)
+                ValidationReport report;
+                List<SetVerdict>? executed;
+                try
                 {
-                    cancelled = true;
-                    return Task.CompletedTask;
+                    (report, executed, _) = await EvaluateAsync(
+                        profile,
+                        executeAll: kind == PassKind.Submit,
+                        editStamp,
+                        pass.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!external.IsCancellationRequested)
+                {
+                    return null; // superseded by a newer pass or by Dispose, not cancelled by the caller
+                }
+                catch (Exception exception) when (kind is not (PassKind.Submit or PassKind.Load))
+                {
+                    // A submit and a load are the passes someone is awaiting, so a validator that
+                    // throws under either has somewhere to surface: the caller's own try/catch. A
+                    // live or refresh pass is fire-and-forget, so its fault has to become form
+                    // state and an event instead.
+                    await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                    return null;
                 }
 
-                if (pass.Version != _version)
+                var cancelled = false;
+                var restart = false;
+                await _renderDispatch(() =>
                 {
-                    return Task.CompletedTask; // superseded by a newer pass, or by Dispose
-                }
-
-                _faultIssue = null;
-
-                // The store write, gated one notch further than the channel writes around it:
-                // the version says this pass is still the current one, and the generation says
-                // the rendered field set its verdicts were computed against is still the one on
-                // the page. A pass that crossed a field-set change still publishes its verdict —
-                // the channels have their own reconciliation — but the store must not take back
-                // entries the change's clear just removed. A faulted pass never reaches this
-                // dispatch, and a superseded one stops at the version gate above, so neither
-                // writes anything, store included.
-                _verdictStore.TryFile(executed, generation);
-
-                if (SupersedesServerAnswer(kind, pass.Version, editStamp, generation))
-                {
-                    _serverErrors.Clear();
-                    _serverAdvisories.Clear();
-                }
-
-                applyVerdict(report, editStamp);
-
-                // Coverage bookkeeping, after the apply so the submit channel's source is the
-                // one this pass just rebuilt. A submit, a refresh and a load each run the submit
-                // profile itself, so any of them landing is a completed whole-model SubmitProfile
-                // evaluation whose begin stamp and resolved error fields become the
-                // capability-less coverage source — the apply resolved every error, undisclosed
-                // ones included, which is exactly what "would fail submit" needs. A live pass is
-                // excluded by kind rather than by the profile it ran: LiveProfile decides that,
-                // and a narrowed one answers for fewer rules than a submit would.
-                // The coverage version moves with EndPass below, for every landing, live
-                // passes included: any landing can have written verdicts the coverage read
-                // derives from.
-                if (kind != PassKind.Live)
-                {
-                    _submitCoverage.RecordWholeModelAnswer(
-                        editStamp, [.. _submitVerdictErrors.Keys]);
-                }
-
-                // The pass ends here, not only in the finally below: retiring it before
-                // RebuildStore's notification means the verdict and the cleared pending indicator
-                // reach every subscriber in one round instead of two back-to-back ones — and the
-                // descriptor is gone before any notification, so a handler that reacts by letting a
-                // deferred refresh run cannot still see this pass as the one in flight. A landing
-                // submit or load drops what it displaced: its answer is the whole model's at its
-                // begin, which covers every check it cancelled. The fields whose live check stood
-                // down for a submit are the exception once an edit has come after the submit
-                // began, since the answer is for the value before that edit. They are detached to
-                // be given back (see GiveBack), so each is checked as the same edit made just after
-                // the landing would be. A load gives back nothing, because the live check that
-                // follows it answers every engaged field. The stamp test keeps the record dropped
-                // when every edit came before the submit began, which its answer covers: a live
-                // check an earlier unanswered pass gave back can stand down for a submit begun
-                // after that check's edit.
-                EndPass();
-                ended = true;
-                if (kind is PassKind.Submit or PassKind.Load)
-                {
-                    if (kind == PassKind.Submit
-                        && editStamp != _editStamp
-                        && _displaced is { HeldBackFields.Count: > 0 } displaced)
+                    // The caller's cancellation is read here rather than left to the validator: a
+                    // rule that ignores its token runs to completion, and its answer must land
+                    // nothing, as the answer of a rule that honoured the token never arrives. Read
+                    // in the dispatch that lands, so nothing lands between the read and the writes
+                    // below, and a token cancelled after them changes nothing. Read before the
+                    // version, so a pass both superseded and cancelled throws to its caller, as one
+                    // whose rule honoured the token does.
+                    if (external.IsCancellationRequested)
                     {
-                        owed = new DisplacedChecks { OpenedAtEditStamp = displaced.OpenedAtEditStamp };
-                        owed.HeldBackFields.UnionWith(displaced.HeldBackFields);
+                        cancelled = true;
+                        return Task.CompletedTask;
                     }
 
-                    _displaced = null;
-                    _validityCheckOwedByLoad = false;
+                    if (pass.Version != _version)
+                    {
+                        return Task.CompletedTask; // superseded by a newer pass, or by Dispose
+                    }
+
+                    // A submit's answer is for the model it read, and an edit made while it ran
+                    // has changed that model. Reporting the answer would let a page save a value
+                    // nothing checked, so the submit checks again instead, normalizing first as
+                    // it did at the start. Nothing is written and the pass stays current, so the
+                    // form-wide indicator stays on with nothing raised in between, every fire
+                    // that waits for a submit keeps waiting, and the record of what it displaced
+                    // stays whole for the check that answers in its place. The stamp and the
+                    // generation are read again here, on the dispatcher, before that check reads
+                    // the model. Once the restarts are spent, a passing answer ends the submit
+                    // unanswered, in the finally below, as a cancelled submit ends. A blocking
+                    // answer lands, since it lets nothing be saved, and the edit is checked after
+                    // it (see the end of the landing below).
+                    if (kind == PassKind.Submit && editStamp != _editStamp)
+                    {
+                        if (restartsLeft > 0)
+                        {
+                            restartsLeft--;
+                            restart = true;
+                            NormalizeForSubmit();
+                            editStamp = _editStamp;
+                            generation = _verdictStore.Generation;
+                            return Task.CompletedTask;
+                        }
+
+                        if (report.IsValid)
+                        {
+                            return Task.CompletedTask;
+                        }
+                    }
+
+                    _faultIssue = null;
+
+                    // The store write, gated one notch further than the channel writes around it:
+                    // the version says this pass is still the current one, and the generation says
+                    // the rendered field set its verdicts were computed against is still the one
+                    // on the page. A pass that crossed a field-set change still publishes its
+                    // verdict — the channels have their own reconciliation — but the store must
+                    // not take back entries the change's clear just removed. A faulted pass never
+                    // reaches this dispatch, and a superseded one stops at the version gate above,
+                    // so neither writes anything, store included.
+                    _verdictStore.TryFile(executed, generation);
+
+                    if (SupersedesServerAnswer(kind, pass.Version, editStamp, generation))
+                    {
+                        _serverErrors.Clear();
+                        _serverAdvisories.Clear();
+                    }
+
+                    applyVerdict(report, editStamp);
+
+                    // Coverage bookkeeping, after the apply so the submit channel's source is the
+                    // one this pass just rebuilt. A submit, a refresh and a load each run the
+                    // submit profile itself, so any of them landing is a completed whole-model
+                    // SubmitProfile evaluation whose begin stamp and resolved error fields become
+                    // the capability-less coverage source — the apply resolved every error,
+                    // undisclosed ones included, which is exactly what "would fail submit" needs.
+                    // A live pass is excluded by kind rather than by the profile it ran:
+                    // LiveProfile decides that, and a narrowed one answers for fewer rules than a
+                    // submit would. The coverage version moves with EndPass below, for every
+                    // landing, live passes included: any landing can have written verdicts the
+                    // coverage read derives from.
+                    if (kind != PassKind.Live)
+                    {
+                        _submitCoverage.RecordWholeModelAnswer(
+                            editStamp, [.. _submitVerdictErrors.Keys]);
+                    }
+
+                    // The pass ends here, not only in the finally below: retiring it before
+                    // RebuildStore's notification means the verdict and the cleared pending
+                    // indicator reach every subscriber in one round instead of two back-to-back
+                    // ones — and the descriptor is gone before any notification, so a handler that
+                    // reacts by letting a deferred refresh run cannot still see this pass as the
+                    // one in flight. A landing submit or load drops what it displaced: its answer
+                    // is the whole model's as its check began, which covers every check it
+                    // cancelled. A submit lands an answer an edit made while it ran has outdated
+                    // only once its restarts are spent, and then only a blocking one. The fields
+                    // whose live check stood down for it are detached, to be given back in the
+                    // dispatch after this one (see GiveBack), since the answer is for the value
+                    // before the edit. Each is then checked as the same edit made just after the
+                    // landing would be. A load gives back nothing, because the live check that
+                    // follows it answers every engaged field. The stamp test keeps the record
+                    // dropped when every edit came before the answering check began, which that
+                    // answer covers: a live check given back by an earlier submit or load that
+                    // ended unanswered can stand down for a submit begun after that check's edit.
+                    EndPass();
+                    ended = true;
+                    if (kind is PassKind.Submit or PassKind.Load)
+                    {
+                        if (kind == PassKind.Submit
+                            && editStamp != _editStamp
+                            && _displaced is { HeldBackFields.Count: > 0 } displaced)
+                        {
+                            owed = new DisplacedChecks { OpenedAtEditStamp = displaced.OpenedAtEditStamp };
+                            owed.HeldBackFields.UnionWith(displaced.HeldBackFields);
+                            _giveBacksPending++;
+                        }
+
+                        _displaced = null;
+                        _validityCheckOwedByLoad = false;
+                    }
+
+                    RebuildStore();
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+
+                if (cancelled)
+                {
+                    // The pass ends in the finally below, as a pass whose rule honoured the token
+                    // ends: without landing, and arming the fires that deferred to it.
+                    throw new OperationCanceledException(external);
                 }
 
-                RebuildStore();
-                return Task.CompletedTask;
-            }).ConfigureAwait(false);
-
-            if (cancelled)
-            {
-                // The pass ends in the finally below, as a pass whose rule honoured the token
-                // ends: without landing, and arming the fires that deferred to it.
-                throw new OperationCanceledException(external);
+                if (!restart)
+                {
+                    // Landed, superseded at the verdict dispatch, or a passing answer an edit
+                    // outdated after the restarts were spent, which ends in the finally below.
+                    return report;
+                }
             }
-
-            return report;
         }
         finally
         {
@@ -1955,6 +2028,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         {
                             owed = _displaced;
                             _displaced = null;
+                            if (owed is not null)
+                            {
+                                _giveBacksPending++;
+                            }
                         }
                     }).ConfigureAwait(false);
                 }
@@ -1967,18 +2044,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // landing's store rebuild has run. Either end records itself before its
                 // notification, and this runs in a finally of its own, so a handler that throws
                 // as the pass ends still leaves the deferred fires armed and what was displaced
-                // owed; nothing else would arm them. What the end detached (all an unanswered
-                // submit or load displaced, or the fields a submit's edit stood down) is given back
-                // first, since it sets the records the rest reads. Whether anything
-                // answers the latest edit's IsFormValid is asked before the deferred fires are
-                // armed, while their records still say they are coming: a zero wait could start
-                // the refresh inside its arm and leave nothing armed to ask about.
+                // owed; nothing else would arm them. What the end detached is given back first,
+                // since it sets the records the rest reads: all that an unanswered submit or load
+                // displaced, or the fields whose live check stood down for a submit that landed
+                // an answer an edit made while it ran had outdated. Whether anything answers the
+                // latest edit's IsFormValid is asked before the deferred fires are armed, while
+                // their records still say they are coming: a zero wait could start the refresh
+                // inside its arm and leave nothing armed to ask about.
                 if (ended)
                 {
                     await _renderDispatch(() =>
                     {
                         if (owed is not null)
                         {
+                            _giveBacksPending--;
                             GiveBack(owed);
                         }
 
@@ -2000,11 +2079,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Gives back what a submit or load displaced: restarts the re-check, runs the live check again for its fields still engaged, and owes <see cref="IsFormValid"/> a check where it can be stale; a disposed engine gives back nothing.</summary>
-    /// <param name="owed">The record the submit or load detached as it ended: all it displaced when it ended without an answer, or only the stood-down fields when a submit landed after an edit.</param>
+    /// <param name="owed">The record the submit or load detached as it ended: all it displaced when it ended without an answer, or only the stood-down fields when a submit landed an answer an edit made while it ran had outdated.</param>
     // A landed submit's record carries no re-check and no cancelled live check, because its answer
-    // covers both; its stood-down fields are owed because an edit came after it read the model.
-    // For that edit the IsFormValid clause below repeats what the landing's AdoptFormValidity
-    // already owed with tracking on, and with tracking off the end of the pass asks nothing.
+    // covers both; its stood-down fields are owed because an edit made while its last check ran
+    // came after that check read the model. A submit lands such an answer only once its restarts
+    // are spent, and only a blocking one. For that edit the IsFormValid clause below repeats what
+    // the landing's AdoptFormValidity already owed with tracking on, and with tracking off the end
+    // of the pass asks nothing.
     //
     // Run in the dispatch after the end, before the IsFormValid question and ArmDeferredFires,
     // because it sets what both read. The re-check is given back as a refresh fire that deferred
@@ -2012,7 +2093,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // goes back through the debounce window when LiveDebounce is set, through the live timer's
     // record, so it joins whatever the window already holds; with no window it runs at once, as
     // the edit's own check did, and ahead of ArmDeferredFires, so a re-check due at zero defers to
-    // it rather than being cancelled by it. A field no longer engaged has left the page and is
+    // it rather than being cancelled by it. No refresh is running for it to cancel: a refresh fire
+    // between the end and this dispatch waited for it (_giveBacksPending), and this dispatch's
+    // ArmDeferredFires arms that refresh again. A field no longer engaged has left the page and is
     // owed nothing. If another submit or load has begun since, the live check stands down for it
     // and that one's record keeps the fields. Every field given back had a committed change or a
     // loaded value, so nothing here checks a field the visitor only entered and left.
@@ -2314,9 +2397,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // Submit is the higher-intent operation; live/refresh passes never supersede it. A
             // load pass is stood down for on the same terms — see LoadInFlight. The fields go
             // into the record that pass opened as it began, so an end without an answer runs this
-            // check after all (GiveBack). So does a submit's landing once an edit has come after
-            // the submit began, since its answer is for the value before that edit; a load's
-            // landing runs a live check of its own instead.
+            // check after all (GiveBack). An edit made while a submit runs makes the submit check
+            // again, and the check that answers in its place answers this field too, so its
+            // landing drops the record. Once the restarts are spent, a blocking answer that an
+            // edit outdated lands and runs this check after all, since the answer is for the
+            // value before that edit; a load's landing runs a live check of its own instead.
             (_displaced ??= new DisplacedChecks { OpenedAtEditStamp = _editStamp }).HeldBackFields.UnionWith(triggeringFields);
             return;
         }
@@ -2966,17 +3051,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the check.</param>
-    /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise.</returns>
+    /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise, as does a submit edited during each of its three checks whose last check found no error, with that check's report.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
-        // Mirrors the AspNetCore filters: normalize before the profile runs, not after, so the
-        // profile - and the messages a blocked submit re-discloses - answer for the same
-        // normalized values the model is left holding once this call returns.
-        if (_options.NormalizeOnSubmit)
-        {
-            (_model as INormalizableModel)?.Normalize();
-        }
+        NormalizeForSubmit();
 
+        // Written once, by the landing: a check an edit outdated writes nothing, and the pass
+        // checks again (see RunPassAsync), so these always describe the check that answered.
         var canProceed = false;
         var summary = new List<string>();
 
@@ -3105,9 +3186,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // No report at all means the pass was superseded before one existed — report blocked
         // quietly. A pass superseded at the verdict dispatch has a report but never ran the writes
         // above, so the untouched locals are what it has to say: blocked, with nothing to point at.
+        // So does a passing answer that edits kept outdating through every restart: the model now
+        // holds values no check has answered, so nothing may proceed on it.
         return passReport is null
             ? new SubmitOutcome(false, ValidationReport.Empty, [])
             : new SubmitOutcome(canProceed, passReport, summary);
+    }
+
+    /// <summary>Normalizes the model under <see cref="FormidableOptions.NormalizeOnSubmit"/>, before a submit's check reads it.</summary>
+    // Mirrors the AspNetCore filters: normalize before the profile runs, not after, so the
+    // profile - and the messages a blocked submit re-discloses - answer for the same normalized
+    // values the model is left holding once the submit returns. A submit that checks again
+    // normalizes again first, because the edit that outdated its answer can bring a value the
+    // first normalization never saw.
+    private void NormalizeForSubmit()
+    {
+        if (_options.NormalizeOnSubmit)
+        {
+            (_model as INormalizableModel)?.Normalize();
+        }
     }
 
     /// <inheritdoc />
@@ -3878,7 +3975,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return RunLivePassAsync(fields);
     }
 
-    /// <summary>The refresh timer's handler: defers to a submit, live pass or load in flight, else re-checks the whole model under the submit profile, the indicator narrowed to the fields edited within the window and those a debounce window holds.</summary>
+    /// <summary>The refresh timer's handler: defers to a submit, live pass or load in flight or a pending give-back, else re-checks the whole model under the submit profile, lighting the fields edited in the window and those a debounce window holds.</summary>
     private async Task RunRefreshPassAsync()
     {
         if (_disposed)
@@ -3891,7 +3988,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         _refreshArmed = false;
 
-        if (SubmitInFlight || LiveInFlight || LoadInFlight)
+        if (SubmitInFlight || LiveInFlight || LoadInFlight || _giveBacksPending > 0)
         {
             // Defer: the edit must still be revalidated once the pass in flight finishes, and that
             // pass's end arms this timer once more (ArmDeferredFires). Re-arming here would poll,
@@ -3907,6 +4004,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // finds them answered. Waiting can in principle be starved by passes that never
             // quiesce — the same exposure the submit case has always carried, and a form whose
             // passes never settle has no moment at which a refresh would be meaningful anyway.
+            // A give-back still owed by a submit or load that has just ended is waited for the
+            // same way: the live check it starts at once would cancel this pass, and that end's
+            // own dispatch arms this timer once more (see _giveBacksPending).
             _refreshFireDeferred = true;
             return;
         }
@@ -4037,7 +4137,7 @@ internal enum PassKind
 internal readonly record struct PassScope(
     PassKind Kind, int Version, CancellationToken Token, long StartedAt);
 
-/// <summary>What a submit or load in flight displaced, given back if it ends without an answer and dropped if it lands, apart from the stood-down fields of a submit an edit outdated, which are given back.</summary>
+/// <summary>What a submit or load in flight displaced: kept while a submit checks again, given back if it ends unanswered, and dropped if it lands, except the stood-down fields behind a blocking answer an edit outdated.</summary>
 // Mutable sets, because a live check that stands down while the submit or load runs adds to the
 // record after it is opened. The sets keep the fields apart by how they were displaced, so the
 // check that answers them in place of the cancelled one can tell which it took over.

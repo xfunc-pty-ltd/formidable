@@ -677,15 +677,17 @@ public class FormidableEngineValidatingScopeTests
         var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
         var customerName = new FieldIdentifier(order.Customer, nameof(EngineCustomer.Name));
 
-        // Description is edited and Submit pressed inside its window; Name is edited while the
-        // submit runs, which arms the re-check ahead of the window's own fire.
+        // Description is edited and Submit pressed inside its window; Name is edited just after the
+        // submit lands, which arms the re-check ahead of the window's own fire. (Name edited while
+        // the submit runs would make the submit check again, and that check would leave the
+        // re-check no rule to run.)
         order.Description = "ada";
         editContext.NotifyFieldChanged(description);
         var submit = engine.ValidateForSubmitAsync();
-        order.Customer.Name = "bo";
-        editContext.NotifyFieldChanged(customerName);
         validator.Gate.SetResult();
         await submit;
+        order.Customer.Name = "bo";
+        editContext.NotifyFieldChanged(customerName);
 
         validator.Reset();
         time.Advance(TimeSpan.FromMilliseconds(301));
