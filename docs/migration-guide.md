@@ -109,8 +109,10 @@ on the old one implicitly.
   [Disclosure](disclosure.md)).
 
   Fields wrapped in a Formidable component get this automatically. A raw or foreign control needs a
-  `<FormidableFieldAnchor>` alongside it to opt back in to being counted as revealed. Sections that
-  were always fully rendered are unaffected either way.
+  `<FormidableFieldAnchor>` alongside it to opt back in to being counted as revealed. Without one,
+  its live error does not take down the form-level message a blocked submit showed, which stays
+  beside the error even while the control is on screen. Wrapped or anchored, a field in a section
+  that is always rendered is unaffected.
 
   Checking whether a field is on the page belongs to the submit channel. That check judges a server
   reply's warnings and infos as it judges the submit's own issues, and server-declared errors bypass

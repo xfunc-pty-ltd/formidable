@@ -224,6 +224,10 @@ the guest-name rule into both `"Submit"` and `"Live"`. Selection is not where Fl
 splits a name, so `ValidationProfile.Named` rejects a joined entry. The rule then answers live where
 the visitor engages it, while the rules in `ConfigureSubmitRules()` wait for submit.
 
+Choose live rules the submit profile also selects. A rule only the live profile selects shows a
+message that blocks nothing. While that rule's error shows on a rendered field, the form keeps down
+its own message about failing fields being off screen.
+
 **Nothing on the server needs to change:** the shared rule belongs to `"Submit"` too. Naming the
 narrow profile there would quietly stop enforcing every Submit-only rule, since `"Live"` alone
 resolves to the default rules plus the `"Live"` ruleset. A minimal-API route takes a composite
@@ -252,6 +256,7 @@ a narrowed check, because that class means a submit would pass.
 - [Options](options.md#liveprofile)
 - [`TrackFormValidity`](options.md#trackformvalidity)
 - [Disclosure](disclosure.md#why-isnt-my-message-showing-yet)
+- [the form's message about hidden fields](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)
 - [why a rule runs once per edit](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
 - [what puts green on a field](css-and-accessibility.md#what-puts-green-on-a-field)
 

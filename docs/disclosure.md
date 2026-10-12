@@ -104,9 +104,14 @@ rendering it, so its error reaches no message component, no summary and no nativ
 The components that count as rendering a field are `FormidableInputText` and the other
 `FormidableInputBase<TValue>` descendants, the renderless `FormidableField`, the registration-only
 `FormidableFieldAnchor`, and `FormidableCollectionMessage` for its collection-level path, each for
-as long as it stays mounted (`KeepRegistered`, below, extends that). `FormidableFieldMessage` alone
-registers nothing, so a submit's error needs one of those beside it (a live message reaches it
-regardless).
+as long as it stays mounted (`KeepRegistered`, below, extends that).
+
+`FormidableFieldMessage` alone registers nothing, so a submit's error needs one of those beside
+it. Under the default `LiveDisclosure`, a live message reaches `FormidableFieldMessage` anyway.
+While nothing registers the field, though, that live message does not take down
+[the gate](#why-is-the-submit-blocked-with-no-message-in-sight). A
+`FormidableFieldAnchor` beside the message registers the field: a submit's error then shows
+there, and a live error there takes the gate down.
 
 A warning or an info at submit shows only where something renders its field too; a hidden one is
 dropped in silence, since it blocks nothing.
@@ -172,9 +177,10 @@ container always and let items come and go, as the shipped components do; otherw
 announcement the gate exists to make is the one most likely to be dropped
 ([CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why).
 
-The gate gives way the moment there is a real message to give way to: an error the user can see, a
-server error arriving, or an answer that comes back clean. Short of one of those, only a reset takes
-it down.
+The gate gives way the moment there is a real message to give way to: an error on a field something
+renders, a server error arriving, or an answer that comes back clean. Short of one of those, only a
+reset takes it down. A control Formidable does not wrap counts as rendering its field only with
+[an anchor](#formidablefieldanchor-for-raw-and-foreign-controls) beside it.
 
 An edit, and the whole-form re-check that follows one after a submit, leave it standing while
 nothing on screen explains the block. Every submit decides it again from scratch, so it can stand
@@ -387,9 +393,14 @@ blocked submit also takes the field's on-screen live message with it, since the 
 replaces every live message and cannot show this one; the message returns at the next edit
 anywhere on the form.
 
+Without the anchor, the returning live message does not take down a
+[gate](#why-is-the-submit-blocked-with-no-message-in-sight) the blocked submit raised. The gate's
+message stays beside the live one. Give every native input an anchor, whether or not it can hide.
+
 What the anchor is not needed for is the live channel. Blazor's own binding notifies the form on
 every change, which engages the field, and an engaged field's live message shows on every surface
-with or without the anchor. The anchor is how the *submit* channel learns the field is on the page.
+with or without the anchor. The anchor is how the *submit* channel, and the gate, learn the field is
+on the page.
 
 Reach for `FormidableFieldAnchor` when a raw or foreign control already notifies its changes by
 some other means and only needs registering. Reach for `FormidableField` when a hand-wired control
@@ -430,7 +441,9 @@ since neither is in fact hidden.
 
 The live channel is a separate question again. Under its default policy this override filters
 nothing; the [`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies it there, issue
-by issue. Server-applied issues are the third case, and
+by issue. A `true` still counts at [the gate](#why-is-the-submit-blocked-with-no-message-in-sight):
+a live error it answers `true` for takes the gate down, even on a field nothing renders.
+Server-applied issues are the third case, and
 [the section above](#why-did-a-server-error-show-on-a-hidden-field) has it: only a `false` hides
 an error, while an advisory follows the client's own rule.
 

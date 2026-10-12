@@ -88,6 +88,11 @@ Reach for it where a submit rule is genuinely too expensive to run per change;
 a ruleset
 ([validate while typing, on blur, or only at submit](recipes.md#i-want-to-validate-while-typing-on-blur-or-only-at-submit)).
 
+Choose live rules the submit profile also selects. A rule only the live profile selects shows a
+message that blocks nothing. While that rule's error shows on a rendered field, the form's message
+about hidden fields stays down
+([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
+
 [Profiles](profiles.md) has why narrowing is the blunter of the two levers that keep a live channel
 from nagging, and why a save-progress flow is unaffected either way. Why:
 [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).

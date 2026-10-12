@@ -182,6 +182,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // above; no refresh touches this flag, which is half of what makes the gate un-erasable.
     private bool _gateArmed;
 
+    // Whether the last RebuildStore, the only writer that adds the gate issue to the store, added
+    // it. OnRenderedFieldsChanged compares it with GateActive to republish a gate a move took
+    // down that the store still carries.
+    private bool _storeShowsGate;
+
     private ValidationIssue? _faultIssue;
     private IReadOnlyDictionary<FieldIdentifier, int>? _fieldOrder;
 
@@ -893,7 +898,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>The gate's model-level issue, built from <see cref="FormidableOptions.DefensiveGateMessage"/> at each read, which the submit views synthesize while <see cref="GateActive"/> holds.</summary>
     private ValidationIssue GateIssue => new(string.Empty, _options.DefensiveGateMessage);
 
-    /// <summary>Whether the gate shows: a blocked submit that disclosed no visible error armed it, no server error stands, the submit answer carries errors, none on a revealed field <see cref="IsVisible"/> passes now, and the live view carries no error.</summary>
+    /// <summary>Whether the gate shows: a blocked submit that disclosed no visible error armed it, no server error stands, the submit answer carries errors, none on a revealed field passes <see cref="IsVisible"/>, and no live error passes <see cref="IsRendered"/> or the override.</summary>
     // A predicate over the sources rather than a stored entry, recomputed on every read, which
     // is what makes it impossible for a refresh to delete. Only an error dissolves it: a warning
     // does not say why a submit was refused. The arming half matters too: an error that starts
@@ -929,11 +934,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // view, since the views synthesize the gate issue from this very predicate. Error
             // severity alone dissolves it: a warning on screen does not say why a submit was
             // refused.
+            // A live error explains the block only where the page has somewhere to show it: on a
+            // field IsRendered passes for, or where the override answers true for the issue. The
+            // default policy discloses an engaged field nothing registers (a native input with no
+            // anchor), and nothing tells the engine whether that input is still on screen, so
+            // counting its error would let a hidden input take the gate down and leave a form
+            // with no summary blocked in silence. Not IsVisible: it asks the override first, and
+            // an override answering false for a registered field would keep the gate beside that
+            // field's own live message, which the default policy shows whatever the override says.
             // Evaluated last because the arming test above is false on virtually every form, so
             // no form walks the engaged set unless a gate is actually standing.
-            foreach (var (_, issues) in LiveEntries())
+            foreach (var (liveField, issues) in LiveEntries())
             {
-                if (issues.Any(i => i.Severity == ValidationSeverity.Error))
+                if (issues.Any(i => i.Severity == ValidationSeverity.Error
+                    && (IsRendered(liveField) || _options.DisclosureOverride?.Invoke(i) == true)))
                 {
                     return false;
                 }
@@ -943,12 +957,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Whether a move in the rendered field set can change <see cref="GateActive"/>'s answer: the gate is armed, no server error stands, and a revealed field carries a submit error, whose visibility then decides.</summary>
-    // No other conjunct of the gate changes with a move unless OnRenderedFieldsChanged already
-    // republishes for it: the live view loses a departed field's verdict through the prune's own
-    // rebuild, and under EngagedAndVisible it has a republish of its own. So when this is false,
-    // whatever a move does to the gate is republished already, and a page whose rows churn pays
-    // nothing more for it.
+    /// <summary>Whether a move in the rendered field set can change <see cref="GateActive"/>'s answer through a revealed field: the gate is armed, no server error stands, and a revealed field carries a submit error, whose visibility then decides.</summary>
+    // The live conjunct changes with a move too, and OnRenderedFieldsChanged republishes each
+    // such change through a test of its own: the live view loses a departed field's verdict
+    // through the prune's rebuild, under EngagedAndVisible it has a republish of its own, and a
+    // field that starts registering while it carries a live error, taking the gate down, is
+    // caught by comparing the store's gate (_storeShowsGate) with GateActive. So a page whose
+    // rows churn pays one more bool test per move for the gate, and a GateActive read only while
+    // the store carries one.
     private bool GateTurnsOnVisibility =>
         _gateArmed && _serverErrors.Count == 0 && _revealedErrorFields.Overlaps(_submitVerdictErrors.Keys);
 
@@ -1328,7 +1344,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// registered keeps its verdict, and a row held by keep-registered keeps its messages.
     /// An issue a departure causes shows only once a later pass computes it (by default the
     /// refresh this arms, which discloses nothing on a form never submitted). The gate alone
-    /// republishes at once, while a revealed field's visibility decides it. A model whose
+    /// republishes at once, whenever the move changes it. A model whose
     /// contents changed still owes a field-changed notification of its own.
     /// </remarks>
     // Nothing announces a row removed, a section collapsed or a branch swapped as a field change,
@@ -1396,17 +1412,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // view's own inputs — a field REGISTERING can disclose a live verdict the store was not
         // projecting, exactly as a departure can retract one — so a field-set change with filed
         // verdicts standing owes a republish in that mode. The gate reads the registered field
-        // set too, under either policy, while a revealed field's visibility decides it
-        // (GateTurnsOnVisibility): such a field returning takes the gate down, and leaving again
+        // set too, under either policy. While a revealed field's visibility decides it
+        // (GateTurnsOnVisibility), such a field returning takes the gate down, and leaving again
         // brings it back. Both are republished here, from the sources as they stand, so neither
         // runs a rule, and neither waits for the refresh this arms below. Otherwise the default
         // policy consults registration only through the submit hold, whose flips reach the engine
         // through the registry's HeldStateChanged (see OnHeldStateChanged): a hold starting or
         // changing as it happens, whatever rendered the change, and a hold an ended registration
-        // left at the settle above. That keeps the default's churn cost here at the departure-only
-        // republish above whenever no gate turns on a revealed field.
+        // left at the settle above. The gate's live clause reads registration too: a field that
+        // starts registering while it carries a live error takes a standing gate down, which no
+        // republish above covers, so a store still carrying a gate the predicate has dropped is
+        // republished here as well. The other way round needs no test of its own: on a move, a gate
+        // comes back through the live clause only when a registered field carrying a live error
+        // leaves, and the departure prune above drops that verdict and rebuilds. Whenever no gate
+        // turns on a revealed field, a move that changes no gate costs the default nothing here
+        // beyond the departure-only republish above, one more bool test, and a GateActive read
+        // only while the store carries a gate.
         if (!dropped
             && (GateTurnsOnVisibility
+                || (_storeShowsGate && !GateActive)
                 || (_liveVerdicts.Count > 0 && _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible)))
         {
             RebuildStore();
@@ -3102,15 +3126,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // store projects, and the store between rebuilds is what the views said the last time a
     // source moved. Those rounds: a pass's verdict apply, a server apply, a fault report, a
     // departure that dropped a filed verdict, a field-set change while a revealed field's
-    // visibility decides the gate, and under EngagedAndVisible a field-set change with verdicts
-    // standing. A hold starting or stopping, before the first answered submit or server
-    // apply, on a field that is engaged, has an issue filed and has not departed rewrites that
-    // field's entries alone (PatchStoreFor, from OnHeldStateChanged). A round that moves only a
+    // visibility decides the gate, a field-set change that took down a gate the store still
+    // carries, and under EngagedAndVisible a field-set change with verdicts standing. The gate
+    // issue enters the store here alone, so _storeShowsGate is written here alone. A hold
+    // starting or stopping, before the first answered submit or server apply, on a field that is
+    // engaged, has an issue filed and has not departed rewrites that field's entries alone
+    // (PatchStoreFor, from OnHeldStateChanged). A round that moves only a
     // pass's own state or the submit coverage notifies without rebuilding (PublishPassStateAsync,
     // and the validity probe's ends).
     private void RebuildStore()
     {
         _store.Clear();
+        _storeShowsGate = GateActive;
 
         if (_faultIssue is not null)
         {
