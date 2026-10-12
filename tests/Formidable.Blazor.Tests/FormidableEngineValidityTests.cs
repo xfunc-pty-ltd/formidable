@@ -463,17 +463,22 @@ public class FormidableEngineValidityTests
         validator.Release(1);
         Assert.True((await submit).CanProceed); // the submit answered for the value it read
 
-        // The submit's task completes after its end has started the check, which waits on run 2.
+        // The submit's task completes after its end has started two checks: the live check the edit
+        // stood down for the submit, which waits on run 2, and the IsFormValid check, on run 3.
         await ReleaseUntilAsync(validator, () => !engine.IsFormValid);
 
         Assert.False(engine.IsFormValid);
     }
 
     // A pin of the stand-down rules: once a submit has answered, the validity check stands down,
-    // and the whole-form re-check an edit arms answers IsFormValid. An edit during a second submit
-    // is answered by that re-check alone. Mutation: run the check behind the submit's landing
-    // without asking whether an armed re-check answers the edit, and without the check's own
-    // stand-down for an answered submit, and the async rule is reached a second time for the edit.
+    // and the whole-form re-check an edit arms answers IsFormValid. For an edit during a second
+    // submit, IsFormValid is answered by that re-check alone. The edit's own live check, which stood
+    // down for the submit, runs as the submit lands and reaches the async rule once; the re-check
+    // then finds it answered. Mutation: run the check behind the submit's landing without asking
+    // whether an armed re-check answers the edit, and without the check's own stand-downs for an
+    // answered submit and for a re-check an edit armed, and the async rule is reached a second time
+    // for the edit. The re-check waits for that live check here, so it is still the edit's, and the
+    // last stand-down alone keeps the check from running.
     [Fact]
     public async Task An_edit_during_a_submit_is_answered_by_the_refresh_alone()
     {
@@ -498,22 +503,24 @@ public class FormidableEngineValidityTests
         _time.Advance(TimeSpan.FromMilliseconds(100));
 
         validator.Reset();
+        var beforeLanding = validator.DraftRuleRuns;
         submitGate.SetResult();
-        await submit; // its answer predates the edit
-        var afterSubmit = validator.DraftRuleRuns;
+        await submit; // its answer predates the edit; the edit's live check starts and waits on the rule
+        Assert.Equal(beforeLanding + 1, validator.DraftRuleRuns);
 
-        _time.Advance(TimeSpan.FromMilliseconds(200)); // the re-check starts and waits on the rule
+        _time.Advance(TimeSpan.FromMilliseconds(200)); // the re-check comes due and waits for that live check
         _time.Advance(TimeSpan.FromMilliseconds(100)); // where a check armed at the submit's end would come due
-        Assert.Equal(afterSubmit + 1, validator.DraftRuleRuns);
+        Assert.Equal(beforeLanding + 1, validator.DraftRuleRuns);
 
         validator.Gate.SetResult();
-        for (var waited = 0; waited < 500 && engine.IsFormValid; waited++)
-        {
-            await Task.Delay(10);
-        }
+        await UntilAsync(() => !engine.IsValidating);
+        Assert.Equal([RuleRunCountingValidator.SubmitMessage], engine.GetIssues(DescriptionOf(order)).Select(i => i.Message));
+
+        _time.Advance(TimeSpan.FromMilliseconds(300)); // the re-check runs, and finds the rule answered
+        await UntilAsync(() => !engine.IsFormValid);
 
         Assert.False(engine.IsFormValid);
-        Assert.Equal(afterSubmit + 1, validator.DraftRuleRuns);
+        Assert.Equal(beforeLanding + 1, validator.DraftRuleRuns);
     }
 
     // With no LiveDebounce an edit made during a load starts no check of its own, so the load's

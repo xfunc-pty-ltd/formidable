@@ -15,9 +15,10 @@ namespace Formidable.Blazor.Tests;
 /// window when <see cref="FormidableOptions.LiveDebounce"/> is set).
 /// <see cref="FormidableEngine{TModel}.IsFormValid"/> is owed a check only where it can be stale:
 /// a load, a cancelled re-check, or an edit since the submit or load began. That check stands down
-/// when something already on its way answers. A submit or load that lands gives back nothing,
-/// because its answer stands in for the checks it cancelled. Every async rule here counts each run
-/// as it starts, and runs once for each check owed.
+/// when something already on its way answers. A submit or load that lands gives back none of the
+/// checks it cancelled, because its answer stands in for them. A submit an edit outdated does give
+/// back the live check that edit stood down, which <see cref="EditDuringSubmitTests"/> covers. Every
+/// async rule here counts each run as it starts, and runs once for each check owed.
 /// </summary>
 public class FormidableEngineCancelledPassTests
 {

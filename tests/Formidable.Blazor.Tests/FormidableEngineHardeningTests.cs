@@ -26,10 +26,10 @@ public class FormidableEngineHardeningTests
         time.Advance(TimeSpan.FromMilliseconds(301)); // debounce elapses while submit is in flight -> defers until the submit ends
 
         validator.Gate.SetResult();
-        await submit;
-        Assert.Equal(1, validator.Started);
+        await submit; // the live check the edit stood down for the submit runs as it lands
+        Assert.Equal(2, validator.Started);
 
-        time.Advance(TimeSpan.FromMilliseconds(301)); // the re-armed refresh now runs
+        time.Advance(TimeSpan.FromMilliseconds(301)); // the re-armed refresh now runs, and finds the rule answered
         Assert.Equal(2, validator.Started);
     }
 

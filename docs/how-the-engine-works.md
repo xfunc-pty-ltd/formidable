@@ -466,10 +466,7 @@ its caller cancels it or its validator throws. As it begins it records the refre
 supersedes, with that pass's pending scope, and it records the fields of every immediate live pass
 that stands down for it while it runs.
 
-A landing drops the record, because its answer stands in for the passes it superseded. An edit
-made while it ran is left to the refresh that edit armed during a submit, and to the live pass that
-follows a load. An end without an answer gives the record back in the dispatch that arms the
-deferred fires:
+An end without an answer gives the record back in the dispatch that arms the deferred fires:
 
 - the refresh is armed again, as a refresh fire that deferred is;
 - the live pass runs again for those of its fields still engaged, through the debounce window when
@@ -478,9 +475,32 @@ deferred fires:
   ([the probe's section](#the-trackformvalidity-probe)), but only where it can be stale: a load is
   in the record, a refresh was superseded, or an edit came after the record opened.
 
+A landing drops the record, because its answer stands in for the passes it superseded. A submit an
+edit outdated is the exception. Its answer is for the values it read as it began, so an immediate
+live pass that stood down for an edit made while it ran is still owed.
+
+When the edit stamp has moved since the submit began, its landing gives back the fields of every
+live pass that stood down for it and drops the rest of the record. They go back in the same
+dispatch and by the same live-pass route, so each edited field is checked as an edit made just
+after the landing would be.
+
+`IsFormValid` is owed only the check the outdated landing already owes. While `RefreshDebounce` can
+pass, a rule-capable validator with no later edit runs each rule once for the edit: the given-back
+pass runs it, and the refresh that edit armed finds it answered.
+
+Under a `RefreshDebounce` that never passes, no refresh runs. With `TrackFormValidity` on, the owed
+check then starts the probe at once, beside the given-back pass, and neither can reuse what the
+other is still computing. So an async rule runs once in each, as it does for an edit made just after
+the landing, whose live pass and probe start together.
+
+A load gives back nothing at a landing, because the live pass that follows it answers every
+engaged field. A live pass can also stand down for a submit that began after its own edit, such as
+one an earlier unanswered pass gave back. That submit read the edit, so with no edit since it
+began, the stamp test drops the record whole.
+
 A submit or load that supersedes another takes over its record. Whichever ends as the current pass
-drops the record if it lands and gives it back if it does not, so the record is given back at most
-once. A field that has left the page is owed nothing.
+settles the record, so it is given back at most once. A field that has left the page is owed
+nothing.
 
 Every other change already has its answer: the probe an edit or its window started, a check or
 refresh it armed, or a landing that adopted `IsFormValid`. A superseded live pass is not a case of

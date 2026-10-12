@@ -167,8 +167,9 @@ Why: [how the engine works: which check yields to which](how-the-engine-works.md
 
 Press Submit and every field is answered at once, whatever partial work a half-typed field had
 running: every submit rule runs, whatever a live check answered a moment before. Keep typing
-while the submit spinner turns and nothing you type cancels it; the edit is not lost, because the
-whole form is re-checked once the submit lands.
+while the submit spinner turns and nothing you type cancels it. The edit is not lost. Once the
+submit lands, the field you changed is checked as an edit made just after it would be, and the
+whole form is re-checked too.
 
 The same holds while loaded values are being checked (`DiscloseLoadedValuesAsync`): nothing you
 type cancels that, and the edit is answered by the check that follows the load. With

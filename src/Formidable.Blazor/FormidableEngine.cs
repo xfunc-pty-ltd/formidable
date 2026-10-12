@@ -52,7 +52,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // apply, and _validityCheckOwedByLoad in the dispatch after a pass ends, as a submit or load
     // lands, and as the timer fires or its deferred check is dropped. So do the three
     // deferral records (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set as a
-    // fire defers, or as an unanswered submit or load gives back a check it displaced, and cleared
+    // fire defers, or as a submit or load gives back a check it displaced, and cleared
     // in a dispatch of their own after the end of that pass.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
@@ -313,9 +313,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
     // began, and the fields whose live check stood down for it while it ran. Opened by the first
     // submit or load to begin, taken over whole by one that supersedes it, and detached as the
-    // current one ends: dropped when it lands, since its answer stands in for the checks it
-    // cancelled, and given back when it ends without one (GiveBack). Null while no submit or load
-    // is in flight.
+    // current one ends: given back when it ends without an answer (GiveBack), and dropped when it
+    // lands, since its answer stands in for the checks it cancelled. A submit that lands after an
+    // edit gives back the stood-down fields first, because its answer is for the value before
+    // that edit. Null while no submit or load is in flight.
     private DisplacedChecks? _displaced;
 
     /// <summary>Creates the engine for one model and edit context, with the system clock, inline dispatch and no logger for whichever of those is omitted.</summary>
@@ -1794,7 +1795,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // Whether this pass ended as the current one, landed or not, which is what owes the fires
         // that deferred to it their arm (see ArmDeferredFires). A superseded pass's end owes
         // nothing: the pass that superseded it ends later. A submit or load that ended without
-        // landing also detaches the record of what it displaced, to give back (see GiveBack).
+        // landing also detaches the record of what it displaced, to give back (see GiveBack), and
+        // a submit that landed after an edit detaches the fields whose live check stood down.
         var ended = false;
         DisplacedChecks? owed = null;
 
@@ -1892,13 +1894,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // descriptor is gone before any notification, so a handler that reacts by letting a
                 // deferred refresh run cannot still see this pass as the one in flight. A landing
                 // submit or load drops what it displaced: its answer is the whole model's at its
-                // begin, which covers every check it cancelled. An edit made while it ran is left to
-                // the re-check that edit armed during a submit, and to the live check that follows
-                // a load.
+                // begin, which covers every check it cancelled. The fields whose live check stood
+                // down for a submit are the exception once an edit has come after the submit
+                // began, since the answer is for the value before that edit. They are detached to
+                // be given back (see GiveBack), so each is checked as the same edit made just after
+                // the landing would be. A load gives back nothing, because the live check that
+                // follows it answers every engaged field. The stamp test keeps the record dropped
+                // when every edit came before the submit began, which its answer covers: a live
+                // check an earlier unanswered pass gave back can stand down for a submit begun
+                // after that check's edit.
                 EndPass();
                 ended = true;
                 if (kind is PassKind.Submit or PassKind.Load)
                 {
+                    if (kind == PassKind.Submit
+                        && editStamp != _editStamp
+                        && _displaced is { HeldBackFields.Count: > 0 } displaced)
+                    {
+                        owed = new DisplacedChecks { OpenedAtEditStamp = displaced.OpenedAtEditStamp };
+                        owed.HeldBackFields.UnionWith(displaced.HeldBackFields);
+                    }
+
                     _displaced = null;
                     _validityCheckOwedByLoad = false;
                 }
@@ -1951,8 +1967,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // landing's store rebuild has run. Either end records itself before its
                 // notification, and this runs in a finally of its own, so a handler that throws
                 // as the pass ends still leaves the deferred fires armed and what was displaced
-                // owed; nothing else would arm them. What an unanswered submit or load displaced
-                // is given back first, since it sets the records the rest reads. Whether anything
+                // owed; nothing else would arm them. What the end detached (all an unanswered
+                // submit or load displaced, or the fields a submit's edit stood down) is given back
+                // first, since it sets the records the rest reads. Whether anything
                 // answers the latest edit's IsFormValid is asked before the deferred fires are
                 // armed, while their records still say they are coming: a zero wait could start
                 // the refresh inside its arm and leave nothing armed to ask about.
@@ -1982,8 +1999,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Gives back what an unanswered submit or load displaced: restarts the re-check, runs the live check again for its fields still engaged, and owes <see cref="IsFormValid"/> a check where it can be stale; a disposed engine gives back nothing.</summary>
-    /// <param name="owed">The record the submit or load detached as it ended.</param>
+    /// <summary>Gives back what a submit or load displaced: restarts the re-check, runs the live check again for its fields still engaged, and owes <see cref="IsFormValid"/> a check where it can be stale; a disposed engine gives back nothing.</summary>
+    /// <param name="owed">The record the submit or load detached as it ended: all it displaced when it ended without an answer, or only the stood-down fields when a submit landed after an edit.</param>
+    // A landed submit's record carries no re-check and no cancelled live check, because its answer
+    // covers both; its stood-down fields are owed because an edit came after it read the model.
+    // For that edit the IsFormValid clause below repeats what the landing's AdoptFormValidity
+    // already owed with tracking on, and with tracking off the end of the pass asks nothing.
+    //
     // Run in the dispatch after the end, before the IsFormValid question and ArmDeferredFires,
     // because it sets what both read. The re-check is given back as a refresh fire that deferred
     // is, through its record, so ArmDeferredFires arms it once at RefreshDebounce. The live check
@@ -2042,7 +2064,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Arms, once each, the timers whose fires found a pass in flight that they defer to, at each one's own debounce, and clears their records; a disposed engine arms nothing.</summary>
     // Called once the pass a fire deferred to has ended as the current pass, after GiveBack has
-    // added the checks an unanswered submit or load displaced to the same records. Re-arming from
+    // added the checks a submit or load gave back to the same records. Re-arming from
     // the fire itself would poll: at a debounce of zero the fire would run back to back for the
     // whole flight. The validity check and the refresh both arm at RefreshDebounce here, so both come
     // due at one instant, and a real timer gives no order for two timers due together. So whether
@@ -2292,7 +2314,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // Submit is the higher-intent operation; live/refresh passes never supersede it. A
             // load pass is stood down for on the same terms — see LoadInFlight. The fields go
             // into the record that pass opened as it began, so an end without an answer runs this
-            // check after all (GiveBack).
+            // check after all (GiveBack). So does a submit's landing once an edit has come after
+            // the submit began, since its answer is for the value before that edit; a load's
+            // landing runs a live check of its own instead.
             (_displaced ??= new DisplacedChecks { OpenedAtEditStamp = _editStamp }).HeldBackFields.UnionWith(triggeringFields);
             return;
         }
@@ -4013,7 +4037,7 @@ internal enum PassKind
 internal readonly record struct PassScope(
     PassKind Kind, int Version, CancellationToken Token, long StartedAt);
 
-/// <summary>What a submit or load in flight displaced, given back if it ends without an answer and dropped if it lands.</summary>
+/// <summary>What a submit or load in flight displaced, given back if it ends without an answer and dropped if it lands, apart from the stood-down fields of a submit an edit outdated, which are given back.</summary>
 // Mutable sets, because a live check that stands down while the submit or load runs adds to the
 // record after it is opened. The sets keep the fields apart by how they were displaced, so the
 // check that answers them in place of the cancelled one can tell which it took over.
