@@ -340,10 +340,13 @@ public class FormidableEngineHardeningTests
             new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
 
-        // Error severity bypasses the registry entirely, so this reaches GetVisibleIssues with no
-        // field ever registered - what MoveAsync then picks as the "first error" to focus.
+        // The field the forged path names is registered, as a field on screen is, so the reply's
+        // error is the first error MoveAsync picks to focus. Were nothing to render it, the reply
+        // would raise the form-level message, which leads the visible list, and the move would
+        // aim at the form instead.
         const string marker = "forged fallback-miss log line";
         var forgedPath = $"Description\r\nFormidable: {marker}";
+        using var onScreen = engine.Registry.Register(FieldFor(order, forgedPath));
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false }; // never takes focus -> the miss
@@ -377,8 +380,10 @@ public class FormidableEngineHardeningTests
             new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
 
+        // Registered for the reason the newline sibling above gives.
         const string marker = "FallbackForgedBound";
         var forgedPath = marker + new string('x', 5000);
+        using var onScreen = engine.Registry.Register(FieldFor(order, forgedPath));
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false };
@@ -410,9 +415,11 @@ public class FormidableEngineHardeningTests
             new ReflectionModelIntrospector(),
             new FormidableOptions(), new FakeTimeProvider());
 
-        // The same forged path as the suppressed-issue sibling, reaching the other call site.
+        // The same forged path as the suppressed-issue sibling, reaching the other call site, on a
+        // registered field for the reason the newline sibling above gives.
         const string marker = "forged control-character fallback line";
         var forgedPath = $"Description\u001b[2K\u001b[1G{marker}\b\b\a\v\u007f\u009b";
+        using var onScreen = engine.Registry.Register(FieldFor(order, forgedPath));
         engine.ApplyServerIssues([new ValidationIssue(forgedPath, "server said no")]);
 
         var focus = new RecordingFocusService { Lands = false };
@@ -430,6 +437,10 @@ public class FormidableEngineHardeningTests
         var logged = Assert.Single(loggerProvider.Entries).Message;
         Assert.All(logged, c => Assert.False(char.IsControl(c)));
     }
+
+    /// <summary>The field the engine files an issue on <paramref name="path"/> under, resolved through the same introspector and mapping it uses.</summary>
+    private static FieldIdentifier FieldFor(EngineOrder order, string path) =>
+        new ReflectionModelIntrospector().Resolve(order, path).ToFieldIdentifier(order, path);
 
     /// <summary>
     /// Resolves only the two services <c>FirstErrorFocus.MoveAsync</c> reaches for, so the pin

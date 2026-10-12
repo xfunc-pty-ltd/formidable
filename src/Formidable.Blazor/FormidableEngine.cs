@@ -1145,10 +1145,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private static bool SameMessageAndSeverity(ValidationIssue left, ValidationIssue right) =>
         left.Message == right.Message && left.Severity == right.Severity;
 
-    /// <summary>Every field the submit-error view has entries for, with its merged view: revealed fields in report order, server-only fields in apply order, then the gate while it shows.</summary>
+    /// <summary>Every field the submit-error view has entries for, with its merged view: the gate while it shows, then revealed fields in report order, then server-only fields in apply order.</summary>
     /// <returns>The fields and their views; <see cref="GetVisibleIssues"/> and <see cref="RebuildStore"/> both walk this one enumeration.</returns>
+    // The gate leads because a page with no reading order lists issues in this order, and a focus
+    // move takes the first error listed. The gate shows only while no error listed here passes
+    // the visible test: for each, an override hides it or nothing registers its field. A field
+    // ahead of the gate would aim the move at such an error, usually on a field with no element
+    // to take focus. Led by the gate, the move aims at the form, which is where a resolved
+    // document order puts the gate too.
     private IEnumerable<(FieldIdentifier Field, List<ValidationIssue> Issues)> SubmitErrorEntries()
     {
+        if (GateActive)
+        {
+            yield return (ModelLevelField, new List<ValidationIssue> { GateIssue });
+        }
+
         foreach (var field in _submitVerdictErrors.Keys)
         {
             if (_revealedErrorFields.Contains(field))
@@ -1164,11 +1175,6 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             {
                 yield return (field, SubmitErrorsFor(field)!);
             }
-        }
-
-        if (GateActive)
-        {
-            yield return (ModelLevelField, new List<ValidationIssue> { GateIssue });
         }
     }
 

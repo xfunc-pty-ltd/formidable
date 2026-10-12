@@ -852,11 +852,12 @@ server apply reveals it.
 
 `FirstErrorFocus` takes the first error in the visible list. Under `FormidableForm`, a reading order
 resolved for the page as it stands holds the form itself and only the fields with an element on
-the page, and `GetVisibleIssues` sorts every other field after them. So a submit that raises the
-gate beside a hidden revealed field's entry moves focus to the form.
+the page, and `GetVisibleIssues` sorts every other field after them. So a submit, or
+`FormidableForm.ApplyServerIssues`, that raises the gate beside a hidden field's entry moves focus
+to the form.
 
 Before an order has resolved, the engine's own order applies, as it always does in attach mode.
-There the revealed fields come before the gate, so the move aims at the hidden field and misses.
+That order lists the gate before the fields it stands for, so the move aims at the form there too.
 
 While the predicate holds, the views synthesize one model-level issue from
 [`DefensiveGateMessage`](options.md#defensivegatemessage), built afresh from the option at each
@@ -870,10 +871,10 @@ it does not say why a submit was refused.
 ### The message-store projection
 
 `RebuildStore` clears the `ValidationMessageStore` and re-adds,
-in order: the fault issue; every field the submit error view has entries for (ledger-revealed
-client errors, server errors, the gate); then every engaged field's live errors whose message the
-submit view is not already showing for that field. Advisories never enter the store, so a native
-`ValidationMessage` sees errors only.
+in order: the fault issue; every field the submit error view has entries for (the gate,
+ledger-revealed client errors, server errors); then every engaged field's live errors whose
+message the submit view is not already showing for that field. Advisories never enter the store,
+so a native `ValidationMessage` sees errors only.
 
 The rebuild runs at every round that moves what the store projects: a pass's verdict apply, a
 server apply, a fault report, a departure that dropped a filed verdict, a field-set change that

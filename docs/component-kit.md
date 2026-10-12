@@ -910,7 +910,7 @@ or from anything else it knows about a field. Five properties of the resulting o
 | A verdict about the whole form is reported first | The model-level field rides along on every resolution, and its element is the `<form>`, which contains every field on the page, so document order puts the all-suppressed gate's explanation and a validator fault first. An implementation need not special-case it: `FormidableFieldId.For` derives its id the same way. |
 | A field the page cannot place sorts last | The service answers only for the fields it can locate, so anything it leaves out sorts after everything it placed: a control that renders no id of its own, and a row held only by [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it has left the DOM. |
 | An empty answer and no answer are different answers | An empty list says none of these fields are on the page, which is taken as the order. `null` says the order could not be resolved at all, and the form asks again on a later render, as it does after an interop call that threw. Answer `null` where empty was meant and the form re-resolves on every render; answer empty where `null` was meant and it settles on the engine's own order until the registered field set next changes. |
-| Before the first resolution, the order is the engine's own | A resolve lands after the render that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel: the fault issue, then submit errors, then advisories, then the live channel. The same is true of a host that never resolves an order (`FormidableValidator` in attach mode, or an app that registered no order service), which keeps the summary working and costs it only the reading order ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
+| Before the first resolution, the order is the engine's own | A resolve lands after the render that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel: the fault issue, then submit errors (led by the form's own message about hidden fields while it shows), then advisories, then the live channel. The same is true of a host that never resolves an order (`FormidableValidator` in attach mode, or an app that registered no order service), which keeps the summary working and costs it only the reading order ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 
 Document order is the default, being the order a visitor reads the form in. A form wanting another
 sets [`FormidableOptions.OrderIssues`](options.md#orderissues), a re-sort over what the seam
@@ -1098,6 +1098,7 @@ throws. Replacing that `EditContext` rebuilds the engine.
 | When | What you see |
 |---|---|
 | A submit through `ValidateForSubmitAsync()` blocks | Focus lands on the first error as under `FormidableForm`: same `FocusFirstErrorOnInvalidSubmit` switch, `PrepareFocus` awaited, `FocusFallback` threaded in. |
+| That first error is the form's own message, because every failing field is hidden | The move aims at the form, which takes focus only where the page writes the model-level id and `tabindex="-1"` on its `EditForm` (the attribute table below). Without them the move misses, and a `FocusFallback` is handed the model-level field, whose `FieldName` is empty. |
 | A summary lists issues, or "first" is chosen | The engine's order, not the page's: nothing here resolves where the fields sit ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
 | The page offers the [displaced-click guard](#the-click-a-disclosure-displaces) neither candidate | That section's diagnostic, once per context: it stays until the cascaded `EditContext` is replaced. |
 
@@ -1383,6 +1384,7 @@ callback to each. What differs is what an unset one leaves behind:
 | Your callback returns `true` | The move is retried exactly once, into the element you made reachable. |
 | Your callback returns `false` | The miss stands. |
 | The field is merely covered by an overlay | No fallback fires: the element takes focus and reports success. [`PrepareFocus`](#preparefocus) clears the way first. |
+| A move aimed at the form misses | Your callback is handed the model-level field, whose `FieldName` is empty. Under `FormidableValidator` the usual cause is an `EditForm` without the model-level id and `tabindex="-1"`: write them there ([attaching to an existing form](#formidablevalidatortmodel-attaching-to-an-existing-form)) rather than recover in the callback. |
 | One callback on form and summary | The blocked submit's own move recovers too: a visitor who never clicks the summary lands in the failing row. |
 
 [Virtualize and `KeepRegistered`](#virtualize-and-keepregistered) below walks a worked callback end

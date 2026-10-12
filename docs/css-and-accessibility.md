@@ -463,6 +463,11 @@ the page and the topmost field may be carrying only a warning. In the rare case 
 error on screen at all, it falls back to the first visible issue. Focus still moves rather than
 being left wherever the submit button was.
 
+When every failing field is hidden, the form shows a message of its own that says so
+([`DefensiveGateMessage`](options.md#defensivegatemessage)). That message is an error, and the
+first one, so focus lands on the form, which `FormidableForm` makes focusable
+([below](#how-do-i-send-focus-to-something-that-is-not-an-input)).
+
 Every entry in `FormidableSummary` is a button that calls the same service for the field it names,
 `IFormidableFocusService.FocusAsync`, which locates and focuses the DOM element carrying a field's
 deterministic id:

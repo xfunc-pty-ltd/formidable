@@ -25,9 +25,11 @@ public class GateRevealedOffScreenTests : BunitContext
 {
     private const string DestinationRequired = "Destination is required";
     private const string TravelerRequired = "Traveler name is required";
+    private const string TravelerTaken = "Traveler name is taken";
     private const string GateText = "information that is not currently displayed is invalid";
 
     private readonly TripValidator _rules = new();
+    private readonly RecordingFocus _focus = new();
 
     public GateRevealedOffScreenTests()
     {
@@ -35,7 +37,7 @@ public class GateRevealedOffScreenTests : BunitContext
         Services.AddFormidableBlazor();
         Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddSingleton<IValidator<Trip>>(_rules);
-        Services.AddSingleton<IFormidableFocusService>(new NoFocus());
+        Services.AddSingleton<IFormidableFocusService>(_focus);
     }
 
     // S1. A blocked submit reveals both failing fields, they stop rendering, and a second submit
@@ -94,14 +96,19 @@ public class GateRevealedOffScreenTests : BunitContext
 
     // S2. The same route on a form with a summary: the summary keeps listing the hidden fields'
     // errors, since the reveal outlasts the field, and the gate's line shows beside them, since
-    // neither field renders. Mutation that must break it: restore GateActive's ledger-only test
-    // (`_revealedErrorFields.Overlaps(_submitVerdictErrors.Keys)`), and the summary lists the two
-    // errors with no gate line.
-    [Fact]
-    public async Task A_summary_lists_the_hidden_revealed_errors_and_the_gate_beside_them()
+    // neither field renders. Neither root has a reading order here: attach mode never resolves
+    // one, and the form's order service answers nothing under loose interop. So the summary lists
+    // in the engine's own order, which puts the gate's line first. Mutations that must break it:
+    // restore GateActive's ledger-only test (`_revealedErrorFields.Overlaps(_submitVerdictErrors.Keys)`),
+    // and the summary lists the two errors with no gate line; move the gate back to the end of
+    // SubmitErrorEntries, and its line comes last.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_summary_lists_the_hidden_revealed_errors_and_the_gate_beside_them(bool attach)
     {
         var trip = new Trip();
-        var cut = RenderHost(trip, attach: false, summary: true, destination: true, traveler: true);
+        var cut = RenderHost(trip, attach, summary: true, destination: true, traveler: true);
 
         Assert.False((await SubmitAsync(cut)).CanProceed);
         Assert.Equal([DestinationRequired, TravelerRequired], SummaryEntries(cut));
@@ -111,9 +118,123 @@ public class GateRevealedOffScreenTests : BunitContext
 
         var entries = SummaryEntries(cut);
         Assert.Equal(3, entries.Count);
-        Assert.Equal(DestinationRequired, entries[0]);
-        Assert.Equal(TravelerRequired, entries[1]);
-        Assert.Contains(GateText, entries[2]);
+        Assert.Contains(GateText, entries[0]);
+        Assert.Equal(DestinationRequired, entries[1]);
+        Assert.Equal(TravelerRequired, entries[2]);
+
+        await Services.DisposeAsync();
+    }
+
+    // Attach mode resolves no reading order, so its focus move follows the engine's own order. A
+    // blocked submit whose revealed fields are all off screen shows the gate, which leads that
+    // order, so the move aims at the form rather than at a field with no element. This page writes
+    // the model-level id and tabindex="-1" on its EditForm, as the attach recipe teaches, so the
+    // form takes focus and the wired FocusFallback is never asked. The first submit is the control:
+    // with both fields on screen it shows no gate and the move lands on the first of them. The
+    // second submit, its focus move included, runs each rule once, so the move itself validates
+    // nothing. Mutation that must break it: move the gate back to the end of SubmitErrorEntries,
+    // and the move aims at Destination, misses, and asks the fallback.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Attach_mode_focuses_the_form_when_the_gate_stands_for_hidden_fields(bool summary)
+    {
+        var trip = new Trip();
+        var asked = new List<FieldIdentifier>();
+        var cut = RenderHost(trip, attach: true, summary, destination: true, traveler: true, fallback: Decline(asked));
+        LandOnlyWhereTheIdRenders(cut);
+
+        Assert.False((await SubmitAsync(cut)).CanProceed);
+        Assert.Equal([nameof(Trip.Destination)], RequestedSince(0));
+        Assert.True(_focus.Landed[^1]);
+
+        await ShowAsync(cut, destination: false, traveler: false);
+        var requests = _focus.Requests.Count;
+        var runs = _rules.Runs;
+        Assert.False((await SubmitAsync(cut)).CanProceed);
+
+        AssertGateOnEverySurface(cut, trip);
+        Assert.Equal([string.Empty], RequestedSince(requests));
+        Assert.True(_focus.Landed[^1]);
+        Assert.Empty(asked);
+        Assert.Equal(runs + 2, _rules.Runs);
+
+        await Services.DisposeAsync();
+    }
+
+    // The same route on an attach page whose EditForm carries no model-level id. The move still
+    // aims at the form, but nothing on the page carries the form's id, so it misses, and the wired
+    // FocusFallback is handed the model-level field (an empty field name) rather than a hidden
+    // field. The second submit runs each rule once here too. Mutation that must break it: move the
+    // gate back to the end of SubmitErrorEntries, and the move aims at Destination and the fallback
+    // is handed Destination.
+    [Fact]
+    public async Task An_attach_page_without_the_form_id_hands_its_fallback_the_form()
+    {
+        var trip = new Trip();
+        var asked = new List<FieldIdentifier>();
+        var cut = RenderHost(trip, attach: true, summary: false, destination: true, traveler: true, fallback: Decline(asked), formId: false);
+        LandOnlyWhereTheIdRenders(cut);
+
+        Assert.False((await SubmitAsync(cut)).CanProceed);
+        Assert.Equal([nameof(Trip.Destination)], RequestedSince(0));
+        Assert.True(_focus.Landed[^1]);
+
+        await ShowAsync(cut, destination: false, traveler: false);
+        var requests = _focus.Requests.Count;
+        var runs = _rules.Runs;
+        Assert.False((await SubmitAsync(cut)).CanProceed);
+
+        AssertGateOnEverySurface(cut, trip);
+        Assert.Equal([string.Empty], RequestedSince(requests));
+        Assert.False(_focus.Landed[^1]);
+        Assert.Equal([string.Empty], asked.Select(field => field.FieldName));
+        Assert.Equal(runs + 2, _rules.Runs);
+
+        await Services.DisposeAsync();
+    }
+
+    // A FormidableForm whose reading order has not resolved follows the engine's own order too:
+    // the order service here has been asked and has not answered. Two routes raise the gate with
+    // nothing on screen to explain the block: a blocked submit whose revealed fields have left,
+    // and a reply naming only a field that never rendered. On both, the gate leads the engine's
+    // order, so the move aims at the form and lands, and the fallback is never asked. Mutation
+    // that must break it: move the gate back to the end of SubmitErrorEntries, and both moves aim
+    // at a hidden field, miss, and ask the fallback.
+    [Theory]
+    [InlineData("submit")]
+    [InlineData("reply")]
+    public async Task A_form_before_its_order_resolves_focuses_the_form(string route)
+    {
+        var order = new UnansweredOrder();
+        Services.AddSingleton<IFormidableFieldOrderService>(order);
+        var replying = route == "reply";
+        var trip = replying ? new Trip { Destination = "Lisbon", TravelerName = "Ada" } : new Trip();
+        var asked = new List<FieldIdentifier>();
+        var cut = RenderHost(trip, attach: false, summary: false, destination: true, traveler: !replying, fallback: Decline(asked));
+        LandOnlyWhereTheIdRenders(cut);
+
+        int requests;
+        if (replying)
+        {
+            requests = _focus.Requests.Count;
+            await ApplyAsync(cut, new ValidationIssue(nameof(Trip.TravelerName), TravelerTaken));
+        }
+        else
+        {
+            Assert.False((await SubmitAsync(cut)).CanProceed);
+            await ShowAsync(cut, destination: false, traveler: false);
+            requests = _focus.Requests.Count;
+            Assert.False((await SubmitAsync(cut)).CanProceed);
+        }
+
+        Assert.NotEqual(0, order.Asked);
+        var gate = Assert.Single(ModelMessages(cut, trip));
+        Assert.Contains(GateText, gate);
+        AssertGateOnEverySurface(cut, trip);
+        Assert.Equal([string.Empty], RequestedSince(requests));
+        Assert.True(_focus.Landed[^1]);
+        Assert.Empty(asked);
 
         await Services.DisposeAsync();
     }
@@ -212,13 +333,50 @@ public class GateRevealedOffScreenTests : BunitContext
         Assert.Contains(engine.EditContext.GetValidationMessages(modelLevel), m => m.Contains(GateText));
     }
 
-    private IRenderedComponent<TripHost> RenderHost(Trip trip, bool attach, bool summary, bool destination, bool traveler) =>
+    private IRenderedComponent<TripHost> RenderHost(
+        Trip trip,
+        bool attach,
+        bool summary,
+        bool destination,
+        bool traveler,
+        Func<FieldIdentifier, ValueTask<bool>>? fallback = null,
+        bool formId = true) =>
         Render<TripHost>(parameters => parameters
             .Add(p => p.Trip, trip)
             .Add(p => p.Attach, attach)
             .Add(p => p.Summary, summary)
             .Add(p => p.Destination, destination)
-            .Add(p => p.Traveler, traveler));
+            .Add(p => p.Traveler, traveler)
+            .Add(p => p.FocusFallback, fallback)
+            .Add(p => p.FormId, formId));
+
+    // Stands in for the browser's lookup by id: the move lands only where the rendered markup holds
+    // an element carrying the field's id that can take focus, a form control or an element with a
+    // tabindex. A kit input carries its field's id. FormidableForm writes the model-level id and
+    // tabindex="-1" on its own <form>; an attach page has them only where it writes them on its
+    // EditForm, as this host does unless FormId is false.
+    private void LandOnlyWhereTheIdRenders(IRenderedComponent<TripHost> cut) =>
+        _focus.Lands = field => cut.FindAll($"[id='{FormidableFieldId.For(field)}']").Any(element =>
+            element.HasAttribute("tabindex") || element.TagName is "INPUT" or "SELECT" or "TEXTAREA" or "BUTTON");
+
+    // A FocusFallback that records each field it is asked about and declines to make it reachable.
+    private static Func<FieldIdentifier, ValueTask<bool>> Decline(List<FieldIdentifier> asked) =>
+        field =>
+        {
+            asked.Add(field);
+            return ValueTask.FromResult(false);
+        };
+
+    // The field names the focus moves asked for, from the given request on; the empty name is
+    // the form itself.
+    private List<string> RequestedSince(int from) =>
+        _focus.Requests.Skip(from).Select(field => field.FieldName).ToList();
+
+    private static async Task ApplyAsync(IRenderedComponent<TripHost> cut, params ValidationIssue[] issues)
+    {
+        await cut.InvokeAsync(() => cut.FindComponent<FormidableForm<Trip>>().Instance.ApplyServerIssues(issues));
+        await cut.InvokeAsync(() => { });
+    }
 
     // The dispatcher runs one piece of work at a time, so the no-op queued after the render
     // completes only once any reconcile that render posted has run.
@@ -296,10 +454,36 @@ public class GateRevealedOffScreenTests : BunitContext
         }
     }
 
-    /// <summary>Takes no focus, so a blocked submit's focus move touches no script.</summary>
-    private sealed class NoFocus : IFormidableFocusService
+    /// <summary>Records every field a focus move asks for, and whether it landed, and touches no script; it takes focus only where <see cref="Lands"/> says, and nowhere until a test says otherwise.</summary>
+    private sealed class RecordingFocus : IFormidableFocusService
     {
-        public ValueTask<bool> FocusAsync(FieldIdentifier field) => ValueTask.FromResult(false);
+        public List<FieldIdentifier> Requests { get; } = [];
+
+        public List<bool> Landed { get; } = [];
+
+        public Func<FieldIdentifier, bool> Lands { get; set; } = _ => false;
+
+        public ValueTask<bool> FocusAsync(FieldIdentifier field)
+        {
+            var landed = Lands(field);
+            Requests.Add(field);
+            Landed.Add(landed);
+            return ValueTask.FromResult(landed);
+        }
+    }
+
+    /// <summary>An order service that counts the times it is asked and never answers, so the form's reading order stays unresolved.</summary>
+    private sealed class UnansweredOrder : IFormidableFieldOrderService
+    {
+        private readonly TaskCompletionSource<IReadOnlyList<FieldIdentifier>?> _answer = new();
+
+        public int Asked { get; private set; }
+
+        public ValueTask<IReadOnlyList<FieldIdentifier>?> OrderAsync(IReadOnlyList<FieldIdentifier> fields)
+        {
+            Asked++;
+            return new ValueTask<IReadOnlyList<FieldIdentifier>?>(_answer.Task);
+        }
     }
 
     /// <summary>A form over <see cref="Trip"/>, on either root, with a summary or a model-level list, and each field shown or not.</summary>
@@ -320,16 +504,31 @@ public class GateRevealedOffScreenTests : BunitContext
         [Parameter]
         public bool Traveler { get; set; }
 
+        [Parameter]
+        public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
+
+        // Attach mode only: whether the EditForm carries the model-level id and tabindex="-1", as
+        // the attach recipe has a page write them.
+        [Parameter]
+        public bool FormId { get; set; }
+
         protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             if (Attach)
             {
                 builder.OpenComponent<EditForm>(0);
                 builder.AddComponentParameter(1, nameof(EditForm.Model), Trip);
-                builder.AddComponentParameter(2, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
+                if (FormId)
+                {
+                    builder.AddAttribute(2, "id", FormidableFieldId.For(new FieldIdentifier(Trip, string.Empty)));
+                    builder.AddAttribute(3, "tabindex", "-1");
+                }
+
+                builder.AddComponentParameter(4, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => inner =>
                 {
                     inner.OpenComponent<FormidableValidator<Trip>>(0);
                     inner.AddComponentParameter(1, nameof(FormidableValidator<Trip>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => Content));
+                    inner.AddComponentParameter(2, nameof(FormidableValidator<Trip>.FocusFallback), FocusFallback);
                     inner.CloseComponent();
                 }));
                 builder.CloseComponent();
@@ -339,6 +538,7 @@ public class GateRevealedOffScreenTests : BunitContext
             builder.OpenComponent<FormidableForm<Trip>>(10);
             builder.AddComponentParameter(11, nameof(FormidableForm<Trip>.Model), Trip);
             builder.AddComponentParameter(12, nameof(FormidableForm<Trip>.ChildContent), (RenderFragment<FormidableFormContext>)(_ => Content));
+            builder.AddComponentParameter(13, nameof(FormidableForm<Trip>.FocusFallback), FocusFallback);
             builder.CloseComponent();
         }
 

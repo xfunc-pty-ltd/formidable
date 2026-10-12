@@ -160,7 +160,8 @@ the validator reaches no `<form>`, so a page rendering it writes the attribute o
 `FormidableFieldId.MessagesFor` of the model-level field.
 
 The model-level field's own id, with `tabindex="-1"`, goes on that same `EditForm`, so the
-all-suppressed gate's summary entry has somewhere to land. The element carrying that id is also the
+all-suppressed gate's summary entry has somewhere to land, and so does a blocked submit's move when
+the gate's message is its first error. The element carrying that id is also the
 first one the displaced-click guard looks for here; a page offering neither it nor a `<form>` around
 a registered field gets a diagnostic and no guard (see
 [Component kit](component-kit.md#the-click-a-disclosure-displaces)).
@@ -182,9 +183,11 @@ them, because the form resolves where those fields sit and hands its engine the 
 
 `<FormidableValidator>` renders no `<form>` of its own and resolves nothing. A summary inside your
 own `EditForm` still groups by severity, and within each band the entries keep the order the engine
-lists them in; a form-level message for a check that threw heads the errors. The submit channel's
-entries sit close to the order the validator declares its rules in; nothing in that order follows
-the page.
+lists them in; a form-level message for a check that threw heads the errors, with the form's own
+message about hidden fields after it and ahead of every field's errors.
+
+The submit channel's entries sit close to the order the validator declares its rules in; nothing in
+that order follows the page.
 
 Nothing misbehaves; the reading order is simply the engine's. Move the page to `<FormidableForm>`
 if the reading order matters to it (see

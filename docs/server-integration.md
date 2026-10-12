@@ -123,8 +123,9 @@ Why: [how the engine works: what an apply writes](how-the-engine-works.md#what-a
 Because `FormidableForm.ApplyServerIssues` treats a rejection the way a blocked submit is treated.
 A payload carrying an error lands the visitor on the first error on the page, not necessarily the
 one just applied, under the same `FocusFirstErrorOnInvalidSubmit` switch (`true` by default) a
-blocked client submit uses ([Component kit](component-kit.md#formidableformtmodel)). A payload
-with no error in it moves nothing, since nothing about it was rejected.
+blocked client submit uses ([Component kit](component-kit.md#formidableformtmodel)). When the
+form's own message explains the block, that message is the first error, and focus lands on the
+form. A payload with no error in it moves nothing, since nothing about it was rejected.
 
 [`Engine.ApplyServerIssues(...)`](engine-reference.md#iformidableengine) is the quiet path for an
 apply nobody just asked for, and
