@@ -80,11 +80,10 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
         Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("IsFormValid"));
     }
 
-    // The one internal read that can happen with tracking off: a validity check started while
-    // tracking was on, answering after the page turned it off. Its answer is written through the
-    // backing field, so it notes nothing.
-    // Mutation: route SetFormValidity's comparison through the public getter, so the landing
-    // writes the note.
+    // A validity check started while tracking was on, answering after the page turned it off,
+    // leaves IsFormValid alone, so its landing reads nothing that could write the note.
+    // Mutation: read the public IsFormValid at the check's landing ahead of its option test, so
+    // the landing writes the note.
     [Fact]
     public async Task A_validity_check_answering_after_tracking_is_turned_off_writes_nothing()
     {
@@ -101,7 +100,7 @@ public class UntrackedFormValidityDiagnosticTests : BunitContext
             var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             engine.StateChanged += (_, _) => landed.TrySetResult();
 
-            // The gated rule passes, so the answer flips from false and the landing notifies.
+            // The gated rule passes, and the landing notifies for the rule answer it files.
             validator.Gate.SetResult();
             await landed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }, IsNote);

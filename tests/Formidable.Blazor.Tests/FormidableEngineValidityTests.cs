@@ -176,6 +176,64 @@ public class FormidableEngineValidityTests
         Assert.Equal(1, counting.CallCount);
     }
 
+    // A check already running when the page turns tracking off leaves IsFormValid at its last
+    // answer. It still files its rule answer, so the field it passed reads as passing a submit.
+    // Mutation: write IsFormValid at the check's landing whatever the option says, and it reads
+    // true. Skip the whole landing with tracking off instead, and the field cannot read as
+    // passing.
+    [Fact]
+    public async Task A_check_landing_after_tracking_is_turned_off_leaves_IsFormValid_unchanged()
+    {
+        var landed = await LandTheFirstCheckAsync(turnTrackingOff: true);
+
+        Assert.False(landed.IsFormValid);
+        Assert.True(landed.WouldPassSubmit);
+        Assert.Equal(1, landed.RuleRuns);
+    }
+
+    // The control: the same landing with tracking left on writes IsFormValid.
+    [Fact]
+    public async Task A_check_landing_with_tracking_on_writes_IsFormValid()
+    {
+        var landed = await LandTheFirstCheckAsync(turnTrackingOff: false);
+
+        Assert.True(landed.IsFormValid);
+        Assert.True(landed.WouldPassSubmit);
+        Assert.Equal(1, landed.RuleRuns);
+    }
+
+    /// <summary>
+    /// Builds a tracked engine whose first check waits on a gated rule that passes, optionally turns
+    /// tracking off while it waits, then opens the gate and waits for the check's landing.
+    /// </summary>
+    private async Task<(bool IsFormValid, bool WouldPassSubmit, int RuleRuns)> LandTheFirstCheckAsync(bool turnTrackingOff)
+    {
+        var order = new EngineOrder();
+        var validator = new GatedValidator { ShouldPass = true };
+        var options = new FormidableOptions { TrackFormValidity = true };
+        var dispatch = new CountedDispatch();
+        using var engine = new FormidableEngine<EngineOrder>(
+            order, new EditContext(order), new FluentValidationModelValidator<EngineOrder>(validator),
+            new ReflectionModelIntrospector(), options, _time, dispatch.Dispatch);
+        Assert.Equal(1, validator.Started); // the check every tracked form starts as it is built
+        Assert.False(engine.GetFieldState(DescriptionOf(order)).WouldPassSubmit);
+
+        if (turnTrackingOff)
+        {
+            options.TrackFormValidity = false;
+        }
+
+        // The landing is the one dispatch the check makes, and nothing else is running.
+        var before = dispatch.Completed;
+        validator.Gate.SetResult();
+        await dispatch.WaitUntilAtLeastAsync(before + 1);
+        var wouldPassSubmit = engine.GetFieldState(DescriptionOf(order)).WouldPassSubmit;
+
+        // Read with tracking back on, so the read itself writes no untracked-read note.
+        options.TrackFormValidity = true;
+        return (engine.IsFormValid, wouldPassSubmit, validator.Started);
+    }
+
     [Fact]
     public void TrackFormValidity_with_LiveDebounce_defers_the_probe_until_the_window_closes()
     {

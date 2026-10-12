@@ -2189,7 +2189,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }).ConfigureAwait(false);
     }
 
-    /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips and only while this probe is the latest.</summary>
+    /// <summary>Evaluates the submit profile as a standalone probe for <see cref="FormidableOptions.TrackFormValidity"/>, writing <see cref="IsFormValid"/> only when it flips, only while this probe is the latest, and only while tracking is still on as it lands.</summary>
     /// <param name="validityCheckRun">The number of the validity timer's fire that started this probe, which its exits end the running check under; zero for every other probe.</param>
     /// <remarks>
     /// Not a pass: it never calls <see cref="BeginPass"/>, discloses nothing, touches no
@@ -2291,7 +2291,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     movedCoverage = true;
                 }
 
-                SetFormValidity(report.IsValid);
+                // The option is read as the probe lands, so a page that turned tracking off while
+                // it ran keeps IsFormValid's last answer (AdoptFormValidity says why).
+                if (_options.TrackFormValidity)
+                {
+                    SetFormValidity(report.IsValid);
+                }
             }
 
             if (movedCoverage)
@@ -2316,8 +2321,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // landing. An answer an edit has outdated writes neither IsFormValid nor the stamp, so a probe
     // begun after that edit still lands; the end of the pass then checks for the edit unless
     // something already on its way answers it (EditValidityAnswered). With tracking off there is
-    // nothing to keep current, so the adoption writes nothing; a probe started before the page
-    // turned tracking off can still land its answer.
+    // nothing to keep current, so the adoption writes nothing. A probe started before the page
+    // turned tracking off still files its rule answers and coverage, and leaves IsFormValid as it
+    // was.
     private void AdoptFormValidity(ValidationReport report, int beganAtEditStamp)
     {
         if (!_options.TrackFormValidity)

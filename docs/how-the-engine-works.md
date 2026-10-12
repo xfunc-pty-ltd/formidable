@@ -821,10 +821,11 @@ An all-synchronous plan runs to completion before the call that started it retur
 of the probe and the pass goes first has filed everything the other would have planned, and they
 share in full.
 
-`IsFormValid` is written only when the value flips and only while the probe's stamp is the latest
-taken. With tracking on, a submit, a refresh or a load whose begin stamp is still the engine's
-adopts its own report's validity directly and bumps the same stamp, so a probe that started
-earlier discards its answer rather than overwrite a fresher one.
+`IsFormValid` is written only when the value flips, only while the probe's stamp is the latest
+taken, and only while tracking is on as the probe lands. With tracking on, a submit, a refresh or
+a load whose begin stamp is still the engine's adopts its own report's validity directly and bumps
+the same stamp, so a probe that started earlier discards its answer rather than overwrite a
+fresher one.
 
 A landing an edit outdated (`AdoptFormValidity` finds `_editStamp` moved past the pass's begin)
 writes neither `IsFormValid` nor the stamp, so a probe begun after the edit still lands. The end

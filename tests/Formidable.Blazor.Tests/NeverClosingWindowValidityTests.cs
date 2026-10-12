@@ -585,7 +585,7 @@ public class NeverClosingWindowValidityTests
     // A pin: it holds whether or not a never-closing window arms a check, and guards the fire's
     // stand-down once tracking is off.
     // Mutation: drop the TrackFormValidity test from the fire. The check then runs its rules
-    // against the fixed value, and IsFormValid flips to true with tracking off.
+    // against the fixed value.
     [Fact]
     public void An_armed_validity_check_runs_nothing_once_tracking_is_off()
     {

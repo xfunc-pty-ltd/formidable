@@ -35,9 +35,8 @@ public interface IFormidableEngine
 
     /// <summary>Whether the form would pass the submit profile, kept current only while <see cref="FormidableOptions.TrackFormValidity"/> is on; <see langword="false"/> on a form that has never tracked.</summary>
     /// <remarks>
-    /// With tracking off it keeps its last answer: the validity check is not started, and the
-    /// adoption of a submit's, a load's or the whole-form re-check's answer (the engine's private
-    /// AdoptFormValidity) returns before writing. With tracking on from the start it reads
+    /// It is written only while tracking is on, so it keeps its last answer whenever tracking is
+    /// off, whatever check was already running. With tracking on from the start it reads
     /// <see langword="false"/> until a whole-form check has answered once. Issues a server applied through
     /// <see cref="ApplyServerIssues"/> are not part of the answer. The first read with tracking
     /// off writes one Trace line and one logged warning naming the option.
