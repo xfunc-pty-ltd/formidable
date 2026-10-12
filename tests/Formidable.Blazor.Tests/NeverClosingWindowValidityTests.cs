@@ -10,8 +10,9 @@ namespace Formidable.Blazor.Tests;
 /// <see cref="FormidableOptions.TrackFormValidity"/> under a <see cref="FormidableOptions.LiveDebounce"/>
 /// of <see cref="Timeout.InfiniteTimeSpan"/>, a window that never closes. Before the first submit
 /// or server reply, a committed change arms the validity check at
-/// <see cref="FormidableOptions.RefreshDebounce"/>, and each change after it re-arms the same
-/// check, so a burst of changes runs one check that long after the last. The check counts as one
+/// <see cref="FormidableOptions.RefreshDebounce"/> (unless a whole-form re-check an edit armed
+/// has still to begin), and each change after it re-arms the same check, so a burst of changes
+/// runs one check that long after the last. The check counts as one
 /// on its way for the valid class while it is armed and tracking stays on. Once it runs, it counts
 /// whatever tracking says, until it lands, faults or is cancelled, or until
 /// <c>SubmitCoverageTracker.HeldVouchBound</c> has passed since it started. Every engine here is

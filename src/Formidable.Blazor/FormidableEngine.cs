@@ -49,17 +49,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // follow-up check and a check given back), and is dropped or detached on the dispatcher as
     // that submit or load ends.
     // The running validity check's marker (_validityCheckRunning, _validityCheckStartedAt),
-    // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher alone:
-    // the marker as the timer fires and in the probe's own exits, each dispatched, _submitAnswered
-    // in the submit's apply, _validityCheckOwedByLoad in the dispatch after a pass ends, as a
-    // submit or load lands, and as the timer fires or its deferred check is dropped, and
-    // _giveBacksPending in the dispatch that ends a submit or load and the one after it. So do the
-    // three deferral records (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set
-    // as a fire defers, or as a submit or load gives back a check it displaced, and cleared in a
-    // dispatch of their own after the end of that pass. A submit that checks again because an
-    // edit outdated its answer reads the edit stamp and the generation again in its verdict
-    // dispatch, and normalizes the model there, so the begin-time readings of every check it
-    // makes are taken on the caller's context or on the dispatcher.
+    // _submitAnswered, _validityCheckOwedByLoad and _giveBacksPending move on the dispatcher, with
+    // the one exception the end of this paragraph names: the marker as the timer fires and in the
+    // probe's own exits, each dispatched, _submitAnswered in the submit's apply,
+    // _validityCheckOwedByLoad in the dispatch after a pass ends, as a submit or load lands, and
+    // as the timer fires or its deferred check is dropped, and _giveBacksPending in the dispatch
+    // that ends a submit or load and the one after it. So do the three deferral records
+    // (_refreshFireDeferred, _liveFireDeferred, _validityFireDeferred): set as a fire defers, or as
+    // a submit or load gives back a check it displaced, and cleared in a dispatch of their own
+    // after the end of that pass, the validity check's record also as its fire stands down and as
+    // a landing drops its check. The exception: an edit that arms the refresh drops the validity
+    // check (StandDownValidityCheck) on the caller's context, clearing _validityCheckOwedByLoad and
+    // _validityFireDeferred there. A submit that checks again because an edit outdated its answer
+    // reads the edit stamp and the generation again in its verdict dispatch, and normalizes the
+    // model there, so the begin-time readings of every check it makes are taken on the caller's
+    // context or on the dispatcher.
     //
     // IsFormValid has its own gate: _formValidityStamp moves synchronously on the caller's
     // context as a probe starts, and IsFormValid is written on the dispatcher only while that
@@ -190,7 +194,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // One record per timer whose fire found a pass in flight that it defers to: set by the fire,
     // which arms nothing, and cleared as ArmDeferredFires arms the timer once at the end of that
     // pass. A submit or load that ends without an answer sets the refresh's and the live timer's
-    // records too, for a check it displaced (GiveBack), so that check is armed the same way.
+    // records too, for a check it displaced (GiveBack), so that check is armed the same way. The
+    // validity check's record is also cleared when its check is dropped (StandDownValidityCheck).
     private bool _refreshFireDeferred;
     private bool _liveFireDeferred;
     private bool _validityFireDeferred;
@@ -206,12 +211,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private int _unusableDebouncesNamed;
 
     // The validity check and whether it is armed. A committed change arms it under a LiveDebounce
-    // that never closes, before the first submit or server reply; the end of a pass its fire
-    // waited for arms it again, and a landing an edit outdated arms it under any LiveDebounce
-    // (RecheckFormValidity), as does an unanswered submit or load where IsFormValid can be stale.
-    // The flag is set as it is armed and cleared as it fires or stands down, or as a load's
-    // adopted answer drops it (StandDownValidityCheck). ReAnswerOnItsWay counts it while armed,
-    // and then counts the probe the fire starts through the marker below.
+    // that never closes, before the first submit or server reply, unless a refresh an edit armed
+    // has still to begin; the end of a pass its fire waited for arms it again, and a landing an
+    // edit outdated arms it under any LiveDebounce (RecheckFormValidity), as does an unanswered
+    // submit or load where IsFormValid can be stale. The flag is set as it is armed and cleared
+    // as it fires or stands down, or as a load's adopted answer or an edit that arms the refresh
+    // drops it (StandDownValidityCheck). ReAnswerOnItsWay counts it while armed, and then counts
+    // the probe the fire starts through the marker below.
     private ITimer? _validityTimer;
     private bool _validityCheckArmed;
 
@@ -233,8 +239,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // later edit arms the refresh, and a load's change arms none. So this check passes that
     // stand-down until a refresh is armed, waiting or running, or a later submit or load lands
     // and clears this flag; the fire's other stand-downs apply to it unchanged. Set as the check
-    // is armed; cleared as the fire runs or stands down, as a deferred check is dropped, and as
-    // a submit or load lands, since that answer is the one this check was owed.
+    // is armed; cleared as the fire runs or stands down, as a deferred check is dropped, as an
+    // edit that arms the refresh drops the check (that refresh answers the whole model, the
+    // load's change included), and as a submit or load lands, since that answer is the one this
+    // check was owed.
     private bool _validityCheckOwedByLoad;
 
     private CancellationTokenSource? _passCts;
@@ -1648,21 +1656,37 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // landing ahead of a still-open live window simply does the work and leaves that
             // window's pass nothing to execute — the same total cost in the other order.
             _pendingRefreshFields.Add(e.FieldIdentifier);
+
+            // The refresh this change arms answers IsFormValid for the whole model, so a validity
+            // check armed or waiting beside it is dropped here, at the arm, as ArmDeferredFires
+            // drops one. Left to its fire, the check stands down only while this refresh has still
+            // to begin. Due with the refresh, it could fire once the refresh had begun and emptied
+            // the list that test reads, then run an async rule the refresh was still computing.
+            // Decided before the arm, because a zero wait can start the refresh inside it.
+            if (_validityCheckArmed && RefreshArmedByEdit)
+            {
+                StandDownValidityCheck();
+            }
+
             ScheduleRefresh();
         }
         else if (_options.TrackFormValidity
                  && _options.LiveDebounce is { } window
-                 && UsableWait(window) is null)
+                 && UsableWait(window) is null
+                 && !RefreshArmedByEdit)
         {
             // A window that never closes never starts the probe its fire would, so before a
             // submit or server reply nothing this change starts would move IsFormValid or put the
-            // vouch back. After either, the refresh the branch above arms answers both. A check
-            // armed beside it would run an async rule a second time, since neither could reuse
-            // what the other was still computing. This test keeps the change from arming one: due
-            // with the refresh, its fire could follow the refresh's begin, when no refresh is
-            // armed for it to stand down for. A check an earlier change armed before a server
-            // reply or a submit fires while this refresh is still armed, and stands down for it.
-            // A null or finite window keeps the probe on its own cadence.
+            // vouch back; the validity check answers for it. A refresh an edit armed answers both
+            // for the whole model, and a check beside it would run an async rule a second time,
+            // since neither could reuse what the other was still computing: due with the refresh
+            // or after it, its fire could follow the refresh's begin, when no refresh is armed
+            // for it to stand down for. So the branch above drops a check armed or waiting,
+            // whatever armed it, and this one arms none while such a refresh has still to begin.
+            // Here that happens only after a first submit that ended unanswered, when an edit
+            // made during it armed the refresh; the refresh begins after this change and answers
+            // it. A refresh already running began before this change, so the check is armed for
+            // it. A null or finite window keeps the probe on its own cadence.
             ScheduleValidityCheck();
         }
     }
@@ -3837,9 +3861,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Drops the validity check, whether armed or waiting for the pass in flight: disarms its timer and clears its flag, its deferral record and its load claim.</summary>
-    // For a landing that has just answered IsFormValid for the latest edit. Disarming the timer
-    // stops a fire still to come; a waiting check has fired already, and clearing its record keeps
-    // ArmDeferredFires from arming it again.
+    // For a landing that has just answered IsFormValid for the latest edit, and for an edit that
+    // arms the refresh, which answers it for that edit. Disarming the timer stops a fire still to
+    // come; a waiting check has fired already, and clearing its record keeps ArmDeferredFires from
+    // arming it again.
     private void StandDownValidityCheck()
     {
         _validityTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);

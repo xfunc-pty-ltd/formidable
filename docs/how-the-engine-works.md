@@ -895,7 +895,8 @@ every field-changed notification, or once per window when `LiveDebounce` is set.
 
 `Timeout.InfiniteTimeSpan` is the exception, because its window does not close. There a field
 change that arms no refresh (no `HasSubmitted`, no submit in flight) arms the validity timer at
-`RefreshDebounce` instead, one sliding window, so a burst of changes is one probe.
+`RefreshDebounce` instead, one sliding window, so a burst of changes is one probe. It arms none
+while a refresh an edit armed has still to begin (below).
 
 A fire whose check is no longer armed does nothing at all. On a dispatcher that queues work, the
 timer can post its fire before a landing drops the check, and disarming the timer cannot recall
@@ -924,6 +925,12 @@ A refresh an edit armed can wait for the same pass. Both are then armed at that 
 So the stand-down for that refresh is decided at the arm: the check is dropped and its flag
 cleared, and a refresh that begins first cannot leave it nothing to stand down for.
 
+An edit that arms the refresh decides the same way, at its own arm. It drops a validity check
+still armed or waiting, whatever armed it (the check an unanswered load owes included), disarming
+its timer and clearing its flag and its record. Otherwise the two could still come due together:
+a submit or load that ends unanswered arms its waiting check again, and an edit in that
+millisecond arms the refresh.
+
 The refresh an edit arms adopts `IsFormValid` for the whole model and counts as a re-answer on its
 way, so a probe beside it would only run a still-unanswered async rule a second time. That refresh
 also waits out a submit in flight and runs whether the submit answers or is cancelled, which is
@@ -932,6 +939,10 @@ why the fire tests for it before it defers.
 After `HasSubmitted` no change arms the validity timer at all. A probe due with the refresh the
 same change armed could fire once that refresh had begun, with no armed refresh left to stand down
 for.
+
+Before `HasSubmitted`, a change arms none while a refresh an edit armed has still to begin, for the
+same reason. Such a refresh outlives a first submit that ends without an answer, when an edit made
+during that submit armed it. It begins after the change, so it answers that change.
 
 Under a `RefreshDebounce` of `Timeout.InfiniteTimeSpan` the timer never fires, so
 `IsFormValid` moves only on a submit, a load, or the probe that starts behind one of them when an

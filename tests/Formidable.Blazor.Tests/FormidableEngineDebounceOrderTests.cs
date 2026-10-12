@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -430,6 +431,202 @@ public class FormidableEngineDebounceOrderTests
         Assert.DoesNotContain(engine.GetVisibleIssues(), issue => issue.Issue.Message == options.ValidationFaultMessage);
     }
 
+    // TrackFormValidity on, a LiveDebounce that never closes, RefreshDebounce 300 ms. An edit to A
+    // before any reply arms the validity check, a server reply follows, and a submit or load held
+    // on C's rule is out when the check comes due, so the check waits for it. Each recipe then
+    // ends that submit or load and, at the same instant, empties B, which B's rule rejects. That
+    // edit arms the whole-form re-check, and a double run needs a validity check still armed
+    // beside it, due at the same instant:
+    // - "cancelled-load" and "cancelled-submit": the pass ends unanswered and its end arms the
+    //   waiting check once more, at the instant the edit comes;
+    // - "landed-load": the load lands with its answer adopted, which drops the waiting check, so
+    //   no check is left for the edit to meet;
+    // - "edit-during-load": no check is ever armed, because the edit to A comes after the reply,
+    //   during the load, and arms the re-check instead.
+    // B's async rule is held from the edit on, so a run that starts is still unanswered when any
+    // other timer due at that instant fires. The clock runs timers due together in the order they
+    // were armed ("fifo"), in reverse ("lifo", the re-check first), or in FakeTimeProvider's own
+    // order ("fake", which here is the order they were armed). Every row runs B's rule once for the
+    // one edit, and IsFormValid ends false, the answer for the emptied B.
+    // Mutation: drop the stand-down HandleFieldChanged makes when the edit arms the re-check. The
+    // two unanswered recipes then run the rule twice when the re-check fires first (lifo).
+    [Theory]
+    [InlineData("lifo", "cancelled-load")]
+    [InlineData("fifo", "cancelled-load")]
+    [InlineData("fake", "cancelled-load")]
+    [InlineData("lifo", "cancelled-submit")]
+    [InlineData("fifo", "cancelled-submit")]
+    [InlineData("fake", "cancelled-submit")]
+    [InlineData("lifo", "landed-load")]
+    [InlineData("fifo", "landed-load")]
+    [InlineData("lifo", "edit-during-load")]
+    [InlineData("fifo", "edit-during-load")]
+    public async Task An_edit_beside_a_waiting_validity_check_runs_the_rule_once_in_either_timer_order(string clockKind, string recipe)
+    {
+        var (runs, isFormValid) = await RunTieAsync(clockKind, gapMs: 0, recipe);
+
+        Assert.False(isFormValid);
+        Assert.Equal(1, runs);
+    }
+
+    // The control: the edit to B comes 1 ms after the end of the submit or load, so a validity
+    // check still armed beside the re-check would come due 1 ms before it, first in every clock
+    // order, while that re-check is still armed for it to stand down for.
+    [Theory]
+    [InlineData("lifo", "cancelled-load")]
+    [InlineData("fifo", "cancelled-load")]
+    [InlineData("fake", "cancelled-load")]
+    [InlineData("lifo", "cancelled-submit")]
+    [InlineData("fifo", "cancelled-submit")]
+    [InlineData("fake", "cancelled-submit")]
+    [InlineData("lifo", "landed-load")]
+    public async Task A_one_millisecond_gap_runs_the_rule_once(string clockKind, string recipe)
+    {
+        var (runs, isFormValid) = await RunTieAsync(clockKind, gapMs: 1, recipe);
+
+        Assert.False(isFormValid);
+        Assert.Equal(1, runs);
+    }
+
+    // The mirror: the re-check is the one waiting, and the edit is the one that would arm the
+    // validity check. A first submit held on C's rule is cancelled after an edit to A during it,
+    // so HasSubmitted stays false while the re-check that edit armed stays armed. The edit to B,
+    // at the same instant or later, then takes the never-closing window's branch. The re-check
+    // begins after that edit and answers it, so B's rule runs once in every order.
+    // Mutation: let that branch arm the validity check whatever the re-check says. The check then
+    // comes due with the re-check or after it, fires once the re-check has begun, and runs the
+    // rule a second time (fifo and fake at the same instant, every clock 100 ms later).
+    [Theory]
+    [InlineData("lifo", 0)]
+    [InlineData("fifo", 0)]
+    [InlineData("fake", 0)]
+    [InlineData("lifo", 100)]
+    [InlineData("fake", 100)]
+    public async Task An_edit_beside_a_waiting_recheck_runs_the_rule_once_in_either_timer_order(string clockKind, int gapMs)
+    {
+        var (runs, isFormValid) = await RunTieAsync(clockKind, gapMs, "edit-during-first-submit");
+
+        Assert.False(isFormValid);
+        Assert.Equal(1, runs);
+    }
+
+    /// <summary>Runs one recipe and returns how many times B's async rule started for the edit to B, and <see cref="FormidableEngine{TModel}.IsFormValid"/> once every check has settled.</summary>
+    private static async Task<(int Runs, bool IsFormValid)> RunTieAsync(string clockKind, int gapMs, string recipe)
+    {
+        var fake = new FakeTimeProvider();
+        var tie = clockKind == "fake" ? null : new TieOrderClock(fake) { LaterArmedFirst = clockKind == "lifo" };
+        var dispatch = EngineTestSync.OneAtATime();
+        var validator = new TripValidator();
+        var trip = new Trip();
+        var editContext = new EditContext(trip);
+        using var engine = new FormidableEngine<Trip>(
+            trip, editContext,
+            new FluentValidationModelValidator<Trip>(validator),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                TrackFormValidity = true,
+                LiveDebounce = Timeout.InfiniteTimeSpan,
+                RefreshDebounce = TimeSpan.FromMilliseconds(300),
+            },
+            tie is null ? fake : tie,
+            dispatch);
+        var a = new FieldIdentifier(trip, nameof(Trip.A));
+        var b = new FieldIdentifier(trip, nameof(Trip.B));
+
+        // Every step the test takes runs through the engine's dispatch, as a page's would.
+        Task OnDispatcher(Action action) => dispatch(() =>
+        {
+            action();
+            return Task.CompletedTask;
+        });
+        Task Advance(TimeSpan by) => OnDispatcher(() =>
+        {
+            if (tie is null)
+            {
+                fake.Advance(by);
+            }
+            else
+            {
+                tie.Advance(by);
+            }
+        });
+        Task Edit(FieldIdentifier field, Action write) => OnDispatcher(() =>
+        {
+            write();
+            editContext.NotifyFieldChanged(field);
+        });
+        Task Reply() => OnDispatcher(() => engine.ApplyServerIssues([new ValidationIssue(nameof(Trip.B), "Server says no")]));
+
+        await UntilAsync(() => !engine.IsValidating);
+
+        using var cancel = new CancellationTokenSource();
+        validator.HoldC = true;
+        Task held;
+        switch (recipe)
+        {
+            case "edit-during-load":
+                await Reply();
+                held = dispatch(() => engine.DiscloseLoadedValuesAsync());
+                await UntilAsync(() => engine.IsValidating);
+                await Edit(a, () => trip.A = "x"); // arms the re-check, not the validity check
+                break;
+            case "edit-during-first-submit":
+                held = dispatch(() => engine.ValidateForSubmitAsync(cancel.Token));
+                await UntilAsync(() => engine.IsValidating);
+                await Edit(a, () => trip.A = "x"); // arms the re-check, which outlives the submit
+                break;
+            default:
+                await Edit(a, () => trip.A = "x"); // arms the validity check
+                await Reply();
+                held = recipe switch
+                {
+                    "cancelled-submit" => dispatch(() => engine.ValidateForSubmitAsync(cancel.Token)),
+                    "cancelled-load" => dispatch(() => engine.DiscloseLoadedValuesAsync(cancel.Token)),
+                    _ => dispatch(() => engine.DiscloseLoadedValuesAsync()),
+                };
+                await UntilAsync(() => engine.IsValidating);
+                await Advance(TimeSpan.FromMilliseconds(300)); // the check comes due and waits
+                break;
+        }
+
+        validator.HoldC = false;
+        if (recipe is "cancelled-load" or "cancelled-submit" or "edit-during-first-submit")
+        {
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => held);
+        }
+        else
+        {
+            validator.GateC.TrySetResult();
+            await held;
+        }
+
+        await UntilAsync(() => !engine.IsValidating);
+        Assert.Equal(recipe != "edit-during-first-submit", engine.HasSubmitted);
+        if (gapMs > 0)
+        {
+            await Advance(TimeSpan.FromMilliseconds(gapMs));
+        }
+
+        validator.HoldB = true;
+        var startsBefore = validator.BStarts;
+        Assert.True(engine.IsFormValid);
+        await Edit(b, () => trip.B = string.Empty); // the one edit, which fails B's rule
+
+        await Advance(TimeSpan.FromMilliseconds(300)); // the re-check comes due, and so would a check beside it
+        await Task.Delay(50);
+
+        validator.HoldB = false;
+        validator.GateB.TrySetResult();
+        await UntilAsync(() => !engine.IsValidating && validator.BEnds == validator.BStarts);
+        await Advance(TimeSpan.FromSeconds(2));
+        await UntilAsync(() => !engine.IsValidating && validator.BEnds == validator.BStarts);
+        await Task.Delay(50);
+
+        return (validator.BStarts - startsBefore, engine.IsFormValid);
+    }
+
     /// <summary>Yields until <paramref name="condition"/> holds, for at most five seconds; the caller asserts afterwards.</summary>
     private static async Task UntilAsync(Func<bool> condition)
     {
@@ -462,5 +659,172 @@ public class FormidableEngineDebounceOrderTests
         // now, so nothing is left holding the form.
         Assert.DoesNotContain(engine.GetIssues(description), i => i.Message == SubmitMessage);
         Assert.Empty(engine.EditContext.GetValidationMessages(description));
+    }
+
+    /// <summary>Three fields, each with a value every rule accepts.</summary>
+    private sealed class Trip
+    {
+        public string? A { get; set; } = "a";
+
+        public string? B { get; set; } = "b";
+
+        public string? C { get; set; } = "c";
+    }
+
+    /// <summary>
+    /// A synchronous rule on A, an asynchronous rule on B that counts each run as it starts and
+    /// as it ends and rejects an empty B, and an asynchronous rule on C that can hold a check out.
+    /// All three are default rules, so every check runs them together. B and C wait on their gates
+    /// only while held.
+    /// </summary>
+    private sealed class TripValidator : AbstractValidator<Trip>
+    {
+        private int _bStarts;
+        private int _bEnds;
+        private bool _holdB;
+        private bool _holdC;
+
+        public TripValidator()
+        {
+            RuleFor(m => m.A).NotEmpty();
+            RuleFor(m => m.B).MustAsync(async (value, ct) =>
+            {
+                Interlocked.Increment(ref _bStarts);
+                try
+                {
+                    if (HoldB)
+                    {
+                        await GateB.Task.WaitAsync(ct);
+                    }
+
+                    return !string.IsNullOrEmpty(value);
+                }
+                finally
+                {
+                    Interlocked.Increment(ref _bEnds);
+                }
+            });
+            RuleFor(m => m.C).MustAsync(async (_, ct) =>
+            {
+                if (HoldC)
+                {
+                    await GateC.Task.WaitAsync(ct);
+                }
+
+                return true;
+            });
+        }
+
+        public bool HoldB
+        {
+            get => Volatile.Read(ref _holdB);
+            set => Volatile.Write(ref _holdB, value);
+        }
+
+        public bool HoldC
+        {
+            get => Volatile.Read(ref _holdC);
+            set => Volatile.Write(ref _holdC, value);
+        }
+
+        public TaskCompletionSource GateB { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource GateC { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int BStarts => Volatile.Read(ref _bStarts);
+
+        public int BEnds => Volatile.Read(ref _bEnds);
+    }
+
+    /// <summary>
+    /// A clock over a <see cref="FakeTimeProvider"/> that runs the timers one <see cref="Advance"/>
+    /// brings due in due-time order, and timers due at the same instant in the order
+    /// <see cref="LaterArmedFirst"/> picks. A real timer gives no order for two timers due
+    /// together, so either order is a run the engine has to handle.
+    /// </summary>
+    /// <remarks>
+    /// The fires an advance collects run after the fake clock has moved, so a timer one of them
+    /// arms is due from the end of the advance. A zero due time still fires inside the arm, as the
+    /// fake clock's own does.
+    /// </remarks>
+    private sealed class TieOrderClock(FakeTimeProvider clock) : TimeProvider
+    {
+        private List<(DateTimeOffset Due, long Seq, TieTimer Timer)>? _collected;
+        private long _seq;
+
+        public bool LaterArmedFirst { get; init; }
+
+        public override long GetTimestamp() => clock.GetTimestamp();
+
+        public override long TimestampFrequency => clock.TimestampFrequency;
+
+        public override DateTimeOffset GetUtcNow() => clock.GetUtcNow();
+
+        public override TimeZoneInfo LocalTimeZone => clock.LocalTimeZone;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new TieTimer(this, callback, state);
+            timer.Inner = clock.CreateTimer(_ => OnFire(timer), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            if (dueTime != Timeout.InfiniteTimeSpan)
+            {
+                timer.Change(dueTime, period);
+            }
+
+            return timer;
+        }
+
+        public void Advance(TimeSpan by)
+        {
+            _collected = [];
+            clock.Advance(by);
+            var due = _collected;
+            _collected = null;
+            var ordered = LaterArmedFirst
+                ? due.OrderBy(x => x.Due).ThenByDescending(x => x.Seq)
+                : due.OrderBy(x => x.Due).ThenBy(x => x.Seq);
+            foreach (var (_, _, timer) in ordered.ToList())
+            {
+                timer.Run();
+            }
+        }
+
+        private void OnFire(TieTimer timer)
+        {
+            if (_collected is not null)
+            {
+                _collected.Add((timer.Due, timer.Seq, timer));
+            }
+            else
+            {
+                timer.Run();
+            }
+        }
+
+        private sealed class TieTimer(TieOrderClock owner, TimerCallback callback, object? state) : ITimer
+        {
+            public ITimer Inner { get; set; } = default!;
+
+            public DateTimeOffset Due { get; private set; }
+
+            public long Seq { get; private set; }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (dueTime != Timeout.InfiniteTimeSpan)
+                {
+                    Due = owner.GetUtcNow() + dueTime;
+                    Seq = ++owner._seq;
+                }
+
+                return Inner.Change(dueTime, period);
+            }
+
+            public void Run() => callback(state);
+
+            public void Dispose() => Inner.Dispose();
+
+            public ValueTask DisposeAsync() => Inner.DisposeAsync();
+        }
     }
 }
