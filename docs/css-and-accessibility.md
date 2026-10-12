@@ -33,7 +33,7 @@ and pending is decided separately, on top of whatever that left:
 | 3 | It has a warning-severity issue | `Warning` (`formidable-warning`) |
 | 4 | Its only issues are info-severity | `Info` (`formidable-info`) |
 | 5 | It has no issues left to show *and* would pass submit | `Valid` (`formidable-valid`) |
-| Always | A check involving the field is still running | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
+| Always | The field's own latest check is still running | `Pending` (`formidable-pending`), appended to whichever tier applied, or standing alone where none did — it never replaces a tier's own class |
 
 That is the entire class-name contract: rename the five strings, and the order above still decides
 when each one applies.
@@ -64,7 +64,7 @@ flowchart TD
     I -- "no" --> S{"Have the submit rules answered for this value, and passed it?"}
     S -- "yes" --> OK["formidable-valid"]
     S -- "not yet, or failed" --> NONE
-    P{"A check involving the field still running?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
+    P{"The field's own latest check still running?"} -- "yes" --> PEND["formidable-pending, appended to whichever of those applied, or alone where none did"]
     P -- "no" --> SAME["Nothing is appended"]
 ```
 

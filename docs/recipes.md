@@ -293,8 +293,13 @@ Render the element always and let only the text inside it come and go, so assist
 about the live region before the content arrives.
 
 The `UpdateOn="InputUpdateMode.OnInput"` above is what makes the check answer as the user types.
-`field.State.IsValidating` is scoped to the fields the check concerns (as you type, the one you
-changed); `IFormidableEngine.IsValidating` is the form-wide flag, true while any check but
+
+`field.State.IsValidating` answers for one field. As you type, it is true on a field you changed
+while a check for that change runs. If a check for a second field's change starts before the first
+field's answer arrives, that newer check answers both fields. Both then stay true until an answer
+for both arrives. On a field you have not changed, it stays false while you type.
+
+`IFormidableEngine.IsValidating` is the form-wide flag, true while any check but
 `TrackFormValidity`'s runs. You only ever see the answer for what you last typed, because a newer
 check cancels the older one, which is why the rule has to honour its token.
 

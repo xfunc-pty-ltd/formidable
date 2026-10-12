@@ -29,10 +29,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // and only from the still-current pass, except that ApplyServerIssues writes synchronously
     // on the calling thread, which is why it and ValidateForSubmitAsync ask to be called from
     // the renderer's synchronization context. Pass bookkeeping (_version, _passCts,
-    // _currentPass, _touched, _engagedFields, _pendingRefreshFields,
+    // _currentPass, _touched, _engagedFields, _pendingRefreshFields, _returnedRefreshFields,
     // _pendingDebouncedLiveFields, _validityCheckArmed) mutates synchronously on the caller's
     // context, with these exceptions on the dispatcher: _pendingRefreshFields when a refresh
-    // snapshots and clears it at begin; _engagedFields when a rendered-field-set change prunes
+    // snapshots and clears it at begin; _returnedRefreshFields when a refresh takes it at begin,
+    // when a landing empties it, and when a re-check a submit or load cancelled is given back;
+    // _engagedFields when a rendered-field-set change prunes
     // departed fields (a live pass snapshots the set at begin and intersects at apply, but no
     // pass removes an entry, and a submit leaves the set standing); _touched and _engagedFields
     // when the load's apply adopts fields; _pendingDebouncedLiveFields when the live timer fires,
@@ -115,6 +117,16 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     private readonly HashSet<FieldIdentifier> _pendingRefreshFields = [];
     private readonly HashSet<FieldIdentifier> _pendingDebouncedLiveFields = [];
+
+    // The fields a re-check was answering when it was cancelled before its answer, held until an
+    // answer under the submit profile lands (HoldForNextRefresh): a narrowed live check that
+    // cancels one leaves part of the submit profile unanswered, and a submit or load that cancels
+    // one and ends unanswered restarts it (GiveBack). Apart from _pendingRefreshFields, which
+    // RefreshArmedByEdit reads as a re-check an edit armed: these fields arm nothing and widen
+    // only the pending indicator. The next re-check takes them into its scope, and a live check
+    // that runs the submit profile lights them while it runs. Emptied by that re-check, and by any
+    // landing that answers the submit profile, since that answer is theirs too.
+    private readonly HashSet<FieldIdentifier> _returnedRefreshFields = [];
 
     // The submit channel's client verdict source: the last whole-model answer a submit, a refresh,
     // a load, or a live pass that ran the submit profile itself produced, resolved to fields —
@@ -310,8 +322,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private PassScope? _currentPass;
 
     // The pending scope of _currentPass, recorded beside it as the pass begins and cleared with
-    // it. _validatingScope publishes the same set, but on the dispatcher; a submit or a load that
-    // begins reads this one at once, to record which fields the check it cancels was answering.
+    // it. _validatingScope publishes the same set, but on the dispatcher. A pass that begins reads
+    // this one at once, to know which fields the check it cancels was answering: a submit or a
+    // load records them (RecordDisplaced), a live check or re-check that answers them in its place
+    // takes them over, and a narrowed live check that cancels a re-check hands them to
+    // HoldForNextRefresh (CarryCancelledFields).
     private HashSet<FieldIdentifier>? _currentPassScope;
 
     // What the submit or load in flight displaced: the re-check or live check it cancelled as it
@@ -338,8 +353,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // with nothing left to start it again. A count rather than a flag, and lowered only by a
     // dispatch that carries a record, because a live check, a submit or a load can begin and end
     // between those two dispatches (a live check of synchronous rules a commit starts, say), and
-    // its own end must not release a wait it never raised. A refresh cannot, since its fire waits. Every raise sits beside ended = true, so the dispatch
-    // that lowers it always runs, a handler that throws as the pass ends included.
+    // its own end must not release a wait it never raised. A refresh cannot, since its fire
+    // waits. Every raise sits beside ended = true, so the dispatch that lowers it always runs, a
+    // handler that throws as the pass ends included.
     private int _giveBacksPending;
 
     /// <summary>Creates the engine for one model and edit context, with the system clock, inline dispatch and no logger for whichever of those is omitted.</summary>
@@ -705,7 +721,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Whether the pass in flight covers <paramref name="field"/>, which the pass's kind decides through its pending scope.</summary>
     /// <param name="field">The field.</param>
-    /// <returns><see langword="true"/> for any field under a submit, a triggering field under a live pass, a field edited within the window or still held by a debounce window under a refresh, and never under a load.</returns>
+    /// <returns><see langword="true"/> for any field under a submit; for a triggering field under a live pass; for a field edited within the window or still held by a debounce window under a refresh; under either of those two, for a field whose cancelled check the pass answers in its place; and never under a load.</returns>
     // GetFieldState folds this into its own read; IValidatingFieldReader exposes it alone for the
     // css class provider, which wants only this without the cost of a whole FieldState.
     private bool IsFieldValidating(FieldIdentifier field) =>
@@ -1668,9 +1684,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // under TrackFormValidity, else a submit, a load or the next field-set change). A live check
     // given back after a submit or load ends has no edit of its own to re-arm the refresh, and
     // never meets one: a refresh fire between that end and the give-back waits for it
-    // (_giveBacksPending), and a fire after the give-back waits for the live check. A debounced fire must
-    // defer: the edit that opened its window already happened, so nothing would re-arm a refresh
-    // it cancelled, and the refresh's verdict would go stale for good.
+    // (_giveBacksPending), and a fire after the give-back waits for the live check. A debounced
+    // fire must defer: the edit that opened its window already happened, so nothing would re-arm
+    // a refresh it cancelled, and the refresh's verdict would go stale for good.
     private bool RefreshInFlight => _currentPass?.Kind == PassKind.Refresh;
 
     /// <summary>Whether the pass in flight is the load <see cref="DiscloseLoadedValuesAsync"/> runs, which every live pass, the refresh fire and the probe stand down for.</summary>
@@ -1725,6 +1741,55 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
+    /// <summary>Passes a cancelled live check's or re-check's fields to a beginning live check or re-check that answers them in its place, and hands a re-check's fields to <see cref="HoldForNextRefresh"/> when a narrowed live check cancels it.</summary>
+    /// <param name="cancelledKind">The kind of the pass the beginning one cancelled.</param>
+    /// <param name="fields">That pass's pending scope.</param>
+    /// <param name="kind">The beginning pass's kind.</param>
+    /// <param name="profile">The profile the beginning pass runs.</param>
+    /// <returns>The fields the beginning pass lights beside its own, or <see langword="null"/> when it lights none of them.</returns>
+    // A stored answer stays fresh only while no edit is made anywhere on the form, so the check
+    // that cancels another runs the cancelled one's rules again, and the cancelled fields' answer
+    // comes from the next check to run those rules. A live check answers every engaged field, so
+    // a newer one answers an older one's fields, and one that runs the submit profile answers a
+    // re-check's as well. A newer re-check answers an older one's. A narrowed live check leaves
+    // part of the submit profile unanswered, so a re-check's fields wait for the next answer under
+    // that profile (HoldForNextRefresh). A submit or a load keeps what it cancels in its record
+    // instead (RecordDisplaced). Only a pass still running is cancelled, so a pass that has landed
+    // hands no field on. A later check lights such a field only for a reason of its own, such as
+    // an edit within a re-check's window.
+    private HashSet<FieldIdentifier>? CarryCancelledFields(
+        PassKind cancelledKind, HashSet<FieldIdentifier> fields, PassKind kind, ValidationProfile profile)
+    {
+        switch ((cancelledKind, kind))
+        {
+            case (PassKind.Live, PassKind.Live):
+            case (PassKind.Refresh, PassKind.Refresh):
+            case (PassKind.Refresh, PassKind.Live) when ReferenceEquals(profile, _options.SubmitProfile):
+                return fields;
+
+            case (PassKind.Refresh, PassKind.Live):
+                HoldForNextRefresh(fields);
+                return null;
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Holds a cancelled re-check's fields for the next re-check, or a live check that runs the submit profile, to light, once a submit or a server reply has answered.</summary>
+    /// <param name="fields">The cancelled re-check's pending scope.</param>
+    // Before that, every field a re-check lights has a live check of its own: a field an open
+    // LiveDebounce window holds has the window's, and a field edited while a submit ran has the
+    // one that follows once that submit ends unanswered (see RunRefreshPassAsync and GiveBack). A
+    // field held for a later re-check would be lit after that check had answered it.
+    private void HoldForNextRefresh(IEnumerable<FieldIdentifier> fields)
+    {
+        if (HasSubmitted)
+        {
+            _returnedRefreshFields.UnionWith(fields);
+        }
+    }
+
     /// <summary>Retires the current pass: clears <see cref="IsValidating"/>, its scope and the descriptor together, and moves the coverage version.</summary>
     /// <remarks>
     /// The caller establishes that the pass is still current: the verdict dispatch through its
@@ -1747,7 +1812,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Publishes that <paramref name="pass"/> began: sets <see cref="IsValidating"/> and narrows the checking indicator to <paramref name="fields"/>.</summary>
     /// <param name="pass">The pass, which must still be current for the write to land.</param>
-    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, an empty set for a load, and <see langword="null"/> for a submit, which covers every field.</param>
+    /// <param name="fields">The pending scope: a live pass's triggering fields, a refresh's fields edited within its window and those a debounce window still holds, each with the fields of a cancelled check the pass answers in its place; an empty set for a load; and <see langword="null"/> for a submit, which covers every field.</param>
     private Task BeginValidatingAsync(PassScope pass, HashSet<FieldIdentifier>? fields) =>
         PublishPassStateAsync(pass, () =>
         {
@@ -1808,6 +1873,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         Func<HashSet<FieldIdentifier>?> beginScope,
         Action<ValidationReport, int> applyVerdict)
     {
+        // The check this pass cancels as it begins, and the fields its "checking" covered, read
+        // before the begin records this pass in their place (see CarryCancelledFields).
+        var superseded = _currentPass;
+        var supersededFields = _currentPassScope;
         var pass = BeginPass(kind, external);
 
         // Captured synchronously with the begin, on the caller's own context, before anything
@@ -1834,6 +1903,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         try
         {
             var scope = beginScope();
+            if (superseded is { } cancelledPass
+                && supersededFields is { Count: > 0 }
+                && CarryCancelledFields(cancelledPass.Kind, supersededFields, kind, profile) is { } carried)
+            {
+                scope?.UnionWith(carried);
+            }
+
             _currentPassScope = scope;
             await BeginValidatingAsync(pass, scope).ConfigureAwait(false);
 
@@ -1934,6 +2010,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     }
 
                     applyVerdict(report, editStamp);
+
+                    // An answer under the submit profile is the answer the fields a cancelled
+                    // re-check left waiting were owed, so no re-check lights them after it.
+                    if (kind != PassKind.Live || ReferenceEquals(profile, _options.SubmitProfile))
+                    {
+                        _returnedRefreshFields.Clear();
+                    }
 
                     // Coverage bookkeeping, after the apply so the submit channel's source is the
                     // one this pass just rebuilt. A submit, a refresh and a load each run the
@@ -2089,16 +2172,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     //
     // Run in the dispatch after the end, before the IsFormValid question and ArmDeferredFires,
     // because it sets what both read. The re-check is given back as a refresh fire that deferred
-    // is, through its record, so ArmDeferredFires arms it once at RefreshDebounce. The live check
-    // goes back through the debounce window when LiveDebounce is set, through the live timer's
-    // record, so it joins whatever the window already holds; with no window it runs at once, as
-    // the edit's own check did, and ahead of ArmDeferredFires, so a re-check due at zero defers to
-    // it rather than being cancelled by it. No refresh is running for it to cancel: a refresh fire
-    // between the end and this dispatch waited for it (_giveBacksPending), and this dispatch's
-    // ArmDeferredFires arms that refresh again. A field no longer engaged has left the page and is
-    // owed nothing. If another submit or load has begun since, the live check stands down for it
-    // and that one's record keeps the fields. Every field given back had a committed change or a
-    // loaded value, so nothing here checks a field the visitor only entered and left.
+    // is, through its record, so ArmDeferredFires arms it once at RefreshDebounce, and its fields
+    // are held (HoldForNextRefresh) for it, or for a live check that runs the submit profile and
+    // begins first, to light. The live check goes back through the debounce window when
+    // LiveDebounce is set, through the live timer's record, so it joins whatever the window
+    // already holds; with no window it runs at once, as the edit's own check did, and ahead of
+    // ArmDeferredFires, so a re-check due at zero defers to it rather than being cancelled by it.
+    // No refresh is running for it to cancel: a refresh fire between the end and this dispatch
+    // waited for it (_giveBacksPending), and this dispatch's ArmDeferredFires arms that refresh
+    // again. A field no longer engaged has left the page and is owed nothing. If another submit
+    // or load has begun since, the live check stands down for it and that one's record keeps the
+    // fields. Every field given back had a committed change or a loaded value, so nothing here
+    // checks a field the visitor only entered and left.
     //
     // IsFormValid is owed a check only where it can be stale, because a check where it is not
     // would run an async rule again for an answer already given. It can be stale in three cases:
@@ -2119,6 +2204,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         if (owed.RecheckFields is not null)
         {
             _refreshFireDeferred = true;
+            HoldForNextRefresh(owed.RecheckFields);
         }
 
         var live = new HashSet<FieldIdentifier>(owed.LiveFields);
@@ -2386,7 +2472,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Runs a live pass for <paramref name="triggeringFields"/> that answers every engaged field as snapshotted at begin, unless a submit or a load is in flight.</summary>
-    /// <param name="triggeringFields">The field an edit committed, or every field an open debounce window accumulated; they scope the checking indicator, while the verdict covers the engaged set.</param>
+    /// <param name="triggeringFields">The field an edit committed, or every field an open debounce window accumulated; they scope the checking indicator, with the fields of a cancelled check this pass answers in its place, while the verdict covers the engaged set.</param>
     // The indicator shows where the user acted and the verdict covers every field the user has
     // committed a change to, which is how a cross-field issue clears, or appears, on a field the
     // triggering edit never named.
@@ -2423,7 +2509,21 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             PassKind.Live,
             liveProfile,
             CancellationToken.None,
-            () => new HashSet<FieldIdentifier>(triggeringFields),
+            () =>
+            {
+                // A pass that runs the submit profile gives the answer the fields a cancelled
+                // re-check left waiting are owed (_returnedRefreshFields), and its landing empties
+                // that set, so it lights them while it runs, as it would had it cancelled that
+                // re-check itself (CarryCancelledFields). Read and not taken, so a later live
+                // check or re-check that gives that answer lights them if this pass is cancelled.
+                var scope = new HashSet<FieldIdentifier>(triggeringFields);
+                if (ReferenceEquals(liveProfile, _options.SubmitProfile))
+                {
+                    scope.UnionWith(_returnedRefreshFields);
+                }
+
+                return scope;
+            },
             (report, _) =>
             {
                 // Every engaged field, not just the fields that triggered this pass: each live
@@ -4023,12 +4123,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // edited while this pass is in flight land in the now-empty accumulator and are
                 // flagged by the NEXT refresh instead — they are not lost, just deferred one
                 // window (the deferral branch above is the analogous case). If THIS pass is
-                // itself superseded before finishing (a live
-                // pass never defers to a refresh — see BeginPass), its already-captured scope is
-                // deliberately dropped, not merged into whatever runs next: the superseding pass
-                // owns the indicator outright, exactly as one live pass already displaces
-                // another's scope pre-submit — this is the same "post-submit editing reads like
-                // pre-submit editing" symmetry, not a gap.
+                // cancelled before it lands (the live pass an edit starts at once does not defer
+                // to a refresh, though a debounced live fire does), its scope
+                // passes to the check that answers in its place (CarryCancelledFields): a newer
+                // refresh, or a live pass that runs the submit profile, lights it itself; after a
+                // narrowed live pass on a submitted form it waits for the next answer under the
+                // submit profile (below); and a submit or load keeps it in its record
+                // (RecordDisplaced), to hand back if it ends unanswered.
 
                 // The empty case is reachable, and answers silently: a rendered-field-set change
                 // (a virtualized panel scrolling rows into registration, a row departing) arms a
@@ -4053,6 +4154,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 {
                     edited.UnionWith(_pendingDebouncedLiveFields);
                 }
+
+                // The fields of a refresh cancelled before it answered them, whose answer this
+                // pass gives in its place: taken, so no later refresh lights them again.
+                edited.UnionWith(_returnedRefreshFields);
+                _returnedRefreshFields.Clear();
 
                 return edited;
             },

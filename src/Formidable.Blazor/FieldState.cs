@@ -19,10 +19,14 @@ public readonly record struct FieldState
     /// <summary>Whether the <c>EditContext</c> reports the field as modified.</summary>
     public bool IsModified { get; init; }
 
-    /// <summary>Whether a check covering this field is running: a live check of it, a submit, or a whole-form re-check that follows its edit after a submit or runs while its debounced check waits.</summary>
+    /// <summary>Whether a check covering the field is running: a submit, the field's own live check, a whole-form re-check that includes it, or a check answering in place of a cancelled check of it.</summary>
     /// <remarks>
-    /// <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> covers no field while it runs;
-    /// only <see cref="IFormidableEngine.IsValidating"/> reports it, for a page-level spinner.
+    /// A re-check includes a field whose debounced check is still to come, and the fields edited
+    /// since the last re-check, during a submit or after a submit or server reply answered. After
+    /// such an answer, a re-check's fields wait for the next re-check, or a live check that runs
+    /// the submit profile, if a narrowed live check cancels it or a submit or load that cancelled
+    /// it ends unanswered. <see cref="IFormidableEngine.DiscloseLoadedValuesAsync"/> covers fields
+    /// only in its live check: those it marks touched.
     /// </remarks>
     public bool IsValidating { get; init; }
 

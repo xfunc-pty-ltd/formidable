@@ -86,7 +86,7 @@ public class HandleValidator : DraftSubmitValidator<Handle>
             .When(h => !string.IsNullOrEmpty(h.Username));
 
         // A second, independent async field — demonstrates that the pending flag is scoped to
-        // the field being edited, not the whole form.
+        // each field whose own check is running, not the whole form.
         RuleFor(h => h.DisplayName)
             .MustAsync(async (displayName, cancellationToken) =>
             {
@@ -273,17 +273,21 @@ Why: [how the engine works: how answers are reused](how-the-engine-works.md#the-
 
 ## Where does "checking" show, and where doesn't it?
 
-On the field you changed, and nowhere else, while the check for your change runs: `Username` and
-`DisplayName` above each show their own "checking" without one lighting up the other. The
-whole-form re-check shows it on a field whose change is still waiting out `LiveDebounce`, and
-after a submit on the fields you edited since. Pressing Submit shows it form-wide, because every
-field is being checked at once. Loading values shows it nowhere.
+As you type, on each field you changed and on no other, while a check for that change runs. If a
+check for a second field's change starts before the first field's answer lands, that newer check
+answers both fields. "Checking" then stays on both until an answer for both lands. `Username` and
+`DisplayName` in [the example above](#how-do-i-write-an-async-rule) each show their own "checking",
+and neither lights the other.
+
+The whole-form re-check shows "checking" on a field whose change is still waiting out
+`LiveDebounce`, and after a submit on the fields you edited since. Pressing Submit shows it
+form-wide, because every field is being checked at once. Loading values shows it nowhere.
 
 Two flags answer "is something still checking?".
-[`IFormidableEngine.IsValidating`](engine-reference.md#iformidableengine) is true
-while any check but `TrackFormValidity`'s is running, whichever field started it, so it is the
-one for a form-wide spinner; `GetFieldState(field).IsValidating` (`field.State.IsValidating`
-inside a `FormidableField`) is scoped as above. The per-field flag drives the `Pending` class
+[`IFormidableEngine.IsValidating`](engine-reference.md#iformidableengine) is true while any check
+but `TrackFormValidity`'s is running, whichever field started it, so it is the one for a form-wide
+spinner. `GetFieldState(field).IsValidating` (`field.State.IsValidating` inside a `FormidableField`)
+follows the per-field rules above. The per-field flag drives the `Pending` class
 ([`CssClasses`](options.md#cssclasses)) that `FormidableInput*` components apply, and that native
 `InputBase` components pick up through the class provider every engine installs on its
 `EditContext`.

@@ -271,11 +271,11 @@ public class FormidableEngineValidatingScopeTests
     {
         // Post-submit, edit B and let its debounced refresh (#1) start and sit in flight
         // (scope {B}). Editing A mid-flight supersedes refresh #1 exactly as a live pass
-        // supersedes any prior pass - refresh #1's scope goes with it, deliberately, rather
-        // than being unioned into whatever runs next (mirrors pre-submit live-pass
-        // supersession, where editing B then A also unflags B). Refresh #2, fired by A's own
-        // debounce, then flags only A - this also pins that a field edited while a refresh is
-        // in flight (A here) accumulates for the NEXT window instead of being lost.
+        // supersedes any prior pass. The live channel is narrowed, so A's live pass does not
+        // answer the re-check refresh #1 was running for B: B is unlit while it runs, and waits
+        // for the next refresh. Refresh #2, fired by A's own debounce, then flags A and B, since
+        // it answers both. This also pins that a field edited while a refresh is in flight (A
+        // here) accumulates for the NEXT window instead of being lost.
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var validator = new TwoAsyncFieldsValidator();
         var editContext = new EditContext(order);
@@ -314,12 +314,12 @@ public class FormidableEngineValidatingScopeTests
         editContext.NotifyFieldChanged(fieldA);
 
         Assert.True(engine.GetFieldState(fieldA).IsValidating);  // the superseding live pass: scoped to the new edit
-        Assert.False(engine.GetFieldState(fieldB).IsValidating); // B's scope was dropped by the supersession
+        Assert.False(engine.GetFieldState(fieldB).IsValidating); // the narrowed live pass does not answer B's re-check
         Assert.True(engine.IsValidating);                        // engine-level flag stays form-wide
 
-        // Settle A's live pass so refresh #2, which its edit re-armed, can run: it flags A alone,
-        // pinning that a field edited while a refresh was in flight accumulates for the NEXT
-        // window instead of being lost.
+        // Settle A's live pass so refresh #2, which its edit re-armed, can run. It flags A, pinning
+        // that a field edited while a refresh was in flight accumulates for the NEXT window instead
+        // of being lost, and B, whose re-check refresh #1 was still running when A's edit cancelled it.
         var liveA = Quiescence(engine);
         validator.CustomerNameGate.SetResult();
         await liveA;
@@ -327,8 +327,8 @@ public class FormidableEngineValidatingScopeTests
 
         time.Advance(TimeSpan.FromMilliseconds(301));
 
-        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // refresh #2: scoped to the new edit
-        Assert.False(engine.GetFieldState(fieldB).IsValidating);
+        Assert.True(engine.GetFieldState(fieldA).IsValidating);  // refresh #2: the new edit
+        Assert.True(engine.GetFieldState(fieldB).IsValidating);  // ...and the re-check it answers in refresh #1's place
         Assert.True(engine.IsValidating);
 
         var settled = Quiescence(engine);
@@ -736,6 +736,936 @@ public class FormidableEngineValidatingScopeTests
         var settled = Quiescence(engine);
         validator.Gate.SetResult();
         await settled;
+    }
+
+    // One async rule, on A, and an edit to B while A's check runs. The edit's check cancels A's and
+    // runs A's rule again, because any edit leaves every stored answer out of date, so A's answer
+    // comes from the newer check and A stays lit until it lands. The control makes no edit to B. A
+    // bare touch of B (entering and leaving it) starts nothing. A's rule runs once per check, the
+    // carried field adding no run.
+    // Mutation: begin each check with its own fields alone, dropping the cancelled check's. The edit
+    // row then reads A unlit while its rule runs again.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_field_stays_checking_while_a_newer_check_reruns_its_rule(bool editB)
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new OneAsyncRule(gates)),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "taken";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 1));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+
+        await OnDispatcher(dispatch, () => engine.MarkTouched(b));
+        Assert.Equal(1, gates.Started("A"));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        var seen = new List<(bool Lit, bool Answered)>();
+        engine.StateChanged += (_, _) => seen.Add((engine.GetFieldState(a).IsValidating, engine.GetIssues(a).Count > 0));
+
+        if (editB)
+        {
+            await OnDispatcher(dispatch, () =>
+            {
+                model.B = "fine";
+                editContext.NotifyFieldChanged(b);
+            });
+            Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 2));
+        }
+
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("A") == 1));
+        Assert.Equal(editB ? 2 : 1, gates.Started("A"));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.Equal(editB, engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        Assert.Equal([ATaken], engine.GetIssues(a).Select(i => i.Message));
+        Assert.False(engine.GetFieldState(a).IsValidating);
+        Assert.Equal(editB ? 2 : 1, gates.Started("A"));
+        var answeredAt = seen.FindIndex(s => s.Answered);
+        Assert.True(answeredAt >= 0);
+        Assert.All(seen.Take(answeredAt), s => Assert.True(s.Lit));
+    }
+
+    // After a blocked submit, with the live channel narrowed to rules that never reach A's or B's,
+    // fixing B arms the whole-form re-check, which lights B while it runs A's rule. An edit to A
+    // then cancels that re-check, and its narrowed check answers nothing of B's, so B waits for the
+    // next re-check: the one A's edit arms lights B too, and B is lit while its rule runs there.
+    // The control makes no edit to A. Each re-check runs A's rule once and B's runs once, so the
+    // carried field adds no run.
+    // Mutation: drop the cancelled re-check's fields when a narrowed live check cancels it. The edit
+    // row then reads B unlit while its rule runs.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_recheck_superseded_by_an_edit_lights_its_fields_when_it_runs_again(bool editA)
+    {
+        var gates = new FieldGates();
+        var model = new Pair { B = "taken" };
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncSubmitRules(gates)),
+            new ReflectionModelIntrospector(),
+            // The override stands in for a rendered field: an engine with no page reveals nothing.
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.False((await SubmitAsync(dispatch, engine)).CanProceed);
+        Assert.Equal([BTaken], engine.GetIssues(b).Select(i => i.Message));
+        gates.Close("A");
+        gates.Close("B");
+        var aBefore = gates.Started("A");
+        var bBefore = gates.Started("B");
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        if (editA)
+        {
+            await OnDispatcher(dispatch, () =>
+            {
+                model.A = "x";
+                editContext.NotifyFieldChanged(a);
+            });
+            Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+            await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+            Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 2));
+        }
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.Equal(editA ? 2 : 1, gates.Started("A") - aBefore);
+        Assert.Equal(1, gates.Started("B") - bBefore);
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Empty(engine.GetIssues(b));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+    }
+
+    // A whole-form re-check that comes due while another runs cancels it and answers in its place,
+    // so it lights the fields the cancelled one was running for. Here B's re-check is running when a
+    // change to the rendered field set arms a second one, which lights B and runs B's rule. A's rule
+    // runs once in each re-check and B's once, in the second.
+    // Mutation: drop the cancelled re-check's fields when a newer re-check cancels it. B then reads
+    // unlit while the second re-check runs its rule.
+    [Fact]
+    public async Task A_newer_recheck_lights_the_fields_of_the_one_it_cancels()
+    {
+        var gates = new FieldGates();
+        var model = new Pair { B = "taken" };
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncSubmitRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.False((await SubmitAsync(dispatch, engine)).CanProceed);
+        gates.Close("A");
+        gates.Close("B");
+        var aBefore = gates.Started("A");
+        var bBefore = gates.Started("B");
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        await OnDispatcher(dispatch, engine.OnRenderedFieldsChanged);
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 2 && gates.Waiting("A") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Empty(engine.GetIssues(b));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+        Assert.Equal((2, 1), (gates.Started("A") - aBefore, gates.Started("B") - bBefore));
+    }
+
+    // After a submit, under the default live channel, which runs the submit rules itself. A change
+    // to the rendered field set empties the stored answers, so the re-check B's edit armed runs A's
+    // rule again and lights B. An edit to A then cancels it, and A's live check, running the same
+    // rules, answers B's re-check in its place: B stays lit while that check runs. Once it lands, B
+    // is never lit again: the re-check A's edit arms lights A alone. A's rule runs once in the
+    // submit, B's check, the cancelled re-check and A's check; B's runs once in each but the
+    // re-check, which never reached it.
+    // Mutation: hold a cancelled re-check's fields for the next re-check, as after a narrowed live
+    // check, rather than handing them to a live check that runs the submit rules. B then reads
+    // unlit while A's live check runs.
+    [Fact]
+    public async Task A_live_check_that_takes_over_a_recheck_lights_its_fields()
+    {
+        var gates = new FieldGates();
+        var model = new Pair { B = "taken" };
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.False((await SubmitAsync(dispatch, engine)).CanProceed);
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Equal((2, 2), (gates.Started("A"), gates.Started("B")));
+
+        gates.Close("A");
+        await OnDispatcher(dispatch, engine.OnRenderedFieldsChanged);
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 3));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "x";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 4 && gates.Waiting("A") == 1));
+        Assert.Equal(2, gates.Started("B"));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        var seen = new List<(bool Validating, bool BLit)>();
+        engine.StateChanged += (_, _) => seen.Add((engine.IsValidating, engine.GetFieldState(b).IsValidating));
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Empty(engine.GetIssues(b));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        var landed = seen.FindIndex(s => !s.Validating);
+        Assert.True(landed >= 0);
+        Assert.Contains(seen.Skip(landed), s => s.Validating); // the re-check A's edit armed ran
+        Assert.All(seen.Skip(landed), s => Assert.False(s.BLit));
+        Assert.Equal((4, 3), (gates.Started("A"), gates.Started("B")));
+    }
+
+    // A whole-form re-check that a submit cancels as it begins is restarted when the submit ends
+    // unanswered, here because its caller cancelled it, and the restarted re-check lights the fields
+    // the cancelled one was running for. A's rule runs once in each re-check and once in the
+    // submit, and B's once, in the restarted re-check.
+    // Mutation: restart the re-check without holding its fields for it. B then reads unlit while the
+    // restarted re-check runs its rule.
+    [Fact]
+    public async Task A_recheck_restarted_after_a_cancelled_submit_lights_its_fields()
+    {
+        var gates = new FieldGates();
+        var model = new Pair { B = "taken" };
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncSubmitRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.False((await SubmitAsync(dispatch, engine)).CanProceed);
+        gates.Close("A");
+        gates.Close("B");
+        var aBefore = gates.Started("A");
+        var bBefore = gates.Started("B");
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        using var cancel = new CancellationTokenSource();
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync(cancel.Token));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 2));
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit!);
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == aBefore + 3));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Empty(engine.GetIssues(b));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+        Assert.Equal((3, 1), (gates.Started("A") - aBefore, gates.Started("B") - bBefore));
+    }
+
+    // Until a submit or a server reply has answered, nothing waits for a whole-form re-check: each
+    // field one lights has a live check of its own. Here B's open LiveDebounce window lends B to a
+    // re-check that a submit cancels, and the submit is cancelled too, so the re-check restarts.
+    // B's window closes first and B's live check runs, with no rule to run under the narrowed live
+    // channel. The restarted re-check, running B's rule for the first time, then leaves B unlit: no
+    // window holds B, and nothing was held for it. A's rule runs once in each re-check and once in
+    // the submit, and B's once, in the restarted re-check.
+    // Mutation: hold a cancelled re-check's fields for the next one before any submit or server
+    // reply has answered as well. B then reads lit while the restarted re-check runs.
+    [Fact]
+    public async Task Before_any_submit_a_restarted_recheck_lights_no_field_its_window_answered()
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncSubmitRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions
+            {
+                LiveProfile = ValidationProfile.Draft,
+                LiveDebounce = TimeSpan.FromMilliseconds(400),
+                DisclosureOverride = _ => true,
+            },
+            time,
+            dispatch);
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        // The first render arms the re-check at the default 300 ms; B's edit inside it opens a
+        // 400 ms window that outlasts it.
+        await OnDispatcher(dispatch, () =>
+        {
+            engine.OnRenderedFieldsChanged();
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        using var cancel = new CancellationTokenSource();
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync(cancel.Token));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 2));
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit!);
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.False(engine.HasSubmitted);
+
+        await OnDispatcher(dispatch, () => time.Advance(TimeSpan.FromMilliseconds(100))); // B's window closes
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(TimeSpan.FromMilliseconds(200))); // the restarted re-check
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 3 && gates.Waiting("A") == 1));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.True(engine.IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Equal((3, 1), (gates.Started("A"), gates.Started("B")));
+    }
+
+    // The fields a cancelled re-check leaves waiting for the next one are answered by a submit, or
+    // a load of values, that lands first, so the re-check after it does not light them. Here a
+    // narrowed live check cancels B's re-check, and a submit or a load then runs both rules. The
+    // re-check A's edit armed still runs after it and lights A, but not B. A's rule runs in the
+    // cancelled re-check and the submit or load, B's in the submit or load alone, and the last
+    // re-check finds both answered.
+    // Mutation: keep the waiting fields through the landing of a submit (the submit row) or of a
+    // load (the load row). B then reads lit as the last re-check begins.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_field_a_submit_or_load_answers_is_not_lit_by_the_next_recheck(bool load)
+    {
+        var gates = new FieldGates();
+        var model = new Pair { B = "taken" };
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncSubmitRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { LiveProfile = ValidationProfile.Draft, DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.False((await SubmitAsync(dispatch, engine)).CanProceed);
+        gates.Close("A");
+        gates.Close("B");
+        var aBefore = gates.Started("A");
+        var bBefore = gates.Started("B");
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("A") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "x";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        gates.Open("A");
+        gates.Open("B");
+        if (load)
+        {
+            Task? loading = null;
+            await OnDispatcher(dispatch, () => loading = engine.DiscloseLoadedValuesAsync());
+            await loading!;
+        }
+        else
+        {
+            Assert.True((await SubmitAsync(dispatch, engine)).CanProceed);
+        }
+
+        var seen = new List<(bool Validating, bool ALit, bool BLit)>();
+        engine.StateChanged += (_, _) => seen.Add(
+            (engine.IsValidating, engine.GetFieldState(a).IsValidating, engine.GetFieldState(b).IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        var began = seen.FindIndex(s => s.Validating);
+        Assert.True(began >= 0);
+        Assert.True(seen[began].ALit);
+        Assert.All(seen, s => Assert.False(s.BLit));
+        Assert.Equal((2, 1), (gates.Started("A") - aBefore, gates.Started("B") - bBefore));
+    }
+
+    // After a submit, under the default live channel, which runs the submit rules itself. A change
+    // to the rendered field set empties the stored answers, so the re-check B's edit armed runs the
+    // rules again and lights B. A submit cancels that re-check, A is edited while it runs, and the
+    // submit is cancelled. B waits for the restarted re-check, but the live check given back for
+    // A's edit runs at once and answers B first, so it lights B while B's rule runs in it. The
+    // restarted re-check then finds B answered and lights A alone. A's rule runs in the first
+    // submit, B's live check, the cancelled re-check, the cancelled submit and the given-back live
+    // check; B's in the first submit, B's live check and the given-back live check.
+    // Mutations: begin a live check that runs the submit rules without the waiting fields; B then
+    // reads unlit while its rule runs in the given-back check. Keep the waiting fields through a
+    // live check's landing; B then reads lit as the restarted re-check begins.
+    [Fact]
+    public async Task A_live_check_given_back_beside_a_recheck_lights_the_fields_it_answers_for_it()
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncRules(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("A");
+        gates.Open("B");
+        Assert.True((await SubmitAsync(dispatch, engine)).CanProceed);
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "b";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Equal((2, 2), (gates.Started("A"), gates.Started("B")));
+
+        gates.Close("A");
+        gates.Close("B");
+        await OnDispatcher(dispatch, engine.OnRenderedFieldsChanged);
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 3 && gates.Waiting("A") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        using var cancel = new CancellationTokenSource();
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync(cancel.Token));
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 4 && gates.Waiting("A") == 1));
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "a";
+            editContext.NotifyFieldChanged(a);
+        });
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit!);
+
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("A") == 5 && gates.Waiting("A") == 1));
+        Assert.Equal(2, gates.Started("B"));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("B") == 3 && gates.Waiting("B") == 1));
+        Assert.True(engine.GetFieldState(b).IsValidating);
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.False(engine.GetFieldState(b).IsValidating);
+
+        var seen = new List<(bool Validating, bool ALit, bool BLit)>();
+        engine.StateChanged += (_, _) => seen.Add(
+            (engine.IsValidating, engine.GetFieldState(a).IsValidating, engine.GetFieldState(b).IsValidating));
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        var began = seen.FindIndex(s => s.Validating);
+        Assert.True(began >= 0);
+        Assert.True(seen[began].ALit);
+        Assert.All(seen, s => Assert.False(s.BLit));
+        Assert.Equal((5, 3), (gates.Started("A"), gates.Started("B")));
+    }
+
+    // Two fields with an async rule each. A's check runs both rules, and lights A alone while B's
+    // rule runs in it. Once A's answer lands, B's check runs A's rule again and lights B alone: a
+    // check that has landed hands its fields to no later check.
+    // Mutation: hand a check the fields of the check before it even once that check has landed.
+    // A then reads lit while B's check runs its rule.
+    [Fact]
+    public async Task Two_unrelated_async_fields_never_light_each_other()
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new TwoAsyncRules(gates)),
+            new ReflectionModelIntrospector(), new FormidableOptions(), new FakeTimeProvider(), dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "a";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("A") == 1));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating);
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating); // B's rule runs, in A's check
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        gates.Close("A");
+        gates.Close("B");
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "b";
+            editContext.NotifyFieldChanged(b);
+        });
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("A") == 1));
+        Assert.False(engine.GetFieldState(a).IsValidating); // A's rule runs, in B's check
+        Assert.True(engine.GetFieldState(b).IsValidating);
+        gates.Open("A");
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.False(engine.GetFieldState(a).IsValidating);
+        Assert.True(engine.GetFieldState(b).IsValidating);
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+
+        Assert.False(engine.GetFieldState(a).IsValidating);
+        Assert.False(engine.GetFieldState(b).IsValidating);
+        Assert.Equal((2, 2), (gates.Started("A"), gates.Started("B")));
+    }
+
+    // An edit made during each of a submit's three checks spends its restarts, and the third check
+    // read an empty A, so its blocking answer lands. A's live check stood down for the submit, so it
+    // is given back once the submit lands, and it runs B's held rule again: A is lit from the
+    // submit's return until that check answers. The second row edits B while the given-back check
+    // runs, and the newer check answers A in its place, so A stays lit until that one lands. Between
+    // the landing and the give-back is one dispatch, which a renderer that queues its work can show
+    // as an unlit moment; this test reads from the submit's return. B's rule runs once per check,
+    // once in the given-back check and once more for the edit to B; the re-check the edits armed
+    // finds every rule answered.
+    // Mutation: the first mutation above. The second row then reads A unlit once B is edited.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_field_edited_during_a_submit_stays_checking_until_its_given_back_check_answers(bool editB)
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new RequiredAWithHeldB(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("B");
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "Bo";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        gates.Close("B");
+        var before = gates.Started("B");
+
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        string[] edits = ["Ann", string.Empty, "Cy"]; // the third check reads "" and blocks
+        for (var made = 0; made < edits.Length; made++)
+        {
+            Assert.True(await UntilAsync(dispatch, () => gates.Started("B") == before + made + 1 && gates.Waiting("B") == 1));
+            var value = edits[made];
+            await OnDispatcher(dispatch, () =>
+            {
+                model.A = value;
+                editContext.NotifyFieldChanged(a);
+            });
+            gates.ReleaseWaiting("B");
+        }
+
+        Assert.False((await submit!).CanProceed);
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        Assert.Equal(4, gates.Started("B") - before);
+        Assert.True(engine.GetFieldState(a).IsValidating);
+
+        var seen = new List<(bool Lit, bool Validating)>();
+        engine.StateChanged += (_, _) => seen.Add((engine.GetFieldState(a).IsValidating, engine.IsValidating));
+        if (editB)
+        {
+            await OnDispatcher(dispatch, () =>
+            {
+                model.B = "fine";
+                editContext.NotifyFieldChanged(b);
+            });
+            Assert.True(await UntilAsync(dispatch, () => gates.Started("B") == before + 5 && gates.Waiting("B") == 1));
+            Assert.True(engine.GetFieldState(a).IsValidating);
+        }
+
+        gates.Open("B");
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        var landed = seen.FindIndex(s => !s.Validating);
+        Assert.True(landed >= 0);
+        Assert.All(seen.Take(landed), s => Assert.True(s.Lit));
+        Assert.False(engine.GetFieldState(a).IsValidating);
+        Assert.Empty(engine.GetIssues(a));
+
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Equal(editB ? 5 : 4, gates.Started("B") - before);
+    }
+
+    // A submit whose answer an edit made while it ran has outdated checks again as the same pass.
+    // The form-wide flag stays on from the first check to the answer of the one it restarts, read
+    // at every notification, including the one the edit's first touch of B raises while the first
+    // check runs. It falls once, as that answer lands. B's rule runs once per check, and the re-check the edit
+    // armed finds every rule answered.
+    // Mutation: end the pass and begin it again to check again. The flag then falls between the two.
+    [Fact]
+    public async Task The_form_stays_checking_across_a_restarted_submit()
+    {
+        var gates = new FieldGates();
+        var model = new Pair();
+        var editContext = new EditContext(model);
+        var time = new FakeTimeProvider();
+        var dispatch = OneAtATime();
+        using var engine = new FormidableEngine<Pair>(
+            model, editContext, new FluentValidationModelValidator<Pair>(new RequiredAWithHeldB(gates)),
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { DisclosureOverride = _ => true },
+            time,
+            dispatch);
+        var a = new FieldIdentifier(model, nameof(Pair.A));
+        var b = new FieldIdentifier(model, nameof(Pair.B));
+
+        gates.Open("B");
+        await OnDispatcher(dispatch, () =>
+        {
+            model.A = "Bo";
+            editContext.NotifyFieldChanged(a);
+        });
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        gates.Close("B");
+        var before = gates.Started("B");
+
+        var seen = new List<bool>();
+        engine.StateChanged += (_, _) => seen.Add(engine.IsValidating);
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        Assert.True(await UntilAsync(dispatch, () => gates.Waiting("B") == 1));
+        await OnDispatcher(dispatch, () =>
+        {
+            model.B = "fine";
+            editContext.NotifyFieldChanged(b);
+        });
+        gates.ReleaseWaiting("B");
+        Assert.True(await UntilAsync(dispatch, () => gates.Started("B") == before + 2 && gates.Waiting("B") == 1));
+
+        Assert.True(engine.IsValidating);
+        Assert.True(engine.GetFieldState(a).IsValidating);
+        Assert.True(seen.Count >= 2); // the submit's begin, and B's first touch
+        Assert.All(seen, Assert.True);
+
+        gates.Open("B");
+        Assert.True((await submit!).CanProceed);
+        Assert.False(engine.IsValidating);
+        var fell = seen.IndexOf(false);
+        Assert.True(fell >= 2);
+        Assert.All(seen.Skip(fell), Assert.False);
+
+        await OnDispatcher(dispatch, () => time.Advance(PastRefresh));
+        Assert.True(await UntilAsync(dispatch, () => !engine.IsValidating));
+        Assert.Equal(2, gates.Started("B") - before);
+    }
+
+    private static readonly TimeSpan PastRefresh = new FormidableOptions().RefreshDebounce + TimeSpan.FromMilliseconds(1);
+
+    private const string ATaken = "A taken";
+    private const string BTaken = "B taken";
+    private const string ARequired = "A is required";
+
+    /// <summary>Runs <paramref name="work"/> on the engine's dispatch, as the renderer runs a page's event.</summary>
+    private static Task OnDispatcher(Func<Func<Task>, Task> dispatch, Action work) =>
+        dispatch(() =>
+        {
+            work();
+            return Task.CompletedTask;
+        });
+
+    /// <summary>Starts a submit on the engine's dispatch and waits for its outcome.</summary>
+    private static async Task<SubmitOutcome> SubmitAsync(Func<Func<Task>, Task> dispatch, FormidableEngine<Pair> engine)
+    {
+        Task<SubmitOutcome>? submit = null;
+        await OnDispatcher(dispatch, () => submit = engine.ValidateForSubmitAsync());
+        return await submit!;
+    }
+
+    /// <summary>Yields until <paramref name="condition"/> holds, read on the engine's dispatch so it never sees a dispatch half done, for at most five seconds.</summary>
+    /// <returns>Whether the condition held.</returns>
+    private static async Task<bool> UntilAsync(Func<Func<Task>, Task> dispatch, Func<bool> condition)
+    {
+        for (var waited = 0; waited < 500; waited++)
+        {
+            var holds = false;
+            await OnDispatcher(dispatch, () => holds = condition());
+            if (holds)
+            {
+                return true;
+            }
+
+            await Task.Delay(10);
+        }
+
+        return false;
+    }
+
+    /// <summary>Two string fields, each the subject of the rules a test's validator gives it.</summary>
+    public sealed class Pair
+    {
+        public string? A { get; set; } = string.Empty;
+
+        public string? B { get; set; } = string.Empty;
+    }
+
+    /// <summary>One gate per field's async rule, with the runs each rule has started and the runs still waiting on its gate. A value starting "taken" fails.</summary>
+    private sealed class FieldGates
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, TaskCompletionSource> _gates = new() { ["A"] = NewGate(), ["B"] = NewGate() };
+        private readonly Dictionary<string, int> _started = new() { ["A"] = 0, ["B"] = 0 };
+        private readonly Dictionary<string, int> _waiting = new() { ["A"] = 0, ["B"] = 0 };
+
+        public int Started(string rule)
+        {
+            lock (_sync)
+            {
+                return _started[rule];
+            }
+        }
+
+        public int Waiting(string rule)
+        {
+            lock (_sync)
+            {
+                return _waiting[rule];
+            }
+        }
+
+        /// <summary>Lets every waiting run of the rule, and every later one, answer.</summary>
+        public void Open(string rule)
+        {
+            lock (_sync)
+            {
+                _gates[rule].TrySetResult();
+            }
+        }
+
+        /// <summary>Holds every later run of the rule.</summary>
+        public void Close(string rule)
+        {
+            lock (_sync)
+            {
+                _gates[rule] = NewGate();
+            }
+        }
+
+        /// <summary>Lets the runs of the rule waiting now answer, and holds every later one.</summary>
+        public void ReleaseWaiting(string rule)
+        {
+            TaskCompletionSource waiting;
+            lock (_sync)
+            {
+                waiting = _gates[rule];
+                _gates[rule] = NewGate();
+            }
+
+            waiting.TrySetResult();
+        }
+
+        public async Task<bool> RunAsync(string rule, string? value, CancellationToken ct)
+        {
+            Task gate;
+            lock (_sync)
+            {
+                _started[rule]++;
+                _waiting[rule]++;
+                gate = _gates[rule].Task;
+            }
+
+            try
+            {
+                await gate.WaitAsync(ct);
+                return value?.StartsWith("taken", StringComparison.Ordinal) != true;
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    _waiting[rule]--;
+                }
+            }
+        }
+
+        private static TaskCompletionSource NewGate() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    /// <summary>An async rule on A, held on its gate, and a synchronous rule on B, in every profile.</summary>
+    private sealed class OneAsyncRule : AbstractValidator<Pair>
+    {
+        public OneAsyncRule(FieldGates gates)
+        {
+            RuleFor(m => m.A).MustAsync((value, ct) => gates.RunAsync("A", value, ct)).WithMessage(ATaken);
+            RuleFor(m => m.B).MaximumLength(20);
+        }
+    }
+
+    /// <summary>An async rule on each field, each held on its own gate, in every profile.</summary>
+    private sealed class TwoAsyncRules : AbstractValidator<Pair>
+    {
+        public TwoAsyncRules(FieldGates gates)
+        {
+            RuleFor(m => m.A).MustAsync((value, ct) => gates.RunAsync("A", value, ct)).WithMessage(ATaken);
+            RuleFor(m => m.B).MustAsync((value, ct) => gates.RunAsync("B", value, ct)).WithMessage(BTaken);
+        }
+    }
+
+    /// <summary>The same two async rules in the submit bucket alone, so a live channel narrowed to the draft bucket runs neither.</summary>
+    private sealed class TwoAsyncSubmitRules(FieldGates gates) : DraftSubmitValidator<Pair>
+    {
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(m => m.A).MustAsync((value, ct) => gates.RunAsync("A", value, ct)).WithMessage(ATaken);
+            RuleFor(m => m.B).MustAsync((value, ct) => gates.RunAsync("B", value, ct)).WithMessage(BTaken);
+        }
+    }
+
+    /// <summary>A must hold more than white space, in the draft bucket; B's async rule, held on its gate, is in the submit bucket, so a submit reads A before it waits.</summary>
+    private sealed class RequiredAWithHeldB(FieldGates gates) : DraftSubmitValidator<Pair>
+    {
+        protected override void ConfigureDraftRules() =>
+            RuleFor(m => m.A).Must(value => !string.IsNullOrWhiteSpace(value)).WithMessage(ARequired);
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(m => m.B).MustAsync((value, ct) => gates.RunAsync("B", value, ct)).WithMessage(BTaken);
     }
 
     /// <summary>An async rule on <see cref="EngineOrder.Description"/> in the always-on bucket that skips an empty value, the shape of a uniqueness check, held on <see cref="Gate"/>.</summary>

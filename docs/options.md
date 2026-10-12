@@ -147,7 +147,11 @@ has what the re-check waits for. Why:
 `TimeSpan?`, defaults to `null`: a field change starts its live check at once. Set it and a change
 opens a wait instead. Another change inside the wait restarts it, and when it passes quietly one
 check runs for every field changed since it opened (one shared wait for the form, not one per
-field), with the "checking" cue on those fields alone.
+field).
+
+When the debounced check runs, the "checking" cue shows on the fields changed during the wait and
+on no field you have not changed. A field whose earlier check has not answered yet keeps its cue,
+because the debounced check answers that field too.
 
 Reach for it when live rules are expensive enough that one per keystroke is the wrong trade. If
 one field's rule is the expensive one, leave `LiveDebounce` unset and let that input commit on
@@ -613,7 +617,7 @@ do, when the delegate runs, and where exceptions go.
 | `Warning` | touched or modified, no errors, and has a warning-severity issue | `formidable-warning` |
 | `Info` | touched or modified, no errors or warnings, and has an info-severity issue | `formidable-info` |
 | `Valid` | the field is touched or modified, has no issues at all, and the engine can say a submit would not fail it | `formidable-valid` |
-| `Pending` | a check involving the field is still running | `formidable-pending` |
+| `Pending` | the field's own latest check is still running | `formidable-pending` |
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.CssClasses = new FormidableCssClasses { Invalid = "is-invalid", Valid = "is-valid" });`.

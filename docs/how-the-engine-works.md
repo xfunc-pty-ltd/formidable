@@ -63,8 +63,12 @@ is not a pass.
 
 **Live.** Started by a committed field change (the `EditContext`'s field-changed notification),
 and by the load pass's tail for the fields it adopted. It runs [`LiveProfile`](options.md#liveprofile)
-when set and the submit profile instance otherwise. The pending indicator covers only the
-triggering fields.
+when set and the submit profile instance otherwise.
+
+Its pending indicator covers the triggering fields, and the fields of a pass it supersedes when it
+answers them in that pass's place. When it runs the submit profile, it also covers the fields of
+an earlier refresh still waiting for that answer
+([supersession and deferral](#supersession-and-deferral)).
 
 The verdict answers the whole engaged set as snapshotted when the pass began (less any field that
 left the page meanwhile), so a cross-field error can clear, or appear, on a field the triggering
@@ -98,14 +102,18 @@ Its pending indicator is scoped to the fields edited within the window, and to a
 `LiveDebounce` window still holds, since this pass is answering that field's check. A window of
 `Timeout.InfiniteTimeSpan` never fires, so it holds no field for this scope.
 
+The indicator also covers the fields of a refresh this one answers in place of: one it supersedes,
+and, once `HasSubmitted` is true, one a narrowed live pass superseded or a submit or load gave back.
+
 Landing replaces the submit channel's source and reveals nothing. It clears the server store only
 when the edit stamp or the generation it read at begin had moved since the last apply: an edit, a
 load or a field-set move in between.
 
 On a form that has never been submitted the ledgers are empty and the gate unarmed, so a
 refresh armed by a field-set move discloses nothing: it answers for the submit-coverage vouch
-and `IsFormValid` alone, and its pending scope names only a field an open `LiveDebounce` window
-still holds.
+and `IsFormValid` alone. Its pending scope names only a field an open `LiveDebounce` window still
+holds, a field edited while a submit ran that did not land, and the fields of a refresh it
+supersedes.
 
 **Load.** Started by `DiscloseLoadedValuesAsync`. It moves the edit stamp first, because the
 page is stating that the model changed without a notification, and abandons the held vouch. It
@@ -477,7 +485,8 @@ it runs.
 
 An end without an answer gives the record back in the dispatch that arms the deferred fires:
 
-- the refresh is armed again, as a refresh fire that deferred is;
+- the refresh is armed again, as a refresh fire that deferred is, and once `HasSubmitted` is true
+  the fields it was answering wait for it, or for a live pass that runs the submit profile;
 - the live pass runs again for those of its fields still engaged, through the debounce window when
   `LiveDebounce` is set and at once when it is not;
 - with `TrackFormValidity` on, `IsFormValid` is owed the check a landing an edit outdated owes
@@ -532,10 +541,10 @@ back waits for that dispatch, as it waits for a pass in flight. Only that dispat
 so a live pass, a submit or a load that begins and ends in between (the live pass a commit starts,
 say) leaves it in place.
 
-With no `LiveDebounce`, the live pass a give-back starts runs at once. It would supersede a refresh
-begun between the end and the give-back, with nothing left to re-arm it. The dispatch that gives the
-record back arms the deferred fires after the give-back, so the refresh runs behind the given-back
-pass instead.
+With no `LiveDebounce`, the live pass a give-back starts runs at once. A refresh begun after the
+submit or load ended, and before its record was given back, would be superseded by that live pass
+with nothing left to re-arm it. So the refresh waits, and the dispatch that gives the record back
+arms it after the give-back, behind the given-back pass.
 
 A submit or load that supersedes another takes over its record. Whichever ends as the current pass
 settles the record, so it is given back at most once. A field that has left the page is owed
@@ -558,10 +567,35 @@ load's own change arms none, so the check owed for a record holding a load passe
 a refresh is armed, waiting or running, or a later submit or load lands. A later load that lands
 with its answer adopted drops the check outright, since that answer is the one it was owed.
 
-A superseded pass's pending-indicator scope is dropped, not merged: the superseding pass owns the
-indicator outright. The probe stands down for a submit or a load in flight on the same grounds
-as a live pass; nothing cancels a probe short of disposal, and its own stamp decides which
-probe's answer sticks.
+A superseded pass's pending scope goes to the pass that answers its fields in its place. A newer
+live pass takes over a live pass's scope, and a refresh's when it runs the submit profile. A newer
+refresh takes over a refresh's. A submit or a load keeps the scope in its record and gives it back
+if it ends unanswered.
+
+A narrowed live pass leaves part of the submit profile unanswered. So once `HasSubmitted` is true,
+the fields of a refresh it supersedes wait for the next answer under the submit profile, as do the
+fields of a refresh a submit or load gives back. Until an answer under the submit profile lands,
+the next refresh covers them, and so does any live pass that runs the submit profile.
+
+Before `HasSubmitted` is true nothing waits, because every field a refresh covers then has a live
+pass of its own. A field an open `LiveDebounce` window holds has the window's, and a field edited
+while a submit ran has the one that follows once that submit ends unanswered.
+
+A field can still read unlit before its answer lands, at moments when no running pass covers it:
+
+- after a narrowed live pass supersedes a refresh, or a submit or load gives one back, until the
+  next refresh, or a live pass that runs the submit profile, begins;
+- while a load that superseded the field's check runs, since a load covers no field;
+- between a submit's or load's end and the live pass it gives back: for one dispatch on a renderer
+  that queues its work when `LiveDebounce` is unset, and when it is set, until the window closes
+  or a refresh that covers the window's fields begins.
+
+Only a pass still running hands its scope on, so once a pass lands, no later pass lights a field
+because that pass covered it. A later pass lights such a field only for a reason of its own, such
+as an edit within a refresh's window.
+
+The probe stands down for a submit or a load in flight on the same grounds as a live pass; nothing
+cancels a probe short of disposal, and its own stamp decides which probe's answer sticks.
 
 ## Rule-level versus whole-profile execution
 

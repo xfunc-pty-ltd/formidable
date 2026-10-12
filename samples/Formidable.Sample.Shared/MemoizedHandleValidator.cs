@@ -43,7 +43,7 @@ public class MemoizedHandleValidator : DraftSubmitValidator<Handle>
             .When(h => !string.IsNullOrEmpty(h.Username));
 
         // A second, independent async field — demonstrates that the pending flag is scoped to
-        // the field being edited, not the whole form.
+        // each field whose own check is running, not the whole form.
         RuleFor(h => h.DisplayName)
             .MustAsyncMemoized(_displayNameMemo, async (displayName, cancellationToken) =>
             {
