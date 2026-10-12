@@ -130,16 +130,25 @@ dropped, so its handler needs no check that the form is still there.
 `ArgumentNullException` before the first render and after disposal alike.
 
 **A throw from your `OnValidationStateChanged` or `Engine.StateChanged` handler goes to the boundary
-around the form when a render changes the form's fields.** A render does that when it adds or
-removes a field, or when it starts or stops one
-[waiting for submit](options.md#waitforsubmit-per-component-not-a-formidableoptions-property). The
-form can raise both events by itself at those moments, outside any call of yours.
+around the form whenever the form raises the event from work no call of yours is waiting on.** That
+work includes answering a render that adds or removes a field, or starts or stops one
+[waiting for submit](options.md#waitforsubmit-per-component-not-a-formidableoptions-property).
+
+The same goes for checking a change, for the waits `LiveDebounce` and `RefreshDebounce` set, and for
+the validity check `TrackFormValidity` runs as the form starts. So does a check your own
+`NotifyChanged()` call starts, because that call returns without waiting for the check.
 
 The throw reaches the nearest `ErrorBoundary` around the form, which then shows its error content in
 the form's place. A boundary inside the form never sees it.
 
 With no boundary around the form, the throw takes Blazor's own unhandled-error path: a Blazor Server
 circuit ends, and WebAssembly shows its error UI and keeps running.
+
+A call of yours that raises the event itself, or awaits the work that does, gets the throw instead:
+`ApplyServerIssues`, `MarkTouched`, `SubmitAsync` and `DiscloseLoadedValuesAsync` among them. A
+commit to a field not yet touched raises `StateChanged` as it marks the field touched, so a throw
+there goes to whatever made the commit: your own call (`NotifyChanged()`, say), or the input's
+change event, which Blazor hands to the nearest boundary above the input.
 
 An `OnValidationStateChanged` handler that throws on every call ends a Server circuit even with a
 boundary. As the boundary removes the form, the form raises `OnValidationStateChanged` once more
@@ -1119,10 +1128,10 @@ after the component is disposed is dropped.
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before binding and after disposal alike.
 
-A throw from your own `OnValidationStateChanged` or `Engine.StateChanged` handler, when a render
-changes the form's fields, reaches the nearest `ErrorBoundary` around this component, as
-[under `FormidableForm`](#formidableformtmodel). A `NotifyFieldSetChanged()` call is the exception:
-it throws to you.
+A throw from your own `OnValidationStateChanged` or `Engine.StateChanged` handler follows the rule
+[under `FormidableForm`](#formidableformtmodel). It reaches the nearest `ErrorBoundary` around this
+component when the event comes from work no call of yours is waiting on. A call of yours that
+raises the event gets the throw, and `NotifyFieldSetChanged()` is one: it throws to you.
 
 An `OnValidationStateChanged` handler that throws on every call ends a Server circuit here too,
 even with a boundary, because removing this component raises that event once more. Once this

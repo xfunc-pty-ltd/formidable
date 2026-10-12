@@ -580,17 +580,22 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // written to Trace and the host's logger and then dropped, never dispatched or rethrown, as
     // every late call on a disposed form does nothing. The registry reader and the engine's own
     // disposed test stop a post that runs after Dispose before it reaches any handler, so what
-    // meets the disposed check here is a handler that removes the form and then throws.
-    private void DispatchPostedFault(Exception exception)
-    {
-        if (_disposed)
+    // meets the disposed check here is a handler that removes the form and then throws, or work
+    // the dispatcher ran first that removed it. The check runs on the dispatcher, which runs this
+    // at once when the call is already there: a check whose rule awaited hands its throw on from
+    // a pool thread (on Blazor Server, any async rule), and a removal queued ahead of it must
+    // have run before the check reads the flag.
+    private void DispatchPostedFault(Exception exception) =>
+        _ = InvokeAsync(() =>
         {
-            FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableForm<TModel>), exception);
-            return;
-        }
+            if (_disposed)
+            {
+                FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableForm<TModel>), exception);
+                return;
+            }
 
-        _ = DispatchExceptionAsync(exception);
-    }
+            _ = DispatchExceptionAsync(exception);
+        });
 
     /// <summary>Returns the form to pristine by rebuilding the engine over the current model, or over <paramref name="newModel"/> when <c>@bind-Model</c> is bound.</summary>
     /// <param name="newModel">The model to edit instead, or <see langword="null"/> to keep the current instance.</param>

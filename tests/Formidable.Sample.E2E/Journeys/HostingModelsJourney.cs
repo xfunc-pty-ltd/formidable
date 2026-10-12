@@ -143,6 +143,39 @@ public sealed class HostingModelsJourney(SampleAppFixture app)
     public Task A_throwing_handler_as_a_field_starts_waiting_in_attach_mode_on_a_server_circuit_shows_the_boundary() =>
         AssertBoundaryAndLiveCircuitAsync("attach", "#wait-field");
 
+    // A page's own StateChanged handler throws while the form checks a committed change, and no
+    // ErrorBoundary is on the page. On a server circuit the throw takes Blazor's own unhandled-error
+    // path: the circuit ends and Blazor shows its error bar. Without the form handing the throw on,
+    // it vanishes: no error bar, and the circuit keeps answering as though nothing had happened.
+    [E2EFact]
+    public async Task A_throwing_handler_during_a_check_with_no_boundary_ends_the_server_circuit()
+    {
+        await using var session = await app.NewSessionAsync();
+        var page = session.Page;
+
+        await page.GotoAsync(app.WebAppOrigin + "/throwing-live-check");
+
+        // Prerendering is off, so the field appearing is the circuit connecting.
+        var email = Field(page, "email");
+        await Expect(email).ToHaveCountAsync(1, new() { Timeout = AsyncTimeoutMs });
+
+        var pings = page.Locator("#pings");
+        var errorBar = page.Locator("#blazor-error-ui");
+        await page.Locator("#ping").ClickAsync();
+        await Expect(pings).ToHaveTextAsync("1");
+        await Expect(errorBar).ToBeHiddenAsync();
+
+        await TypeAsync(email, "x");
+        await TabAsync(page);
+        await Expect(errorBar).ToBeVisibleAsync();
+
+        // The ended circuit answers no click. The wait is fixed because nothing will change: a
+        // circuit still alive would answer well inside it and fail the count.
+        await page.Locator("#ping").ClickAsync();
+        await page.WaitForTimeoutAsync(1000);
+        await Expect(pings).ToHaveTextAsync("1");
+    }
+
     private async Task AssertBoundaryAndLiveCircuitAsync(string root, string trigger)
     {
         await using var session = await app.NewSessionAsync();

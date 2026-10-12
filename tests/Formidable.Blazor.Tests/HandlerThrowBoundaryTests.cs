@@ -210,6 +210,49 @@ public class HandlerThrowBoundaryTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // The root's hand-off called from a pool thread with no synchronization context, as the engine
+    // calls it for a check whose rule awaited (on Blazor Server, any async rule), while the
+    // dispatcher is busy with work that removes the root. The hand-off waits for the dispatcher
+    // before it reads whether the root is still there, so it finds the root gone and logs the
+    // throw, rather than handing it to a renderer that no longer has the component.
+    // Mutation: read the disposed flag before dispatching, and the throw is lost (no warning, and
+    // only an unobserved ArgumentException from the renderer remains).
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_throw_handed_on_from_a_pool_thread_waits_for_the_dispatcher_before_it_checks_the_root(bool attach)
+    {
+        var logs = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(logs)));
+        var (cut, engine) = await RenderWithLiveErrorAsync(attach, boundary: true);
+        var route = ((FormidableEngine<EngineOrder>)engine).PostedFault!;
+        using var busy = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+
+        // Started from a pool thread: the dispatcher runs work at once on the thread that asks when
+        // it is free, and the test thread must stay free to call the hand-off.
+        var removal = Task.Run(() => cut.InvokeAsync(() =>
+        {
+            busy.Set();
+            release.Wait(TimeSpan.FromSeconds(10));
+            cut.Instance.RemoveRoot();
+        }));
+        Assert.True(busy.Wait(TimeSpan.FromSeconds(10)));
+        await Task.Run(() => route(new InvalidOperationException(HandlerMessage)));
+        release.Set();
+        await removal;
+        await Settle(cut);
+        await Settle(cut);
+
+        Assert.Empty(cut.FindAll("p.boundary-error"));
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        var warning = Assert.Single(logs.Entries, entry => entry.Message.Contains("left the page", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains($"(System.InvalidOperationException: {HandlerMessage})", warning.Message);
+
+        await Services.DisposeAsync();
+    }
+
     // A pin: a handler that throws on every call. The boundary around the root shows the first
     // throw and removes the root, and the root's disposal raises OnValidationStateChanged once
     // more, but not StateChanged. So an OnValidationStateChanged handler throws a second time,

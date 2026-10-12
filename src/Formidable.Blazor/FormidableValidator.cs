@@ -366,17 +366,19 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     // As FormidableForm's own: the throw goes where one from this component's lifecycle would, and
     // a component the renderer has removed has no place left to dispatch from, so a throw that
     // arrives after Dispose is written to Trace and the host's logger and then dropped, never
-    // dispatched or rethrown, as every late call on a disposed component does nothing.
-    private void DispatchPostedFault(Exception exception)
-    {
-        if (_disposed)
+    // dispatched or rethrown, as every late call on a disposed component does nothing. The check
+    // runs on the dispatcher, as the form's does and for the same reason.
+    private void DispatchPostedFault(Exception exception) =>
+        _ = InvokeAsync(() =>
         {
-            FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableValidator<TModel>), exception);
-            return;
-        }
+            if (_disposed)
+            {
+                FormidableEngineFactory.ReportDroppedThrow<TModel>(_logger, nameof(FormidableValidator<TModel>), exception);
+                return;
+            }
 
-        _ = DispatchExceptionAsync(exception);
-    }
+            _ = DispatchExceptionAsync(exception);
+        });
 
     /// <summary>The engine, or an <see cref="InvalidOperationException"/> saying the call arrived before the component bound to its cascaded <see cref="EditContext"/>.</summary>
     /// <returns>The built engine.</returns>

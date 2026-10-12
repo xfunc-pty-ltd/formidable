@@ -1,0 +1,49 @@
+@*
+    A handler of the page's own, on the form's StateChanged, throws once while the form checks a
+    committed change to the field. No ErrorBoundary is on the page, so the throw takes Blazor's own
+    unhandled-error path: the circuit ends and the error bar at the foot of the page shows. The Ping
+    button shows whether the circuit still answers. The re-check after a change to the rendered
+    fields never fires here, so the change's own check is the first the form runs.
+*@
+@page "/throwing-live-check"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<h1>Throwing live check</h1>
+
+<p>Pings: <span id="pings">@_pings</span> <button id="ping" type="button" @onclick="() => _pings++">Ping</button></p>
+
+<FormidableForm Model="_contact" Options="_options" Context="formidable" @ref="_form">
+    <label>Email
+        <FormidableInputText @bind-Value="_contact.Email" />
+    </label>
+    <FormidableFieldMessage For="() => _contact.Email" />
+</FormidableForm>
+
+<div id="blazor-error-ui" style="display: none">An unhandled error has occurred.</div>
+
+@code {
+    private readonly Contact _contact = new();
+    private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+    private FormidableForm<Contact>? _form;
+    private int _pings;
+    private bool _thrown;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _form!.Engine!.StateChanged += ThrowOnceDuringACheck;
+        }
+    }
+
+    private void ThrowOnceDuringACheck(object? sender, FormidableStateChangedEventArgs e)
+    {
+        if (_thrown || !_form!.Engine!.IsValidating)
+        {
+            return;
+        }
+
+        _thrown = true;
+        throw new InvalidOperationException("A handler on this page threw during a check.");
+    }
+}

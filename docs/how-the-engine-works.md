@@ -259,6 +259,28 @@ A posted reconcile has no caller to throw to. The root catches what it throws an
 `ErrorBoundary` above the root, or the renderer's unhandled path where there is none. A boundary
 that shows it removes the root, so nothing reconciles again.
 
+The work the engine starts without awaiting it has no caller either: each timer's fire, the live
+pass a field change starts with no `LiveDebounce`, and every probe. A handler that throws inside
+that work faults its task, and `ObserveBackground` hands the fault to the route the root passed to
+the engine's constructor (`PostedFault`). That route ends in the same `DispatchExceptionAsync`.
+
+The hand-off is posted past the call stack the task faulted on, as the hold notification is: to
+the synchronization context current there, or to the thread pool where there is none.
+
+The thread pool is the usual case on every host: a check whose rule awaited resumes off the
+dispatcher, so on Blazor Server any async rule's check faults there. Each root's route therefore
+dispatches to the renderer before it reads whether the root is still on the page, so work already
+queued there (a render that removes the root, say) has run by then.
+
+A task can fault inside the engine call that started it, before its first real await. A boundary
+that took the throw at once would remove the root and dispose the engine while that call went on
+to start more work. Posted, the hand-off lands once the call has returned.
+
+The route is a constructor argument because the constructor's last act can start the first probe.
+In attach mode with a synchronous validator that probe lands, and can call a page's handler,
+before the constructor returns. An engine built through the public constructor has no route, so
+the fault stays on the task, unobserved.
+
 A root already disposed when the throw arrives hands on nothing: it writes the throw to Trace, and
 as a warning to the host's logger, then drops it. A direct call (`OnAfterRenderAsync`,
 `NotifyFieldSetChanged()`) throws to its own caller.

@@ -311,6 +311,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         TimeProvider? timeProvider = null,
         Func<Func<Task>, Task>? renderDispatch = null,
         ILogger? logger = null)
+        : this(model, editContext, validator, introspector, options, timeProvider, renderDispatch, logger,
+            postedFault: null)
+    {
+    }
+
+    // The roots' constructor: the public one's parameters, plus the route for what a handler
+    // throws in work no caller awaits (PostedFault). A parameter rather than a property the root
+    // sets afterwards, because this constructor's last act can start the first validity check,
+    // and in attach mode that check can land, and call a page's handler, before it returns.
+    internal FormidableEngine(
+        TModel model,
+        EditContext editContext,
+        IModelValidator<TModel> validator,
+        IModelIntrospector introspector,
+        FormidableOptions options,
+        TimeProvider? timeProvider,
+        Func<Func<Task>, Task>? renderDispatch,
+        ILogger? logger,
+        Action<Exception>? postedFault)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(editContext);
@@ -326,6 +345,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _timeProvider = timeProvider ?? TimeProvider.System;
         _renderDispatch = renderDispatch ?? (work => work());
         _logger = logger;
+        PostedFault = postedFault;
 
         // Asked before the edit context is subscribed to or given a class provider, so a
         // consumer capability tester that throws cannot leave this context wired to a
@@ -360,7 +380,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             // A pristine, never-touched form still needs a truthful answer, so tracking gets its
             // first probe here rather than waiting for a first edit that may never come.
-            _ = ProbeFormValidityAsync();
+            ObserveBackground(ProbeFormValidityAsync());
         }
     }
 
@@ -1406,13 +1426,82 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Takes what the posted hold notification throws, which no caller waits to receive; set by the root that built the engine.</summary>
-    // Internal and init-only rather than a constructor parameter, because the constructor is
-    // public. Both roots set it through FormidableEngineFactory, and hand the throw to the
-    // ErrorBoundary above them as RenderedFieldSetReconciler.RunPosted hands a posted reconcile's.
-    // An engine built directly sets none, and the throw goes to the context the notification was
-    // posted to.
-    internal Action<Exception>? PostedFault { get; init; }
+    /// <summary>Takes what a handler throws in work no caller waits on (the posted hold notification, and the checks and timer fires the engine starts unawaited); handed in by the root that built the engine.</summary>
+    // Set by the internal constructor, which both roots reach through FormidableEngineFactory,
+    // and in place before the constructor starts its first validity check. Each root hands the
+    // throw to the ErrorBoundary above it as RenderedFieldSetReconciler.RunPosted hands a posted
+    // reconcile's. The public constructor sets none: the hold notification's throw goes to the
+    // context the notification was posted to, and a check's or a fire's stays on its task,
+    // unobserved.
+    internal Action<Exception>? PostedFault { get; }
+
+    /// <summary>Hands the fault of a task the engine started without awaiting it to <see cref="PostedFault"/>, once the call that started the task has returned; with no route set, leaves the fault unobserved.</summary>
+    /// <param name="task">A check, or a timer's dispatched fire, that no caller awaits.</param>
+    // A task can fault before its first real await, inside the engine call that started it, and
+    // a boundary that takes the throw at once removes the form and disposes this engine while
+    // that call goes on to start more work. So the continuation runs where the task faulted, to
+    // read the context current there, and PostFault posts the hand-off past the call stack, as
+    // BatchPost posts the hold notification.
+    //
+    // With no route (an engine built through the public constructor) the fault is left unread,
+    // so it reaches TaskScheduler.UnobservedTaskException as a discarded task's fault does.
+    // Cancellation is how the engine stands work down (a newer pass, disposal), not a fault to
+    // show, so neither a cancelled task nor an OperationCanceledException is handed on.
+    private void ObserveBackground(Task task)
+    {
+        if (task.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        _ = task.ContinueWith(
+            static (faulted, state) => ((FormidableEngine<TModel>)state!).PostFault(faulted),
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>Posts a faulted task's exception to <see cref="PostedFault"/> past the current call stack, unless no route is set or the exception is a cancellation.</summary>
+    /// <param name="faulted">The task, already faulted.</param>
+    // Posted to the SynchronizationContext current where the task faulted, where there is one
+    // (the renderer's, on its dispatcher), so the hand-off runs once the work on the dispatcher has
+    // returned. Where there is none, a work item on the thread pool runs behind the call stack in
+    // the same way. That is the usual branch on every host, not only on WebAssembly, which
+    // installs no context: a check whose rule awaited resumes on a pool thread, so on Blazor
+    // Server any async rule's check faults there. Both roots' routes dispatch to the renderer
+    // before they read anything of the root. A throw from the route itself reaches the context's
+    // own handler, or stays unobserved on the work item's task, as a throw from BatchPost's
+    // callback does.
+    private void PostFault(Task faulted)
+    {
+        if (PostedFault is not { } postedFault)
+        {
+            return;
+        }
+
+        var aggregate = faulted.Exception!;
+        var exception = aggregate.InnerExceptions is [var single] ? single : aggregate;
+        if (exception is OperationCanceledException)
+        {
+            return;
+        }
+
+        var context = SynchronizationContext.Current;
+        if (context is null)
+        {
+            _ = Task.Run(() => postedFault(exception));
+            return;
+        }
+
+        context.Post(
+            static state =>
+            {
+                var (route, thrown) = ((Action<Exception>, Exception))state!;
+                route(thrown);
+            },
+            (postedFault, exception));
+    }
 
     /// <summary>Runs the posted hold notification, handing a throw to <see cref="PostedFault"/> where a root set one.</summary>
     private void RunHeldStatePublish()
@@ -1469,11 +1558,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         else
         {
-            _ = RunLivePassAsync([e.FieldIdentifier]);
+            ObserveBackground(RunLivePassAsync([e.FieldIdentifier]));
 
             if (_options.TrackFormValidity)
             {
-                _ = ProbeFormValidityAsync();
+                ObserveBackground(ProbeFormValidityAsync());
             }
         }
 
@@ -1875,7 +1964,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             return;
         }
 
-        _ = ProbeFormValidityAsync();
+        ObserveBackground(ProbeFormValidityAsync());
     }
 
     /// <summary>Whether a landing pass's answer is newer than the server's current one, and so replaces it.</summary>
@@ -3403,7 +3492,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var run = ++_validityChecksStarted;
         _validityCheckRunning = run;
         _validityCheckStartedAt = _timeProvider.GetTimestamp();
-        _ = ProbeFormValidityAsync(run);
+        ObserveBackground(ProbeFormValidityAsync(run));
         return Task.CompletedTask;
     }
 
@@ -3465,7 +3554,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         timer ??= _timeProvider.CreateTimer(
-            _ => _ = _renderDispatch(fire),
+            _ => ObserveBackground(_renderDispatch(fire)),
             state: null,
             dueTime: Timeout.InfiniteTimeSpan,
             period: Timeout.InfiniteTimeSpan);
@@ -3535,7 +3624,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // pending indicator, no field scope), so it runs ahead of the empty-scope guard below
             // rather than under it. An edit that accumulated a now-departed field still moved the
             // model before that field left, and this is what keeps IsFormValid answering for it.
-            _ = ProbeFormValidityAsync();
+            ObserveBackground(ProbeFormValidityAsync());
         }
 
         if (fields.Count == 0)

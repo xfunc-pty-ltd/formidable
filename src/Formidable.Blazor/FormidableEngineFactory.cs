@@ -18,7 +18,7 @@ internal static class FormidableEngineFactory
     /// <param name="validator">The root's <c>Validator</c> parameter, or <see langword="null"/> to resolve one.</param>
     /// <param name="options">The root's <c>Options</c> parameter, or <see langword="null"/> to resolve the registered options or build defaults.</param>
     /// <param name="renderDispatch">Runs work on the renderer's dispatcher.</param>
-    /// <param name="postedFault">The root's hand-off for what the engine's posted hold notification throws.</param>
+    /// <param name="postedFault">The root's hand-off for what a handler throws in work the engine runs unawaited: the posted hold notification, its checks and its timer fires.</param>
     /// <returns>The engine, holding the options instance it was built with.</returns>
     /// <exception cref="InvalidOperationException">No validator was handed in and none resolves from <paramref name="services"/>, or no <see cref="IModelIntrospector"/> is registered there.</exception>
     internal static FormidableEngine<TModel> Create<TModel>(
@@ -38,10 +38,8 @@ internal static class FormidableEngineFactory
             options ?? ResolveOptions(services),
             timeProvider: ResolveTimeProvider(services),
             renderDispatch: renderDispatch,
-            logger: ResolveLogger(services))
-        {
-            PostedFault = postedFault,
-        };
+            logger: ResolveLogger(services),
+            postedFault: postedFault);
 
     /// <summary>Throws when a root's <c>Options</c> parameter is not the instance it was when the engine was built, which read it once.</summary>
     /// <param name="host">The root's name, for the message.</param>
