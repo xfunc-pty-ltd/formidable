@@ -3,7 +3,7 @@ using Microsoft.Playwright;
 namespace Formidable.Sample.E2E;
 
 /// <summary>
-/// One file the page asks for, held back until the test lets it through. While it is held the
+/// One file the page asks for, or one request it sends, held back until the test lets it through. While it is held the
 /// page can be read in the state it shows while that file downloads, for as long as the test
 /// needs, rather than caught on the way past. Disposing lets it through, so a failed assertion
 /// never leaves the request parked.
@@ -23,6 +23,35 @@ internal sealed class HeldRequest : IAsyncDisposable
         var held = new HeldRequest();
         await page.RouteAsync(pattern, async route =>
         {
+            held._requested.TrySetResult();
+            await held._released.Task;
+            try
+            {
+                await route.ContinueAsync();
+            }
+            catch (PlaywrightException)
+            {
+                // The page dropped the request while it was held: it left the page that asked.
+            }
+        });
+        return held;
+    }
+
+    /// <summary>Holds only the next request whose URL matches <paramref name="pattern"/> and whose
+    /// method is <paramref name="method"/>, so a test can make one reply arrive after a later one.
+    /// Every other request, a CORS preflight included, goes straight through.</summary>
+    public static async Task<HeldRequest> HoldNextAsync(IPage page, string pattern, string method)
+    {
+        var held = new HeldRequest();
+        var taken = 0;
+        await page.RouteAsync(pattern, async route =>
+        {
+            if (route.Request.Method != method || Interlocked.Exchange(ref taken, 1) == 1)
+            {
+                await route.ContinueAsync();
+                return;
+            }
+
             held._requested.TrySetResult();
             await held._released.Task;
             try

@@ -436,10 +436,15 @@ if (!response.IsSuccessStatusCode)
 Name the generated metadata as the code above does. A WebAssembly Release publish runs the trimmer,
 and trimmed output cannot read the type by reflection.
 
-The guard above is half of it. A 400 from a proxy or a gateway is no verdict, often not JSON at
-all, and the deserialize throws on such a body rather than returning `null`, so the parse itself
-belongs inside a `try`. Pass `problem.ToIssues()` instead when the page wants the flattened issues
-for something of its own. Each apply replaces the previous server verdict rather than adding to it.
+The guard above is half of it. A 400 from a proxy or a gateway is no verdict, often not JSON at all,
+and the deserialize throws on such a body rather than returning `null`, so the parse itself belongs
+inside a `try`. Pass `problem.ToIssues()` instead when the page wants the flattened issues for
+something of its own. Each apply replaces the previous server verdict rather than adding to it.
+
+Take a mark with `MarkServerRequest()` just before the post, and pass it to `ApplyServerIssues` with
+the reply. The form then drops a reply that arrives after the visitor changed something ([How do I
+stop a late reply showing over newer
+values?](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)).
 
 **Normalize before posting** when the model implements `INormalizableModel`: the filters normalize
 too, so cleaning first keeps the paths in the response lined up with the rows on screen. Call

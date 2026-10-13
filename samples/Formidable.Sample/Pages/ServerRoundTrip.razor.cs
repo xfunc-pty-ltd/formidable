@@ -35,7 +35,20 @@ public partial class ServerRoundTrip
     {
         // Normalizing before the POST keeps the client's line list identical to what the
         // server validates (its filter normalizes too) - so issue paths always match rows.
+        var lines = _order.Lines.Count;
         _order.Normalize();
+        if (_order.Lines.Count != lines)
+        {
+            // A dropped line leaves the form at the next render, and a field that leaves after
+            // the mark below drops this send's reply. Yielding once lets that render happen
+            // first, so the mark describes the rows the server's paths will name.
+            await Task.Yield();
+        }
+
+        // The mark records where the form stands as the order leaves. If the visitor changes a
+        // field, or a line comes or goes, before the reply arrives, the form drops the reply
+        // instead of showing it over values it was never about.
+        var sentAt = _form!.MarkServerRequest();
         var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
         if (response.IsSuccessStatusCode)
@@ -78,10 +91,12 @@ public partial class ServerRoundTrip
 
         // One call for the whole verdict: every issue lands on the field it names, at the
         // severity it carries, so the page needs no advisory plumbing of its own. Each call
-        // replaces the previous server verdict — pressing Send again with new input swaps the
-        // old messages for the new ones, rather than accumulating them, so a corrected
-        // resubmission cannot leave a stale one behind.
-        _form!.ApplyServerIssues(problem);
-        _status = "Server rejected the order — its verdict is now inline.";
+        // replaces the previous server verdict, and a reply to an order the visitor has since
+        // changed is dropped, so a corrected resubmission cannot leave a stale one behind, even
+        // when the older reply arrives last. A dropped reply leaves the status line as it was.
+        if (_form!.ApplyServerIssues(problem, sentAt))
+        {
+            _status = "Server rejected the order — its verdict is now inline.";
+        }
     }
 }

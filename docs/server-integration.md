@@ -66,7 +66,9 @@ the two adapters part company on more than presentation:
 On the client side, closing the loop is two calls: deserialize the 400 body into
 `FormidableValidationProblem` through `FormidableValidationProblemJsonContext`, and hand it to
 `FormidableForm.ApplyServerIssues`. That is the whole authoring surface: pick an adapter, apply what
-it sends back.
+it sends back. Marking the request as it leaves, with `MarkServerRequest()`, lets the form drop a
+reply the visitor has since edited past
+([How do I stop a late reply showing over newer values?](#how-do-i-stop-a-late-reply-showing-over-newer-values)).
 
 ## What happens to a server error when I edit the field?
 
@@ -89,15 +91,110 @@ The re-check replaces the reply only after a change made since the reply arrived
 already waiting out `RefreshDebounce` when the reply lands, and any check already running, leave
 the reply standing, since neither knows anything the reply does not.
 
-The form cannot see when your page sent the request, so a reply stands until the next change,
-submit or load of values, even if the visitor edited the field while it was on its way. When saves
-can overlap, apply only the latest one's reply: each apply replaces the last, so an older reply
-arriving late would stand in place of the newer one.
+The form cannot see when your page sent the request unless the page marks it as it leaves, with
+`MarkServerRequest()` ([the next section](#how-do-i-stop-a-late-reply-showing-over-newer-values)).
+With the mark, the form drops a reply if, after the mark, it heard of a change, the page loaded
+values, a component that renders a field arrived or left, or the form was reset.
 
-Each apply replaces what the last one applied rather than piling onto it. The server's issues live
-apart from the client's own answer, so applying a reply swaps that set outright and changes nothing
-in that answer, and resubmitting the same or a corrected payload never leaves a stale duplicate
-behind.
+Without that mark, a reply stands until the next change, submit or load of values, even if the
+visitor edited the field while it was on its way. An older save's reply arriving late stands in
+place of a newer one, too.
+
+Each apply replaces what the last one applied rather than piling onto it. The server's issues are
+kept apart from the client's own answer. Applying a reply swaps the server's set outright and
+changes nothing in that answer, so resubmitting the same or a corrected payload never leaves a stale
+duplicate behind.
+
+Why: [how the engine works: what replaces the server's answer](how-the-engine-works.md#what-replaces-the-servers-answer).
+
+## How do I stop a late reply showing over newer values?
+
+Mark the request as it leaves, and apply its reply with the mark. `MarkServerRequest()` on the form
+returns a `ServerRequestMark`, which the sample takes just before it posts:
+
+```csharp
+var sentAt = _form!.MarkServerRequest();
+var response = await Http.PostAsJsonAsync(_endpoint, _order);
+```
+
+<!-- Excerpt from `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs` -->
+
+The marked `ApplyServerIssues` overloads take the mark back with the reply. The form drops the reply
+if, since the mark, the visitor changed a value, the page loaded values, a component that renders a
+field arrived or left, or the form was reset. Any change counts, not only one to a field the reply
+names, and a second component arriving for a field already on screen counts too.
+
+A change counts once the form hears of it. An input that holds a change until focus leaves tells
+the form only then. A text box does that, unless `UpdateOn="OnInput"` makes each keystroke count.
+So a reply that lands while the visitor is still typing in such an input is not dropped.
+
+On Blazor Server, the form hears of a change only once the browser's message about it reaches the
+server. A reply that lands while that message is on its way is not dropped either.
+
+Either way the reply applies, and its message shows beside the new text. The change then counts as
+an edit made after the reply. So the reply's message stays until the whole form is re-checked,
+[`RefreshDebounce`](options.md#refreshdebounce) after the change (300 ms by default), as with
+[any edit](#what-happens-to-a-server-error-when-i-edit-the-field).
+
+The kit's inputs (`FormidableInputText`, `FormidableInputDate` and the other `FormidableInput...`
+components) wait for a handler of yours before they tell the form of a change. Which handler depends
+on the input's [`UpdateOn`](options.md#updateon-per-input-not-a-formidableoptions-property) mode, which says when it tells the form:
+
+- `OnChange`, the default for every kit input, the date input included: as the box's `change`
+  event fires, after your `@bind-Value:after` handler.
+- `OnInput`: on every `input` event (each keystroke in a text box), after your `@bind-Value:after`
+  handler. A select has no separate `input` event, so under `OnInput` it behaves as `OnChange`.
+- `OnBlur`: the value commits on `change`, and the form hears of it at the next blur, after your
+  `@onblur` handler.
+
+If the visitor presses Submit while that handler is still awaiting (a lookup, say), the mark your
+send handler takes comes before the change counts. The reply is then dropped, although the request
+carried the change.
+
+To keep that reply, let the handler start its lookup and return without awaiting it, so the form
+hears of the change at once. Or apply that form's replies through an unmarked overload, which
+applies every reply, a late one included. Blazor's own inputs (`InputText`, `InputDate` and the
+rest) tell the form at once, whatever your handler awaits.
+
+A dropped reply changes nothing: no message, no focus move, and the form does not count it as a
+submit. The call then returns `false`, so the page can leave its own status line alone:
+
+```csharp
+if (_form!.ApplyServerIssues(problem, sentAt))
+{
+    _status = "Server rejected the order — its verdict is now inline.";
+}
+```
+
+<!-- Excerpt from `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs` -->
+
+A reply the form does not drop applies exactly as an unmarked reply does, and the call returns
+`true`. So overlapping saves sort themselves out: when the visitor changed something between
+two sends, the older send's reply is dropped whichever arrives first. With no change between them,
+both replies describe the same values.
+
+Your send handler may add or remove rows before it posts, as the sample's `Normalize()` drops blank
+lines. Let that change render before you take the mark, because a row arriving or leaving after the
+mark drops the reply. `MarkServerRequest()` on `FormidableForm` or `FormidableValidator` first takes
+in any row change that has already rendered, so that change counts as made before the mark. The
+unmarked overloads apply every reply, whenever it arrives.
+
+Blazor renders the page when the send handler first awaits, so a row change made before that
+`await` has rendered by the time the handler goes on. One `await Task.Yield()` before the mark is
+then enough, and the sample drops blank lines and yields once before it marks. A row change made
+after an earlier `await` renders only once something asks for a render, so call
+`StateHasChanged()` before that yield.
+
+A row change that renders after the mark drops the reply, even one that rendered only a moment
+before the reply landed. The marked `ApplyServerIssues` overloads on `FormidableForm` and
+`FormidableValidator` take such a change in before they decide.
+
+`FormidableValidator` has the same `MarkServerRequest()` and `ApplyServerIssues` overloads as
+`FormidableForm`. The engine behind either component's `Engine` property has `MarkServerRequest()`
+too. Its marked `ApplyServerIssues` takes issues rather than the problem, so hand it
+`problem.ToIssues()`. Neither `FormidableValidator` nor the engine moves focus when it applies.
+The engine's own `MarkServerRequest()` and marked `ApplyServerIssues` take no row change in first,
+so mark and apply through the component when your send adds or removes rows.
 
 Why: [how the engine works: what replaces the server's answer](how-the-engine-works.md#what-replaces-the-servers-answer).
 
@@ -151,15 +248,19 @@ whichever half of the framework built it.
 On the client, closing the loop is two calls. Deserialize the 400 body into
 `FormidableValidationProblem`, one type in the core package, through
 `FormidableValidationProblemJsonContext.Default.FormidableValidationProblem`; then hand the
-result to `FormidableForm.ApplyServerIssues`. That method has two overloads, on `FormidableForm` and
-on `FormidableValidator` alike: a deserialized `FormidableValidationProblem`, or a sequence of
+result to `FormidableForm.ApplyServerIssues`. That method takes either payload, on `FormidableForm`
+and on `FormidableValidator` alike: a deserialized `FormidableValidationProblem`, or a sequence of
 `ValidationIssue`, which `ToIssues()` produces by flattening the payload, every error entry first and
-then the advisories. The engine's own method takes the sequence, and a sequence is enumerated
-exactly once.
+then the advisories.
+
+Each payload has an unmarked overload and one that also takes a
+[mark](#how-do-i-stop-a-late-reply-showing-over-newer-values). The engine's own methods take the
+sequence. The unmarked apply enumerates it exactly once, and a marked apply at most once.
 
 A reply that arrives after the form or the validator has been disposed is dropped: on either root
-the call does nothing and throws nothing, so the handler that awaited the request needs no check that
-the form is still there. A `null` reply still throws `ArgumentNullException`, disposed or not.
+the call does nothing and throws nothing (a marked apply returns `false`), so the handler that
+awaited the request needs no check that the form is still there. A `null` reply still throws
+`ArgumentNullException`, disposed or not.
 
 That first call names generated JSON metadata rather than the plain generic `ReadFromJsonAsync<T>()`
 because a WebAssembly Release publish runs the trimmer, and trimmed output cannot deserialize the
@@ -222,7 +323,20 @@ private async Task Send()
 {
     // Normalizing before the POST keeps the client's line list identical to what the
     // server validates (its filter normalizes too) - so issue paths always match rows.
+    var lines = _order.Lines.Count;
     _order.Normalize();
+    if (_order.Lines.Count != lines)
+    {
+        // A dropped line leaves the form at the next render, and a field that leaves after
+        // the mark below drops this send's reply. Yielding once lets that render happen
+        // first, so the mark describes the rows the server's paths will name.
+        await Task.Yield();
+    }
+
+    // The mark records where the form stands as the order leaves. If the visitor changes a
+    // field, or a line comes or goes, before the reply arrives, the form drops the reply
+    // instead of showing it over values it was never about.
+    var sentAt = _form!.MarkServerRequest();
     var response = await Http.PostAsJsonAsync(_endpoint, _order);
 
     if (response.IsSuccessStatusCode)
@@ -265,11 +379,13 @@ private async Task Send()
 
     // One call for the whole verdict: every issue lands on the field it names, at the
     // severity it carries, so the page needs no advisory plumbing of its own. Each call
-    // replaces the previous server verdict — pressing Send again with new input swaps the
-    // old messages for the new ones, rather than accumulating them, so a corrected
-    // resubmission cannot leave a stale one behind.
-    _form!.ApplyServerIssues(problem);
-    _status = "Server rejected the order — its verdict is now inline.";
+    // replaces the previous server verdict, and a reply to an order the visitor has since
+    // changed is dropped, so a corrected resubmission cannot leave a stale one behind, even
+    // when the older reply arrives last. A dropped reply leaves the status line as it was.
+    if (_form!.ApplyServerIssues(problem, sentAt))
+    {
+        _status = "Server rejected the order — its verdict is now inline.";
+    }
 }
 ```
 
