@@ -508,9 +508,9 @@ superseding, and which pass yields to which is written in kinds.
   cancellation and its own otherwise.
 
 Disposing the engine supersedes the pass in flight: it moves the version, as a newer pass does, and
-clears the descriptor and `IsValidating`. A rule that ignores the token the disposal cancels still
-answers, but its pass lands nothing and arms nothing, so a submit reports blocked and a load
-discloses nothing.
+clears the descriptor and `IsValidating`, and with them `IsSubmitting`, raising no `StateChanged`.
+A rule that ignores the token the disposal cancels still answers, but its pass lands nothing and
+arms nothing, so a submit reports blocked and a load discloses nothing.
 
 A load that landed just before the disposal starts no live pass after it: its tail stands down for
 a disposed engine, as every timer fire does.
@@ -554,9 +554,13 @@ normalizes the model first under `NormalizeOnSubmit`, reads the stamp and the ge
 and runs its whole selection once more.
 
 The pass stays current through each restart. Its version, token and record are kept, `IsValidating`
-stays true with no notification in between, and every fire that defers to a submit keeps waiting.
-A server reply applied during an earlier check still stands at the landing, since the version has
-not moved.
+and `IsSubmitting` stay true with no notification in between, and every fire that defers to a
+submit keeps waiting. A server reply applied during an earlier check still stands at the landing,
+since the version has not moved.
+
+`IsSubmitting` is read from the descriptor (a current pass of the submit kind, beside
+`IsValidating`), so it adds no source. A second submit keeps it up, a load that takes the
+descriptor lowers it, and every end of a submit lowers it as it clears the descriptor.
 
 So the answer that lands, and the `CanProceed` it reports, is for the values the model held as the
 last check began. That check also answers the fields whose live pass stood down for an earlier

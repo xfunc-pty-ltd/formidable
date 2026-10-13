@@ -1,0 +1,80 @@
+@*
+    A form that locks while it submits. The name field and the Submit button sit in a fieldset
+    whose disabled follows the form's own flag, and a status line says the form is submitting; the
+    page renders nothing of its own for either, so the lock follows the form's renders alone. A
+    rule that waits a second stands in for a slow server check, and the save waits half a second
+    more, so the lock is there to be seen through both. With ?lock=off the same form binds nothing.
+    The Show runs button, outside the form, shows how often the slow rule has run. The re-check
+    after a change to the rendered fields never fires here, so every run is a submit's or a
+    committed change's.
+*@
+@page "/submitting-lock"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using FluentValidation
+@using Formidable
+
+<h1>Submitting lock</h1>
+
+<FormidableForm Model="_contact" Validator="_validator" Options="_options" OnValidSubmit="SaveAsync" Context="formidable">
+    <fieldset id="lock" disabled="@(Locked && formidable.IsSubmitting)">
+        <label>Name
+            <FormidableInputText @bind-Value="_contact.Name" />
+        </label>
+        <FormidableFieldMessage For="() => _contact.Name" />
+
+        <button type="submit">Submit</button>
+    </fieldset>
+    <p id="submitting" role="status">@(Locked && formidable.IsSubmitting ? "Submitting…" : null)</p>
+</FormidableForm>
+
+<p id="saving">@_saving</p>
+<p><button id="show-runs" type="button" @onclick="() => _shownRuns = _rules.Runs">Show runs</button> <span id="runs">@_shownRuns</span></p>
+
+@code {
+    private readonly Contact _contact = new();
+    private readonly FormidableOptions _options = new() { RefreshDebounce = Timeout.InfiniteTimeSpan };
+    private readonly SlowNameRules _rules = new();
+    private IModelValidator<Contact> _validator = default!;
+    private string _saving = string.Empty;
+    private int? _shownRuns;
+
+    [SupplyParameterFromQuery(Name = "lock")]
+    public string? Lock { get; set; }
+
+    [SupplyParameterFromQuery(Name = "name")]
+    public string? Name { get; set; }
+
+    private bool Locked => Lock != "off";
+
+    protected override void OnInitialized()
+    {
+        _contact.Name = Name ?? string.Empty;
+        _validator = new FluentValidationModelValidator<Contact>(_rules);
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = "Saving " + _contact.Name;
+        await Task.Delay(500);
+        _saving = "Saved " + _contact.Name;
+    }
+
+    /// <summary>Name is required, and a submit, or a change, also runs a check that waits a second.</summary>
+    private sealed class SlowNameRules : DraftSubmitValidator<Contact>
+    {
+        private int _runs;
+
+        public int Runs => Volatile.Read(ref _runs);
+
+        protected override void ConfigureDraftRules() =>
+            RuleFor(c => c.Name).NotEmpty().WithMessage("Name is required");
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(c => c.Name).MustAsync(async (_, ct) =>
+            {
+                Interlocked.Increment(ref _runs);
+                await Task.Delay(1000, ct);
+                return true;
+            });
+    }
+}

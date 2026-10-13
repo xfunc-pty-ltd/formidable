@@ -464,6 +464,101 @@ Samples:
 - [`/normalize`](../samples/Formidable.Sample/Pages/Normalize.razor)
 - [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor)
 
+### I want to lock the Submit button while the form submits
+
+**Set:** bind the Submit button's `disabled` to `context.IsSubmitting`, and put a status line
+beside it that says the form is submitting.
+
+```razor
+<FormidableForm Model="_order" OnValidSubmit="SaveAsync">
+    @* the form's own fields *@
+
+    <button type="submit" disabled="@context.IsSubmitting">Submit</button>
+    <span role="status">@(context.IsSubmitting ? "Submitting…" : null)</span>
+</FormidableForm>
+```
+
+`context.IsSubmitting` is true from the press of Submit until `OnValidSubmit` returns, so the button
+stays locked through a save your handler awaits. A blocked submit unlocks it before focus moves to
+the first error, unless another submit still holds the lock (an earlier one still saving, say). The
+form renders each time the flag changes, so the binding needs nothing more.
+
+On Blazor Server the lock reaches the browser one round trip after the press. A second press inside
+that window still starts a second submit.
+
+If the first submit is still checking when the second one's check begins, the second overtakes it:
+the second's check takes the first one's place, so the first can no longer save. The first then
+stops holding the lock at once and makes no focus move. If the first submit has already reached
+`OnValidSubmit`, the second runs it again.
+
+A `_saving` bool of your own stops that second run while the first is still saving. Set it before
+the save's first `await`. Blazor runs the two calls one at a time, so the second finds it set and
+returns:
+
+```csharp
+private bool _saving;
+
+private async Task SaveAsync()
+{
+    if (_saving)
+    {
+        return;
+    }
+
+    _saving = true;
+    try
+    {
+        await Http.PostAsJsonAsync("/api/orders", _order);
+    }
+    finally
+    {
+        _saving = false;
+    }
+}
+```
+
+The `finally` clears `_saving` when the save throws too, so a failed save does not stop the next
+press saving. `context.IsSubmitting`, and with it the button's lock, stays up until the first save
+ends.
+
+A component of your own that locks should take the flag as a parameter
+(`<SaveButton Locked="@context.IsSubmitting" />`). The form raises no event as the flag changes,
+so a component that reads it from the cascade can miss a change.
+
+A disabled button drops keyboard focus to the page, and a passing submit leaves it there. Render the
+status line always and let only its text come and go, so assistive technology knows the region
+before it has anything to say.
+
+Lock the inputs only where the save must not race a later edit, with
+`<fieldset disabled="@context.IsSubmitting">` around them. That costs more:
+
+- On Blazor Server, changes made in the round trip before the lock lands still reach the form.
+  That includes text typed but not yet committed, which commits as the lock lands. Under the
+  default [`UpdateOn`](options.md#updateon-per-input-not-a-formidableoptions-property) mode, `OnChange`, a text box commits its text as it
+  loses focus. A submit still checking checks them again before it reports.
+- Focus leaves a field as it locks. Only a blocked submit's move to the first error brings it back,
+  and only once the lock has lifted. A submit that blocks while an earlier one is still saving aims
+  at the first error, and when that is a locked field the move misses, so focus stays on the
+  page.
+- A server reply carrying an error, applied through the form from `OnValidSubmit`, moves focus
+  while the inputs are still locked, so a move to a locked field misses. Lock only the Submit
+  button on a form whose save can be rejected.
+
+`readonly="@context.IsSubmitting"` is the one lock that keeps focus. Text typed before it lands
+stays uncommitted, so the form does not hear of it until the field's next blur. It locks text
+inputs and text areas only, never a checkbox, radio or select.
+
+In attach mode `context.IsSubmitting` reads `false`, because your own handler runs the submit. Keep
+a flag of your own there, set `FocusFirstErrorOnInvalidSubmit="false"` on `FormidableValidator`,
+and lower the flag and render before you call `FocusFirstErrorAsync()`.
+
+**Read more:**
+
+- [What happens if I press Submit while a check is running?](async-validation.md#what-happens-if-i-press-submit-while-a-check-is-running)
+- [what each lock costs a keyboard visitor](css-and-accessibility.md#what-does-locking-the-form-cost-a-keyboard-visitor)
+- [`FormidableForm`'s members](component-kit.md#formidableformtmodel)
+- [`IsSubmitting` on the engine](engine-reference.md#iformidableengine)
+
 ### I want to open a form on values the visitor did not type
 
 **Set:** nothing. Fill the model the form is already bound to, then call

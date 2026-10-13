@@ -30,6 +30,16 @@ public interface IFormidableEngine
     /// <summary>Whether the form is mid-check (a live check, a submit, a load or the whole-form re-check), whichever field started it; a per-field "checking" indicator reads <see cref="FieldState.IsValidating"/> instead.</summary>
     bool IsValidating { get; }
 
+    /// <summary>Whether a submit is checking: true from the call to <see cref="ValidateForSubmitAsync"/> until its last check ends, however it ends, with <see cref="StateChanged"/> raised as it falls (none at disposal); a live check or a load of values leaves it false.</summary>
+    /// <remarks>
+    /// It covers the check alone, so it falls before the page's save. A lock that should hold
+    /// through <see cref="FormidableForm{TModel}.OnValidSubmit"/> binds
+    /// <see cref="FormidableForm{TModel}.IsSubmitting"/>, which the cascaded context carries as
+    /// <see cref="FormidableFormContext.IsSubmitting"/>. An engine without the feature answers
+    /// <see langword="false"/>.
+    /// </remarks>
+    bool IsSubmitting => false;
+
     /// <summary>Whether a submit has answered through <see cref="ValidateForSubmitAsync"/> or a server reply has been applied through <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>; either starts the whole-form re-check that follows every later edit under <see cref="FormidableOptions.RefreshDebounce"/>.</summary>
     bool HasSubmitted { get; }
 

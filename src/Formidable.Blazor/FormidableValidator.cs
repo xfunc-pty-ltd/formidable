@@ -148,8 +148,13 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
                 postedFault: DispatchPostedFault);
             _logger = FormidableEngineFactory.ResolveLogger(Services);
             // The reader answers the engine this component holds when it is called: the one a
-            // replaced EditContext rebuilt here, or null once Dispose has cleared it.
-            _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _engine);
+            // replaced EditContext rebuilt here, or null once Dispose has cleared it. The submit
+            // flag reads false, never the engine's: this component's focus move runs inside
+            // ValidateForSubmitAsync, before the page's handler resumes and renders, so a lock
+            // bound to the engine's flag would still stand at the move and the move would miss.
+            // The page that runs the handler keeps the flag.
+            _context = new FormidableFormContext(
+                _engine, FocusFirstErrorAsync, () => _engine, static () => false);
             _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
             Reconciler.Reset();
             _engine.Registry.Changed += Reconciler.OnRegistryChanged;

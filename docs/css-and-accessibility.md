@@ -462,9 +462,12 @@ markup, which is the usual case, never reaches that.
 
 ## Where does focus go on a blocked submit?
 
-To the first error on the page. `FormidableForm` moves focus on every blocked submit, unless
-`FocusFirstErrorOnInvalidSubmit="false"` or the invalid-submit handler says otherwise, and whenever
-a page asks by calling `FocusFirstErrorAsync()` ([Component kit](component-kit.md#formidableformtmodel)).
+To the first error on the page. `FormidableForm` moves focus on a blocked submit, unless
+`FocusFirstErrorOnInvalidSubmit="false"` or your `OnInvalidSubmit` handler calls
+`SuppressFirstErrorFocus()`. It also moves focus whenever a page calls `FocusFirstErrorAsync()`
+([Component kit](component-kit.md#formidableformtmodel)). On `FormidableForm`, a blocked submit
+moves no focus once a newer submit's check has begun. The newer submit moves focus itself if it
+blocks.
 
 The move aims at the first error rather than the first visible issue, because issue order follows
 the page and the topmost field may be carrying only a warning. In the rare case where a submit blocks with no
@@ -605,6 +608,38 @@ focusable by mouse, and a plain `:focus` rule would paint the whole container wh
 landed on its padding. Activating a summary entry from the keyboard carries focus-visible through
 to the programmatic focus, so the keyboard path keeps the mark while a mouse click gets
 `scrollIntoView` alone.
+
+### What does locking the form cost a keyboard visitor?
+
+Focus, and sometimes text. A lock bound to `context.IsSubmitting` can land on the control the
+visitor is in, and each kind of lock treats that control differently
+([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)):
+
+| Lock | Focus on the control as the lock lands | Text typed but not yet committed | While the lock stands |
+|---|---|---|---|
+| `disabled` on the control | Moves to the page, and stays there after the unlock | Commits at once | Keys and clicks are ignored |
+| `<fieldset disabled>` around the controls | The same, for every control inside | The same | The same |
+| `readonly` | Stays | Stays uncommitted until the next blur | Typing is ignored; text inputs and text areas only |
+| `aria-disabled="true"` on the Submit button | Stays | (a button holds none) | A key press still activates it, so the page has to ignore the press itself |
+
+`FormidableForm` lowers its flag and renders before a blocked submit's focus move, so the move lands
+on the first error even when the lock had disabled that field.
+
+Two submits can run at once on `FormidableForm`, from a second press on Blazor Server before the
+lock lands, say. The flag stays up while either of them still holds it.
+
+If the first submit is still checking as the second one's check begins, the second overtakes it.
+The first stops holding the flag at that moment and makes no focus move. If the second blocks, it
+makes the move itself, once the flag has fallen.
+
+If the first submit has passed and is saving in `OnValidSubmit`, its hold keeps the flag up as a
+blocked second submit moves focus, so a lock bound to the flag still stands. Under `disabled` or
+`<fieldset disabled>`, the move to the first error misses and focus stays on the page. The form then
+calls your `FocusFallback`, or reports a diagnostic where none is set. Nothing moves focus when the
+save ends and the lock lifts. Under `readonly`, the move lands on the first error.
+
+A passing submit moves no focus, so a visitor the lock moved stays on the page. The recipe's status
+line (`role="status"`) is what tells a screen-reader user why.
 
 ## What stops a click on Submit vanishing when a message moves the button?
 

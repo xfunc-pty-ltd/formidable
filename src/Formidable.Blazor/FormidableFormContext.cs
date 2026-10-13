@@ -7,6 +7,7 @@ public sealed class FormidableFormContext
 {
     private readonly Func<Task<bool>>? _focusFirstError;
     private readonly Func<IFormidableEngine?>? _currentEngine;
+    private readonly Func<bool>? _isSubmitting;
 
     /// <summary>Wraps an engine for a test that cascades a context by hand; the two roots build their own.</summary>
     /// <param name="engine">The engine the context exposes.</param>
@@ -22,10 +23,11 @@ public sealed class FormidableFormContext
         Engine = engine;
     }
 
-    /// <summary>The roots' constructor: the engine, the root's own <c>FocusFirstErrorAsync</c>, and a reader of the engine the root holds at the time of the call.</summary>
+    /// <summary>The roots' constructor: the engine, the root's own <c>FocusFirstErrorAsync</c>, a reader of the engine the root holds at the time of the call, and the root's own submit flag where it keeps one.</summary>
     /// <param name="engine">The engine the context exposes.</param>
     /// <param name="focusFirstError">The root's <c>FocusFirstErrorAsync</c>, so its <c>PrepareFocus</c> and <c>FocusFallback</c> travel with the move.</param>
     /// <param name="currentEngine">Reads the engine the root holds when it is called, or <see langword="null"/> once the root holds none.</param>
+    /// <param name="isSubmitting">Reads the flag the context reports for the root; <see langword="null"/> reads the engine's.</param>
     // A delegate over the root's public method rather than over the move itself, deliberately:
     // the move has exactly one implementation, and it is reached through the root so that the
     // root's PrepareFocus and FocusFallback come with it. The engine reader is the root's too,
@@ -34,11 +36,13 @@ public sealed class FormidableFormContext
     internal FormidableFormContext(
         IFormidableEngine engine,
         Func<Task<bool>> focusFirstError,
-        Func<IFormidableEngine?> currentEngine)
+        Func<IFormidableEngine?> currentEngine,
+        Func<bool>? isSubmitting = null)
         : this(engine)
     {
         _focusFirstError = focusFirstError;
         _currentEngine = currentEngine;
+        _isSubmitting = isSubmitting;
     }
 
     /// <summary>The form's validation engine.</summary>
@@ -49,6 +53,19 @@ public sealed class FormidableFormContext
 
     /// <summary>The registry the components inside the form register with as they render.</summary>
     public FieldRegistry Registry => Engine.Registry;
+
+    /// <summary>Whether the form is submitting: <see cref="FormidableForm{TModel}.IsSubmitting"/> inside a <see cref="FormidableForm{TModel}"/>, always <see langword="false"/> inside a <see cref="FormidableValidator{TModel}"/>, and the engine's <see cref="IFormidableEngine.IsSubmitting"/> on a context a test builds.</summary>
+    /// <remarks>
+    /// The form renders as its flag changes, so a <c>disabled</c> bound to this inline in its
+    /// content, or a parameter passed from there, follows it. The form raises no event as it
+    /// changes, so a component reading it from the cascade can miss a change; pass it in as a
+    /// parameter. In attach mode the page's own handler keeps the flag, and lowers it and renders
+    /// before any first-error move, since a disabled control cannot take focus.
+    /// </remarks>
+    // The root's flag rather than the engine's wherever a root is behind the context, because the
+    // root decides when the page's handler and the focus move run. A context a test builds has no
+    // root and moves no focus, so it reads the engine's flag, which a test double can drive.
+    public bool IsSubmitting => _isSubmitting?.Invoke() ?? Engine.IsSubmitting;
 
     /// <summary>Moves focus to the first visible error through the root that cascaded this context, and reports whether an element took it.</summary>
     /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, when no root is behind this context, or when that root has been disposed.</returns>

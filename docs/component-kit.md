@@ -80,10 +80,10 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
 | `ModelChanged` | `EventCallback<TModel>` | unbound | Invoked when `ResetAsync` swaps the model; `@bind-Model` is what binds it. |
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole — see [Need to know](#need-to-know). |
 | `Options` | `FormidableOptions?` | `null` (app-wide default, then `new FormidableOptions()`) | The [engine options](options.md) this form is built with. A different instance arriving without a new `Model` throws, since the engine [reads `Options` once](options.md#formidableoptions-is-read-once). |
-| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The form's content, handed the cascaded `FormidableFormContext` as `context`: the engine's members, plus `FocusFirstErrorAsync()`, which lives there because `PrepareFocus` and `FocusFallback` are the form's. `ResetAsync` stays out of reach, since it rebuilds the engine the context belongs to. Nesting another typed fragment that also leaves its parameter name implicit makes the Razor compiler ask for a `Context="..."` on one of the two, since what collides is the declaration rather than any use of it. |
+| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The form's content, handed the cascaded `FormidableFormContext` as `context`. The context carries the engine's members, plus `FocusFirstErrorAsync()` (it lives there because `PrepareFocus` and `FocusFallback` are the form's) and `IsSubmitting`, the form's own flag (below). `ResetAsync` stays out of reach, since it rebuilds the engine the context belongs to. Nesting another typed fragment that also leaves its parameter name implicit makes the Razor compiler ask for a `Context="..."` on one of the two, since what collides is the declaration rather than any use of it. |
 | `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) it produced. A parameterless handler binds too. |
 | `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A parameterless handler binds too. |
-| `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. |
+| `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. A blocked submit moves no focus once a newer submit's check has begun; the newer one moves focus itself if it blocks. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited before each move this form makes, so the page can clear the way first. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<form>`, under the four positions below. |
@@ -109,7 +109,8 @@ The members a page calls:
 
 | Member | What it does |
 |---|---|
-| `SubmitAsync()` | Runs the submit pipeline and routes to `OnValidSubmit` or `OnInvalidSubmit`. A value edited while the submit is checking makes it check again first, so the answer `OnValidSubmit` receives is for the values the model held as the last check ended. A value edited after that, before or while the handler runs, is not checked first. Also the handler wired to the rendered `EditForm`, so a toolbar button outside the form element calls the same thing the button inside it does. |
+| `SubmitAsync()` | Runs the submit pipeline and routes to `OnValidSubmit` or `OnInvalidSubmit`. A value edited while the submit is checking makes it check again first, so the answer `OnValidSubmit` receives is for the values the model held as the last check ended. A value edited after that, before or while the handler runs, is not checked first. A lock on the inputs bound to `IsSubmitting` stops such an edit once the lock reaches the browser, which on Blazor Server is a round trip after the press. Also the handler wired to the rendered `EditForm`, so a toolbar button outside the form element calls the same thing the button inside it does. |
+| `IsSubmitting` | Whether a submit is running: true from the call to `SubmitAsync()` until `OnValidSubmit` returns. The rendered form's own submit makes that call. A blocked submit lowers it before `OnInvalidSubmit` and the focus move, unless another submit still holds it. A newer submit overtakes one that is still checking when its own check begins, and the overtaken one stops counting at that moment, since it can no longer save. Otherwise, while two submits run, it stays up until both have ended. The form renders as it changes, so `disabled="@context.IsSubmitting"` follows it ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). The form raises no event as it changes, so a component of your own that reads it from the cascaded context can miss a change; pass it in as a parameter. |
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move), and answers whether an element took focus. |
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
@@ -119,12 +120,13 @@ The members a page calls:
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
 Before that there is no engine and they throw. Every method in the table throws an
-`InvalidOperationException` saying so, while `Engine` throws nothing and reads `null`.
+`InvalidOperationException` saying so, while `Engine` reads `null`, `IsSubmitting` reads `false`,
+and neither throws.
 
-Once the form is disposed, `Engine` still returns the last engine it built, now disposed, and every
-method in the table does nothing and throws nothing. `SubmitAsync` returns a blocked outcome carrying
-nothing, with neither callback, as a submit still awaiting its answer at disposal does, and
-`FocusFirstErrorAsync` answers `false`.
+Once the form is disposed, `Engine` still returns the last engine it built, now disposed,
+`IsSubmitting` reads `false`, and every method in the table does nothing and throws nothing.
+`SubmitAsync` returns a blocked outcome carrying nothing, with neither callback, as a submit still
+awaiting its answer at disposal does, and `FocusFirstErrorAsync` answers `false`.
 
 A server reply that arrives after the form is disposed is dropped, so its handler needs no check
 that the form is still there; a marked apply returns `false`, and `MarkServerRequest()` returns the
@@ -263,7 +265,7 @@ await _form!.ResetAsync(new Order());     // a different instance — needs @bin
 |---|---|
 | Called with nothing | The engine and the `EditContext` are rebuilt over the model instance already bound; the model's values are not written. |
 | What the old engine held | Gone: touched and modified state, the message store, the advisory buckets, `HasSubmitted`, and any whole-form re-check still waiting. |
-| A `SubmitAsync` still awaiting its answer | Abandoned with that engine: neither callback fires, focus stays, nothing re-renders, and it returns a blocked outcome carrying nothing. |
+| A `SubmitAsync` still awaiting its answer | Abandoned with that engine: neither callback fires, focus stays, nothing re-renders, and it returns a blocked outcome carrying nothing. `IsSubmitting` reads `false` from the reset on, until a later submit starts. |
 | An awaited `Edit` or `TryEdit` on a field's context, still waiting on its edit | Reports once the edit completes (a `TryEdit` only on `true`): to the rebuilt form when the reset kept the model instance, and nowhere after a swap to a new one. |
 | Called with a model but no `ModelChanged` bound | Throws, naming `@bind-Model` as the fix. |
 
@@ -1079,7 +1081,7 @@ page's. [Migration guide](migration-guide.md) has when to reach for it.
 |---|---|---|---|
 | `Options` | `FormidableOptions?` | `null` (app-wide default, then `new FormidableOptions()`) | The [engine options](options.md) this component builds its engine with. A different instance arriving without a new `EditContext` throws, since the engine [reads `Options` once](options.md#formidableoptions-is-read-once). |
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole ([Need to know](#need-to-know)). |
-| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. |
+| `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. The context's `IsSubmitting` always reads `false` here, because the page's own handler runs the submit and keeps the flag ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether a submit blocked through `ValidateForSubmitAsync()` moves focus itself. It never gates `FocusFirstErrorAsync()`, which is the page deciding. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | [Recovers a move that missed](#focusfallback): make the element reachable, return `true`, and it retries once. |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | [Awaited before each move this component makes](#preparefocus), so the page can clear the way first. |

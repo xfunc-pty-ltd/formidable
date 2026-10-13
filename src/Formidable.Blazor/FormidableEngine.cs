@@ -557,6 +557,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     public bool IsValidating { get; private set; }
 
     /// <inheritdoc />
+    // Read from the pass descriptor, which adds no source of its own: a submit records itself as
+    // the current pass as it begins, on the caller's context, and stays current through every
+    // check an edit makes it run again. Its end clears the descriptor beside IsValidating, however
+    // it ends (an answer, a throw, a cancellation, the restarts spent), and both notifications
+    // follow that clear in the same dispatch. Disposal clears it too and raises no StateChanged;
+    // the OnValidationStateChanged it raises is for the messages it clears. A newer
+    // submit keeps the kind, and a load that takes over replaces it, its own begin raising the
+    // notifications. Read beside IsValidating so it can never claim a submit that no check is
+    // running for.
+    public bool IsSubmitting => IsValidating && _currentPass?.Kind == PassKind.Submit;
+
+    /// <inheritdoc />
     public bool HasSubmitted { get; private set; }
 
     /// <inheritdoc />
@@ -1849,12 +1861,22 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // leave the loaded values neither vouched for nor spoken about.
     private bool LoadInFlight => _currentPass?.Kind == PassKind.Load;
 
+    /// <summary>How many submit checks have begun on this engine; <see cref="FormidableForm{TModel}"/> reads it on each side of starting a submit to tell whether that submit's check began.</summary>
+    // Counted at the begin, on the caller's context, so a submit that throws before its check
+    // begins (a model whose Normalize throws, say) leaves it where it was.
+    internal int SubmitChecksBegun { get; private set; }
+
     /// <summary>Supersedes any pass in flight, moves the engine's version and records the new pass as current; a submit or load first records the check it cancels.</summary>
     /// <param name="kind">The new pass's kind.</param>
     /// <param name="external">The caller's token, linked into the pass's own; <see cref="CancellationToken.None"/> for a live or refresh pass.</param>
     /// <returns>The new pass's descriptor.</returns>
     private PassScope BeginPass(PassKind kind, CancellationToken external)
     {
+        if (kind == PassKind.Submit)
+        {
+            SubmitChecksBegun++;
+        }
+
         if (kind is PassKind.Submit or PassKind.Load)
         {
             RecordDisplaced(kind);

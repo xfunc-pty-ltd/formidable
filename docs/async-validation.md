@@ -170,12 +170,16 @@ running: every submit rule runs, whatever a live check answered a moment before.
 while the submit spinner turns and nothing you type cancels it.
 
 A change you commit while the submit is checking makes it check again before it reports. So the
-answer `OnValidSubmit` receives is for the values the form held as the last check ended: a field
-you clear blocks the submit and shows its message, and a field you fix lets it through. A change
-made after that, before or while your handler saves, is not checked first.
+answer `OnValidSubmit` receives is for the values the form held as the last check ended: a field you
+clear blocks the submit and shows its message, and a field you fix lets it through.
 
-The cost is time, one more check of the whole form, async rules included. The rules run no more
-often than they would for the same change made just after the submit. A memoized rule answers a
+A change made after that last check, before or while your handler saves, is not checked first. To
+stop such a change, [lock the
+inputs](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits) while the form submits.
+On Blazor Server the lock takes hold one round trip after the press.
+
+Checking again costs time: one more check of the whole form, async rules included. The rules run no
+more often than they would for the same change made just after the submit. A memoized rule answers a
 repeat ask about an unchanged value from its memo, as long as the memo still holds that answer
 ([below](#why-did-the-same-value-get-checked-twice-and-how-do-i-stop-it)).
 
@@ -189,10 +193,11 @@ your change is answered by the check that follows the load. With `TrackFormValid
 `IsFormValid` does not take the load's answer, which is for the values before your change. It waits
 for the check that answers your change.
 
-Only a second Submit, or a load of values, can overtake a submit; the overtaken submit blocks
-without writing an error of its own, leaving what was already showing. A blocked submit focuses
-the first error, or the first visible issue when no error is on screen, and a validator that
-throws propagates to the caller.
+Only a second Submit, or a load of values, can overtake a submit (start while it is still checking);
+the overtaken submit blocks without writing an error of its own, leaving what was already showing. A
+blocked submit focuses the first error, or the first visible issue when no error is on screen, and a
+validator that throws propagates to the caller. On `FormidableForm`, a blocked submit moves no focus
+once a second Submit has started. The second Submit moves focus itself if it blocks.
 
 Why: [how the engine works: which check yields to which](how-the-engine-works.md#supersession-and-deferral).
 

@@ -94,6 +94,23 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // after Dispose: a handler's throw that arrives once the form has left the page.
     private ILogger? _logger;
 
+    // How many SubmitAsync calls on the current engine are running: raised as each call starts,
+    // lowered as it ends, or before OnInvalidSubmit for a blocked one, or when a newer call
+    // overtakes its check. A count, because a second submit can start while the first still runs,
+    // and the first ending must not lower the flag under the second. Zeroed when the engine is
+    // rebuilt, which abandons every submit running on the old one; their ends then leave the count
+    // alone.
+    private int _submitsRunning;
+
+    // Lowers the share of the latest SubmitAsync call whose check has not yet returned to it, for a
+    // newer call that overtakes that check. Null once that check has returned, and after a rebuild.
+    private Action? _stopCheckingSubmit;
+
+    // Numbers each SubmitAsync call as its check is about to begin, so a blocked one can tell
+    // whether a later one has begun its check since. A call whose check never begins gives its
+    // number back.
+    private long _submitSequence;
+
     /// <summary>The model the form edits; a different instance rebuilds the <see cref="EditContext"/> and the engine. Required.</summary>
     [Parameter, EditorRequired]
     public TModel Model { get; set; } = default!;
@@ -144,6 +161,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     public EventCallback<FormidableInvalidSubmitContext> OnInvalidSubmit { get; set; }
 
     /// <summary>Whether a blocked submit moves focus to the first error on the page, unless its <see cref="FormidableInvalidSubmitContext.SuppressFirstErrorFocus"/> was called, and whether a server reply applied with an error in it does. Defaults to <see langword="true"/>.</summary>
+    /// <remarks>
+    /// A blocked submit makes no move once a newer submit on this form has begun its check, because
+    /// the newer one makes the move if it blocks.
+    /// </remarks>
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
@@ -184,6 +205,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
 
     /// <summary>The engine, also cascaded through the <see cref="FormidableFormContext"/>; <see langword="null"/> until the engine is built, and after <see cref="Dispose"/> the last engine the form built, now disposed.</summary>
     public IFormidableEngine? Engine => _engine;
+
+    /// <summary>Whether a submit is running: from the call to <see cref="SubmitAsync"/> until <see cref="OnValidSubmit"/> returns, until just before <see cref="OnInvalidSubmit"/> and the focus move for a blocked submit, or until a newer submit overtakes its check.</summary>
+    /// <remarks>
+    /// The form renders as it changes, so a <c>disabled</c> bound to <c>context.IsSubmitting</c>
+    /// inline in <see cref="ChildContent"/> follows it. A submit a newer one overtakes stops counting
+    /// then, because it can no longer save. Otherwise, while two submits run, it stays up until both
+    /// have ended, so it can still stand during a blocked one's focus move. It reads
+    /// <see langword="false"/> once a reset or a different <see cref="Model"/> has rebuilt the
+    /// engine, or the form is disposed.
+    /// </remarks>
+    public bool IsSubmitting => !_disposed && _submitsRunning > 0;
 
     /// <summary>Builds the engine over <see cref="Model"/> on the first parameter set, rebuilds it for a different instance, and builds nothing on a static page with no render mode.</summary>
     /// <exception cref="InvalidOperationException"><see cref="Model"/> is <see langword="null"/>, <see cref="Options"/> is a different instance than the engine was built with, the container resolves no <c>IModelIntrospector</c>, or, with <see cref="Validator"/> unset, it resolves no <see cref="IModelValidator{TModel}"/>.</exception>
@@ -546,8 +578,13 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _logger = FormidableEngineFactory.ResolveLogger(Services);
         // The reader answers null once the form is disposed: Dispose keeps the engine it tore down
         // so Engine can still return it, and no report belongs there.
-        _context = new FormidableFormContext(_engine, FocusFirstErrorAsync, () => _disposed ? null : _engine);
+        _context = new FormidableFormContext(
+            _engine, FocusFirstErrorAsync, () => _disposed ? null : _engine, () => IsSubmitting);
         _modelLevelFieldId = FormidableFieldId.For(_engine.ModelLevelField);
+
+        // Every submit running on the old engine is abandoned with it (see SubmitAsync).
+        _submitsRunning = 0;
+        _stopCheckingSubmit = null;
 
         // The new engine has its own registry, whose version starts over — and its own fields to
         // locate, since the swapped-in model's identifiers are not the old ones. Both trackers
@@ -658,39 +695,147 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return RootSubmit.Superseded;
         }
 
-        var outcome = await RootSubmit.RunAsync(RequireEngine(), () => _disposed ? null : _engine);
-        if (outcome is null)
-        {
-            // The engine that started this submit is gone, rebuilt or disposed with the form, and
-            // its answer must not surface as if it were current. Cancelling the abandoned check's
-            // token is what usually stops it short, but a validator that does not honour the
-            // token can still run to completion, so the empty blocked outcome is returned instead
-            // of whatever that check decided, and no callback runs for a page that may be gone.
-            return RootSubmit.Superseded;
-        }
+        var engine = RequireEngine();
 
-        if (outcome.CanProceed)
-        {
-            await OnValidSubmit.InvokeAsync(outcome);
-        }
-        else
-        {
-            // A fresh context per blocked submit, which is the whole of what keeps suppression
-            // from latching: the handler's answer lives on the object it was handed, and the next
-            // submit hands it a different one.
-            var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
-            await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+        // Raised and rendered before anything is awaited, so a lock bound to the flag is in the
+        // render that answers the click, ahead of any later event from the same page. The render
+        // sits inside the try below, so a call made off the renderer's context, which throws at
+        // that render, still lowers the count it raised.
+        _submitsRunning++;
+        var running = true;
+        long sequence = 0;
 
-            // A handler that removes the form from the page has disposed it by here, and the
-            // move then does nothing, as every call on a disposed form does.
-            if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed)
+        // Lowers this submit's share of the count once, whoever calls it first. A rebuild (a reset,
+        // which a page may make from its own handler, or a new Model) zeroed the count for every
+        // submit running on the old engine, so one of those lowers nothing.
+        void StopRunning()
+        {
+            if (!running)
             {
-                await FocusFirstErrorAsync();
+                return;
+            }
+
+            running = false;
+            if (ReferenceEquals(_engine, engine))
+            {
+                _submitsRunning--;
             }
         }
 
-        StateHasChanged();
-        return outcome;
+        Action stop = StopRunning;
+
+        try
+        {
+            StateHasChanged();
+
+            // A submit whose check is still running when this one's check begins is overtaken by
+            // it: an overtaken check answers blocked, with nothing shown, whatever its rule
+            // decides, so that submit can no longer save. Its share is lowered as this check
+            // begins rather than when its call returns, which a rule that ignores its token can
+            // delay well past this submit's end. The engine's flag is what says the check is still
+            // running: a submit whose check has answered but which has not yet resumed here may be
+            // about to save, and keeps its share.
+            //
+            // The number and the record are taken before the call, because an overtaken submit's
+            // end can run inside it, as this check begins, and must find this submit already
+            // newer. The engine's count of submit checks begun says whether this check began. One
+            // that did not (a model whose Normalize throws) overtook nothing, so both are put back
+            // and the running submit keeps its share and its focus move.
+            var overtaken = engine.IsSubmitting ? _stopCheckingSubmit : null;
+            var previousRecord = _stopCheckingSubmit;
+            var previousSequence = _submitSequence;
+            sequence = ++_submitSequence;
+            _stopCheckingSubmit = stop;
+            var checksBegun = engine.SubmitChecksBegun;
+
+            var run = RootSubmit.RunAsync(engine, () => _disposed ? null : _engine);
+            if (engine.SubmitChecksBegun != checksBegun)
+            {
+                overtaken?.Invoke();
+            }
+            else
+            {
+                if (_submitSequence == sequence)
+                {
+                    _submitSequence = previousSequence;
+                }
+
+                if (ReferenceEquals(_stopCheckingSubmit, stop))
+                {
+                    _stopCheckingSubmit = previousRecord;
+                }
+            }
+
+            var outcome = await run;
+            if (ReferenceEquals(_stopCheckingSubmit, stop))
+            {
+                _stopCheckingSubmit = null;
+            }
+
+            if (outcome is null)
+            {
+                // The engine that started this submit is gone, rebuilt or disposed with the form,
+                // and its answer must not surface as if it were current. Cancelling the abandoned
+                // check's token is what usually stops it short, but a validator that does not
+                // honour the token can still run to completion, so the empty blocked outcome is
+                // returned instead of whatever that check decided, and no callback runs for a page
+                // that may be gone. The finally below renders nothing for it either.
+                return RootSubmit.Superseded;
+            }
+
+            if (outcome.CanProceed)
+            {
+                await OnValidSubmit.InvokeAsync(outcome);
+                StopRunning();
+            }
+            else
+            {
+                // Lowered and rendered before the handler and the focus move: a control the flag
+                // disabled cannot take focus, so a move made while the lock still stood would miss.
+                StopRunning();
+                StateHasChanged();
+
+                // A fresh context per blocked submit, which is the whole of what keeps suppression
+                // from latching: the handler's answer lives on the object it was handed, and the
+                // next submit hands it a different one.
+                var invalidSubmit = new FormidableInvalidSubmitContext(outcome);
+                await OnInvalidSubmit.InvokeAsync(invalidSubmit);
+
+                // A handler that removes the form from the page has disposed it by here, and the
+                // move then does nothing, as every call on a disposed form does.
+                //
+                // No move once a newer submit on this form has begun its check, whether or not it is
+                // still running. This one was overtaken by it, or blocked before it began, and the
+                // newer one decides: it makes the move if it blocks, and nothing should move if it
+                // passed.
+                // A move made here could aim at a field the newer submit's lock still disables, or
+                // take the visitor back to a warning after a save. An earlier submit still in its
+                // OnValidSubmit is not newer, so a submit that blocks beside it still moves focus.
+                var laterSubmitStarted = sequence != _submitSequence;
+                if (FocusFirstErrorOnInvalidSubmit && !invalidSubmit.FirstErrorFocusSuppressed && !laterSubmitStarted)
+                {
+                    await FocusFirstErrorAsync();
+                }
+            }
+
+            StateHasChanged();
+            return outcome;
+        }
+        finally
+        {
+            // Reached with the flag still up by a throw from the first render, the check or
+            // OnValidSubmit, which lowers it and renders, and by a submit a rebuild or disposal
+            // abandoned, which renders nothing. Off the renderer's context this render throws as
+            // the first one did, after the count is down.
+            if (running)
+            {
+                StopRunning();
+                if (ReferenceEquals(_engine, engine) && !_disposed)
+                {
+                    StateHasChanged();
+                }
+            }
+        }
     }
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
