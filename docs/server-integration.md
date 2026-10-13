@@ -23,7 +23,7 @@ flowchart TD
     GUARD -- "no" --> KEEP["The last verdict stays on screen, and the page says so in its own words"]
     GUARD -- "yes" --> APPLY["ApplyServerIssues: each issue lands on its field at its severity, and the reply counts as a submit"]
     APPLY --> SHOW["Errors mark the field invalid; warnings and infos block nothing"]
-    SHOW --> CLEAR["It stands until the whole-form re-check after your next edit, the next submit, or a load of values replaces it"]
+    SHOW --> CLEAR["It stands until the whole-form re-check after your next edit or a change to which fields are on screen, the next submit, or a load of values replaces it"]
 ```
 
 The questions below take that picture one step at a time, from the reply on the form to the
@@ -136,7 +136,8 @@ apply nobody just asked for, and
 `FormidableValidator`'s two overloads are quiet too. Attach mode does focus a blocked submit's first
 error, through its own `ValidateForSubmitAsync()`, but the round trip is the page's own, so what
 happens after a rejection is the page's to choose. `FocusFirstErrorAsync()` on the validator is how
-it chooses the same move, once the applied verdict is on screen.
+it chooses the same move, once the applied verdict is on screen. The call can follow the apply
+directly, with nothing awaited in between.
 
 Why: [how the engine works: read order](how-the-engine-works.md#read-order).
 
