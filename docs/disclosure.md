@@ -87,6 +87,28 @@ has not left, so churn elsewhere on the page never takes its message away. Under
 is the whole of what rendering decides on this channel, apart from the hold `WaitForSubmit` puts on
 a field.
 
+`EngagedAndVisible` adds one exception: a message
+[the override](#disclosureoverride-the-escape-hatch) answers `true` for. A field showing one keeps
+it after the field leaves the page and through the whole-form re-check that follows, and still
+shows it when the field returns. The field keeps the message while the message's path still leads
+to it. A path such as `Lines[2].Sku` leads to whichever row is third in the list, so a row keeps
+its message while it is where the last check found it.
+
+A row deleted while on screen loses its message at once. A row removed with `RemoveItem` while off
+the page loses its message once the check that `RemoveItem` starts has finished.
+
+A row off the page can also lose its message after a list change moves it to another place in the
+list: a reorder, say, or an earlier row added or removed. A check that finishes after the move finds
+the row in its new place, and the message stays.
+
+A row off the page that a list change moved loses its message if a component that renders a field
+arrives or leaves anywhere on the form before the check after the move finishes. Deleting a row that
+is on the page is one such change, because that row's components leave.
+
+A check after the move can come too late in three cases. `LiveDebounce` delays it, a rule that
+awaits keeps it running, and a list change the form is not told about starts no check of its own.
+`KeepRegistered` on the row's inputs keeps the message in all three.
+
 Why: [how the engine works: the live view](how-the-engine-works.md#the-live-view).
 
 ## Why did it appear when I pressed Submit?
@@ -441,6 +463,11 @@ fields keeps them registered after disposal, so scrolling takes no message away,
 still disclose a row the visitor scrolled past.
 [Component kit](component-kit.md#virtualize-and-keepregistered) has the full pattern.
 
+Under `EngagedAndVisible`, a live message [the override](#disclosureoverride-the-escape-hatch)
+answers `true` for stays when its row scrolls away, with or without `KeepRegistered`. Without
+`KeepRegistered`, the message can go if a list change moves the row to another place in the list
+([the exception](#why-isnt-my-message-showing-yet) says when).
+
 ## DisclosureOverride: the escape hatch
 
 `FormidableOptions.DisclosureOverride` is the escape hatch for an issue whose field nothing renders.
@@ -461,11 +488,16 @@ since neither is in fact hidden.
 
 The live channel is a separate question again. Under its default policy this override filters
 nothing; the [`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies it there, issue
-by issue. A `true` still counts at [the gate](#why-is-the-submit-blocked-with-no-message-in-sight):
-a live error it answers `true` for takes the gate down, even on a field nothing renders.
-Server-applied issues are the third case, and
-[the section above](#why-did-a-server-error-show-on-a-hidden-field) has it: only a `false` hides
-an error, while an advisory follows the client's own rule.
+by issue. Under the opt-in, a `true` also keeps a field's live message after the field leaves
+the page, while the message's path still leads to that field
+([the exception](#why-isnt-my-message-showing-yet)).
+
+Under either policy, a `true` also counts at [the form's message about hidden
+fields](#why-is-the-submit-blocked-with-no-message-in-sight). A live error the override answers
+`true` for takes that message down, as an error on screen would, even on a field nothing renders.
+Server-applied issues are the third case, and [the section
+above](#why-did-a-server-error-show-on-a-hidden-field) has it: only a `false` hides an error, while
+an advisory follows the client's own rule.
 
 A submit reports its own error-severity issues on fields it leaves unwatched, and a server response
 reports the advisories its visibility answer hid. Those two sites are the whole of what gets

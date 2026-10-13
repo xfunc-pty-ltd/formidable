@@ -1116,8 +1116,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // severity scan, the visible-issue collection and the store projection through them) answers
     // alike.
     // Per issue because the override is per issue: an issue forced visible still shows from a
-    // field nothing renders. Read from the options at every evaluation, because options mutate in
-    // place.
+    // field nothing renders, one that never rendered or one that left the page and stayed
+    // engaged for it (KeptByOverride). Read from the options at every evaluation, because
+    // options mutate in place.
     private List<ValidationIssue>? LiveViewOf(FieldIdentifier field, List<ValidationIssue> filed)
     {
         // The submit hold, ahead of either policy: a component registered with WaitForSubmit
@@ -1453,7 +1454,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         return true;
     }
 
-    /// <summary>Tells the engine the rendered field set moved: departed fields leave the live channel, then holds that ended registrations left are settled, the stored verdicts and the presence map (<see cref="Requirements"/>) are dropped, and a refresh is armed.</summary>
+    /// <summary>Tells the engine the rendered field set moved: departed fields the override does not keep leave the live channel, then released holds are settled, the stored verdicts and the presence map (<see cref="Requirements"/>) are dropped, and a refresh is armed.</summary>
     /// <remarks>
     /// Departed means registered once and no longer rendered, so a field nothing ever
     /// registered keeps its verdict, and a row held by keep-registered keeps its messages.
@@ -1471,16 +1472,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // a collapsed section hid survives because the rule still fails.
     internal void OnRenderedFieldsChanged()
     {
-        // Departure alone: DisclosureOverride is not consulted, so an issue an override forces
-        // visible still goes once its field departs. The override decides whether an unrendered
-        // field's issue may be SHOWN on the submit channel; on the live channel, engagement
-        // decides which fields answer at all, the view's own filters (the opt-in policy and the
-        // submit hold) sit in LiveViewOf, and re-deciding disclosure here — per issue, over a set
-        // keyed by field — would suppress live issues the engine otherwise reports. A field that
-        // never rendered can be engaged too, since a consumer may notify a change for one, and it
-        // is precisely the field this must not drop: it never arrived, so it cannot have left,
-        // and every surface the default discloses it on — the store a native ValidationMessage
-        // reads above all — is one it reaches without a registration of its own.
+        // Departure ends engagement, with one exception (KeptByOverride): under
+        // EngagedAndVisible, a departed field stays engaged while its live view shows an issue
+        // whose path still resolves to it. Off the page that view holds only the issues
+        // DisclosureOverride answers true for, so a message the override asked to show outlasts
+        // the field leaving, through the re-check this arms and the field's return. The path test
+        // is what drops a row deleted on screen at once: its issue's path now names the row that
+        // moved into its place, or no row. It reads the paths the last live check filed, so a
+        // kept row whose list shifted ahead of it before a check re-filed its verdict (an open
+        // LiveDebounce window, a rule that awaits, a list edit with no notification) goes too,
+        // and a row deleted while off the page stays until a live check answers it empty or a
+        // later change finds its path naming another row, or none. The answer is taken again at
+        // every field-set change, so a kept field whose view stops showing such an issue leaves at
+        // the next one, and a held field, whose view shows nothing, is never kept. Nothing else
+        // re-decides disclosure here: on the live channel, engagement decides which fields answer
+        // at all, the view's own filters (the opt-in policy and the submit hold) sit in
+        // LiveViewOf, and pruning per issue, over a set keyed by field, would suppress live issues
+        // the engine otherwise reports. A field that never rendered can be engaged too, since a
+        // consumer may notify a change for one, and it is precisely the field this must not drop:
+        // it never arrived, so it cannot have left, and every surface the default discloses it on
+        // (the store a native ValidationMessage reads above all) is one it reaches without a
+        // registration of its own.
         //
         // Collected first: removing from the set while enumerating it throws, and in the common
         // case (a page whose churn is rows arriving, or a virtualized one whose rows stay
@@ -1495,7 +1507,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         List<FieldIdentifier>? departed = null;
         foreach (var field in _engagedFields)
         {
-            if (HasDeparted(field))
+            if (HasDeparted(field) && !KeptByOverride(field))
             {
                 (departed ??= []).Add(field);
             }
@@ -1518,9 +1530,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         // After the prune, never before it. A holding registration that ended left its hold
         // standing, so its field could not show what it held while this call was still to decide
-        // whether the field left. A field that left has just lost its engagement and its verdict,
-        // so ending its hold shows nothing; a field still on the page shows its message from here
-        // on, through OnHeldStateChanged's patch of its store entries.
+        // whether the field left. A field that left while held was never kept, so it has just
+        // lost its engagement and its verdict, and ending its hold shows nothing; a field still on
+        // the page shows its message from here on, through OnHeldStateChanged's patch of its store
+        // entries.
         Registry.SettleReleasedHolds();
 
         // Under the opt-in live-disclosure policy the registered field set is one of the live
@@ -1541,11 +1554,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // while it carries a live error takes a standing gate down, which no republish above
         // covers, so a store still carrying a gate the predicate has dropped is republished here
         // as well. The other way round needs no test of its own: on a move, a gate comes back
-        // through the live clause only when a registered field carrying a live error leaves, and
-        // the departure prune above drops that verdict and rebuilds. A move that changes no gate
-        // costs the default nothing here beyond the departure-only republish above, one more bool
-        // test, and a GateActive read while GateTurnsOnVisibility holds or the store carries a
-        // gate.
+        // through the live clause only when a registered field carrying a live error leaves.
+        // The departure prune above drops that verdict and rebuilds, or, for a field it keeps,
+        // the EngagedAndVisible clause below rebuilds, since a field is kept only under that
+        // policy and only while a verdict stands. A move that changes no gate costs the default
+        // nothing here beyond the departure-only republish above, one more bool test, and a
+        // GateActive read while GateTurnsOnVisibility holds or the store carries a gate.
         if (!dropped
             && ((GateTurnsOnVisibility && GateActive != _storeShowsGate)
                 || (_storeShowsGate && !GateActive)
@@ -1558,11 +1572,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // pending any pass's verdict, only the window's own fire. Left in, that fire would hand
         // it to RunLivePassAsync for a field the window opened for that no longer has anywhere
         // to answer — the pass's own engaged intersect would drop the verdict, but the pass
-        // would still have run for nothing. The same departure test as the engagement prune
-        // above, and necessarily so: the accumulator holds a live answer owed to an engaged
-        // field, so dropping an entry the engaged set keeps would leave that field waiting on a
-        // window whose fire no longer speaks for it.
-        _pendingDebouncedLiveFields.RemoveWhere(HasDeparted);
+        // would still have run for nothing. The same answer as the engagement prune above, and
+        // necessarily so: the accumulator holds a live answer owed to an engaged field, so a
+        // departed field the prune kept engaged (KeptByOverride) keeps its entry. Dropped, its
+        // window's fire would not re-check the value committed before it left, and the message
+        // the override keeps would describe a value the field no longer holds.
+        _pendingDebouncedLiveFields.RemoveWhere(field => HasDeparted(field) && !_engagedFields.Contains(field));
 
         // The verdict store empties whole, and the generation moves with it. The edit counter
         // cannot see this particular change — it counts field changes, and a change to which
@@ -1633,7 +1648,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // so nothing here tests for a departure. A flip at once always concerns a registered field:
     // a registration arriving, a kept one ending (its retention keeps the field registered), or
     // a change of hold, which needs a registration standing. A flip at the settle comes after the
-    // reconcile's departure prune has taken every departed field out of the engaged set, and the
+    // reconcile's departure prune has taken every departed field that was held out of the
+    // engaged set (a held field shows nothing, so the override never keeps one), and the
     // engaged test below then answers for it.
     private void OnHeldStateChanged(FieldIdentifier field)
     {
@@ -3205,6 +3221,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private bool HasDeparted(FieldIdentifier field) =>
         Registry.HasEverRegistered(field) && !IsRendered(field);
 
+    /// <summary>Whether a departed <paramref name="field"/> stays engaged: under <see cref="LiveIssueDisclosure.EngagedAndVisible"/>, its live view shows an issue whose path still resolves to it.</summary>
+    /// <param name="field">An engaged field that has left the page.</param>
+    /// <returns><see langword="true"/> while the field's live message shows and still describes it.</returns>
+    private bool KeptByOverride(FieldIdentifier field) =>
+        _options.LiveDisclosure == LiveIssueDisclosure.EngagedAndVisible
+        && _liveVerdicts.TryGetValue(field, out var filed)
+        && LiveViewOf(field, filed) is { } shown
+        && shown.Exists(issue => Resolve(issue).Equals(field));
+
     /// <summary>The report's advisories whose field may show, resolved and grouped by field.</summary>
     /// <param name="report">A submit's report, with or without errors; both branches of <see cref="ValidateForSubmitAsync"/> use it alike.</param>
     /// <returns>Each visible field's advisories, in report order.</returns>
@@ -4430,8 +4455,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <remarks>
     /// Standing down records the deferral, and the end of the pass in flight arms the timer once
     /// more while <see cref="FormidableOptions.LiveDebounce"/> is still set; with the option
-    /// cleared mid-window the window closes and the accumulator empties. A
-    /// snapshot left empty, every accumulated field having departed, starts no pass; the
+    /// cleared mid-window the window closes and the accumulator empties. A snapshot left empty,
+    /// every accumulated field having been pruned as it left, starts no pass; the
     /// <see cref="FormidableOptions.TrackFormValidity"/> probe still runs, because it answers for
     /// the model rather than for any field.
     /// </remarks>
@@ -4469,11 +4494,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // Options mutate in place, and this fire can land after a consumer has since cleared
             // LiveDebounce out from under an already-open window. There is no duration left to
             // arm with, so the window closes here instead of throwing, and the accumulator
-            // empties with it: a field only ever accumulated here, never yet handed to a pass,
-            // is the same speculative entry the departed-field prune in OnRenderedFieldsChanged
-            // discards on identical reasoning — its next edit, or a submit, revalidates it
-            // fresh, so nothing here needs to survive the debounce feature being turned off
-            // while it was mid-window.
+            // empties with it. A field accumulated here keeps the verdict it last had until a
+            // later check answers it: the next live check, which answers every engaged field (a
+            // departed field the override keeps included), or a submit. So nothing here needs to
+            // survive the debounce feature being turned off while it was mid-window.
             _pendingDebouncedLiveFields.Clear();
             return Task.CompletedTask;
         }
@@ -4494,7 +4518,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         if (fields.Count == 0)
         {
-            // Every field the window accumulated has since left the page —
+            // Every field the window accumulated has since left the page and the live channel:
             // OnRenderedFieldsChanged already pruned them out, leaving nothing here for an engine
             // pass to answer for. Starting one anyway would still validate the whole model under
             // the live profile for no field's sake, and would still flip IsValidating on for an

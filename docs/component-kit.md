@@ -1549,12 +1549,14 @@ display-name half of it).
 
 ## Virtualize and `KeepRegistered`
 
-A `Virtualize` container disposes rows that scroll out of view even though they remain part of the
-form, and without `KeepRegistered` a scrolled-away row's field unregisters and its message goes
-quiet ([Disclosure](disclosure.md#keepregistered-and-virtualization) has the rule and the four types
-that take the parameter). The sample pairs it with [`FocusFallback`](#focusfallback) on both the
-form and the summary, so a row far outside the render window is kept disclosed and stays reachable
-by a click:
+A `Virtualize` container disposes rows that scroll out of view, even though they remain part of the
+form. Without `KeepRegistered`, a scrolled-away row's field unregisters and its message goes quiet,
+unless `DisclosureOverride` keeps it
+([Disclosure](disclosure.md#keepregistered-and-virtualization) has the rule and the four types
+that take the parameter).
+
+The sample pairs it with [`FocusFallback`](#focusfallback) on both the form and the summary, so a
+row far outside the render window is kept disclosed and stays reachable by a click:
 
 ```razor
 <FormidableForm Model="_order" Options="_options" OnValidSubmit="HandleValid" FocusFallback="ScrollToRowAsync">

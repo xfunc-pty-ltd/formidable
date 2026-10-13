@@ -96,8 +96,11 @@ Why: [how the engine works: how a path resolves to an object](how-the-engine-wor
 
 ## What happens when a row leaves or the list reorders?
 
-Keep object rows keyed by their objects and the list is free to change. Remove a row and its messages go with it.
-Reorder the list and each row arrives in its new place still carrying whatever it was carrying.
+Keep object rows keyed by their objects and the list is free to change. Remove a row and its
+messages go with it. Reorder the list and each row arrives in its new place still carrying whatever
+it was carrying. The exception is a row off the page that only `DisclosureOverride` keeps:
+[Disclosure](disclosure.md#why-isnt-my-message-showing-yet) says when a removal or a reorder takes
+its message.
 
 A `FormidableSummary` re-lists too. Under `FormidableForm`, entries list in the document order of
 the fields that render them, and the form re-resolves that order when its own elements move, so the

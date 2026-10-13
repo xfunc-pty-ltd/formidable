@@ -356,9 +356,33 @@ Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.DisclosureOverride = issue => issue.Path.StartsWith("Shipping.") ? true : null);`.
 
 An answer is an input to the asking channel's own disclosure rule rather than a per-issue switch
-over what is on screen, and the live channel consults it only under
-`LiveIssueDisclosure.EngagedAndVisible` (see [`LiveDisclosure`](#livedisclosure)). See
-[Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for what each channel makes of one.
+over what is on screen. To show a live message, the live channel consults it only under
+`LiveIssueDisclosure.EngagedAndVisible` (see [`LiveDisclosure`](#livedisclosure)). Under either
+policy, a `true` for a live error on a field nothing renders also lets that error take down [the
+form's message about hidden
+fields](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight), as an error on screen
+would.
+
+Under `EngagedAndVisible`, a `true` keeps a field's live message after the field leaves the
+page, while the message's path still leads to that field. A path such as `Lines[2].Sku` leads to
+whichever row is third in the list, so a row's message stays while the row is where the last check
+found it. See [Disclosure](disclosure.md#disclosureoverride-the-escape-hatch) for what each channel
+makes of an answer.
+
+A row deleted while on screen loses its message at once. A row removed with `RemoveItem` while off
+the page loses its message once the check that `RemoveItem` starts has finished.
+
+A row off the page can also lose its message after a list change moves it to another place in the
+list: a reorder, say, or an earlier row added or removed. A check that finishes after the move finds
+the row in its new place, and the message stays.
+
+A row off the page that a list change moved loses its message if a component that renders a field
+arrives or leaves anywhere on the form before the check after the move finishes. Deleting a row that
+is on the page is one such change, because that row's components leave.
+
+A check after the move can come too late in three cases. `LiveDebounce` delays it, a rule that
+awaits keeps it running, and a list change the form is not told about starts no check of its own.
+`KeepRegistered` on the row's inputs keeps the message in all three.
 
 **Sample:** [`/virtualized`](../samples/Formidable.Sample/Pages/Virtualized.razor), whose summary
 lists every row's errors from the first submit, rows Virtualize has never rendered included.

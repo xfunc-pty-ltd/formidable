@@ -13,8 +13,10 @@ public enum LiveIssueDisclosure
     /// <summary>An engaged field's live messages show only where the field is rendered or <see cref="FormidableOptions.DisclosureOverride"/> answers yes, on every surface alike.</summary>
     /// <remarks>
     /// A field that leaves the page stops being engaged, so rendering it again shows nothing
-    /// until a committed change or a load engages it again. For a summary that lists less without
-    /// hiding anything, use <c>FormidableSummary</c>'s <c>Show</c> filter instead.
+    /// until a committed change or a load engages it again. The exception is a field showing an
+    /// issue <see cref="FormidableOptions.DisclosureOverride"/> answers yes for, which keeps that
+    /// message while the issue's path still names the field. For a summary that lists less
+    /// without hiding anything, use <c>FormidableSummary</c>'s <c>Show</c> filter instead.
     /// </remarks>
     EngagedAndVisible,
 }

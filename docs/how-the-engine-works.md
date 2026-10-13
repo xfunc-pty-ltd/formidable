@@ -22,8 +22,8 @@ set, the server-issue store, the gate arming, the fault issue and `HasSubmitted`
 written to a channel except through its sources.
 
 Every write lands on the renderer's dispatcher, and a pass writes a source only while it is still
-the current pass. `ApplyServerIssues` writes synchronously on the calling thread, and a field's
-departure from the page drops its live verdict the same way.
+the current pass. `ApplyServerIssues` writes synchronously on the calling thread, and a departure
+from the page that drops a field's live verdict drops it the same way.
 
 What an issue read returns is computed from those sources at read time. The live view is the
 live verdicts read through the engaged set, then through the submit hold and the disclosure policy
@@ -166,9 +166,10 @@ is `null` by default, which starts the live pass inside the notification itself.
 shared timer; a further change within the window re-arms it, and the fire snapshots and clears
 the accumulated fields and runs one live pass for all of them.
 
-A field-set move prunes departed fields from the window's accumulator as it prunes the engaged
-set, and a fire that finds the accumulator empty starts no live pass; the validity probe still
-runs on that fire.
+A field-set move prunes from the window's accumulator the departed fields it prunes from the
+engaged set. So a field [the live view](#the-live-view) keeps engaged keeps its place in the
+window, and the fire checks the value the field left with. A fire that finds the accumulator
+empty starts no live pass; the validity probe still runs on that fire.
 
 [`RefreshDebounce`](options.md#refreshdebounce) (300 ms) arms the refresh timer the same way from
 every arm site but one: a server apply that held answers back arms it at zero, either at once or
@@ -605,8 +606,8 @@ with nothing left to re-arm it. So the refresh waits, and the dispatch that give
 arms it after the give-back, behind the given-back pass.
 
 A submit or load that supersedes another takes over its record. Whichever ends as the current pass
-settles the record, so it is given back at most once. A field that has left the page is owed
-nothing.
+settles the record, so it is given back at most once. A field no longer engaged (it left the
+page) is owed nothing.
 
 Every other change already has its answer: the probe an edit or its window started, a check or
 refresh it armed, or a landing that adopted `IsFormValid`. A superseded live pass is not a case of
@@ -731,14 +732,33 @@ stays quiet until a submit or a server apply reveals it.
 The live view is the filed verdicts read through the engaged set, and under the default
 [`LiveDisclosure`](options.md#livedisclosure) engagement is the only predicate besides the submit
 hold below. A field that has left the page (something registered it once and nothing renders it
-now) leaves the engaged set and its verdict goes with it. A field nothing ever registered has not
-left, which is the native-interop bridge contract.
+now) leaves the engaged set and its verdict goes with it, unless `EngagedAndVisible` keeps it
+(below). A field nothing ever registered has not left, which is the native-interop bridge
+contract.
 
 A field a keep-registered registration retains has not left either, which is what lets a
 virtualized row scroll out of view and keep its messages.
 
 `EngagedAndVisible` additionally filters each live issue on the same override-aware visibility
 the reveal uses, uniformly across every surface, the store included.
+
+Under `EngagedAndVisible` the departure prune keeps a departed field engaged while its live view
+shows an issue whose path still resolves to it (`KeptByOverride`). Off the page, that view holds
+only the issues `DisclosureOverride` answers `true` for, and nothing while a hold keeps the field
+back, so the override's message outlasts the departure, the refresh it arms and the field's
+return.
+
+The answer is taken again at every field-set move, against the issue paths the last live pass
+filed. A row deleted while on screen departs at that move, and its path then names the row that
+moved into its place, or none, so its verdict goes at once.
+
+After a list change moves a kept row to another index, the path it was kept by names its old index
+until a live pass re-files its verdict. A field-set move reconciled before that re-file drops the
+row: an open `LiveDebounce` window or an awaiting rule delays the pass, and a list edit with no
+notification starts none.
+
+A row deleted while already off the page moves no field set: it stays until a live pass answers it
+empty or a later move finds its path naming another row, or none.
 
 The submit hold sits ahead of either policy, in `LiveViewOf`. While `HasSubmitted` is false and
 the registry holds the field, `LiveViewOf` answers `null`, so nothing from the field's live view
@@ -832,9 +852,10 @@ the plain kit input it wraps, so for the rest of that batch the field is still r
 the standing hold keeps it quiet.
 
 The reconcile's departure prune drops the verdict with the engagement and rebuilds the store, and
-only then settles the released holds. A field that left has nothing to show, and a field still on
-the page shows its message from the settle on. Each root runs the reconcile once the batch that
-removed the registration has rendered.
+only then settles the released holds. A held field's live view shows nothing, so the prune never
+keeps one engaged ([the live view](#the-live-view)). A field that left has nothing to show, and a
+field still on the page shows its message from the settle on. Each root runs the reconcile once
+the batch that removed the registration has rendered.
 
 `FormidableForm` runs the reconcile
 from its own `OnAfterRenderAsync` when the form rendered in that batch, and otherwise from a
@@ -882,7 +903,7 @@ field's live message, which the default live policy shows whatever the override 
 
 On a field that is neither registered nor the model-level field, such as a native input with no
 anchor, only an error the override answers `true` for counts: nothing tells the engine whether
-such a field is on screen.
+such a field is on screen. A departed field the live view holds engaged is such a field too.
 
 A revealed field stays revealed off the page, so the summary keeps listing it and its message is
 back the moment it returns, but it explains the block only while it renders. A server error is
@@ -908,8 +929,11 @@ longer holds. The rebuild rewrites the store and notifies, so Blazor's component
 store, and the kit's, which re-render on the notification, drop the gate at the move with no pass.
 
 The reverse needs no test of its own: at a move, the gate comes back through the live clause only
-when a registered field carrying a live error leaves, and the departure prune drops that verdict
-and rebuilds. While the gate is unarmed, a move pays it two flag tests; while it is armed, a
+when a registered field carrying a live error leaves. The departure prune drops that verdict and
+rebuilds, or, for a field it holds engaged, the `EngagedAndVisible` republish does: a field is
+held engaged only under that policy, and only while a verdict stands.
+
+While the gate is unarmed, a move pays it two flag tests; while it is armed, a
 `GateTurnsOnVisibility` read, and a predicate read while that holds or the store carries a gate.
 
 The arming half matters: an error that starts failing on a never-revealed field after a submit
