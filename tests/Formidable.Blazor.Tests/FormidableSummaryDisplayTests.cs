@@ -263,9 +263,12 @@ public class FormidableSummaryDisplayTests : BunitContext
         // per render rather than once per band: what the list pins is that no invocation ever
         // carried anything but the two entries the error band held back, in the order the band
         // lists them, and the DOM pins that the advisory bands, which held nothing back, produced
-        // no overflow item of their own.
-        Assert.NotEmpty(handed);
-        Assert.All(handed, held => Assert.Equal(
+        // no overflow item of their own. The list is copied on the renderer's dispatcher, because
+        // the form's own whole-form re-check runs on the real clock a moment after the submit, and
+        // its re-render appends to the list while this test would otherwise be reading it.
+        var seen = await form.InvokeAsync(() => handed.ToList());
+        Assert.NotEmpty(seen);
+        Assert.All(seen, held => Assert.Equal(
             ["Description is too short", "A customer is required"],
             held.Select(entry => entry.Issue.Message).ToList()));
         Assert.Single(form.FindAll(".formidable-summary__overflow"));
