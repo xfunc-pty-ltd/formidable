@@ -559,6 +559,10 @@ and lower the flag and render before you call `FocusFirstErrorAsync()`.
 - [`FormidableForm`'s members](component-kit.md#formidableformtmodel)
 - [`IsSubmitting` on the engine](engine-reference.md#iformidableengine)
 
+Sample:
+
+- [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) locks its Submit button
+
 ### I want to open a form on values the visitor did not type
 
 **Set:** nothing. Fill the model the form is already bound to, then call

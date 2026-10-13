@@ -397,6 +397,14 @@ Work top to bottom: the steps build on each other.
       runs, Username's green border stays the whole time, untouched by this edit. Display name
       goes neutral, with "checking…" showing, until its own check lands. Then it turns green
       the same way
+- [ ] **The Submit lock, keyboard only, in both colour schemes.** Walk step 11 without the
+      mouse. While "Submitting…" shows, Submit reads as unavailable and Tab skips it. With a
+      screen reader on, "Submitting…" is announced as the lock lands
+- [ ] Still without the mouse, type a name not yet used (`ann`), Tab to Submit at once and press
+      Enter. Focus leaves the button for the page as it locks, and is still on the page once
+      "Submitting…" clears. Then clear Username, Tab to Submit and press Enter: once the lock
+      lifts, focus lands in Username beside "Username is required"
+- [ ] Set the slider back to 600 ms before leaving the page
 
 ### Server round-trip
 
