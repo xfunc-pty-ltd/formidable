@@ -1219,12 +1219,30 @@ What the context carries:
 | `MarkTouched()` | Marks the field touched without notifying a change, for a blur or focus-out handler. |
 | `AddItem(list, item)` | Adds `item` to `list`, then does what `NotifyChanged()` does. `list` is any collection: a `List<T>`, a `HashSet<T>`, an entity's navigation collection. A set reports only when it takes the item, so adding one it already holds reports nothing. Pass the collection the field names. One that cannot grow, such as an array, throws its own exception and nothing is reported. |
 | `RemoveItem(list, item)` | When `list` holds a match for `item`, removes it, does what `NotifyChanged()` does, and returns `true`. In a list the first match goes: in a list of a value type (a struct or an enum) or of strings, an equal value matches; in a list of any other item type (a class, an interface, `object`), only the instance itself does. A collection that is not a list, such as a set, removes by its own rule. When a list holds no match, or a collection's own rule removes nothing, it returns `false` and reports nothing. A list that cannot shrink, such as an array, throws its own exception only when it holds the row. A read-only collection that is not a list, such as a dictionary's `Keys`, throws its own exception whether or not it holds the row. |
-| `Edit(edit)` | Runs `edit` (your own change to the value the field names), then does what `NotifyChanged()` does, whatever `edit` returns. An `edit` that throws reports nothing. The awaiting form, `Edit(async () => ...)`, returns a task and reports once the edit completes. An edit that faults or is cancelled reports nothing, and the task carries its exception. |
-| `TryEdit(edit)` | Runs `edit`, which returns a `bool` saying whether it changed anything, and does what `NotifyChanged()` does only on `true`. `TryEdit` returns that `bool`: a reorder that says whether it moved anything reports only when it did. An `edit` that throws reports nothing. The awaiting form, `TryEdit(async () => ...)`, returns a `Task<bool>` and reports once the edit completes, again only on `true`. An edit that faults or is cancelled reports nothing, and the task carries its exception. |
+| `Edit(edit)` | Runs `edit` (your own change to the value the field names), then does what `NotifyChanged()` does. Unlike `TryEdit`, it reports whether or not the edit changed anything. An `edit` that throws reports nothing. Given an `edit` that returns a `Task` or a `ValueTask`, an `async` lambda included, `Edit` returns a `Task` and reports once the edit completes. An edit that faults or is cancelled reports nothing, and that task carries its exception. |
+| `TryEdit(edit)` | Runs `edit`, which returns a `bool` saying whether it changed anything, and does what `NotifyChanged()` does only on `true`. `TryEdit` returns that `bool`: a reorder that says whether it moved anything reports only when it did. An `edit` that throws reports nothing. Given an `edit` that returns a `Task<bool>` or a `ValueTask<bool>`, an `async` lambda included, `TryEdit` returns a `Task<bool>` and reports once the edit completes, again only on `true`. An edit that faults or is cancelled reports nothing, and the task carries its exception. |
 
-An edit that returns a `ValueTask` is written `Edit(async () => await ...)`, and one that returns a
-`ValueTask<bool>` is written `TryEdit(async () => await ...)`, so the report waits for the edit.
-Handed straight to `Edit`, either one reports before it completes.
+An edit that returns a `ValueTask` goes straight to `Edit`: `Edit(() => repo.MoveAsync())` reports
+once the move completes. An edit that returns a `ValueTask<bool>` goes straight to `TryEdit`, which
+reports only on `true`. Both return a `Task`, which Blazor awaits, so a handler can return the call:
+
+```razor
+<button type="button" @onclick="() => field.Edit(() => repo.MoveAsync())">Move</button>
+```
+
+The click waits for the edit, and an exception from the edit reaches Blazor as any handler's
+exception does.
+
+`Edit` waits for a `ValueTask` only when it carries no result. An expression lambda returning a
+`ValueTask<int>`, say, reports before that edit completes, so write it
+`Edit(async () => await ...)`. A `ValueTask<bool>` handed to `Edit` reports early in the same way,
+which is why it goes to `TryEdit`.
+
+An `async` lambda that does not declare its return type needs C# 13 or later, which a `net10.0`
+project uses unless it sets `LangVersion` lower. At `LangVersion` 12 or below, such a lambda handed
+to `Edit` or `TryEdit` does not build: the compiler reports `CS0121`, a call ambiguous between the
+`Task` and `ValueTask` forms. Declaring the return type, as in `Edit(async Task () => ...)`, builds
+at `LangVersion` 10 to 12 as well.
 
 Any other list edit, such as a reorder, goes through `Edit` or `TryEdit`, or calls `NotifyChanged()`
 after it.

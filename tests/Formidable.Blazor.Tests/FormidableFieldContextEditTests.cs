@@ -250,9 +250,161 @@ public class FormidableFieldContextEditTests : BunitContext
         Assert.False(form.Instance.Engine!.EditContext.IsModified(ItemsField(model)));
     }
 
+    // Without Edit(Func<ValueTask>), this shape binds Edit(Action) and reports before the edit
+    // completes. The helper takes the call's task, so a binding to Edit(Action), which returns
+    // nothing, does not compile. Mutation that must break it: report before awaiting the edit in
+    // Edit(Func<ValueTask>), and the field is reported while the gate is still closed.
+    [Fact]
+    public Task An_expression_lambda_returning_ValueTask_waits_for_the_edit() =>
+        AssertTheReportWaitsForTheEditAsync((field, rows) => field.Edit(() => rows.ClearAsync()));
+
+    // Neither older overload takes this method group: Edit(Action) needs a void method and
+    // Edit(Func<Task>) a Task.
+    [Fact]
+    public Task A_method_group_returning_ValueTask_binds_the_ValueTask_overload() =>
+        AssertTheReportWaitsForTheEditAsync((field, rows) => field.Edit(rows.ClearAsync));
+
+    // A block lambda that returns a value cannot become an Action.
+    [Fact]
+    public Task A_block_lambda_returning_ValueTask_binds_it() =>
+        AssertTheReportWaitsForTheEditAsync((field, rows) => field.Edit(() => { return rows.ClearAsync(); }));
+
+    [Fact]
+    public Task An_explicit_ValueTask_return_type_binds_it() =>
+        AssertTheReportWaitsForTheEditAsync((field, rows) => field.Edit(ValueTask () => rows.ClearAsync()));
+
+    // One form, the false edit first, because a field stays modified once it has been. Mutations
+    // that must break it: report whatever the edit returned (the field is reported for the absent
+    // row), and never report (the present row's edit is not heard).
+    [Fact]
+    public async Task TryEdit_with_a_ValueTask_of_bool_cancels_on_false()
+    {
+        var present = new RowListItem();
+        var model = new RowListModel { Items = [present] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var engine = form.Instance.Engine!;
+        var heard = HearFieldChanges(engine.EditContext);
+        var absentRows = new GatedRows(model.Items);
+        var presentRows = new GatedRows(model.Items);
+        var absent = Task.FromResult(true);
+        var removed = Task.FromResult(false);
+
+        await form.InvokeAsync(() => { absent = context.Value!.TryEdit(() => absentRows.RemoveAsync(new RowListItem())); });
+        Assert.False(absent.IsCompleted);
+        absentRows.Gate.SetResult();
+
+        Assert.False(await absent);
+        Assert.Same(present, Assert.Single(model.Items));
+        Assert.Empty(heard);
+        Assert.False(engine.EditContext.IsModified(ItemsField(model)));
+
+        await form.InvokeAsync(() => { removed = context.Value!.TryEdit(() => presentRows.RemoveAsync(present)); });
+        Assert.False(removed.IsCompleted);
+        Assert.Empty(heard);
+        presentRows.Gate.SetResult();
+
+        Assert.True(await removed);
+        Assert.Empty(model.Items);
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.True(engine.EditContext.IsModified(ItemsField(model)));
+    }
+
+    // An async lambda converts to Func<Task> and Func<ValueTask> alike, and the priority on the
+    // Task overloads settles the call, so the compile is this test's pin. Mutation that must break
+    // it: remove the priority, and both calls are ambiguous (CS0121). Nothing at run time tells the
+    // two overloads apart: each returns a task, awaits the edit and then reports, so the checks
+    // below hold whichever one an async lambda binds.
+    [Fact]
+    public async Task An_async_lambda_still_binds_the_Task_overload()
+    {
+        var present = new RowListItem();
+        var model = new RowListModel { Items = [present] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var engine = form.Instance.Engine!;
+        var removeRows = new GatedRows(model.Items);
+        var clearRows = new GatedRows(model.Items);
+        var tryEdit = Task.FromResult(false);
+        var edit = Task.CompletedTask;
+
+        await form.InvokeAsync(() =>
+        {
+            tryEdit = context.Value!.TryEdit(async () => await removeRows.RemoveAsync(present));
+            edit = context.Value!.Edit(async () => await clearRows.ClearAsync());
+        });
+        Assert.False(tryEdit.IsCompleted);
+        Assert.False(edit.IsCompleted);
+        Assert.False(engine.EditContext.IsModified(ItemsField(model)));
+
+        removeRows.Gate.SetResult();
+        Assert.True(await tryEdit);
+        clearRows.Gate.SetResult();
+        await edit;
+        Assert.Empty(model.Items);
+        Assert.True(engine.EditContext.IsModified(ItemsField(model)));
+    }
+
+    // Both ValueTask methods, each with an edit that throws before returning a ValueTask, one that
+    // faults after an await, and one that is cancelled: the fault reaches the caller through the
+    // returned task. Mutation that must break it: report in a finally, and the field is marked
+    // modified on the way out.
+    [Fact]
+    public async Task A_ValueTask_edit_that_faults_or_is_cancelled_reports_nothing()
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var cancelledToken = new CancellationToken(canceled: true);
+        Func<ValueTask> throwsFirst = () => throw new InvalidOperationException("value task, before a task");
+        Func<ValueTask> faults = async () =>
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("value task, after an await");
+        };
+        Func<ValueTask> cancelled = () => ValueTask.FromCanceled(cancelledToken);
+        Func<ValueTask<bool>> throwsFirstBool = () => throw new InvalidOperationException("value bool, before a task");
+        Func<ValueTask<bool>> faultsBool = async () =>
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("value bool, after an await");
+        };
+        Func<ValueTask<bool>> cancelledBool = () => ValueTask.FromCanceled<bool>(cancelledToken);
+
+        foreach (var (edit, message) in new[]
+        {
+            (throwsFirst, "value task, before a task"),
+            (faults, "value task, after an await"),
+        })
+        {
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => form.InvokeAsync(() => context.Value!.Edit(edit)));
+            Assert.Equal(message, thrown.Message);
+        }
+
+        foreach (var (edit, message) in new[]
+        {
+            (throwsFirstBool, "value bool, before a task"),
+            (faultsBool, "value bool, after an await"),
+        })
+        {
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => form.InvokeAsync(() => context.Value!.TryEdit(edit)));
+            Assert.Equal(message, thrown.Message);
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => form.InvokeAsync(() => context.Value!.Edit(cancelled)));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => form.InvokeAsync(() => context.Value!.TryEdit(cancelledBool)));
+
+        Assert.Single(model.Items);
+        Assert.False(form.Instance.Engine!.EditContext.IsModified(ItemsField(model)));
+    }
+
     // Each call throws before it returns, the awaiting Edit and TryEdit included: a faulted task in
     // their place would reach Assert.Throws as no exception at all. Mutation that must break it:
-    // drop the null test from any one of the four methods (four runs), and that call throws
+    // drop the null test from any one of the six methods (six runs), and that call throws
     // NullReferenceException or returns a faulted task instead.
     [Fact]
     public void Edit_rejects_a_null_delegate()
@@ -266,19 +418,24 @@ public class FormidableFieldContextEditTests : BunitContext
         var func = Assert.Throws<ArgumentNullException>(() => { _ = field.TryEdit((Func<bool>)null!); });
         var task = Assert.Throws<ArgumentNullException>(() => { _ = field.Edit((Func<Task>)null!); });
         var taskBool = Assert.Throws<ArgumentNullException>(() => { _ = field.TryEdit((Func<Task<bool>>)null!); });
+        var valueTask = Assert.Throws<ArgumentNullException>(() => { _ = field.Edit((Func<ValueTask>)null!); });
+        var valueTaskBool = Assert.Throws<ArgumentNullException>(() => { _ = field.TryEdit((Func<ValueTask<bool>>)null!); });
 
-        Assert.All([action, func, task, taskBool], thrown => Assert.Equal("edit", thrown.ParamName));
+        Assert.All([action, func, task, taskBool, valueTask, valueTaskBool], thrown => Assert.Equal("edit", thrown.ParamName));
         Assert.False(form.Instance.Engine!.EditContext.IsModified(ItemsField(model)));
     }
 
     // The fixture is Razor-compiled, so the overload each markup lambda binds is the one the
     // Razor compiler's generated C# picks. Each button gets a fresh form, because a field stays
     // modified once it has been. Edit reports whatever its edit returns; TryEdit reports only on
-    // true. A ValueTask edit written async () => await binds an awaiting overload, so its report
-    // waits for the ValueTask. Mutations that must break it: give Edit a Func<bool> overload
-    // beside Edit(Action) (the absent row's Edit lambda binds it and reports nothing), and
-    // delete Edit(Func<Task>) (each async Edit lambda binds Edit(Action) as async void, which
-    // reports at the lambda's first await, while the gate is still closed).
+    // true. A ValueTask edit written async () => await binds a Task overload; one handed straight
+    // to Edit or TryEdit binds a ValueTask overload, whose task the handler returns. Either way
+    // the report and the click wait for the ValueTask. Mutations that must break it: give Edit a
+    // Func<bool> overload beside Edit(Action) (the absent row's Edit lambda binds it and reports
+    // nothing), remove the priority from the Task overloads (the async lambda rows stop
+    // compiling, CS0121), report before awaiting in the ValueTask overloads (the straight rows
+    // report while the gate is still closed), and return a ValueTask from the ValueTask overloads
+    // (Blazor drops it, and the straight rows' clicks complete while the gate is still closed).
     [Fact]
     public async Task Lambdas_in_markup_bind_the_reporting_overloads()
     {
@@ -312,6 +469,30 @@ public class FormidableFieldContextEditTests : BunitContext
         var valueTaskPresent = await ClickBehindTheGateAsync("#try-remove-present-after-value-task");
         Assert.Empty(valueTaskPresent.Model.Items);
         Assert.True(valueTaskPresent.IsModified());
+
+        var straight = await ClickBehindTheGateAsync("#add-value-task");
+        Assert.Equal(2, straight.Model.Items.Count);
+        Assert.True(straight.IsModified());
+
+        var straightPresent = await ClickBehindTheGateAsync("#try-remove-present-value-task");
+        Assert.Empty(straightPresent.Model.Items);
+        Assert.True(straightPresent.IsModified());
+    }
+
+    // A handler that returns Edit's task hands Blazor something to await, so the click waits for
+    // the edit, and the edit's exception reaches the renderer, where Blazor Server ends the circuit
+    // and WebAssembly shows its error UI. Mutation that must break it: return a ValueTask from
+    // Edit(Func<ValueTask>), and Blazor drops it: the click completes while the gate is still
+    // closed, and the renderer never hears of the exception.
+    [Fact]
+    public async Task A_ValueTask_edit_in_markup_hands_its_exception_to_the_renderer()
+    {
+        var failed = await ClickBehindTheGateAsync("#fail-value-task");
+
+        var thrown = await Renderer.UnhandledException.WaitAsync(TimeSpan.Zero);
+        Assert.Equal(Fixtures.EditBindingHost.FailMessage, Assert.IsType<InvalidOperationException>(thrown).Message);
+        Assert.Same(failed.Present, Assert.Single(failed.Model.Items));
+        Assert.False(failed.IsModified());
     }
 
     // A reset over the same model rebuilds the form's engine while the edit awaits. The field
@@ -341,6 +522,45 @@ public class FormidableFieldContextEditTests : BunitContext
         Assert.Equal([ItemsField(model)], heard);
         Assert.True(current.EditContext.IsModified(ItemsField(model)));
         form.WaitForAssertion(() => Assert.Equal(AtLeastOne, form.Find("li").TextContent));
+    }
+
+    // The ValueTask methods follow the root as the Task ones do. Mutation that must break it:
+    // report from the ValueTask methods as NotifyChanged does, to the engine the context was built
+    // with, and the new engine hears nothing.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_ValueTask_edit_reports_to_the_engine_a_reset_built_over_the_same_model(bool tryEdit)
+    {
+        var present = new RowListItem();
+        var model = new RowListModel { Items = [present] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var built = form.Instance.Engine!;
+        var rows = new GatedRows(model.Items);
+        var edit = Task.CompletedTask;
+
+        await form.InvokeAsync(() =>
+        {
+            edit = tryEdit
+                ? context.Value!.TryEdit(() => rows.RemoveAsync(present))
+                : context.Value!.Edit(() => rows.ClearAsync());
+        });
+        Assert.False(edit.IsCompleted);
+
+        await form.InvokeAsync(() => form.Instance.ResetAsync());
+        var current = form.Instance.Engine!;
+        Assert.NotSame(built, current);
+        var heard = HearFieldChanges(current.EditContext);
+        var heardBuilt = HearFieldChanges(built.EditContext);
+
+        rows.Gate.SetResult();
+        await edit;
+
+        Assert.Empty(model.Items);
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.Empty(heardBuilt);
+        Assert.True(current.EditContext.IsModified(ItemsField(model)));
     }
 
     // A reset to another model under @bind-Model: the new engine never held a field on the old
@@ -555,6 +775,50 @@ public class FormidableFieldContextEditTests : BunitContext
         });
         Assert.False(edit.IsCompleted);
         return edit;
+    }
+
+    /// <summary>Starts <paramref name="start"/>'s edit of a one-row list from the renderer's context, shows that nothing is edited or reported while the edit's gate is closed, then opens it and shows the change reported once, after the edit.</summary>
+    private async Task AssertTheReportWaitsForTheEditAsync(Func<FormidableFieldContext, GatedRows, Task> start)
+    {
+        var model = new RowListModel { Items = [new RowListItem()] };
+        var context = new StrongBox<FormidableFieldContext>();
+        var form = RenderList(model, context);
+        var engine = form.Instance.Engine!;
+        var heard = HearFieldChanges(engine.EditContext);
+        var rows = new GatedRows(model.Items);
+        var edit = Task.CompletedTask;
+
+        await form.InvokeAsync(() => { edit = start(context.Value!, rows); });
+
+        Assert.False(edit.IsCompleted);
+        Assert.Single(model.Items);
+        Assert.Empty(heard);
+        Assert.False(engine.EditContext.IsModified(ItemsField(model)));
+
+        rows.Gate.SetResult();
+        await edit;
+
+        Assert.Empty(model.Items);
+        Assert.Equal([ItemsField(model)], heard);
+        Assert.True(engine.EditContext.IsModified(ItemsField(model)));
+    }
+
+    /// <summary>Repository-shaped edits of a list that each return a <see cref="ValueTask"/> and touch the list only once <see cref="Gate"/> opens.</summary>
+    private sealed class GatedRows(IList<RowListItem> items)
+    {
+        public TaskCompletionSource Gate { get; } = new();
+
+        public async ValueTask ClearAsync()
+        {
+            await Gate.Task;
+            items.Clear();
+        }
+
+        public async ValueTask<bool> RemoveAsync(RowListItem row)
+        {
+            await Gate.Task;
+            return items.Remove(row);
+        }
     }
 
     /// <summary>Records every field <paramref name="editContext"/> hears change, from this call on.</summary>

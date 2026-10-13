@@ -14,10 +14,15 @@
         <button id="add-after-value-task" type="button" @onclick="() => field.Edit(async () => await AddAfterGateAsync())">Add after a ValueTask</button>
         <button id="try-remove-absent-after-value-task" type="button" @onclick="() => field.TryEdit(async () => await RemoveAfterGateAsync(Absent))">Try to remove absent after a ValueTask</button>
         <button id="try-remove-present-after-value-task" type="button" @onclick="() => field.TryEdit(async () => await RemoveAfterGateAsync(Present))">Try to remove present after a ValueTask</button>
+        <button id="add-value-task" type="button" @onclick="() => field.Edit(() => AddAfterGateAsync())">Add through a ValueTask</button>
+        <button id="try-remove-present-value-task" type="button" @onclick="() => field.TryEdit(() => RemoveAfterGateAsync(Present))">Try to remove present through a ValueTask</button>
+        <button id="fail-value-task" type="button" @onclick="() => field.Edit(() => FailAfterGateAsync())">Fail through a ValueTask</button>
     </FormidableField>
 </FormidableForm>
 
 @code {
+    public const string FailMessage = "The edit failed.";
+
     [Parameter]
     public RowListModel Model { get; set; } = default!;
 
@@ -31,8 +36,9 @@
 
     private RowListItem Absent { get; } = new();
 
-    // A repository-shaped edit that hands back a ValueTask, the shape the awaiting overloads take
-    // only through an async lambda that awaits it.
+    // Repository-shaped edits that hand back a ValueTask. Each reaches an awaiting overload through
+    // an async lambda that awaits it, or straight through Edit or TryEdit in a handler that returns
+    // the call.
     private async ValueTask AddAfterGateAsync()
     {
         await Gate.Task;
@@ -43,5 +49,11 @@
     {
         await Gate.Task;
         return Rows.Remove(row);
+    }
+
+    private async ValueTask FailAfterGateAsync()
+    {
+        await Gate.Task;
+        throw new InvalidOperationException(FailMessage);
     }
 }

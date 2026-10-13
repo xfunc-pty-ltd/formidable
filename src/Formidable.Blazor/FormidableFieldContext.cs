@@ -163,10 +163,10 @@ public sealed class FormidableFieldContext
     /// <remarks>
     /// It reports whatever a lambda returns; <see cref="TryEdit(Func{bool})"/> reports only on
     /// <see langword="true"/>. An edit that throws reports nothing, and its exception reaches the
-    /// caller. A lambda that returns a <see cref="ValueTask"/> or a <c>ValueTask&lt;bool&gt;</c>
-    /// binds this overload and reports before the edit completes: write the first as
-    /// <c>Edit(async () =&gt; await ...)</c> and the second as
-    /// <c>TryEdit(async () =&gt; await ...)</c>, and the report waits for the edit.
+    /// caller. An expression lambda returning a <c>ValueTask&lt;TResult&gt;</c> binds this overload
+    /// and reports before the edit completes: hand a <c>ValueTask&lt;bool&gt;</c> to
+    /// <see cref="TryEdit(Func{ValueTask{bool}})"/>, and write any other as
+    /// <c>Edit(async () =&gt; await ...)</c>.
     /// </remarks>
     public void Edit(Action edit)
     {
@@ -193,7 +193,7 @@ public sealed class FormidableFieldContext
     }
 
     /// <summary>Awaits <paramref name="edit"/>, then reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the value the edit left once it completed.</summary>
-    /// <param name="edit">The page's own edit to the value this field names, which awaits before or while it changes the value.</param>
+    /// <param name="edit">The page's own edit to the value this field names, which awaits before or while it changes the value. An <see langword="async"/> lambda that does not declare its return type binds this overload.</param>
     /// <returns>A task that completes once the edit has completed and the change is reported.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
     /// <remarks>
@@ -204,6 +204,7 @@ public sealed class FormidableFieldContext
     /// is disposed, which is what replacing an <see cref="EditForm"/>'s <see cref="EditContext"/>
     /// does to the <see cref="FormidableValidator{TModel}"/> inside it.
     /// </remarks>
+    [System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
     public Task Edit(Func<Task> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
@@ -211,7 +212,7 @@ public sealed class FormidableFieldContext
     }
 
     /// <summary>Awaits <paramref name="edit"/> and, only when it returns <see langword="true"/>, reports the change as <see cref="NotifyChanged"/> does.</summary>
-    /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything; a <c>ValueTask&lt;bool&gt;</c> edit is written <c>async () =&gt; await ...</c>.</param>
+    /// <param name="edit">The page's own edit to the value this field names, which awaits and returns whether it changed anything. An <see langword="async"/> lambda that does not declare its return type binds this overload.</param>
     /// <returns>A task carrying what <paramref name="edit"/> returned, which completes once any report is made.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
     /// <remarks>
@@ -222,13 +223,52 @@ public sealed class FormidableFieldContext
     /// is disposed, which is what replacing an <see cref="EditForm"/>'s <see cref="EditContext"/>
     /// does to the <see cref="FormidableValidator{TModel}"/> inside it.
     /// </remarks>
+    [System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
     public Task<bool> TryEdit(Func<Task<bool>> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
         return EditThenReportAsync(edit);
     }
 
-    // Both awaits keep the caller's context, because the report reaches the EditContext, which
+    /// <summary>Awaits the <see cref="ValueTask"/> <paramref name="edit"/> returns, then reports the change as <see cref="NotifyChanged"/> does, so any check it starts reads the value the edit left once it completed.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, such as a repository call that returns a <see cref="ValueTask"/>.</param>
+    /// <returns>A task that completes once the edit has completed and the change is reported.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
+    /// <remarks>
+    /// A lambda or method group returning a <see cref="ValueTask"/> binds this overload; an
+    /// <see langword="async"/> lambda that does not declare its return type binds
+    /// <see cref="Edit(Func{Task})"/>. It returns a <see cref="Task"/>, which Blazor awaits, so a
+    /// handler written <c>() =&gt; field.Edit(...)</c> waits for the edit. An edit that faults or
+    /// is cancelled reports nothing, and the returned task carries its exception or its
+    /// cancellation. During the await, the report follows the root as
+    /// <see cref="Edit(Func{Task})"/> describes.
+    /// </remarks>
+    public Task Edit(Func<ValueTask> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return EditThenReportAsync(edit);
+    }
+
+    /// <summary>Awaits the <c>ValueTask&lt;bool&gt;</c> <paramref name="edit"/> returns and, only when it carries <see langword="true"/>, reports the change as <see cref="NotifyChanged"/> does.</summary>
+    /// <param name="edit">The page's own edit to the value this field names, returning whether it changed anything, such as a repository call that returns a <c>ValueTask&lt;bool&gt;</c>.</param>
+    /// <returns>A task carrying what <paramref name="edit"/> returned, which completes once any report is made.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="edit"/> is <see langword="null"/>, thrown by the call itself before any task exists.</exception>
+    /// <remarks>
+    /// A lambda or method group returning a <c>ValueTask&lt;bool&gt;</c> binds this overload; an
+    /// <see langword="async"/> lambda that does not declare its return type binds
+    /// <see cref="TryEdit(Func{Task{bool}})"/>. It returns a <c>Task&lt;bool&gt;</c>, which Blazor
+    /// awaits, so a handler written <c>() =&gt; field.TryEdit(...)</c> waits for the edit. An edit
+    /// that faults or is cancelled reports nothing, and the returned task carries its exception or
+    /// its cancellation. During the await, the report follows the root as
+    /// <see cref="TryEdit(Func{Task{bool}})"/> describes.
+    /// </remarks>
+    public Task<bool> TryEdit(Func<ValueTask<bool>> edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return EditThenReportAsync(edit);
+    }
+
+    // Every await keeps the caller's context, because the report reaches the EditContext, which
     // belongs to the renderer's context.
     private async Task EditThenReportAsync(Func<Task> edit)
     {
@@ -237,6 +277,23 @@ public sealed class FormidableFieldContext
     }
 
     private async Task<bool> EditThenReportAsync(Func<Task<bool>> edit)
+    {
+        if (!await edit())
+        {
+            return false;
+        }
+
+        ReportToCurrentEngine();
+        return true;
+    }
+
+    private async Task EditThenReportAsync(Func<ValueTask> edit)
+    {
+        await edit();
+        ReportToCurrentEngine();
+    }
+
+    private async Task<bool> EditThenReportAsync(Func<ValueTask<bool>> edit)
     {
         if (!await edit())
         {
