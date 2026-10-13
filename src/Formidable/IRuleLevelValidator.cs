@@ -53,7 +53,10 @@ public interface IRuleLevelValidator<in TModel>
     /// A call carrying the profile's whole selection reproduces the report of validating the whole
     /// profile issue for issue. Split across several calls, each report carries its own rules'
     /// issues in <see cref="SelectRules"/> order, so no issue moves and none drops. An empty set
-    /// answers an empty report. Validator-level hooks such as <c>PreValidate</c> run once per call.
+    /// answers an empty report. A validator-level hook such as <c>PreValidate</c> runs once per
+    /// call, so a validator whose hook can add an issue answers <see cref="CanValidateByRule"/>
+    /// <see langword="false"/>, as <see cref="FluentValidationModelValidator{TModel}"/> does for
+    /// any override of it.
     /// </remarks>
     Task<RuleLevelResult> ValidateRulesAsync(TModel model, ValidationProfile profile,
         IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default);

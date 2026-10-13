@@ -88,11 +88,12 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 
 ### Which check turns a field green?
 
-On the default profiles, unless `LiveDebounce` is `Timeout.InfiniteTimeSpan`, the live check
-behind a committed change supplies that answer on a validator the engine can take rule by rule
-(FluentValidation's `AbstractValidator` is one unless you set `ClassLevelCascadeMode.Stop`, as
+On the default profiles, the live check behind a committed change supplies that answer, unless
+`LiveDebounce` is `Timeout.InfiniteTimeSpan`. The live check answers that way only on a validator
+the engine can take rule by rule. FluentValidation's `AbstractValidator` is one unless you set
+`ClassLevelCascadeMode.Stop` or override `PreValidate`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
-says). [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the
+says. [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the
 submit rules. One answer covers the form, not only the changed field. A submit, and the whole-form
 re-check after one, turn fields green the same way.
 

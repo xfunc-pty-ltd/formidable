@@ -17,9 +17,16 @@ namespace Formidable;
 public sealed partial class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
+    private const int PreValidateUnread = 0;
+    private const int PreValidateNotOverridden = 1;
+    private const int PreValidateOverridden = 2;
+
     private readonly IValidator<TModel> _validator;
 
     private SelectedRulesSnapshot? _selectedRules;
+
+    // One of the three PreValidate constants above; an int, so a read is never torn.
+    private int _preValidateOverride;
 
     /// <summary>Wraps <paramref name="validator"/>.</summary>
     /// <param name="validator">The FluentValidation validator to adapt.</param>
@@ -50,16 +57,51 @@ public sealed partial class FluentValidationModelValidator<TModel>
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         ToReport(_validator.Validate(model, profile));
 
-    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/>.</summary>
+    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/> and whose class does not override <c>PreValidate</c>.</summary>
     /// <remarks>
     /// A class-level cascade stop lets one failing rule suppress the rules after it, which
-    /// running part of a profile cannot reproduce, so such a validator reports
-    /// <see langword="false"/>; a hand-rolled <see cref="IValidator{T}"/> cannot list its rules
-    /// and reports <see langword="false"/> too. A per-rule <c>Cascade(CascadeMode.Stop)</c> does
-    /// not matter.
+    /// running part of a profile cannot reproduce. FluentValidation runs <c>PreValidate</c> once
+    /// per call, so a failure an override adds would be reported once for each set run. Either
+    /// makes this <see langword="false"/>, as does a hand-rolled <see cref="IValidator{T}"/>,
+    /// which cannot list its rules. A per-rule <c>Cascade(CascadeMode.Stop)</c> does not matter.
     /// </remarks>
     public bool CanValidateByRule =>
-        _validator is AbstractValidator<TModel> { ClassLevelCascadeMode: CascadeMode.Continue };
+        _validator is AbstractValidator<TModel> { ClassLevelCascadeMode: CascadeMode.Continue } abstractValidator
+        && !OverridesPreValidate(abstractValidator);
+
+    /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>PreValidate</c>; worked out on the first ask and kept.</summary>
+    /// <param name="validator">The wrapped validator.</param>
+    /// <returns><see langword="true"/> when the override is declared by the validator's class or inherited from a base between it and <see cref="AbstractValidator{T}"/>.</returns>
+    // Kept because the answer belongs to the validator's class, which never changes under this
+    // instance, while the capability is read at every field's class computation. Two threads
+    // asking at once both work it out and write the same answer.
+    private bool OverridesPreValidate(AbstractValidator<TModel> validator)
+    {
+        var known = _preValidateOverride;
+        if (known == PreValidateUnread)
+        {
+            known = PreValidateBinding.IsOverriddenBy(validator) ? PreValidateOverridden : PreValidateNotOverridden;
+            _preValidateOverride = known;
+        }
+
+        return known == PreValidateOverridden;
+    }
+
+    /// <summary>Finds a <c>PreValidate</c> override by binding the base declaration to a validator and reading which method the call reaches.</summary>
+    // The base declaration comes from a delegate this class binds to itself, never from a lookup
+    // by name, so trimming has nothing to keep. Binding a virtual method to an instance
+    // dispatches it through that instance's class, so the bound delegate's Method is the most
+    // derived override, which CoreCLR, Native AOT and Mono WebAssembly all report.
+    private sealed class PreValidateBinding : AbstractValidator<TModel>
+    {
+        private static readonly System.Reflection.MethodInfo BaseDeclaration = new PreValidateBinding().BindSelf().Method;
+
+        public static bool IsOverriddenBy(AbstractValidator<TModel> validator) =>
+            Delegate.CreateDelegate(typeof(Func<ValidationContext<TModel>, ValidationResult, bool>), validator, BaseDeclaration)
+                .Method.DeclaringType != typeof(AbstractValidator<TModel>);
+
+        private Func<ValidationContext<TModel>, ValidationResult, bool> BindSelf() => PreValidate;
+    }
 
     /// <summary>Returns an identity for each rule <paramref name="profile"/> selects, in declaration order; the answer for the last profile instance asked about is reused.</summary>
     /// <param name="profile">The rule selection to list.</param>
@@ -414,6 +456,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' sets ClassLevelCascadeMode.{abstractValidator.ClassLevelCascadeMode}, " +
                 "which lets a failing rule suppress later rules within one whole-profile pass — executing part " +
                 $"of a profile cannot reproduce that. Check {nameof(CanValidateByRule)} first.");
+        }
+
+        if (OverridesPreValidate(abstractValidator))
+        {
+            throw new NotSupportedException(
+                $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides PreValidate, which FluentValidation runs once " +
+                "per validator call, so a failure it adds would be reported once for every set of rules run apart. " +
+                $"Check {nameof(CanValidateByRule)} first.");
         }
 
         return abstractValidator;

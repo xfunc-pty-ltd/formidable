@@ -267,13 +267,14 @@ load ends.
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
 
-On a validator the engine can take rule by rule (FluentValidation's `AbstractValidator` is one
-unless you set `ClassLevelCascadeMode.Stop`, as
-[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
-says), where every rule answers without waiting, tracking adds no rule executions per edit on the
-default profiles, wherever an edit starts a live check:
-whichever of the validity check and the check your edit started runs first has answered by the time
-the other looks, and the other reuses those answers.
+On the default profiles, tracking adds no rule executions to an edit that starts a live check, as
+long as the engine can take the validator rule by rule and every rule answers without waiting.
+Whichever of the validity check and your edit's own check runs first has answered by the time the
+other looks, and the other reuses those answers.
+
+FluentValidation's `AbstractValidator` can be taken rule by rule unless you set
+`ClassLevelCascadeMode.Stop` or override `PreValidate`, as
+[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
 
 It costs extra where `LiveProfile` narrows (the rules the live check skipped still run on every
 edit) and on any other validator, where each validity check is one whole `SubmitProfile`

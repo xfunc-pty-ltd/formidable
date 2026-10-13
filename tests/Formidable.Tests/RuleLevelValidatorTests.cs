@@ -162,6 +162,59 @@ public class RuleLevelValidatorTests
         }
     }
 
+    /// <summary>Overrides <c>PreValidate</c> to add a failure and carry on, over rules in two selection classes.</summary>
+    private sealed class PreValidateFailureValidator : AbstractValidator<RuleModel>
+    {
+        public PreValidateFailureValidator()
+        {
+            RuleFor(x => x.Notes).MaximumLength(3);
+            RuleSet("Submit", () => RuleFor(x => x.EventName).NotEmpty());
+        }
+
+        protected override bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result)
+        {
+            context.AddFailure(nameof(RuleModel.Notes), "Pre-check says no");
+            return true;
+        }
+    }
+
+    /// <summary>A base class carrying the <c>PreValidate</c> override, for a validator that inherits it.</summary>
+    private abstract class PreValidatingBase : AbstractValidator<RuleModel>
+    {
+        protected override bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => true;
+    }
+
+    private sealed class InheritedPreValidateValidator : PreValidatingBase
+    {
+        public InheritedPreValidateValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+    }
+
+    /// <summary>Declares a method that hides <c>PreValidate</c> without overriding it, so FluentValidation still calls the base.</summary>
+    private sealed class HiddenPreValidateValidator : AbstractValidator<RuleModel>
+    {
+        public HiddenPreValidateValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        public new bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => false;
+    }
+
+    /// <summary>The draft-and-submit shape with no override.</summary>
+    private sealed class DraftSubmitPlainValidator : DraftSubmitValidator<RuleModel>
+    {
+        protected override void ConfigureDraftRules() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        protected override void ConfigureSubmitRules() => RuleFor(x => x.EventName).NotEmpty();
+    }
+
+    /// <summary>The draft-and-submit shape with a <c>PreValidate</c> override.</summary>
+    private sealed class DraftSubmitPreValidateValidator : DraftSubmitValidator<RuleModel>
+    {
+        protected override void ConfigureDraftRules() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        protected override void ConfigureSubmitRules() => RuleFor(x => x.EventName).NotEmpty();
+
+        protected override bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => true;
+    }
+
     /// <summary>An IValidator implemented by hand — no rule enumeration surface at all.</summary>
     private sealed class HandRolledValidator : IValidator<RuleModel>
     {
@@ -440,6 +493,36 @@ public class RuleLevelValidatorTests
         Assert.False(cascadeStop.CanValidateByRule);
         var fromCascadeStop = Assert.Throws<NotSupportedException>(() => cascadeStop.SelectRules(ValidationProfile.Draft));
         Assert.Contains("ClassLevelCascadeMode", fromCascadeStop.Message);
+    }
+
+    [Fact]
+    public async Task CanValidateByRule_is_false_for_a_PreValidate_override()
+    {
+        // FluentValidation runs PreValidate once per validator call, and a failure it adds belongs
+        // to no rule, so running a profile one set of rules at a time would report it once per
+        // set. An override, declared or inherited, turns the capability off, and every doer then
+        // throws rather than duplicate it.
+        var declared = new FluentValidationModelValidator<RuleModel>(new PreValidateFailureValidator());
+        Assert.False(declared.CanValidateByRule);
+        var fromDeclared = Assert.Throws<NotSupportedException>(() => declared.SelectRules(ValidationProfile.Submit));
+        Assert.Contains("PreValidate", fromDeclared.Message);
+        Assert.Contains(nameof(PreValidateFailureValidator), fromDeclared.Message);
+        Assert.Throws<NotSupportedException>(() => declared.GroupBySelectionClass([]));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => declared.ValidateRulesAsync(new RuleModel(), ValidationProfile.Submit, [default]));
+
+        // The whole profile in one call reports the failure once.
+        var whole = await declared.ValidateAsync(new RuleModel(), ValidationProfile.Submit);
+        Assert.Single(whole.Issues, issue => issue.Message == "Pre-check says no");
+
+        Assert.False(new FluentValidationModelValidator<RuleModel>(new InheritedPreValidateValidator()).CanValidateByRule);
+        Assert.False(new FluentValidationModelValidator<RuleModel>(new DraftSubmitPreValidateValidator()).CanValidateByRule);
+
+        // Controls: the same shapes with no override, and a method that only shares the name,
+        // keep the capability.
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new DraftSubmitPlainValidator()).CanValidateByRule);
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new PlainRuleValidator()).CanValidateByRule);
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new HiddenPreValidateValidator()).CanValidateByRule);
     }
 
     [Fact]
