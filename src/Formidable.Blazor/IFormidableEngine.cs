@@ -30,7 +30,7 @@ public interface IFormidableEngine
     /// <summary>Whether the form is mid-check (a live check, a submit, a load or the whole-form re-check), whichever field started it; a per-field "checking" indicator reads <see cref="FieldState.IsValidating"/> instead.</summary>
     bool IsValidating { get; }
 
-    /// <summary>Whether a submit has answered through <see cref="ValidateForSubmitAsync"/> or a server reply has been applied through <see cref="ApplyServerIssues"/>; either starts the whole-form re-check that follows every later edit under <see cref="FormidableOptions.RefreshDebounce"/>.</summary>
+    /// <summary>Whether a submit has answered through <see cref="ValidateForSubmitAsync"/> or a server reply has been applied through <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>; either starts the whole-form re-check that follows every later edit under <see cref="FormidableOptions.RefreshDebounce"/>.</summary>
     bool HasSubmitted { get; }
 
     /// <summary>Whether the form would pass the submit profile, kept current only while <see cref="FormidableOptions.TrackFormValidity"/> is on; <see langword="false"/> on a form that has never tracked.</summary>
@@ -38,7 +38,7 @@ public interface IFormidableEngine
     /// It is written only while tracking is on, so it keeps its last answer whenever tracking is
     /// off, whatever check was already running. With tracking on from the start it reads
     /// <see langword="false"/> until a whole-form check has answered once. Issues a server applied through
-    /// <see cref="ApplyServerIssues"/> are not part of the answer. The first read with tracking
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> are not part of the answer. The first read with tracking
     /// off writes one Trace line and one logged warning naming the option.
     /// </remarks>
     bool IsFormValid { get; }
@@ -120,4 +120,34 @@ public interface IFormidableEngine
     /// an error. Call it from the renderer's synchronization context.
     /// </remarks>
     void ApplyServerIssues(IEnumerable<ValidationIssue> issues);
+
+    /// <summary>Marks where the form stands as a page sends a request whose reply it will apply, for <see cref="ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/> to check against.</summary>
+    /// <returns>The mark to hand back with the reply; an engine without the feature returns the default mark, which marks nothing.</returns>
+    /// <remarks>
+    /// A component that renders a field arriving or leaving after the mark drops the reply, and this
+    /// member counts one only once the root has taken it in, which can be after the render. A page
+    /// whose send adds or removes rows marks through
+    /// <see cref="FormidableForm{TModel}.MarkServerRequest"/> or
+    /// <see cref="FormidableValidator{TModel}.MarkServerRequest"/>, which take such a change in
+    /// first. Call it from the renderer's synchronization context.
+    /// </remarks>
+    ServerRequestMark MarkServerRequest() => default;
+
+    /// <summary>Applies a server reply as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, unless the form has moved on since <paramref name="sentAt"/> was taken; a dropped reply changes nothing.</summary>
+    /// <param name="issues">The server's issues for the request <paramref name="sentAt"/> marks; enumerated at most once.</param>
+    /// <param name="sentAt">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// The reply is dropped when, after the mark, a value was edited (a change an input holds until
+    /// a blur counts when the blur announces it), the page loaded values, a component that renders
+    /// a field arrived or left, or a reset replaced the engine, or once the engine is disposed. A
+    /// dropped reply shows nothing, sets nothing and moves no focus. The default mark applies every
+    /// reply. Call it from the renderer's synchronization context.
+    /// </remarks>
+    bool ApplyServerIssues(IEnumerable<ValidationIssue> issues, ServerRequestMark sentAt)
+    {
+        ApplyServerIssues(issues);
+        return true;
+    }
 }

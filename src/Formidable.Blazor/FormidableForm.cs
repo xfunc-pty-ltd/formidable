@@ -720,7 +720,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
 
         // Fire-and-forget: focus is best-effort and must not make applying issues asynchronous,
-        // as both ApplyServerIssues overloads are synchronous by contract. An interop failure
+        // as every ApplyServerIssues overload is synchronous by contract. An interop failure
         // (FormidableJsModule.IsInteropFailure: a disconnected circuit as well as a thrown or
         // unreachable JS boundary) from the unawaited call is swallowed below rather than left to
         // become an unobserved task exception.
@@ -779,6 +779,88 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         var issues = problem.ToIssues();
         RequireEngine().ApplyServerIssues(issues);
         FocusAfterServerIssues(issues);
+    }
+
+    /// <summary>Marks where the form stands as the page sends a request whose reply it will apply with <see cref="ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/>, first taking in any field that has started or stopped rendering.</summary>
+    /// <returns>The mark to hand back with the reply; once the form is disposed, the default mark, which marks nothing.</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// Taking a field in can rebuild the form's messages, so the call can raise
+    /// <see cref="EditContext.OnValidationStateChanged"/> and <see cref="IFormidableEngine.StateChanged"/>,
+    /// and a throw from a handler of either comes out of it. The rest of the contract is
+    /// <see cref="IFormidableEngine.MarkServerRequest"/>'s. Call it from the renderer's
+    /// synchronization context.
+    /// </remarks>
+    // The form takes a render's field changes in from OnAfterRenderAsync, which on Blazor Server
+    // waits for the browser to acknowledge the render, so a page that drops a row and yields can
+    // mark before then. A change taken in after the mark would drop the reply, so it is taken in
+    // here first, and the after-render reconcile then finds nothing left to do.
+    public ServerRequestMark MarkServerRequest()
+    {
+        if (_disposed)
+        {
+            return default;
+        }
+
+        var engine = RequireEngine();
+        Reconciler.ReconcileIfChanged();
+        return engine.MarkServerRequest();
+    }
+
+    /// <summary>Applies a server reply as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, focus move included, unless the form has moved on since <paramref name="sentAt"/> was taken.</summary>
+    /// <param name="issues">The server's issues for the request <paramref name="sentAt"/> marks; enumerated at most once.</param>
+    /// <param name="sentAt">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped, and once the form is disposed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="issues"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// What drops a reply is <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/>'s
+    /// rule, a <see cref="ResetAsync(TModel?)"/> after the mark included. Unless
+    /// <paramref name="sentAt"/> is the default mark, the call first takes in any field that has
+    /// started or stopped rendering, as <see cref="MarkServerRequest"/> does, so it can raise
+    /// <see cref="EditContext.OnValidationStateChanged"/> and <see cref="IFormidableEngine.StateChanged"/>,
+    /// and a throw from a handler of either comes out of it. A dropped reply moves no focus. Call it
+    /// from the renderer's synchronization context.
+    /// </remarks>
+    public bool ApplyServerIssues(IEnumerable<ValidationIssue> issues, ServerRequestMark sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var engine = RequireEngine();
+
+        // The reply's twin of the mark's own take-in: a field change that rendered after the mark
+        // counts only once taken in, and a reply that lands before OnAfterRenderAsync runs would
+        // otherwise apply to rows that have moved. The default mark marks nothing and applies as
+        // the unmarked overload does, so it takes nothing in.
+        if (!sentAt.IsDefault)
+        {
+            Reconciler.ReconcileIfChanged();
+        }
+
+        var issueList = issues as IReadOnlyList<ValidationIssue> ?? issues.ToList();
+        if (!engine.ApplyServerIssues(issueList, sentAt))
+        {
+            return false;
+        }
+
+        FocusAfterServerIssues(issueList);
+        return true;
+    }
+
+    /// <summary>Applies a deserialized 400 body by flattening it with <see cref="FormidableValidationProblem.ToIssues"/>, exactly as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/> does.</summary>
+    /// <param name="problem">The deserialized response body.</param>
+    /// <param name="sentAt">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped, and once the form is disposed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="problem"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    public bool ApplyServerIssues(FormidableValidationProblem problem, ServerRequestMark sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        return !_disposed && ApplyServerIssues(problem.ToIssues(), sentAt);
     }
 
     /// <summary>Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it, valid, or its message unless it waits for Submit, and a field holding nothing stays silent.</summary>

@@ -113,7 +113,8 @@ The members a page calls:
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move), and answers whether an element took focus. |
 | `ResetAsync(TModel?)` | [Returns the form to pristine](#returning-the-form-to-pristine), over the bound model or a new one. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
-| `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
+| `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. Given the mark `MarkServerRequest()` took, it drops a reply the visitor has since edited past, moves no focus for it, and returns `false`. |
+| `MarkServerRequest()` | Marks the form as a request leaves, for a marked `ApplyServerIssues` to check its reply against. A field that has started or stopped rendering is taken in first, which can raise `OnValidationStateChanged` and `StateChanged`. |
 | `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine), where `IsValidating`, `HasSubmitted` and `IsFormValid` are read. `IsFormValid` is kept current only while [`TrackFormValidity`](options.md#trackformvalidity) is on. With it off, `IsFormValid` keeps its last answer, `false` on a form that has never tracked. |
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
@@ -123,8 +124,11 @@ Before that there is no engine and they throw. Every method in the table throws 
 Once the form is disposed, `Engine` still returns the last engine it built, now disposed, and every
 method in the table does nothing and throws nothing. `SubmitAsync` returns a blocked outcome carrying
 nothing, with neither callback, as a submit still awaiting its answer at disposal does, and
-`FocusFirstErrorAsync` answers `false`. A server reply that arrives after the form is disposed is
-dropped, so its handler needs no check that the form is still there.
+`FocusFirstErrorAsync` answers `false`.
+
+A server reply that arrives after the form is disposed is dropped, so its handler needs no check
+that the form is still there; a marked apply returns `false`, and `MarkServerRequest()` returns the
+default mark.
 
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before the first render and after disposal alike.
@@ -145,10 +149,11 @@ With no boundary around the form, the throw takes Blazor's own unhandled-error p
 circuit ends, and WebAssembly shows its error UI and keeps running.
 
 A call of yours that raises the event itself, or awaits the work that does, gets the throw instead:
-`ApplyServerIssues`, `MarkTouched`, `SubmitAsync` and `DiscloseLoadedValuesAsync` among them. A
-commit to a field not yet touched raises `StateChanged` as it marks the field touched, so a throw
-there goes to whatever made the commit: your own call (`NotifyChanged()`, say), or the input's
-change event, which Blazor hands to the nearest boundary above the input.
+`ApplyServerIssues`, `MarkServerRequest`, `MarkTouched`, `SubmitAsync` and
+`DiscloseLoadedValuesAsync` among them. A commit to a field not yet touched raises `StateChanged` as
+it marks the field touched. A throw there goes to whatever made the commit. That is your own call
+(`NotifyChanged()`, say), or the input's change event, which Blazor hands to the nearest boundary
+above the input.
 
 An `OnValidationStateChanged` handler that throws on every call ends a Server circuit even with a
 boundary. As the boundary removes the form, the form raises `OnValidationStateChanged` once more
@@ -458,7 +463,7 @@ where `min` and `max` splat through `AdditionalAttributes` untouched.
 | `Field`, `ElementId` and `MessagesElementId` are the resolved identifier and the two deterministic ids, computed once at registration rather than per render | Render `ElementId` as written. `Register` is sealed: which field the control speaks for is not adjustable, because an input that resolved a different field would render no usable id and register nothing for disclosure. |
 | `State` and `CssClass` are the field's current state and the merged class string | Nothing. `Context` is the route to everything the rest does not cover: `Context.Engine.GetIssues(Field)` to render messages yourself, `Context.EditContext`, `Context.Registry`. |
 | `SetCurrentValueAsync`, `CommitValueAsync` and `NotifyChanged` are commit-and-notify in one call, or the two halves apart | For a control driving a commit from a handler of its own rather than through `AddValueBinding`. |
-| `SyncsDomValueOnBlur` and `SyncDomValueAsync` bind `blur` in every `UpdateOn` mode and run your write there — after any consumer-splatted `@onblur`, and before the notification `OnBlur` delivers | Override both and inject `IFormidableDomValueSync`. The write is the override's whole job. |
+| `SyncsDomValueOnBlur` and `SyncDomValueAsync` bind `blur` in every `UpdateOn` mode and run your write there — after any consumer-splatted `@onblur`, and before the notification `OnBlur` delivers, which does not wait for the write to finish | Override both and inject `IFormidableDomValueSync`. The write is the override's whole job. |
 | `OnParametersSet` is where the field resolves, registers, and binds the engine subscription | Call `base` from any override, or the control registers nothing and never re-renders as checks start and finish. |
 | `Dispose` is non-virtual and always releases the registration and the subscription | Override `DisposeCore` for resources of your own. A control implementing `IAsyncDisposable` has to call `Dispose()` from its `DisposeAsync`, since Blazor calls only the async overload when a component implements both. |
 | `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. Override the relay and call `base` so the re-render still happens. |
@@ -1112,19 +1117,22 @@ The members a page calls:
 |---|---|
 | `ValidateForSubmitAsync()` | Runs the submit pipeline against this component's engine and hands back the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) untouched, for the page's own `EditForm` handler to route. A value edited while the submit is checking makes it check again first, as under `FormidableForm`. |
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move) (the same code that submit runs) and answers whether an element took focus. |
-| `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. |
+| `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. Given the mark `MarkServerRequest()` took, it drops a reply the visitor has since edited past and returns `false`. |
+| `MarkServerRequest()` | Marks the form as a request leaves, for a marked `ApplyServerIssues` to check its reply against. A field that has started or stopped rendering is taken in first, as `NotifyFieldSetChanged()` takes it in. A new `EditContext` handed to the `EditForm` after the mark drops the reply, as a reset does. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned), that contract whole. |
 | `NotifyFieldSetChanged()` | Reconciles the rendered field set now. Ordinary use never calls it: the component notices a field arriving or leaving on its own, shortly after the render that moved it, so removing a row prunes its live issues and [re-checks the whole form](collections-and-row-identity.md#what-happens-when-a-row-leaves-or-the-list-reorders) unasked ([`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) removes a line with `List.Remove` and nothing more). |
 | `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine). |
 
 Call them from the renderer's synchronization context, and after the component has bound to its
-`EditContext`. Before that there is no engine: the four that require one throw a message saying
-exactly that, `Engine` reads `null`, and `NotifyFieldSetChanged()` does nothing.
+`EditContext`. Before that there is no engine: every method in the table but
+`NotifyFieldSetChanged()` throws a message saying exactly that, `Engine` reads `null`, and
+`NotifyFieldSetChanged()` does nothing.
 
 Once the component is disposed, `Engine` reads `null` again and `NotifyFieldSetChanged()` still does
-nothing, while the four do nothing and throw nothing. `ValidateForSubmitAsync()` returns a blocked
-outcome carrying nothing, `FocusFirstErrorAsync()` answers `false`, and a server reply that arrives
-after the component is disposed is dropped.
+nothing, while the other methods do nothing and throw nothing. `ValidateForSubmitAsync()` returns a
+blocked outcome carrying nothing, `FocusFirstErrorAsync()` answers `false`, and a server reply that
+arrives after the component is disposed is dropped (a marked apply returns `false`).
+`MarkServerRequest()` returns the default mark.
 
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before binding and after disposal alike.
@@ -1132,7 +1140,8 @@ after the component is disposed is dropped.
 A throw from your own `OnValidationStateChanged` or `Engine.StateChanged` handler follows the rule
 [under `FormidableForm`](#formidableformtmodel). It reaches the nearest `ErrorBoundary` around this
 component when the event comes from work no call of yours is waiting on. A call of yours that
-raises the event gets the throw, and `NotifyFieldSetChanged()` is one: it throws to you.
+raises the event gets the throw, and `NotifyFieldSetChanged()`, `MarkServerRequest()` and a marked
+`ApplyServerIssues` are among them: each throws to you.
 
 An `OnValidationStateChanged` handler that throws on every call ends a Server circuit here too,
 even with a boundary, because removing this component raises that event once more. Once this
@@ -1394,7 +1403,7 @@ callback to each. What differs is what an unset one leaves behind:
 | Where it is unset | What a miss does |
 |---|---|
 | `FormidableSummary` | Nothing, matching the component's pre-fallback behaviour: the click simply has no effect. |
-| `FormidableForm` | Reports a diagnostic. Its three moves (a blocked submit, either `ApplyServerIssues` overload's move for a rejected round trip, and the one `FocusFirstErrorAsync()` asks for) have nowhere else for the visitor to land. |
+| `FormidableForm` | Reports a diagnostic. Its three moves (a blocked submit, the move an `ApplyServerIssues` overload makes for a rejected round trip, and the one `FocusFirstErrorAsync()` asks for) have nowhere else for the visitor to land. |
 | `FormidableValidator` | Reports a diagnostic, for the same reason. Two moves reach it rather than three, since applying server issues here focuses nothing. |
 
 | When | What you see |
@@ -1460,7 +1469,7 @@ depends on what asked for the move:
 |---|---|
 | A blocked submit, or the one a page asks for on either root or through the cascaded context | Out of that call: `SubmitAsync`, `ValidateForSubmitAsync` or `FocusFirstErrorAsync()`. |
 | A summary entry's click | Out of the click. |
-| Either of `FormidableForm`'s `ApplyServerIssues` overloads | Nowhere. Applying server issues is synchronous by contract, so its move is fire-and-forget and the throw becomes an unobserved task exception. |
+| Any of `FormidableForm`'s `ApplyServerIssues` overloads | Nowhere. Applying server issues is synchronous by contract, so its move is fire-and-forget and the throw becomes an unobserved task exception. |
 
 ## `AddFormidableBlazor()`
 

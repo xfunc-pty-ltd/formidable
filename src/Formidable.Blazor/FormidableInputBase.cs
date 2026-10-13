@@ -186,7 +186,7 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     // that comes with it; the override is the write alone.
     protected virtual bool SyncsDomValueOnBlur => false;
 
-    /// <summary>Rewrites the element's value from <see cref="Value"/> on every blur while <see cref="SyncsDomValueOnBlur"/> is <see langword="true"/>, after any splatted <c>onblur</c> and before the notification <see cref="InputUpdateMode.OnBlur"/> delivers; does nothing by default.</summary>
+    /// <summary>Rewrites the element's value from <see cref="Value"/> on every blur while <see cref="SyncsDomValueOnBlur"/> is <see langword="true"/>, after any splatted <c>onblur</c>; started before the notification <see cref="InputUpdateMode.OnBlur"/> delivers, which does not wait for it. Does nothing by default.</summary>
     // The kit's number and date inputs write through IFormidableDomValueSync, addressed by
     // ElementId; binding blur, chaining the splatted handler and delivering the pending
     // notification all stay the base's.
@@ -327,25 +327,34 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
         return true;
     }
 
-    /// <summary>Runs a splatted <c>onblur</c>, then the DOM value sync where the control opts in, then, under <see cref="InputUpdateMode.OnBlur"/> with a commit pending, one notification.</summary>
+    /// <summary>Runs a splatted <c>onblur</c>, then starts the DOM value sync where the control opts in, then, under <see cref="InputUpdateMode.OnBlur"/> with a commit pending, delivers one notification, and then awaits the sync.</summary>
     /// <param name="args">The blur event's arguments, handed to the splatted handler.</param>
     // The chain exists so that the kit wanting the blur event does not quietly take it away from
     // the consumer; the mode gate keeps the notification a blur-mode behaviour even for controls
     // whose sync binds blur in every mode; the commit gate makes blur a delivery rather than a
     // trigger, so a focus-then-leave with nothing committed notifies nothing, and however many
     // commits precede a blur, it delivers exactly one notification.
+    //
+    // The sync is a script round trip, so the notification does not wait for it: a change the
+    // visitor committed before leaving the box counts as the blur arrives. A Submit pressed
+    // straight from the box reaches the form behind the blur, and a page that marks its request
+    // there then marks after the change, so the reply about the values it posted is not dropped.
+    // The write itself still starts first.
     private async Task HandleBlurAsync(FocusEventArgs args)
     {
         await InvokeSplattedBlurAsync(args);
 
-        if (SyncsDomValueOnBlur)
+        var sync = SyncsDomValueOnBlur ? SyncDomValueAsync() : ValueTask.CompletedTask;
+        try
         {
-            await SyncDomValueAsync();
+            if (UpdateOn == InputUpdateMode.OnBlur && _notificationPending)
+            {
+                NotifyChanged();
+            }
         }
-
-        if (UpdateOn == InputUpdateMode.OnBlur && _notificationPending)
+        finally
         {
-            NotifyChanged();
+            await sync;
         }
     }
 

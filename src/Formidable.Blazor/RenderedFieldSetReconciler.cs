@@ -8,8 +8,8 @@ namespace Formidable.Blazor;
 /// every batch.
 /// </remarks>
 // Read and written on the renderer's dispatcher only: the registry raises Changed from inside a
-// render batch, the post runs back on that dispatcher, and NotifyFieldSetChanged is documented to
-// be called from it.
+// render batch, the post runs back on that dispatcher, and NotifyFieldSetChanged and both roots'
+// MarkServerRequest and marked ApplyServerIssues are documented to be called from it.
 internal sealed class RenderedFieldSetReconciler
 {
     private readonly Func<FieldRegistry?> _registry;
@@ -65,8 +65,9 @@ internal sealed class RenderedFieldSetReconciler
     // consumer's handler ends a Blazor Server circuit whether or not an ErrorBoundary surrounds
     // the root, and on WebAssembly it vanishes. The root hands it to the ErrorBoundary above the
     // root instead, or to the renderer's own unhandled path where there is none, as a throw from
-    // its own lifecycle would go. The render's reconcile and NotifyFieldSetChanged call
-    // ReconcileIfChanged directly, so a throw there reaches their own caller.
+    // its own lifecycle would go. The render's reconcile, NotifyFieldSetChanged and both roots'
+    // MarkServerRequest and marked ApplyServerIssues call ReconcileIfChanged directly, so a throw
+    // there reaches their own caller.
     private void RunPosted()
     {
         try

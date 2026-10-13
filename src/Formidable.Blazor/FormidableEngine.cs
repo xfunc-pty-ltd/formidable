@@ -28,7 +28,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // Thread discipline, in one place. Every source above mutates on the renderer's dispatcher
     // and only from the still-current pass, except that ApplyServerIssues writes synchronously
     // on the calling thread, which is why it and ValidateForSubmitAsync ask to be called from
-    // the renderer's synchronization context. The two stamps that date the submit channel's
+    // the renderer's synchronization context, as MarkServerRequest does for the two readings it
+    // takes. The two stamps that date the submit channel's
     // client answer and the server's answer keep the same rule: _submitAnswerEditStamp moves only
     // beside the stored answer it dates, in a landing's version-gated dispatch, and
     // _serverAnswerEditStamp only in ApplyServerIssues. Pass bookkeeping (_version, _passCts,
@@ -367,6 +368,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // this counter itself, because a page calling it is saying outright that the model now
     // holds values nothing notified for. Nothing covers the rest.
     private int _editStamp;
+
+    // What a ServerRequestMark holds in this engine's place: compared by reference by the marked
+    // apply, and holding nothing itself, so a mark kept after the form is gone keeps nothing of it
+    // alive.
+    private readonly object _markToken = new();
 
     // The per-rule verdict store — every rule's most recent answer, held per executed set. The
     // store doctrine lives on the type itself; the engine keeps the caller-side halves: every
@@ -3080,9 +3086,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="issue">The issue that will not show.</param>
     /// <remarks>
     /// Two sites call it: a submit, for the errors its reveal ledger leaves undisclosed, and
-    /// <see cref="ApplyServerIssues"/>, for an advisory its visibility answer hides. Other drops
-    /// are silent: a submit's non-visible advisories, the live issues <see cref="LiveViewOf"/>
-    /// filters, and a server error <see cref="FormidableOptions.DisclosureOverride"/> hides.
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/>, for an advisory its
+    /// visibility answer hides. Other drops are silent: a submit's non-visible advisories, the
+    /// live issues <see cref="LiveViewOf"/> filters, and a server error
+    /// <see cref="FormidableOptions.DisclosureOverride"/> hides.
     /// </remarks>
     // One place for both sites keeps the three channels from drifting apart. The logged warning
     // needs no wiring on WebAssembly, whose default provider is the browser console.
@@ -3504,6 +3511,41 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         {
             (_model as INormalizableModel)?.Normalize();
         }
+    }
+
+    /// <inheritdoc />
+    // The two readings the marked apply compares, taken on the renderer's synchronization context
+    // where both move: the edit stamp, and the verdict store's generation, which only a
+    // rendered-field-set change moves. The engine's mark token stands for the reset, since a reset
+    // builds a new engine whose stamps start again from zero.
+    public ServerRequestMark MarkServerRequest() => new(_markToken, _editStamp, _verdictStore.Generation);
+
+    /// <inheritdoc />
+    /// <param name="issues">The server's issues for the marked request.</param>
+    /// <param name="sentAt">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped.</returns>
+    // Dropped exactly when a re-check begun as the reply arrives would replace an answer applied at
+    // the mark (the refresh rule in SupersedesServerAnswer): an edit since the mark, or a load,
+    // which moves the edit stamp as it begins; a rendered-field-set change, which moves the
+    // generation; or a mark another engine took. A disposed engine drops its own marks too, since a
+    // page that held it across a reset is applying to a form no longer on the page. The test reads
+    // nothing else and writes nothing, so a dropped reply leaves every source, the message store,
+    // focus and both events exactly as they were. The default mark carries no token, and applies
+    // as the unmarked overload does.
+    public bool ApplyServerIssues(IEnumerable<ValidationIssue> issues, ServerRequestMark sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        if (!sentAt.IsDefault
+            && (_disposed
+                || !ReferenceEquals(sentAt.Owner, _markToken)
+                || sentAt.EditStamp != _editStamp
+                || sentAt.Generation != _verdictStore.Generation))
+        {
+            return false;
+        }
+
+        ApplyServerIssues(issues);
+        return true;
     }
 
     /// <inheritdoc />

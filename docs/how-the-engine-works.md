@@ -273,15 +273,22 @@ form posts the same continuation the validator does. While a render of the form 
 its `OnAfterRenderAsync`, a registry change posts nothing, because that method reconciles whatever
 the registry then holds.
 
+Either root's `MarkServerRequest()` makes the call at once too, whenever the version has moved since
+the last reconcile, so a change that has rendered counts before the mark. Either root's marked
+`ApplyServerIssues` makes it for any mark but the default one, so a change that has rendered since
+the mark drops the reply ([what replaces the server's answer](#what-replaces-the-servers-answer)).
+
 On Blazor Server the form's `OnAfterRenderAsync` runs only once the client acknowledges the render
 batch. A field the form's own render removed keeps its live message (in the summary and the
-`EditContext`) until the acknowledgement arrives. A hold a waiting component left as it ended
-stands until then too ([the live view](#the-live-view)).
+`EditContext`) until the acknowledgement arrives, or until the page calls `MarkServerRequest()` or a
+marked `ApplyServerIssues` (any but the default mark), which reconcile first. A hold a waiting component left as it ended stands until then too
+([the live view](#the-live-view)).
 
 Each root's version tracker keeps one move from being reconciled twice. It records a move only
 once the call has returned, so a consumer's `OnValidationStateChanged` or `StateChanged` handler
 that throws during the call leaves the move, and the refresh it arms, to the form's next render,
-the next post, or a `NotifyFieldSetChanged()` call in attach mode.
+the next post, a `NotifyFieldSetChanged()` call in attach mode, or a `MarkServerRequest()` or marked
+`ApplyServerIssues` call (any but the default mark) on either root.
 
 A posted reconcile has no caller to throw to. The root catches what it throws and hands it to
 `DispatchExceptionAsync`, the path a throw from its own lifecycle takes: the nearest
@@ -312,7 +319,8 @@ the fault stays on the task, unobserved.
 
 A root already disposed when the throw arrives hands on nothing: it writes the throw to Trace, and
 as a warning to the host's logger, then drops it. A direct call (`OnAfterRenderAsync`,
-`NotifyFieldSetChanged()`) throws to its own caller.
+`NotifyFieldSetChanged()`, either root's `MarkServerRequest()` or marked `ApplyServerIssues`) throws
+to its own caller.
 
 A pass in flight across that move still publishes its verdict, but its store write is refused:
 `TryFile` checks the generation the pass captured at begin, so the clear cannot be undone by work
@@ -804,9 +812,11 @@ registration's new hold stands, and the throw reaches the component whose `WaitF
 which already holds its handle.
 
 If `DisclosureOverride` throws during the settle, every other field still settles before the throw
-reaches the reconcile, and the reconcile is left to the form's next render, the next post, or a
-`NotifyFieldSetChanged()` call in attach mode, as for any handler that throws during it
-([the verdict store](#the-verdict-store)).
+reaches the reconcile, and the reconcile is left to the form's next render, the next post, a
+`NotifyFieldSetChanged()` call in attach mode, or a `MarkServerRequest()` or marked
+`ApplyServerIssues` call (any but the default mark) on either root, as for any handler that throws
+during it ([the verdict
+store](#the-verdict-store)).
 
 A field whose last registration left with no retention has departed rather than stopped waiting.
 The engaged set learns of a departure only when the root's rendered-field-set reconcile runs, so
@@ -1610,8 +1620,51 @@ So neither a pass already in flight at the apply, nor a refresh armed before it 
 it, can erase it. Supersession never cancels a pass here: each still lands its own verdict and
 ends as usual.
 
-The engine cannot see when the page sent the request. A reply to a request sent before an edit,
-arriving after it, stands until the next edit, field-set move, submit or load.
+An unmarked apply cannot see when the page sent the request. A reply to a request sent before an
+edit, arriving after it, stands until the next edit, field-set move, submit or load.
+
+A marked apply can. `MarkServerRequest` returns a `ServerRequestMark` holding a token that stands
+for the engine, the edit stamp and the verdict store's generation, read as the page sends. The
+marked `ApplyServerIssues` drops the reply when either reading has moved, when the mark is another
+engine's (a reset builds a new engine, whose readings start again from zero), or when the engine is
+disposed.
+
+The token is an object of the engine's own that holds nothing, so a mark a page keeps after its form
+is gone keeps nothing of the form alive.
+
+The two readings are the refresh rule's inputs above, so a reply is dropped exactly when a re-check
+begun as it arrives would replace it. An edit and a load move the edit stamp, and a
+rendered-field-set move advances the generation, so the mark needs no state of its own. The edit
+stamp moves when the form hears of an edit, so a value an input holds until a blur counts at the
+blur.
+
+The kit's number and date inputs tell the form as the blur arrives. Their script write of the box's
+value starts first, but the notification does not wait for it to return, so a Submit pressed
+straight from the box marks after the change.
+
+A handler of the page's that a kit input awaits first still delays the notification: a splatted
+`onblur` under `UpdateOn="OnBlur"`, or, in the other modes, the `ValueChanged` handler
+`@bind-Value:after` builds. A mark taken while it awaits drops the reply.
+
+The generation moves at the reconcile, not at the render, and the reconcile can trail the render.
+`FormidableValidator` runs it from a post past the render batch. `FormidableForm` runs it from its
+`OnAfterRenderAsync`, which on Blazor Server waits for the browser to acknowledge the batch, or from
+a post when no render of its own is waiting for that method.
+
+Both roots' `MarkServerRequest` therefore run the reconcile first whenever the registry has moved
+since the last one, as `NotifyFieldSetChanged` does, so a change that has rendered counts before the
+mark. Their marked `ApplyServerIssues` run it first too, for any mark but the default one, so a
+change that has rendered since the mark drops the reply before the root's own reconcile comes
+round.
+
+The engine's own `MarkServerRequest` and marked `ApplyServerIssues` read the generation as it
+stands. A reconcile at a root's mark or marked apply can rebuild the message store, so those calls
+can raise both events.
+
+The drop itself returns `false` before the engine reads the reply or writes anything: no source
+moves, the message store is not rebuilt, neither event is raised, and `FormidableForm` moves no
+focus. A mark that is still current runs the unmarked apply unchanged and returns `true`. The
+default mark holds no token and applies every reply.
 
 At read time the submit view merges client-first: `MergeServer` drops a server issue whose message
 and severity both match one the client already shows, and `ExceptShadowed` is the separate,

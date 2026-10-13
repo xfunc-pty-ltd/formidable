@@ -166,8 +166,9 @@ public sealed class FormidableOptions
 
     /// <summary>Called once for each error a submit could not show, and each advisory a server reply could not, because nothing renders its field or <see cref="DisclosureOverride"/> said no. Defaults to <see langword="null"/>.</summary>
     /// <remarks>
-    /// A submit reports its own errors here and <see cref="IFormidableEngine.ApplyServerIssues"/>
-    /// a reply's advisories; a server error the override drops reports nowhere. A Trace line and,
+    /// A submit reports its own errors here and
+    /// <see cref="IFormidableEngine.ApplyServerIssues(IEnumerable{ValidationIssue})"/> a reply's
+    /// advisories; a server error the override drops reports nowhere. A Trace line and,
     /// where the host has an <c>ILoggerFactory</c>, a logged warning are written whether or not
     /// this is set. On the server route the issue's strings are the reply's own, so a callback
     /// writing them to a log should neutralize control characters in the path as the library's

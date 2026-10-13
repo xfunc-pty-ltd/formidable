@@ -20,12 +20,12 @@ says what the member answers and, where another page teaches it, links that page
 
 The engine as a page and the kit's components see it: field state, the issues showing, submit,
 loaded values, server issues and two events. Both roots build the shipped engine. Call
-`ValidateForSubmitAsync`, `DiscloseLoadedValuesAsync` and `ApplyServerIssues` from the renderer's
-synchronization context.
+`ValidateForSubmitAsync`, `DiscloseLoadedValuesAsync`, `MarkServerRequest` and both
+`ApplyServerIssues` overloads from the renderer's synchronization context.
 
-The engine's own `ValidateForSubmitAsync` and `ApplyServerIssues` move no focus. For a blocked
-submit that focuses its first error, submit through the root: `FormidableForm.SubmitAsync()` or
-`FormidableValidator.ValidateForSubmitAsync()`
+The engine's own `ValidateForSubmitAsync` and both its `ApplyServerIssues` overloads move no focus.
+For a blocked submit that focuses its first error, submit through the root:
+`FormidableForm.SubmitAsync()` or `FormidableValidator.ValidateForSubmitAsync()`
 ([Where does focus go on a blocked submit?](css-and-accessibility.md#where-does-focus-go-on-a-blocked-submit)).
 To make that move yourself, call `FocusFirstErrorAsync()` on either root
 ([Asking for the first-error move](component-kit.md#asking-for-the-first-error-move)).
@@ -51,6 +51,8 @@ double written today keeps compiling ([Testing](testing.md#the-form-under-bunit)
 | `MarkTouched(FieldIdentifier)` | `void` | Marks the field touched, which lets its state class paint, without reporting a value change, so no check starts. A committed change marks it touched too ([`FormidableField<TValue>` and `FormidableFieldContext`](component-kit.md#formidablefieldtvalue-and-formidablefieldcontext)). |
 | `ValidateForSubmitAsync(CancellationToken)` | `Task<SubmitOutcome>` | Validates the whole model under the submit profile, discloses what is on screen, and answers whether the submit may proceed ([`SubmitOutcome`](#submitoutcome)). A value edited while a check runs makes the call check again before it answers. The call checks at most three times: once, then again up to twice. So a submit that may proceed answers for the values the model holds as its last check ends. Under [`NormalizeOnSubmit`](options.md#normalizeonsubmit) the model is normalized before each check. When a newer submit or load answers in its place, the call reports blocked, with nothing shown. It also reports blocked, with nothing shown, when a value was edited during each of its three checks and the last check found no error. A token cancelled before the check answered throws `OperationCanceledException`. |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | `Task` | Says what the values already in the model have earned: a field holding a value shows what the submit profile says of it (valid, or its message), and a field holding nothing stays silent. A field rendered with [`WaitForSubmit`](options.md#waitforsubmit-per-component-not-a-formidableoptions-property) keeps its message back until a submit or server reply answers, and a passing value still shows valid. A cancelled call discloses nothing ([Saying what loaded values have earned](component-kit.md#saying-what-loaded-values-have-earned)). |
+| `MarkServerRequest()` | `ServerRequestMark` | Marks where the form stands as a page sends a request, for the marked `ApplyServerIssues` to check the reply against. It counts a field that started or stopped rendering only once the root has taken that change in, which can be after the render, so a page whose send adds or removes rows marks through `FormidableForm.MarkServerRequest()` or `FormidableValidator.MarkServerRequest()` instead: they take such a change in first. An engine that predates the member returns the default mark, which marks nothing. |
+| `ApplyServerIssues(IEnumerable<ValidationIssue>, ServerRequestMark)` | `bool` | Applies the reply as the unmarked overload does and returns `true`, unless, since the mark, a value was edited (a change an input holds until a blur counts when the blur announces it), values were loaded, a component that renders a field arrived or left, or a reset rebuilt the engine, or once the engine is disposed. Then it drops the reply and returns `false`: nothing shows, `HasSubmitted` is untouched and no event is raised. The default mark applies every reply. An engine that predates the member applies every reply and returns `true`. |
 | `ApplyServerIssues(IEnumerable<ValidationIssue>)` | `void` | Applies a server reply as the server's current answer, replacing the previous reply: an error lands whether or not its field is rendered, an advisory only where a submit could show it. It sets `HasSubmitted` and moves no focus, where `FormidableForm.ApplyServerIssues` treats a reply carrying an error as a blocked submit and moves focus while `FocusFirstErrorOnInvalidSubmit` is on, as it is by default ([Why did focus move when I applied the reply?](server-integration.md#why-did-focus-move-when-i-applied-the-reply)). The reply stands until the next submit or load of values, or until the form is re-checked after a later edit or a change in which fields render ([What happens to a server error when I edit the field?](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)). |
 
 ## `ValidationReport`
