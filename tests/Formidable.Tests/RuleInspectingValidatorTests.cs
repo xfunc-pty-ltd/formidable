@@ -241,11 +241,16 @@ public class RuleInspectingValidatorTests
         public SelfScopingChildRootValidator() => RuleFor(m => m.Child).SetValidator(new TaggedChildValidator());
     }
 
-    /// <summary>A root scoping the tagged child by the <c>SetValidator</c> call as well.</summary>
+    /// <summary>A root scoping the tagged child by the <c>SetValidator</c> call as well, with one
+    /// top-level "Admin" rule that demands no value and passes an empty model, so a profile naming
+    /// only "Admin" selects a rule here.</summary>
     private sealed class ScopedTaggedChildRootValidator : AbstractValidator<InspectModel>
     {
-        public ScopedTaggedChildRootValidator() =>
+        public ScopedTaggedChildRootValidator()
+        {
             RuleFor(m => m.Child).SetValidator(new TaggedChildValidator(), "Admin");
+            RuleSet("Admin", () => RuleFor(m => m.Title).MaximumLength(100));
+        }
     }
 
     /// <summary>A model one level deeper, so a scoped child can hold a scoped child.</summary>

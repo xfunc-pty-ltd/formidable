@@ -138,19 +138,47 @@ for a worked example.
 A `ProfiledValidator<T>` checks a profile's ruleset names before it validates against it, once per
 distinct profile. A name the validator never registered throws rather than quietly selecting
 nothing. FluentValidation's own `"*"` and `"default"` always pass: its selector honours those
-without any validator declaring them. The check rides the profile-taking `Validate`/`ValidateAsync`
-overloads `ValidatorProfileExtensions` adds, so a plain `AbstractValidator<T>` called through them
-is not covered.
+without any validator declaring them. Your own calls get the check through the `Validate` and
+`ValidateAsync` overloads that take a profile. `ValidatorProfileExtensions` adds those overloads to
+every FluentValidation validator. A plain `AbstractValidator<T>` registers no names, so this check
+does not cover it.
 
-A plain validator gets a `Trace` line instead, once per validator type and profile, when a profile
-that leaves out the default rules selects none of its rules. The form, the server filters and the
-`ValidatorProfileExtensions` overloads all write it.
+A plain validator has its rules counted instead. A profile that leaves out the default rules and
+selects none of the validator's rules throws `InvalidOperationException` wherever it is validated:
+in the form, in the server filters and through the `ValidatorProfileExtensions` overloads. On a
+plain validator, a profile that includes the default rules is never refused, so `Draft` and
+`Submit` always work there.
 
-Rules the validator brings in through `Include` count as its own. To read them, the check behind
-the line runs an `Include`'s factory with no model, so a factory with side effects can run then
-too. A factory that cannot build its validator without a model (usually because it reads the
-model) leaves its `Include` unjudged, and a profile that selects that `Include` gets no line. A
-factory that copes with a missing model is judged by the validator it builds then.
+Rules the validator brings in through an `Include` of a validator instance count as its own. The
+count takes an `Include` built by a factory (`Include(x => ...)`) as a selected rule without
+looking inside it, because what it builds can depend on the model.
+
+A plain validator whose class overrides `Validate` or `ValidateAsync` (one that forwards to
+another validator, say) is never refused for selecting nothing: what it validates need not be among
+the rules it declares.
+
+The exception's message ends with the rulesets the validator's top-level rules carry: the rules it
+declares itself, not those of a child or an included validator. So when the profile misspells one of
+those rulesets, the message shows both spellings.
+
+On the server, a minimal-API route validated with `Validate<TModel>(profile)` lets the exception
+reach the host's exception handling. `[Validate]` never meets it, because every profile it builds
+includes the default rules.
+
+In a form, the option holding the profile decides where the exception shows. Set as `SubmitProfile`,
+it shows as the [fault message](options.md#validationfaultmessage) once the form re-checks every
+field, `RefreshDebounce` (300 ms by default) after the form first renders. Each live check that runs
+the same profile shows it too. A submit and `DiscloseLoadedValuesAsync()` throw it to the code that
+called them. The form's own Submit button hands it to an `ErrorBoundary` around the form. With no
+boundary there, it takes Blazor's own unhandled-error path.
+
+As `LiveProfile` alone, it shows as the fault message from each live check, and submits run as
+usual.
+
+With `TrackFormValidity` on, the validity check, which runs `SubmitProfile`, meets the same
+exception. It shows nothing and raises `ValidationFaulted`, and `IsFormValid` keeps its last answer.
+A `ProfiledValidator<T>` that refuses a ruleset name it never registered throws from the same calls,
+so a form shows that refusal the same way.
 
 **Sample:** [`/custom-profiles`](../samples/Formidable.Sample/Pages/CustomProfiles.razor) — a third,
 custom ruleset (`AdminReview`) alongside the built-in pair, picked at runtime.

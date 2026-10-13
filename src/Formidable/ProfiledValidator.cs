@@ -19,11 +19,13 @@ namespace Formidable;
 /// </remarks>
 // The check catches a typo'd profile or ruleset name that FluentValidation would otherwise
 // ignore and silently under-validate. A plain AbstractValidator<T> validated through the
-// extensions is not checked this way; the most it gets is the Trace line
-// EmptyProfileSelectionReport writes, once per validator type and profile, when a profile that
-// leaves out the default rules selects none of its rules. The cache key is the whole profile,
-// which compares by its full shape, so two same-named profiles composing different rulesets are
-// checked on their own.
+// extensions has no registered names to check against; EmptyProfileSelectionCheck counts its
+// rules instead, and refuses a profile that leaves out the default rules when the count finds none
+// selected. The count reads an Include of a validator instance through that validator's rules, and
+// takes an Include built by a factory, anything it cannot read, and a validator overriding Validate
+// or ValidateAsync (which may check what its own rules do not) as selecting. The cache key is
+// the whole profile, which compares by its full shape, so two same-named profiles composing
+// different rulesets are checked on their own.
 public abstract class ProfiledValidator<T> : AbstractValidator<T>
 {
     private readonly HashSet<string> _registeredRuleSetNames = new(StringComparer.OrdinalIgnoreCase);
@@ -117,14 +119,14 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
         _verifiedProfiles.TryAdd(profile, 0);
     }
 
-    /// <summary>Checks <paramref name="profile"/> before <paramref name="validator"/> runs: a <see cref="ProfiledValidator{T}"/> has its ruleset names verified, and a plain <see cref="AbstractValidator{T}"/> that a profile leaving out the default rules selects no rule of is named in Trace, once per validator type and profile.</summary>
+    /// <summary>Checks <paramref name="profile"/> before <paramref name="validator"/> runs: a <see cref="ProfiledValidator{T}"/> has its ruleset names verified, and a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c> has its rules counted when the profile leaves out the default rules.</summary>
     /// <typeparam name="TValidated">The model type <paramref name="validator"/> accepts.</typeparam>
     /// <param name="validator">The validator about to run.</param>
     /// <param name="profile">The profile it runs under.</param>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     // The one call every profile-taking entry point shares instead of repeating the type tests:
     // both ValidatorProfileExtensions methods, and the adapter's ruleset check. The default-rules
-    // test comes before the record, so the built-in profiles (both include the default rules)
+    // test comes before the count, so the built-in profiles (both include the default rules)
     // never reach it, and a validator that cannot list its rules is never judged. Static, so the
     // enclosing type's own type parameter plays no part in the type tests: the pattern matches
     // below close over TValidated alone, resolved from the validator, and a caller reaches this
@@ -137,7 +139,7 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
         }
         else if (!profile.IncludeDefaultRules && validator is AbstractValidator<TValidated> plainValidator)
         {
-            EmptyProfileSelectionReport.ReportOnce(plainValidator, profile);
+            EmptyProfileSelectionCheck.Verify(plainValidator, profile);
         }
     }
 

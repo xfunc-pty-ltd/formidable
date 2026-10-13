@@ -43,7 +43,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="cancellationToken">Cancels an async rule still running.</param>
     /// <returns>The report; <see cref="ValidationReport.IsValid"/> is <see langword="true"/> when no error was found.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     public async Task<ValidationReport> ValidateAsync(TModel model, ValidationProfile profile, CancellationToken cancellationToken = default) =>
         ToReport(await _validator.ValidateAsync(model, profile, cancellationToken).ConfigureAwait(false));
 
@@ -52,7 +52,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="profile">The rule selection to run.</param>
     /// <returns>The report.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     /// <exception cref="AsyncValidatorInvokedSynchronouslyException">A rule <paramref name="profile"/> selects reaches an async validator or an async condition.</exception>
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         ToReport(_validator.Validate(model, profile));
@@ -108,13 +108,13 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <returns>A read-only list of identities scoped to this instance.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
     /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     /// <remarks>
     /// The list handed back is read-only, so no caller can alter what the next is served. One
     /// answer is kept at a time, by profile reference: a call naming the same instance as the
     /// last call is served the same list, and any other instance is computed afresh. A rule
-    /// added after construction is never read. A <see cref="ProfiledValidator{T}"/>'s ruleset
-    /// names are verified before anything is kept.
+    /// added after construction is never read. The profile is checked, as validating under it
+    /// is, before anything is kept.
     /// </remarks>
     public IReadOnlyList<RuleIdentity> SelectRules(ValidationProfile profile)
     {
@@ -162,7 +162,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> or <paramref name="rules"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">An identity in <paramref name="rules"/> did not come from <see cref="SelectRules"/> on this instance, or is the default identity.</exception>
     /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     public async Task<RuleLevelResult> ValidateRulesAsync(TModel model, ValidationProfile profile,
         IReadOnlyList<RuleIdentity> rules, CancellationToken cancellationToken = default)
     {
@@ -428,9 +428,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
         return string.Join('\u0000', sorted);
     }
 
-    /// <summary>Checks <paramref name="profile"/> as validating under it does: a misnamed ruleset on a <see cref="ProfiledValidator{T}"/> fails here too, and a plain validator that a profile leaving out the default rules selects no rule of is named in Trace, once per validator type and profile.</summary>
-    /// <param name="profile">The profile whose ruleset names are checked.</param>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <summary>Checks <paramref name="profile"/> as validating under it does, so a misnamed ruleset on a <see cref="ProfiledValidator{T}"/> fails here, and so does a profile without the default rules that selects no rule of a plain validator whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</summary>
+    /// <param name="profile">The profile to check.</param>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     private void VerifyRuleSets(ValidationProfile profile) =>
         ProfiledValidator<TModel>.CheckProfile(_validator, profile);
 

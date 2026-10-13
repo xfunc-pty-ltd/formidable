@@ -7,8 +7,8 @@ namespace Formidable;
 
 /// <summary>Reads the validator a child-validator component wraps, and the rulesets scoping it, without a model.</summary>
 // The one read of a child validator. The rule-inspection walk reads every child it meets through
-// it, and the empty-selection report reads each Include it meets, so the two agree on which
-// children can be had without a model.
+// it, and the empty-selection check reads each Include that holds a validator instance, so the
+// two agree on which children can be had without a model.
 internal static class ChildValidatorReader
 {
     // ValidationContext<T>'s one-argument constructor, found on the open type by a literal typeof
@@ -17,6 +17,14 @@ internal static class ChildValidatorReader
     // vouches for, so its absence is tested here and leaves the child unread.
     private static readonly ConstructorInfo? OpenContextConstructor =
         typeof(ValidationContext<>).GetConstructor([typeof(ValidationContext<>).GetGenericArguments()[0]]);
+
+    // The adaptor's private field holding the factory a lambda-taking call (Include(x => ...),
+    // SetValidator(x => ...)) hands it, null when the call handed it a validator instance. Nothing
+    // public tells the two apart: ValidatorType and RuleSets read the same for both. Found on the
+    // open type by a literal typeof so the trimmer keeps it; a FluentValidation that renamed it
+    // leaves this null, and every caller then treats the component as one it cannot tell.
+    private static readonly FieldInfo? OpenProviderField =
+        typeof(ChildValidatorAdaptor<,>).GetField("_validatorProvider", BindingFlags.NonPublic | BindingFlags.Instance);
 
     /// <summary>What one child-validator component yields: the validator it wraps, or <see langword="null"/> where that needs a model, and the adaptor's rulesets as declared.</summary>
     /// <param name="Validator">The wrapped validator, or <see langword="null"/> where it cannot be had without a model.</param>
@@ -44,8 +52,9 @@ internal static class ChildValidatorReader
     // already has. The call needs a context, and there is no model, so it passes one carrying
     // none: an adaptor holding a validator instance ignores it and hands the validator back; one
     // holding a factory runs that factory against a model that is not there. Every failure lands
-    // in the same place (no child) because both callers decorate or advise: a missing
-    // requirement mark beats a thrown render, and an unwritten Trace line beats a failed call.
+    // in the same place (no child) because both callers take a missing child as the safe answer:
+    // a missing requirement mark beats a thrown render, and the empty-selection check counts an
+    // unread Include as selecting rather than refuse a call that may validate something.
     // Every closed type this touches is read off the live adaptor rather than built from type
     // arguments. The pair check holds the adaptor to the rule it sits on: one closed over another
     // pair than that rule's model and property types is left unread, a missing answer rather than
@@ -65,7 +74,7 @@ internal static class ChildValidatorReader
             }
 
             // The inspection walk reads only while the surface is intact. The empty-selection
-            // report reads without asking, so a missing member leaves its child unread here.
+            // check reads without asking, so a missing member leaves its child unread here.
             if (FluentValidationInspectionSurface.Members is not { } members)
             {
                 return ChildReading.Unreadable;
@@ -97,6 +106,32 @@ internal static class ChildValidatorReader
         catch (Exception)
         {
             return ChildReading.Unreadable;
+        }
+    }
+
+    /// <summary>Whether a child-validator component builds its validator with a factory: <see langword="true"/> for a factory, <see langword="false"/> for a validator instance, <see langword="null"/> when it cannot tell.</summary>
+    /// <param name="component">The child-validator component to look at.</param>
+    /// <returns>The answer, read from what the component holds rather than from anything it builds.</returns>
+    // Structural, so nothing runs: a factory that hands back cached instances, or copes with a
+    // missing model, is still a factory. A component that is no ChildValidatorAdaptor, or a read
+    // that fails, cannot tell. A subclass that overrides GetValidator, such as FluentValidation's
+    // polymorphic validator, holds no provider and answers false; no Include builds one.
+    internal static bool? HoldsFactory(IRuleComponent component)
+    {
+        try
+        {
+            var adaptor = ClosedTypeOf(component.Validator, typeof(ChildValidatorAdaptor<,>));
+            if (adaptor is null || OpenProviderField is null)
+            {
+                return null;
+            }
+
+            var provider = (FieldInfo)adaptor.GetMemberWithSameMetadataDefinitionAs(OpenProviderField);
+            return provider.GetValue(component.Validator) is not null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

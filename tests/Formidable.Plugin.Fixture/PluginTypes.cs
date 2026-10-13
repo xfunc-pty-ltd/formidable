@@ -21,6 +21,13 @@ public sealed class PluginOrderValidator : AbstractValidator<PluginOrder>
     public PluginOrderValidator() => RuleFor(order => order.Name).MaximumLength(5);
 }
 
+/// <summary>A plain validator for the plugin's own model whose one rule sits in the <c>Review</c> ruleset.</summary>
+public sealed class PluginReviewValidator : AbstractValidator<PluginOrder>
+{
+    /// <summary>Declares the one rule.</summary>
+    public PluginReviewValidator() => RuleSet("Review", () => RuleFor(order => order.Name).NotEmpty());
+}
+
 /// <summary>A plugin's validator for a model the host owns.</summary>
 // Version stands in for a model in the host's contracts assembly. The default context loads it, so
 // DraftSubmitValidator<Version> is a default-context type, and its statics outlive the plugin.
@@ -70,6 +77,17 @@ public static class PluginEntry
     public static bool ValidateUnderSubmit() =>
         new FluentValidationModelValidator<PluginOrder>(new PluginOrderValidator())
             .ValidateAsync(new PluginOrder { Name = "Ada" }, ValidationProfile.Submit)
+            .GetAwaiter()
+            .GetResult()
+            .IsValid;
+
+    /// <summary>Validates a plugin model through the FluentValidation adapter under a profile that leaves out the default rules and selects the <c>Review</c> ruleset.</summary>
+    /// <returns>Whether the model passed.</returns>
+    public static bool ValidateUnderReviewOnly() =>
+        new FluentValidationModelValidator<PluginOrder>(new PluginReviewValidator())
+            .ValidateAsync(
+                new PluginOrder { Name = "Ada" },
+                ValidationProfile.Named("ReviewOnly", includeDefaultRules: false, "Review"))
             .GetAwaiter()
             .GetResult()
             .IsValid;

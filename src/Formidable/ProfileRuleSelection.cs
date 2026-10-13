@@ -4,9 +4,9 @@ using FluentValidation.Internal;
 namespace Formidable;
 
 /// <summary>Which of a validator's top-level rules a profile selects, answered by the selector a full validation under that profile uses.</summary>
-// Shared by the adapter's rule listing, its inspection members and the empty-selection report, so
+// Shared by the adapter's rule listing, its inspection members and the empty-selection check, so
 // all three ask one selector about a validator's top-level rules. The listing returns an admitted
-// Include as one rule; the report goes on to ask the same selector about the included validator's
+// Include as one rule; the check goes on to ask the same selector about the included validator's
 // rules.
 internal static class ProfileRuleSelection
 {

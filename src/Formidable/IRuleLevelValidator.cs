@@ -29,7 +29,7 @@ public interface IRuleLevelValidator<in TModel>
     /// <param name="profile">The rule selection to list.</param>
     /// <returns>The identities, opaque and scoped to this validator instance.</returns>
     /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, or leaves out the default rules and selects none of its rules, where the validator refuses such a profile (<see cref="FluentValidationModelValidator{TModel}"/> refuses the first over a <see cref="ProfiledValidator{T}"/>, and the second over any other <see cref="FluentValidation.AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>).</exception>
     /// <remarks>
     /// Selected: every rule outside any ruleset when <see cref="ValidationProfile.IncludeDefaultRules"/>
     /// is set or the profile names <c>"default"</c>; every rule whose ruleset membership meets
@@ -48,7 +48,7 @@ public interface IRuleLevelValidator<in TModel>
     /// <returns>The report for those rules, and whether it answers only for <paramref name="profile"/> (<see cref="RuleLevelResult.IsProfileScoped"/>).</returns>
     /// <exception cref="ArgumentException">An identity in <paramref name="rules"/> did not come from <see cref="SelectRules"/> on this instance, or is the default identity.</exception>
     /// <exception cref="NotSupportedException"><see cref="CanValidateByRule"/> is <see langword="false"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, or leaves out the default rules and selects none of its rules, where the validator refuses such a profile (<see cref="FluentValidationModelValidator{TModel}"/> refuses the first over a <see cref="ProfiledValidator{T}"/>, and the second over any other <see cref="FluentValidation.AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>).</exception>
     /// <remarks>
     /// A call carrying the profile's whole selection reproduces the report of validating the whole
     /// profile issue for issue. Split across several calls, each report carries its own rules'

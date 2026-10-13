@@ -31,7 +31,7 @@ public interface IRuleInspectingValidator<in TModel>
     /// <param name="fieldPath">A path <see cref="GetDeclaredFieldPaths"/> lists (<c>Title</c>, <c>Address.City</c>, <c>Attendees[].Name</c>) or an indexed form of one (<c>Attendees[0].Name</c>, any index at any depth), answered by its template with each index read as <c>[]</c> after an exact match is tried; compared ordinally, and any other string reads <see cref="FieldRequirement.NotRequired"/>.</param>
     /// <param name="profile">The rule selection that decides the answer.</param>
     /// <returns>The demand; <see cref="FieldRequirement.NotRequired"/> when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, or leaves out the default rules and selects none of its rules, where the validator refuses such a profile (<see cref="FluentValidationModelValidator{TModel}"/> refuses the first over a <see cref="ProfiledValidator{T}"/>, and the second over any other <see cref="FluentValidation.AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>).</exception>
     /// <remarks>
     /// Only a <c>NotEmpty()</c> or <c>NotNull()</c> failing as an error demands a value; a warning
     /// or info one, or a predicate such as <c>Must(...)</c>, reads <see cref="FieldRequirement.NotRequired"/>.
@@ -45,7 +45,7 @@ public interface IRuleInspectingValidator<in TModel>
     /// <summary>Returns every field path the rules <paramref name="profile"/> selects mention, as declared templates with each collection index left open (<c>Attendees[].Name</c>).</summary>
     /// <param name="profile">The rule selection that decides which rules are read.</param>
     /// <returns>The declared paths, compared ordinally; empty when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, where the validator verifies ruleset names (<see cref="ProfiledValidator{T}"/> does).</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset the validator never registered, or leaves out the default rules and selects none of its rules, where the validator refuses such a profile (<see cref="FluentValidationModelValidator{TModel}"/> refuses the first over a <see cref="ProfiledValidator{T}"/>, and the second over any other <see cref="FluentValidation.AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>).</exception>
     /// <remarks>
     /// Nested templates chain (<c>Teams[].Members[].Alias</c>), and per-row rules file as
     /// <c>Tags[]</c>. Child validators (<c>SetValidator</c>, <c>ChildRules</c>, <c>Include</c>),

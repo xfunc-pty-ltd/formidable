@@ -13,13 +13,13 @@ public static class ValidatorProfileExtensions
     /// <param name="profile">The rule selection to run.</param>
     /// <returns>FluentValidation's result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="validator"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     /// <exception cref="AsyncValidatorInvokedSynchronouslyException">A rule <paramref name="profile"/> selects reaches an async validator or an async condition.</exception>
     /// <remarks>
-    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. When a
-    /// profile that leaves out the default rules selects no rule of a plain
-    /// <see cref="AbstractValidator{T}"/>, one Trace line says so, once per validator type and
-    /// profile in a process.
+    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. A plain
+    /// <see cref="AbstractValidator{T}"/> has its rules counted instead when the profile leaves out
+    /// the default rules, and throws when the profile selects none of them, as a misnamed ruleset
+    /// does.
     /// </remarks>
     public static ValidationResult Validate<T>(this IValidator<T> validator, T model, ValidationProfile profile)
     {
@@ -38,12 +38,12 @@ public static class ValidatorProfileExtensions
     /// <param name="cancellationToken">Cancels an async rule still running.</param>
     /// <returns>FluentValidation's result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="validator"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     /// <remarks>
-    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. When a
-    /// profile that leaves out the default rules selects no rule of a plain
-    /// <see cref="AbstractValidator{T}"/>, one Trace line says so, once per validator type and
-    /// profile in a process.
+    /// A <see cref="ProfiledValidator{T}"/> has the profile's ruleset names verified first. A plain
+    /// <see cref="AbstractValidator{T}"/> has its rules counted instead when the profile leaves out
+    /// the default rules, and throws when the profile selects none of them, as a misnamed ruleset
+    /// does.
     /// </remarks>
     public static Task<ValidationResult> ValidateAsync<T>(
         this IValidator<T> validator, T model, ValidationProfile profile, CancellationToken cancellationToken = default)

@@ -527,4 +527,78 @@ public class EndpointFilterTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    // "Escalte" is a typo for the validator's "Escalate" ruleset, and the profile leaves out the
+    // default rules, so it selects no rule of the plain validator. The filter does not catch what
+    // the validator throws, so the host's exception handling answers: the fixture's stand-in for
+    // Kestrel's fallback turns it into a 500. The control route names the ruleset correctly.
+    // Mutation: make the plain check return instead of throwing. The typo route then answers 200
+    // for an empty title.
+    [Fact]
+    public async Task Validate_under_an_empty_profile_lets_the_exception_reach_the_host()
+    {
+        await using var app = await TestApp.StartAsync(
+            a =>
+            {
+                a.MapPost("/typo", (Ticket ticket) => Results.Ok(ticket))
+                    .Validate<Ticket>(ValidationProfile.Named("Escalte", includeDefaultRules: false, "Escalte"));
+                a.MapPost("/control", (Ticket ticket) => Results.Ok(ticket))
+                    .Validate<Ticket>(ValidationProfile.Named("Escalate", includeDefaultRules: false, "Escalate"));
+            },
+            services => services.AddScoped<IValidator<Ticket>, TicketValidator>());
+        var client = app.GetTestClient();
+
+        var typo = await client.PostAsJsonAsync("/typo", new Ticket { Title = "" });
+        var control = await client.PostAsJsonAsync("/control", new Ticket { Title = "toolong" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, control.StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, typo.StatusCode);
+        Assert.StartsWith(
+            "InvalidOperationException: Profile 'Escalte' leaves out the default rules",
+            await typo.Content.ReadAsStringAsync());
+    }
+
+    // A validator that declares no rule of its own and forwards to another is judged by what the
+    // other selects, so a profile that leaves out the default rules is not refused for it: the
+    // forwarded ruleset answers 400 with its failure. Mutation: drop the entry-point overrides from
+    // the empty-selection count, and the route answers 500 with the refusal.
+    [Fact]
+    public async Task Validate_under_a_profile_a_forwarding_validator_selects_answers_400()
+    {
+        await using var app = await TestApp.StartAsync(
+            a => a.MapPost("/forwarded", (Ticket ticket) => Results.Ok(ticket))
+                .Validate<Ticket>(ValidationProfile.Named("Escalate", includeDefaultRules: false, "Escalate")),
+            services => services.AddScoped<IValidator<Ticket>, ForwardingTicketValidator>());
+        var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/forwarded", new Ticket { Title = "toolong" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Title", await response.Content.ReadAsStringAsync());
+    }
+
+    public sealed class Ticket
+    {
+        public string? Title { get; set; }
+    }
+
+    /// <summary>Declares no rule of its own and forwards every validation to <see cref="TicketValidator"/>.</summary>
+    public sealed class ForwardingTicketValidator : AbstractValidator<Ticket>
+    {
+        private readonly TicketValidator _inner = new();
+
+        public override FluentValidation.Results.ValidationResult Validate(ValidationContext<Ticket> context) => _inner.Validate(context);
+
+        public override Task<FluentValidation.Results.ValidationResult> ValidateAsync(ValidationContext<Ticket> context, CancellationToken cancellation = default) =>
+            _inner.ValidateAsync(context, cancellation);
+    }
+
+    public sealed class TicketValidator : AbstractValidator<Ticket>
+    {
+        public TicketValidator()
+        {
+            RuleFor(t => t.Title).NotEmpty();
+            RuleSet("Escalate", () => RuleFor(t => t.Title).MaximumLength(3));
+        }
+    }
 }

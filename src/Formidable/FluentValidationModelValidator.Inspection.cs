@@ -41,7 +41,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="profile">The rule selection that decides the answer.</param>
     /// <returns>The demand; <see cref="FieldRequirement.NotRequired"/> when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="fieldPath"/> or <paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     public FieldRequirement GetFieldRequirement(string fieldPath, ValidationProfile profile)
     {
         ArgumentNullException.ThrowIfNull(fieldPath);
@@ -89,7 +89,7 @@ public sealed partial class FluentValidationModelValidator<TModel>
     /// <param name="profile">The rule selection that decides which rules are read.</param>
     /// <returns>The declared paths, compared ordinally; empty when <see cref="CanInspectRules"/> is <see langword="false"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="profile"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="profile"/> names a ruleset a <see cref="ProfiledValidator{T}"/> never registered, or leaves out the default rules and selects no rule of a plain <see cref="AbstractValidator{T}"/> whose class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</exception>
     /// <remarks>
     /// A child validator written for a base type (an <c>AnimalValidator</c> on a <c>Dog</c>) is
     /// read. A rule on each row, written with <c>RuleForEach</c> or <c>ForEach</c>, files under
