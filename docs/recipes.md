@@ -241,10 +241,15 @@ app.MapGroup("/api/signups").Validate<Signup>(
 ```
 
 **What it costs.** Narrowing changes which checks run a rule, not what the form enforces at submit.
-After a submit, one edit still runs a shared rule once, however many profile names reach it (a rule
-reached through `Include()` or `SetValidator` is the exception and may run again); only a validator
-with a class-level cascade stop or a `PreValidate` override, or one that is not FluentValidation's
-`AbstractValidator`, re-runs every rule on each check.
+After a submit, one edit still runs a shared rule once, however many profile names reach it.
+
+A rule inside an `Include()` may run again. So may a child validator attached with `SetValidator`,
+if one of its rules lacks a ruleset the attaching rule sits in, or sits in a ruleset while the
+attaching rule sits in none. Rulesets named on the `SetValidator` call itself keep the child to one
+run.
+
+Only a validator with a class-level cascade stop or a `PreValidate` override, or one that is not
+FluentValidation's `AbstractValidator`, re-runs every rule on each check.
 
 With `TrackFormValidity` on, narrowing saves nothing: the rules the live channel skipped still run
 at each check to keep `IsFormValid` honest. And no field wears the `Valid` class on the strength of

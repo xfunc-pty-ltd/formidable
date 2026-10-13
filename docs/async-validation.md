@@ -236,8 +236,11 @@ visible: submit, then type, and one "checking" cycle runs, not two. The exceptio
 
 - Narrow `LiveProfile` and the re-check runs the rules the live check skipped. Swap `LiveProfile`
   at runtime and it takes effect at the next check; rules both profiles select are not re-run.
-- A rule inside an `Include()`, or in a child validator with rulesets of its own, may run again
-  when the live and submit profiles differ. Plain rules, ruleset rules and `ChildRules` run once.
+- When the live and submit profiles differ, a rule inside an `Include()` may run again. So may a
+  child validator attached with `SetValidator`, if one of its rules lacks a ruleset the attaching
+  rule sits in, or sits in a ruleset while the attaching rule sits in none. Rulesets named on the
+  `SetValidator` call itself keep the child to one run. Plain rules, ruleset rules and `ChildRules`
+  run once.
 - A rule written with `RuleForEach` is checked for every row at once, so an expensive per-row
   check costs the whole collection on each edit that reaches it.
 - A validator with a class-level cascade stop or a `PreValidate` override, or one that is not

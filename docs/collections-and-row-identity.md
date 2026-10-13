@@ -257,13 +257,37 @@ A dictionary is the exception, an `OrderedDictionary<TKey, TValue>` included, th
 too: [dictionaries are not supported for per-entry validation](#can-i-validate-each-entry-of-a-dictionary).
 
 A collection with an int indexer but none of those list interfaces is not a list, and its indexer
-may read by id rather than by position. A row bound through it, `() => model.Codes[id]`, gets none
-of its messages, and with an id of 0 or more it never wears the valid class.
+may read by id rather than by position. A row bound through it by id, `() => model.Codes[id]`, gets
+none of its messages. With an id of 0 or more, it never wears the valid class either.
+
+No binding reaches such a row while the collection stays as it is. Implement `IReadOnlyList<T>` or
+`IList<T>` on it explicitly, with an indexer that reads by position, and the collection keeps its
+own indexer by id. Then bind each row through that interface:
+`@bind-Value="((IList<string>)model.Codes)[index]"`, with the same cast in `For`. A cast to
+`IReadOnlyList<T>` serves `For` but not `@bind-Value`, which has to assign through it.
+
+Bound through the interface, each row gets its messages, its invalid and valid classes and its
+required mark, as a `List<T>` row does. The other way is to hold the rows in a `List<T>`.
+
+Which way out fits depends on what the rows hold. Rows of strings or numbers take the list interface
+and its cast, rows of objects take `Collection<T>` (below), and either kind can move to a `List<T>`.
+
+Rows that are objects (a `LineItem` with a `Sku`) bind by their members, as [the member
+list](#what-does-key-actually-buy) does, so they need no cast. The form finds each one by its
+position through the non-generic `IList`, which an array, a `List<T>` and a `Collection<T>` all
+implement. A collection without that interface but with an int indexer has each row read through
+that indexer instead.
+
+Take a collection whose int indexer reads by id and that lacks the non-generic `IList`. An object
+row's message and required mark there land on the row whose id equals that row's position, or on no
+row. A failing row there can wear the valid class. Implementing `IReadOnlyList<T>` or `IList<T>`
+does not help. Derive the collection from `Collection<T>` instead, keeping its indexer by id (a
+`KeyedCollection` keyed by id is one), or hold the rows in a `List<T>`.
 
 A `KeyedCollection<TKey, TItem>` is a list, so bind its rows by position. With string keys,
 `() => model.Codes[index]` reads by position, because the key indexer takes a string. Where an `int`
 converts to the key type, as it does for `int`, `long` or `double` keys, `model.Codes[index]` picks
-the key indexer, so bind through the list interface instead: `() => ((IList<TItem>)model.Codes)[index]`.
+the key indexer. Bind through the list interface there: `() => ((IList<TItem>)model.Codes)[index]`.
 
 Binding a row by its key is not supported. FluentValidation names each row by its position, so a
 key-bound input can show another row's message, or none. With int keys it can also wear the valid

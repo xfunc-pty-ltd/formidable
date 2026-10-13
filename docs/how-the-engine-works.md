@@ -1308,6 +1308,10 @@ An indexer segment reads the item at that position: an `IList` directly under an
 other case through the indexer its token fits (an int token picks the int indexer, any other the
 string one, and a type with a single indexer answers with it whatever its key type).
 
+On a collection that is no `IList`, an int indexer that reads by id rather than by position reaches
+the item with that id. A row object's failure is then filed on the row with that id, or on the
+collection where the indexer throws or answers null.
+
 The terminal segment never navigates: it names the field on whatever object the walk reached.
 Nested and indexed segments mix freely: every non-terminal segment is one `Navigate` call,
 whichever kind it is, and nothing orders the kinds.
