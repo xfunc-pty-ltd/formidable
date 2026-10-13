@@ -1,7 +1,7 @@
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
@@ -190,11 +190,17 @@ internal sealed class SubmitCoverageTracker(
 
     // Whether each collection type that is neither a list nor a non-generic IDictionary yields
     // key-value pairs, which is how a type implementing only the generic dictionary interfaces
-    // shows itself. Asking the type for those interfaces walks its interface list, which the
-    // trimming analysers flag (IL2075) in this AOT-compatible package, so the answer is read from
-    // the first item instead and remembered per type. The types are the app's own models, so the
-    // cache settles at the few collection types the app binds.
-    private static readonly ConcurrentDictionary<Type, bool> YieldsPairs = new();
+    // shows itself. The answer is read from the first item and remembered per type, so such a
+    // collection is judged by what it yields, whatever interfaces it declares. IsIndexedList's
+    // interface read (the only one in the package, behind a justified trimming suppression) sees
+    // the generic dictionary interfaces too, but only to keep a dictionary out of the lists.
+    // Weak on the type, so a collectible load context that defines the collection can still
+    // unload. The types are the app's own models, so the table settles at the few collection
+    // types the app binds. Its values are two shared boxes, because the table holds only
+    // reference types.
+    private static readonly ConditionalWeakTable<Type, object> YieldsPairs = new();
+    private static readonly object Pairs = true;
+    private static readonly object NoPairs = false;
 
     /// <summary>Whether <paramref name="model"/> is a dictionary: a non-generic <see cref="IDictionary"/>, or a collection other than a list whose items are <see cref="KeyValuePair{TKey, TValue}"/> values.</summary>
     /// <param name="model">A field's model.</param>
@@ -219,7 +225,7 @@ internal sealed class SubmitCoverageTracker(
         var type = model.GetType();
         if (YieldsPairs.TryGetValue(type, out var known))
         {
-            return known;
+            return (bool)known;
         }
 
         if (!TryReadFirst(items, out var first))
@@ -230,7 +236,7 @@ internal sealed class SubmitCoverageTracker(
         var pairs = first is not null
             && first.GetType() is { IsGenericType: true } itemType
             && itemType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
-        YieldsPairs.TryAdd(type, pairs);
+        YieldsPairs.TryAdd(type, pairs ? Pairs : NoPairs);
         return pairs;
     }
 

@@ -358,10 +358,14 @@ interface is no dictionary.
 A collection of a type it has not yet seen has no item to read while it is empty, so it reads as no
 dictionary until it holds an entry; with no entry, none can fail.
 
-It reads the items rather than the type's interfaces because asking a type for its interfaces trips
-the trimming analysers in this AOT-compatible package. A dictionary that holds objects is beyond
-it: the field bound to a member of one of those objects belongs to the object, and can still wear
-green while its value fails.
+For a collection that is neither a list nor a non-generic `IDictionary`, `IsDictionary` reads the
+items rather than the type's interfaces, so the collection is judged by what it yields, whatever
+interfaces it declares. The Blazor package's one walk over a type's interfaces, in
+[`IsIndexedList`](#the-walk), sees the generic dictionary interfaces too, but only to keep a
+dictionary out of the lists.
+
+A dictionary that holds objects is beyond `IsDictionary`: the field bound to a member of one of
+those objects belongs to the object, and can still wear green while its value fails.
 
 Two more fields are never vouched for, for the same reason: no answer can reach them. An input bound
 by an index to a collection `IsIndexedList` rejects, such as one whose int indexer reads by id, is

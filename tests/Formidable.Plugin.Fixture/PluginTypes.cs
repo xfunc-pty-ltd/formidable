@@ -1,3 +1,4 @@
+using System.Collections;
 using FluentValidation;
 
 namespace Formidable.Plugin.Fixture;
@@ -30,6 +31,35 @@ public sealed class HostModelValidator : DraftSubmitValidator<Version>
 
     /// <inheritdoc />
     protected override void ConfigureSubmitRules() => RuleFor(version => version.Minor).GreaterThanOrEqualTo(0);
+}
+
+/// <summary>A collection of key-value pairs that is neither a list nor a dictionary.</summary>
+public sealed class PluginPairs : IEnumerable<KeyValuePair<int, string>>
+{
+    /// <inheritdoc />
+    public IEnumerator<KeyValuePair<int, string>> GetEnumerator()
+    {
+        yield return new(1, "a");
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+}
+
+/// <summary>A list known only by its generic interface, whose element type the plugin owns.</summary>
+public sealed class PluginList : IReadOnlyList<PluginOrder>
+{
+    private readonly List<PluginOrder> _items = [new() { Name = "Ada" }];
+
+    /// <inheritdoc />
+    public PluginOrder this[int index] => _items[index];
+
+    /// <inheritdoc />
+    public int Count => _items.Count;
+
+    /// <inheritdoc />
+    public IEnumerator<PluginOrder> GetEnumerator() => _items.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 /// <summary>What the plugin does with Formidable when the host asks.</summary>
