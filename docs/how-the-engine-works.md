@@ -134,8 +134,17 @@ the error sites and the fields the validator declares a rule for. A live pass fo
 anything is engaged, to file the verdicts that disclose what those fields earned.
 
 A list or array element is read from the collection itself, because the introspector reads
-members and an element is not one. Its declared type is the array's element type, or the type
-argument of the `List<T>` or `Collection<T>` the list is or derives from.
+members and an element is not one. A non-generic `IList` is read through its indexer.
+
+A list known only by `IList<T>` or `IReadOnlyList<T>` is walked to the index instead, because its
+indexer cannot be called without naming the element type, and reading it through reflection would
+trip the trimming analysers. FluentValidation numbers a collection's items in the order it
+enumerates them, so the item the walk reaches at an index is the one FluentValidation reported
+there.
+
+The element's declared type is the array's element type, or the type argument of the `List<T>` or
+`Collection<T>` the list is or derives from. For a list known only by its generic interface it is
+that interface's type argument, taken from the read [`IsIndexedList`](#the-walk) already made.
 
 Any other list lends the value's own type instead. There an element declared as a `Nullable<T>`,
 `object` or an interface and holding a value type's default reads as empty, and the field stays
@@ -326,12 +335,15 @@ when the field has no error, is touched or modified, carries no warning or info,
 `SubmitCoverageTracker`. [CSS and accessibility](css-and-accessibility.md#what-puts-green-on-a-field)
 has what a reader sees; this section has the read behind it.
 
-**What the vouch reads.** `WouldPassSubmit` is true for a field when four things hold:
+**What the vouch reads.** `WouldPassSubmit` is true for a field when six things hold:
 
 - the submit-selected coverage reads fresh (earned at the current edit stamp, or held as below);
 - none of its answers carries an error for the field, disclosed or not;
 - the field is not one edited past a held answer being served;
-- the field's model is not a dictionary.
+- the field's model is not a dictionary;
+- a field named by digits alone has a list for its model, as `IsIndexedList` reads one;
+- a field on a `KeyedCollection<TKey, TItem>` is named by digits alone, as a row bound by its
+  position is, or names a property of the collection's type.
 
 A dictionary's entry is never vouched for. FluentValidation names a failing entry by its position
 and Blazor names the input bound to it by its key, so no answer can be matched to the entry:
@@ -339,14 +351,36 @@ and Blazor names the input bound to it by its key, so no answer can be matched t
 which never equals the field Blazor names by the key.
 
 `SubmitCoverageTracker.IsDictionary` reads a non-generic `IDictionary`, empty or not, or any other
-collection that is not a list and yields `KeyValuePair` items, remembering the answer per type.
-Such a collection of a type it has not yet seen has no item to read while it is empty, so it reads
-as no dictionary until it holds an entry; with no entry, none can fail.
+collection that is not a list and yields `KeyValuePair` items, remembering the answer per type. A
+list here is any collection `IsIndexedList` accepts, so a list of pairs known only by its generic
+interface is no dictionary.
+
+A collection of a type it has not yet seen has no item to read while it is empty, so it reads as no
+dictionary until it holds an entry; with no entry, none can fail.
 
 It reads the items rather than the type's interfaces because asking a type for its interfaces trips
 the trimming analysers in this AOT-compatible package. A dictionary that holds objects is beyond
 it: the field bound to a member of one of those objects belongs to the object, and can still wear
 green while its value fails.
+
+Two more fields are never vouched for, for the same reason: no answer can reach them. An input bound
+by an index to a collection `IsIndexedList` rejects, such as one whose int indexer reads by id, is
+named by the digits it was bound with. [The walk](#the-walk) files a failure on that collection
+under the bracketed position instead.
+
+A `KeyedCollection<TKey, TItem>` row bound by a key that is not an index, such as the string `"b"`,
+is named by the key's text, while every answer names the row by its position. The tracker finds a
+keyed collection by walking its base types, which reads cleanly under trimming. It walks only for a
+list field whose name is not an index.
+
+A property the collection's type declares, such as `Title` on a subclass, is no row: its answers
+name it as Blazor names the input bound to it, so it is vouched for as any property is. The tracker
+reads the type's public properties for that, after the walk. A key whose text is also a property's
+name reads as that property, since Blazor names both the same way.
+
+A row bound by a key whose text is digits alone, such as the int key `1` or the string key `"1"`, is
+named as the row at that position is. The vouch then reads that row's answer, and can put green on a
+row whose own value fails. Binding a row by its key is not supported.
 
 Freshness is judged form-level, deliberately. Which fields a passing rule speaks for is
 unknowable, so one form-wide answer covers every field, while a failing answer names its fields
@@ -1295,11 +1329,11 @@ public static FieldIdentifier ToFieldIdentifier(this ResolvedField field, object
     }
 
     // A list or array element is the field Blazor names by the collection and the index, so
-    // the brackets go. Only a non-generic IList that is not a dictionary counts (every array,
-    // List<T> and Collection<T>). FluentValidation numbers a dictionary's entries by position,
-    // while Blazor names an entry by its key, so an entry keeps its brackets rather than meet
-    // another entry's input; an OrderedDictionary is a list as well, and keeps them too. So
-    // does a collection that implements only the generic IList<T>.
+    // the brackets go. A list is any collection IsIndexedList accepts: a non-generic IList, or
+    // one implementing only IList<T> or IReadOnlyList<T>. FluentValidation numbers a
+    // dictionary's entries by position, while Blazor names an entry by its key, so an entry
+    // keeps its brackets rather than meet another entry's input; an OrderedDictionary is a
+    // list as well, and keeps them too.
     if (IsIndexedList(field.Owner)
         && field.PropertyName is ['[', .., ']'] name
         && TryParseIndex(name.AsSpan(1, name.Length - 2), out var index))
@@ -1324,9 +1358,17 @@ as `"[0]"`, while `FieldIdentifier.Create(() => model.Tags[i])` gives the list a
 `"0"`. Dropping the brackets is what lets a row with no members (a string, a number) meet the input
 bound to it.
 
-Only an owner `IsIndexedList` accepts takes the branch: a non-generic `IList` that is not an
-`IDictionary` (an array, a `List<T>`, a `Collection<T>`). The token between the brackets must be a
-whole index too, digits alone, which is what `TryParseIndex` reads.
+Only an owner `IsIndexedList` accepts takes the branch: a list that is no dictionary. A non-generic
+`IList` that is no `IDictionary` passes on a type test (an array, a `List<T>`, a `Collection<T>`).
+Any other collection passes when its type implements `IList<T>` or `IReadOnlyList<T>` and neither
+generic dictionary interface, as an `ImmutableArray<T>.Builder` or a `JsonArray` does. The token
+between the brackets must be a whole index too, digits alone, which is what `TryParseIndex` reads.
+
+That interface read happens once per type, cached in a `ConditionalWeakTable`. It is the Blazor
+package's one walk over a type's interfaces, behind a justified trimming suppression: the type is a
+live instance's, and the trimmer keeps an interface implementation the `typeof` tests name. An
+implementation removed anyway would read as no list, so the element keeps its brackets and nothing
+throws.
 
 A dictionary entry keeps its brackets, because FluentValidation numbers entries by position and
 Blazor names one by its key. An `OrderedDictionary<TKey, TValue>` is a list as well as a dictionary,
@@ -1337,9 +1379,13 @@ With its brackets kept, an entry's failure reaches no input. Where it is the for
 submit discloses nothing and [the gate](#the-gate-latch) shows, as for a `Dictionary<TKey, TValue>`
 entry.
 
-An element of a collection that implements only the generic `IList<T>` keeps its brackets as well,
-so its rows' messages never reach inputs bound by index. A `List<KeyValuePair<TKey, TValue>>` is a
-list and not a dictionary, so its elements are named by index like any other list's.
+An element of a collection `IsIndexedList` rejects keeps its brackets as well: a `HashSet<T>`'s, or
+one read by id through an int indexer. Its message never reaches an input bound by index, and
+[the vouch](#the-submit-coverage-vouch) never puts green on that input.
+
+A `List<KeyValuePair<TKey, TValue>>` is a list and not a dictionary, so its elements are named by
+index like any other list's, and so are those of a list of pairs known only by its generic
+interface.
 
 `FieldIdentifier` compares by the owner reference and the field name. For a row that is an object,
 one built this way equals one built from the same instance and name wherever that object sits in

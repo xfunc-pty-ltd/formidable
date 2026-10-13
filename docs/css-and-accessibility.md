@@ -80,6 +80,10 @@ a member of an object the dictionary holds, such as `model.Answers[key].Value`, 
 that member fails
 ([Can I validate each entry of a dictionary?](collections-and-row-identity.md#can-i-validate-each-entry-of-a-dictionary)).
 
+An input bound by an index to a collection that is not a list, such as one whose int indexer reads
+by id, never wears `Valid` either, and nor does a `KeyedCollection` row bound by a key that is not
+an index ([How do I bind a list of strings or numbers?](collections-and-row-identity.md#how-do-i-bind-a-list-of-strings-or-numbers)).
+
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 
 ### Which check turns a field green?

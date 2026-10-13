@@ -248,19 +248,32 @@ identifies the row by its index instead, the field `FieldIdentifier.Create(() =>
 names and Blazor's own `EditContext` uses. Each row's message shows at its own input, its state
 class reads its own value, and a blocked submit's summary lists it under its display name.
 
-That holds in an array and in any list that implements the non-generic `IList`, as `List<T>` and
-`Collection<T>` do, unless the list is also a dictionary. Once the page replaces the list, it holds
-only with the key on the element around the loop. A collection that implements only the
-generic `IList<T>` is one exception: Formidable does not identify its rows by index, so their
-messages never reach inputs bound that way.
+That holds in an array and in any list (a collection implementing `IList`, `IList<T>` or
+`IReadOnlyList<T>`, such as `List<T>`, `ImmutableArray<T>.Builder` or a `JsonArray`), unless the
+list is also a dictionary. Once the page replaces the list, it holds only with the key on the
+element around the loop.
 
-A dictionary is the other exception, an `OrderedDictionary<TKey, TValue>` included, though it is a
-list too: [dictionaries are not supported for per-entry validation](#can-i-validate-each-entry-of-a-dictionary).
+A dictionary is the exception, an `OrderedDictionary<TKey, TValue>` included, though it is a list
+too: [dictionaries are not supported for per-entry validation](#can-i-validate-each-entry-of-a-dictionary).
+
+A collection with an int indexer but none of those list interfaces is not a list, and its indexer
+may read by id rather than by position. A row bound through it, `() => model.Codes[id]`, gets none
+of its messages, and with an id of 0 or more it never wears the valid class.
+
+A `KeyedCollection<TKey, TItem>` is a list, so bind its rows by position. With string keys,
+`() => model.Codes[index]` reads by position, because the key indexer takes a string. Where an `int`
+converts to the key type, as it does for `int`, `long` or `double` keys, `model.Codes[index]` picks
+the key indexer, so bind through the list interface instead: `() => ((IList<TItem>)model.Codes)[index]`.
+
+Binding a row by its key is not supported. FluentValidation names each row by its position, so a
+key-bound input can show another row's message, or none. With int keys it can also wear the valid
+class while its own value fails.
 
 A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
-written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a `List<T>`
-or a `Collection<T>`, filled in means what `NotEmpty()` means. In any other list, a zero or a
-`false` held as a nullable or an `object` counts as empty, so a load leaves it silent.
+written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a
+`List<T>`, a `Collection<T>` or a list that implements only `IList<T>` or `IReadOnlyList<T>`,
+filled in means what `NotEmpty()` means. In any other list, a zero or a `false` held as a nullable
+or an `object` counts as empty, so a load leaves it silent.
 
 A row whose input waits for Submit (`WaitForSubmit`) is still confirmed at a load when its value
 passes. While that input is rendered, a failing value shows no message and no state class until a
@@ -307,8 +320,8 @@ each row's message, state class and required mark follow. Replacing the list is 
 The new list is a new key, so Blazor builds new components for every row, for kit inputs and a
 native `InputText` alike. Without the key, Blazor reuses the rows by position, and they go on
 speaking for the list that left. A row cleared after the replacement then shows no message, no
-invalid class and no required mark, and a blocked submit can only say that something not on screen
-is invalid.
+invalid class and no required mark, and it can still wear the valid class. A blocked submit can
+only say that something not on screen is invalid.
 
 [`VerifyRowKeys`](options.md#verifyrowkeys), the check for Development builds, catches that shape:
 the first render after the replacement throws, naming the key on the element around the loop.

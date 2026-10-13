@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
@@ -99,12 +101,12 @@ internal sealed class SubmitCoverageTracker(
     private int _lastSubmitAnswerStamp = -1;
     private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
-    /// <summary>Whether <paramref name="field"/> would pass a submit: the submit rules have answered for the model as it stands, none fails the field, the field was not edited past a held answer, and it is no dictionary's entry.</summary>
+    /// <summary>Whether <paramref name="field"/> would pass a submit: the submit rules have answered for the model as it stands, none fails the field, the field was not edited past a held answer, and no answer is unable to reach it.</summary>
     /// <param name="field">The field the state class is being computed for.</param>
     /// <param name="editStamp">The current edit stamp.</param>
     /// <param name="profile">The submit profile.</param>
     /// <param name="selectRules">The validator's rule selection, or <see langword="null"/> for a validator that cannot validate rule by rule.</param>
-    /// <returns><see langword="true"/> when the engine can vouch for the field; <see langword="false"/> when coverage is stale, an answer fails the field, the field was edited past the held answer being served, or its model is a dictionary (<see cref="IsDictionary"/>).</returns>
+    /// <returns><see langword="true"/> when the engine can vouch for the field; <see langword="false"/> when coverage is stale, an answer fails the field, the field was edited past the held answer being served, or the field is one no answer reaches: a dictionary's entry (<see cref="IsDictionary"/>), a name of digits alone on a model that is no list (<see cref="ResolvedFieldExtensions.IsIndexedList"/>), or a <see cref="System.Collections.ObjectModel.KeyedCollection{TKey, TItem}"/> row bound by a key, a field there whose name is neither an index nor a property of the collection's type.</returns>
     // The ask's coordinates arrive from the engine at each ask, which keeps the options' and the
     // capability's read-at-each-use contracts the engine's to honour.
     internal bool WouldPassSubmit(
@@ -120,7 +122,70 @@ internal sealed class SubmitCoverageTracker(
             // A dictionary's entry is never vouched for. FluentValidation names a failing entry by
             // its position and Blazor names the input bound to it by its key, so no answer can be
             // matched to the entry, and one that fails would otherwise read as passing.
-            && !IsDictionary(field.Model);
+            && !IsDictionary(field.Model)
+            // Nor is an input bound by an index to a collection that does not name its elements
+            // by position, such as one whose int indexer reads by id: FluentValidation's position
+            // names another element, or none.
+            && !(ResolvedFieldExtensions.TryParseIndex(field.FieldName, out _)
+                && !ResolvedFieldExtensions.IsIndexedList(field.Model))
+            // Nor a KeyedCollection row bound by a key that is not an index, which is named by the
+            // key's text while every answer names the row by its position. A key whose text is an
+            // index names the row at that position, so this cannot tell it from a row bound there.
+            // A property the collection's type declares is no row: its answers name it as Blazor
+            // does, so it is vouched for as any other property is.
+            && !(!ResolvedFieldExtensions.TryParseIndex(field.FieldName, out _)
+                && IsKeyedCollection(field.Model)
+                && !NamesProperty(field.Model, field.FieldName));
+    }
+
+    /// <summary>Whether <paramref name="name"/> is the name of a public instance property of <paramref name="model"/>'s type that takes no index.</summary>
+    /// <param name="model">A field's model, here a keyed collection.</param>
+    /// <param name="name">The field's name.</param>
+    /// <returns><see langword="true"/> when the type has such a property, declared on it or inherited.</returns>
+    // Asked only for a keyed collection's field whose name is not an index, after the base-type
+    // walk, so it stays off the common path. A key whose text is also a property's name reads as
+    // that property, since the field Blazor builds for either is the same.
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075",
+        Justification = "The type is the runtime type of a live model a field names. A property the " +
+            "trimmer removed reads as a key, so the field wears no valid class, as a key-bound row " +
+            "does, and nothing throws.")]
+    private static bool NamesProperty(object model, string name)
+    {
+        foreach (var property in model.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.Name == name && property.GetIndexParameters().Length == 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether <paramref name="model"/> is a <see cref="System.Collections.ObjectModel.KeyedCollection{TKey, TItem}"/>, found by walking its base types.</summary>
+    /// <param name="model">A field's model.</param>
+    /// <returns><see langword="true"/> when the model is a list and one of its base types is a closed <c>KeyedCollection&lt;TKey, TItem&gt;</c>.</returns>
+    // Base types, unlike interfaces, are read without a trimming warning. Asked only for a field
+    // whose name is not an index, which on a list is rare, so the walk stays off the common path.
+    private static bool IsKeyedCollection(object model)
+    {
+        if (model is not IList)
+        {
+            return false;
+        }
+
+        for (var type = model.GetType(); type is not null; type = type.BaseType)
+        {
+            if (type.IsGenericType
+                && type.GetGenericTypeDefinition() == typeof(System.Collections.ObjectModel.KeyedCollection<,>))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Whether each collection type that is neither a list nor a non-generic IDictionary yields
@@ -144,7 +209,9 @@ internal sealed class SubmitCoverageTracker(
             return true;
         }
 
-        if (model is not IEnumerable items || model is IList)
+        // A list known only by its generic interface is a list too, whatever its items are, as
+        // a List<KeyValuePair<TKey, TValue>> is.
+        if (model is not IEnumerable items || ResolvedFieldExtensions.IsIndexedList(model))
         {
             return false;
         }

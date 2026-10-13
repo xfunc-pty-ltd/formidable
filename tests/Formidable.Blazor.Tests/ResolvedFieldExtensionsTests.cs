@@ -1,4 +1,9 @@
 using System.Collections;
+using System.Collections.Immutable;
+using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
+using System.Text.Json.Nodes;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -143,6 +148,223 @@ public class ResolvedFieldExtensionsTests
         Assert.False(ResolvedFieldExtensions.IsIndexedElement(FieldIdentifier.Create(() => model.Ordered[1])));
         Assert.False(ResolvedFieldExtensions.IsIndexedElement(new FieldIdentifier(model.List, "[1]")));
         Assert.False(ResolvedFieldExtensions.IsIndexedElement(new FieldIdentifier(model.List, "+1")));
+    }
+
+    // An element of a list that implements only the generic IList<T> or IReadOnlyList<T> is the
+    // field Blazor names by the list and the index, as an element of a List<T> is. Mutations that
+    // must break it: accept the non-generic IList alone in the list test (every case keeps "[1]"),
+    // or drop its IReadOnlyList<T> arm (the read-only list keeps "[1]").
+    [Theory]
+    [InlineData("ImmutableArray<string>.Builder")]
+    [InlineData("ImmutableArray<int>.Builder")]
+    [InlineData("JsonArray")]
+    [InlineData("IList<T> only")]
+    [InlineData("IReadOnlyList<T> only")]
+    public void ToFieldIdentifier_names_a_generic_only_element_by_position(string shape)
+    {
+        var (root, list, bound) = Census(shape);
+        Assert.IsNotAssignableFrom<IList>(list);
+
+        var element = _introspector.Resolve(root, "Tags[1]").ToFieldIdentifier(root, "Tags[1]");
+
+        Assert.Same(list, element.Model);
+        Assert.Equal("1", element.FieldName);
+        Assert.Equal(bound, element);
+        Assert.True(ResolvedFieldExtensions.IsIndexedElement(element));
+    }
+
+    // A pin: every list the non-generic IList already named by its index keeps that naming.
+    // Mutation that must break it: drop the non-generic IList arm from the list test, and the
+    // ArrayList, which implements no generic list interface, reads "[1]".
+    [Theory]
+    [InlineData("List<T>")]
+    [InlineData("T[]")]
+    [InlineData("Collection<T>")]
+    [InlineData("ObservableCollection<T>")]
+    [InlineData("ReadOnlyCollection<T>")]
+    [InlineData("ImmutableList<T>")]
+    [InlineData("ImmutableList<T>.Builder")]
+    [InlineData("KeyedCollection<string, T> by position")]
+    [InlineData("ArrayList")]
+    public void A_list_named_by_index_keeps_its_index_naming(string shape)
+    {
+        var (root, list, bound) = Census(shape);
+        Assert.IsAssignableFrom<IList>(list);
+
+        var element = _introspector.Resolve(root, "Tags[1]").ToFieldIdentifier(root, "Tags[1]");
+
+        Assert.Same(list, element.Model);
+        Assert.Equal("1", element.FieldName);
+        Assert.Equal(bound, element);
+    }
+
+    // A dictionary's entry keeps its brackets whichever dictionary interface it implements, a
+    // generic-only one that is also a read-only list of its pairs included, and so does an element
+    // of a set or of a collection read by id through an int indexer: none of these names its
+    // elements by position. Mutations that must break it: drop the dictionary interfaces from the
+    // generic list test (the ordered map's entry reads "1"), or accept any enumerable (every case
+    // reads "1").
+    [Theory]
+    [InlineData("IDictionary<TKey, TValue> only")]
+    [InlineData("IReadOnlyDictionary and IReadOnlyList of its pairs")]
+    [InlineData("JsonObject")]
+    [InlineData("HashSet<T>")]
+    [InlineData("int indexer read by id")]
+    public void A_dictionary_a_set_or_a_collection_read_by_id_keeps_its_brackets(string shape)
+    {
+        var (root, list, _) = Census(shape);
+
+        var element = _introspector.Resolve(root, "Tags[1]").ToFieldIdentifier(root, "Tags[1]");
+
+        Assert.Same(list, element.Model);
+        Assert.Equal("[1]", element.FieldName);
+        Assert.False(ResolvedFieldExtensions.IsIndexedList(list));
+    }
+
+    /// <summary>A model holding <paramref name="shape"/>'s collection at <c>Tags</c>, the collection, and the field an input bound to <c>Tags[1]</c> names.</summary>
+    private static (object Root, object List, FieldIdentifier Bound) Census(string shape)
+    {
+        string?[] seed = ["a", "b"];
+        switch (shape)
+        {
+            case "ImmutableArray<string>.Builder":
+            {
+                var builder = ImmutableArray.CreateBuilder<string?>();
+                builder.AddRange(seed);
+                return Of(new Holder<ImmutableArray<string?>.Builder> { Tags = builder }, m => () => m.Tags[1]);
+            }
+
+            case "ImmutableArray<int>.Builder":
+            {
+                var builder = ImmutableArray.CreateBuilder<int>();
+                builder.AddRange(1, 2);
+                return Of(new Holder<ImmutableArray<int>.Builder> { Tags = builder }, m => () => m.Tags[1]);
+            }
+
+            case "JsonArray":
+                return Of(new Holder<JsonArray> { Tags = new JsonArray("a", "b") }, m => () => m.Tags[1]);
+            case "IList<T> only":
+                return Of(new Holder<GenericListRowTests.GenericOnlyList<string?>> { Tags = new(seed) }, m => () => m.Tags[1]);
+            case "IReadOnlyList<T> only":
+                return Of(new Holder<GenericListRowTests.ReadOnlyOnlyList<string?>> { Tags = new(seed) }, m => () => m.Tags[1]);
+            case "List<T>":
+                return Of(new Holder<List<string?>> { Tags = [.. seed] }, m => () => m.Tags[1]);
+            case "T[]":
+                return Of(new Holder<string?[]> { Tags = [.. seed] }, m => () => m.Tags[1]);
+            case "Collection<T>":
+                return Of(new Holder<Collection<string?>> { Tags = [.. seed] }, m => () => m.Tags[1]);
+            case "ObservableCollection<T>":
+                return Of(new Holder<ObservableCollection<string?>> { Tags = [.. seed] }, m => () => m.Tags[1]);
+            case "ReadOnlyCollection<T>":
+                return Of(new Holder<ReadOnlyCollection<string?>> { Tags = new([.. seed]) }, m => () => m.Tags[1]);
+            case "ImmutableList<T>":
+                return Of(new Holder<ImmutableList<string?>> { Tags = [.. seed] }, m => () => m.Tags[1]);
+            case "ImmutableList<T>.Builder":
+            {
+                var builder = ImmutableList.CreateBuilder<string?>();
+                builder.AddRange(seed);
+                return Of(new Holder<ImmutableList<string?>.Builder> { Tags = builder }, m => () => m.Tags[1]);
+            }
+
+            case "KeyedCollection<string, T> by position":
+                return Of(new Holder<StringKeyed> { Tags = ["a", "b"] }, m => () => m.Tags[1]);
+            case "ArrayList":
+                return Of(new Holder<ArrayList> { Tags = new ArrayList { "a", "b" } }, m => () => m.Tags[1]);
+            case "IDictionary<TKey, TValue> only":
+                return Of(new Holder<GenericOnlyDictionary> { Tags = new() { [0] = "a", [1] = "b" } }, m => () => m.Tags[1]);
+            case "IReadOnlyDictionary and IReadOnlyList of its pairs":
+                return Of(new Holder<OrderedMap> { Tags = new OrderedMap(("x", "a"), ("y", "b")) }, m => () => m.Tags[1]);
+            case "JsonObject":
+                return Of(new Holder<JsonObject> { Tags = new JsonObject { ["x"] = "a", ["y"] = "b" } }, m => () => m.Tags["y"]);
+            case "HashSet<T>":
+                return Of(new Holder<HashSet<string?>> { Tags = [.. seed] }, m => () => m.Tags.Count);
+            case "int indexer read by id":
+                return Of(new Holder<GenericListRowTests.IdIndexedBag> { Tags = new() }, m => () => m.Tags[0]);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(shape), shape, null);
+        }
+
+        static (object, object, FieldIdentifier) Of<TList>(Holder<TList> root, Func<Holder<TList>, Expression<Func<object?>>> accessor)
+            where TList : class =>
+            (root, root.Tags, FieldIdentifier.Create(accessor(root)));
+    }
+
+    public sealed class Holder<TList>
+    {
+        public required TList Tags { get; set; }
+    }
+
+    public sealed class StringKeyed : KeyedCollection<string, string>
+    {
+        protected override string GetKeyForItem(string item) => item;
+    }
+
+    /// <summary>A dictionary that implements only the generic <see cref="IDictionary{TKey, TValue}"/>.</summary>
+    public sealed class GenericOnlyDictionary : IDictionary<int, string?>
+    {
+        private readonly Dictionary<int, string?> _inner = [];
+
+        public string? this[int key] { get => _inner[key]; set => _inner[key] = value; }
+
+        public ICollection<int> Keys => _inner.Keys;
+
+        public ICollection<string?> Values => _inner.Values;
+
+        public int Count => _inner.Count;
+
+        public bool IsReadOnly => false;
+
+        public void Add(int key, string? value) => _inner.Add(key, value);
+
+        public void Add(KeyValuePair<int, string?> item) => _inner.Add(item.Key, item.Value);
+
+        public void Clear() => _inner.Clear();
+
+        public bool Contains(KeyValuePair<int, string?> item) => _inner.Contains(item);
+
+        public bool ContainsKey(int key) => _inner.ContainsKey(key);
+
+        public void CopyTo(KeyValuePair<int, string?>[] array, int arrayIndex) => ((ICollection<KeyValuePair<int, string?>>)_inner).CopyTo(array, arrayIndex);
+
+        public IEnumerator<KeyValuePair<int, string?>> GetEnumerator() => _inner.GetEnumerator();
+
+        public bool Remove(int key) => _inner.Remove(key);
+
+        public bool Remove(KeyValuePair<int, string?> item) => ((ICollection<KeyValuePair<int, string?>>)_inner).Remove(item);
+
+        public bool TryGetValue(int key, [MaybeNullWhen(false)] out string? value) => _inner.TryGetValue(key, out value);
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>A map that implements only the generic read-only interfaces: a dictionary by key, and a list of its pairs by position.</summary>
+    public sealed class OrderedMap(params (string Key, string? Value)[] entries)
+        : IReadOnlyDictionary<string, string?>, IReadOnlyList<KeyValuePair<string, string?>>
+    {
+        private readonly List<KeyValuePair<string, string?>> _entries = [.. entries.Select(entry => KeyValuePair.Create(entry.Key, entry.Value))];
+
+        public string? this[string key] => _entries.Single(entry => entry.Key == key).Value;
+
+        public KeyValuePair<string, string?> this[int index] => _entries[index];
+
+        public IEnumerable<string> Keys => _entries.Select(entry => entry.Key);
+
+        public IEnumerable<string?> Values => _entries.Select(entry => entry.Value);
+
+        public int Count => _entries.Count;
+
+        public bool ContainsKey(string key) => _entries.Any(entry => entry.Key == key);
+
+        public bool TryGetValue(string key, [MaybeNullWhen(false)] out string? value)
+        {
+            var index = _entries.FindIndex(entry => entry.Key == key);
+            value = index >= 0 ? _entries[index].Value : null;
+            return index >= 0;
+        }
+
+        public IEnumerator<KeyValuePair<string, string?>> GetEnumerator() => _entries.GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class ScalarRows

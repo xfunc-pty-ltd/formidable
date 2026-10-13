@@ -3880,7 +3880,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <returns><see langword="true"/> when a value was read; <see langword="false"/> for a member or element that cannot be read.</returns>
     // An element is named by its index (ToFieldIdentifier), and the introspector reads members,
     // never elements (IModelIntrospector.TryReadValue reports false for an index), so the element
-    // comes from the collection itself, read through IList. Only a list ToFieldIdentifier names
+    // comes from the collection itself (TryReadElement). Only a list ToFieldIdentifier names
     // by index is read this way: a dictionary's entry is never read by position, an
     // OrderedDictionary's included, since FluentValidation's position and Blazor's key name
     // different entries. Its declared type is the one DeclaredElementType finds; for any other
@@ -3893,7 +3893,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         if (ResolvedFieldExtensions.IsIndexedList(field.Model)
             && ResolvedFieldExtensions.TryParseIndex(field.FieldName, out var index))
         {
-            var elements = (System.Collections.IList)field.Model;
+            var elements = field.Model;
             declaredType = null;
             if (!TryReadElement(elements, index, out value))
             {
@@ -3912,18 +3912,37 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="index">The element's index.</param>
     /// <param name="value">The element read; <see langword="null"/> when it cannot be read.</param>
     /// <returns><see langword="true"/> when the element was read; <see langword="false"/> past the end, or when the list refuses the read.</returns>
-    private static bool TryReadElement(System.Collections.IList elements, int index, out object? value)
+    private static bool TryReadElement(object elements, int index, out object? value)
     {
         value = null;
         try
         {
-            if (index >= elements.Count)
+            if (elements is System.Collections.IList list)
             {
-                return false;
+                if (index >= list.Count)
+                {
+                    return false;
+                }
+
+                value = list[index];
+                return true;
             }
 
-            value = elements[index];
-            return true;
+            // A list known only by its generic interface has no indexer this code can call
+            // without knowing its element type, so the element is found by walking it.
+            // FluentValidation numbers a collection's items in the order it enumerates them, so
+            // the item the walk reaches at an index is the one FluentValidation reported there.
+            var position = 0;
+            foreach (var item in (System.Collections.IEnumerable)elements)
+            {
+                if (position++ == index)
+                {
+                    value = item;
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch
         {
@@ -3934,14 +3953,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>The element type <paramref name="elements"/> declares, where it can be read: an array's element type, or the type argument of the <see cref="List{T}"/> or <see cref="System.Collections.ObjectModel.Collection{T}"/> the list is or derives from.</summary>
+    /// <summary>The element type <paramref name="elements"/> declares, where it can be read: an array's element type, the type argument of the <see cref="List{T}"/> or <see cref="System.Collections.ObjectModel.Collection{T}"/> the list is or derives from, or that of the list interface a list known only by <see cref="IList{T}"/> or <see cref="IReadOnlyList{T}"/> implements.</summary>
     /// <param name="elements">The list a loaded element is read from.</param>
     /// <returns>The declared element type; <see langword="null"/> for any other list.</returns>
     // The closed IList<T> a list implements would answer for every list, but finding it walks the
     // type's interfaces, which the trimming analysers flag (IL2075) in this AOT-compatible package.
     // An array's element type and a walk up the base types are both clean, and between them they
     // cover the lists a form binds: arrays, List<T>, and Collection<T> with ObservableCollection<T>.
-    private static Type? DeclaredElementType(System.Collections.IList elements)
+    // A list outside the non-generic IList was already read once for its interfaces, to name its
+    // elements by index (ResolvedFieldExtensions.IsIndexedList), so its element type comes from
+    // that read; any other non-generic list keeps no declared type.
+    private static Type? DeclaredElementType(object elements)
     {
         var type = elements.GetType();
         if (type.IsArray)
@@ -3959,7 +3981,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             }
         }
 
-        return null;
+        return elements is System.Collections.IList ? null : ResolvedFieldExtensions.GenericListElementType(type);
     }
 
     /// <summary>The paths the validator declares for <paramref name="profile"/>, each collection template expanded to one path per row the model holds.</summary>
@@ -4033,7 +4055,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             && resolved.PropertyName is ['[', .., ']'] token
             && ResolvedFieldExtensions.TryParseIndex(token.AsSpan(1, token.Length - 2), out var index))
         {
-            if (!TryReadElement((System.Collections.IList)resolved.Owner, index, out value))
+            if (!TryReadElement(resolved.Owner, index, out value))
             {
                 return 0;
             }
