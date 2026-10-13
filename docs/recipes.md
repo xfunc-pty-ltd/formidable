@@ -1324,8 +1324,8 @@ wrong saved value and stops confirming a good one. And no rule's answer is reuse
 after a submit a rule can run twice for one edit.
 
 The same missing reuse is why a field a submit would accept wears no green after an edit until a
-submit, a load of values, or the whole-form re-check (after a submit, or after a change to which
-fields are on screen) has answered for it, unless `TrackFormValidity` is on.
+submit, a load of values, or the whole-form re-check (after a submit or a server reply, or after a
+change to which fields are on screen) has answered for it, unless `TrackFormValidity` is on.
 
 **Only inspection's half is reported.** A validator that cannot report its rules gets one
 Information-level line when the engine is built, naming what will not render, on the `Trace` and

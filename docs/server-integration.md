@@ -95,8 +95,8 @@ can overlap, apply only the latest one's reply: each apply replaces the last, so
 arriving late would stand in place of the newer one.
 
 Each apply replaces what the last one applied rather than piling onto it. The server's issues live
-apart from the client's own answer, so applying a reply swaps that set outright and touches nothing
-the client said, and resubmitting the same or a corrected payload never leaves a stale duplicate
+apart from the client's own answer, so applying a reply swaps that set outright and changes nothing
+in that answer, and resubmitting the same or a corrected payload never leaves a stale duplicate
 behind.
 
 Why: [how the engine works: what replaces the server's answer](how-the-engine-works.md#what-replaces-the-servers-answer).
@@ -108,10 +108,14 @@ page whose only validation is server-side reaches the submitted state through th
 what keeps the summary truthful for fields the edit never named. A field that was waiting for
 submit (`WaitForSubmit`) answers live from then on too.
 
-An apply is also a disclosure event for the fields it shows: a client error the last submit
-computed but had nowhere to show surfaces alongside the server's, and those fields go under the
-same watch a blocked submit puts its fields under
+An apply is also a disclosure event for the fields it shows: a client error the form has already
+found for those fields surfaces alongside the server's, and those fields go under the same watch a
+blocked submit puts its fields under
 ([Disclosure](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)).
+
+The form's last check of every field can be older than the visitor's latest change. A field the
+reply reveals then shows only the server's answer, and any message from its own live check, until
+the form has checked the values it now holds.
 
 It also clears any standing incomplete-validation fault, whatever the client is doing: a verdict
 has arrived to stand in for the one a check that threw could not finish.

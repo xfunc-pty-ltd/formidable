@@ -17,9 +17,9 @@ same for the mechanics the kit and the core hand here, each saying at its head w
 ## Sources and views
 
 Disclosure state has a sources-plus-views shape. The sources are the live channel's per-field
-verdicts, the submit channel's last submit-profile answer, the two reveal ledgers, the
-server-issue store, the gate arming, the fault issue and `HasSubmitted`. Nothing is written to a
-channel except through its sources.
+verdicts, the submit channel's last submit-profile answer, the two reveal ledgers, the held-back
+set, the server-issue store, the gate arming, the fault issue and `HasSubmitted`. Nothing is
+written to a channel except through its sources.
 
 Every write lands on the renderer's dispatcher, and a pass writes a source only while it is still
 the current pass. `ApplyServerIssues` writes synchronously on the calling thread, and a field's
@@ -27,12 +27,16 @@ departure from the page drops its live verdict the same way.
 
 What an issue read returns is computed from those sources at read time. The live view is the
 live verdicts read through the engaged set, then through the submit hold and the disclosure policy
-([the live view](#the-live-view)). The submit view is the last submit-profile answer
-read through the reveal ledgers, merged with the server store, plus the gate issue the view
-synthesizes while the gate predicate holds.
+([the live view](#the-live-view)).
 
-The gate predicate also asks which revealed fields, and which fields with a live error, render now,
-so the rendered field set is one of its inputs ([the gate latch](#the-gate-latch)).
+The submit view is the last submit-profile answer read through the reveal ledgers, less the client
+part of a held-back field, merged with the server store, plus the gate issue the view synthesizes
+while the gate predicate holds. The held-back set holds the fields a server apply revealed while
+that answer was older than the latest edit ([what an apply writes](#what-an-apply-writes)).
+
+The gate predicate also asks which revealed fields, which fields a standing server error names, and
+which fields with a live error render now, so the rendered field set is one of its inputs
+([the gate latch](#the-gate-latch)).
 
 The `ValidationMessageStore` a native `ValidationMessage` renders from is a materialized
 projection of the same views, rebuilt whenever a source moves. A derived answer therefore cannot
@@ -43,6 +47,7 @@ flowchart TD
     LV["Live verdicts: one entry per answered engaged field"] --> LIVE["Live view: the verdicts read through the engaged set"]
     SV["Last submit-profile answer: every error and advisory, disclosed or not"] --> SUB["Submit view: the answer read through the reveal ledgers, then the server store, then the gate"]
     RL["Reveal ledgers: error sites and advisory sites"] --> SUB
+    HB["Held-back set: fields an apply revealed over an answer older than an edit"] --> SUB
     SS["Server issue store"] --> SUB
     GA["Gate arming"] --> SUB
     RF["Rendered field set: which revealed, server and live-error fields render now"] --> SUB
@@ -92,11 +97,11 @@ checks again, at most twice, as the same pass
 ([supersession and deferral](#supersession-and-deferral)), so what lands is the answer for the
 values the model held as its last check began.
 
-**Refresh.** Started by the refresh timer, which two things arm (and the end of a pass its fire
-waited for arms again): a
-field change once `HasSubmitted` is true or a submit is in flight (`ApplyServerIssues` also sets
-`HasSubmitted`), and any move in the rendered field set, the first render included. It runs the
-submit profile whole-model.
+**Refresh.** Started by the refresh timer, which three things arm (and the end of a pass its fire
+waited for arms again): a field change once `HasSubmitted` is true or a submit is in flight
+(`ApplyServerIssues` also sets `HasSubmitted`); any move in the rendered field set, the first
+render included; and a server apply that held answers back
+([what an apply writes](#what-an-apply-writes)). It runs the submit profile whole-model.
 
 Its pending indicator is scoped to the fields edited within the window, and to any field an open
 `LiveDebounce` window still holds, since this pass is answering that field's check. A window of
@@ -157,11 +162,13 @@ set, and a fire that finds the accumulator empty starts no live pass; the validi
 runs on that fire.
 
 [`RefreshDebounce`](options.md#refreshdebounce) (300 ms) arms the refresh timer the same way from
-every arm site. `Timeout.InfiniteTimeSpan` leaves the timer unarmed, which is how the refresh is
-turned off; `TimeSpan.Zero` is the narrowest window, not a switch. Under either
-timer `TimeSpan.Zero` still fires from the timer's own callback, never inside the notification
-that armed it, and a fire still defers as any fire does; on the live timer it is not a spelling
-of `null`.
+every arm site but one: a server apply that held answers back arms it at zero, either at once or
+as the probe it waits for exits ([what an apply writes](#what-an-apply-writes)).
+
+`Timeout.InfiniteTimeSpan` leaves the timer unarmed, which is how the refresh is turned off;
+`TimeSpan.Zero` is the narrowest window, not a switch. Under either timer `TimeSpan.Zero` still
+fires from the timer's own callback, never inside the notification that armed it, and a fire still
+defers as any fire does; on the live timer it is not a spelling of `null`.
 
 Every arm, and every test of whether a wait can pass, reads a debounce through one helper,
 `UsableWait`, so the timer and the vouch cannot disagree. A value past the timer's limit
@@ -377,9 +384,10 @@ to the submit profile instance. A narrowed live pass promises nothing itself and
 a refresh or a validity check armed, or running, behind it.
 
 With no such pass in flight, an open live-debounce window on a submit-running channel counts. So
-does an armed post-submit refresh, and so does an armed validity timer while `TrackFormValidity`
-is on. Each counts only under a debounce that can fire (`Timeout.InfiniteTimeSpan` promises
-nothing).
+does a refresh an edit armed, or one a server apply armed for answers it held back, until it
+begins (one a field-set move alone armed does not count), and so does an armed validity timer
+while `TrackFormValidity` is on. Each counts only under a debounce that can fire
+(`Timeout.InfiniteTimeSpan` promises nothing).
 
 The fifth is the probe a validity timer's fire started, from the fire until that probe lands,
 faults or is cancelled, whatever tracking says by then. The fire numbers it and records when it
@@ -806,21 +814,24 @@ does: an apply never disarms it. Visible is the reveal's own override-aware test
 asked as the arming runs.
 
 Whether the gate shows is a predicate over the sources and the rendered field set, recomputed on
-every read: armed, no server error standing, the submit answer carrying errors, none of them on a
-revealed field that is visible now, and the live view carrying no error that is on a rendered field
-or that the override answers `true` for. Rendered is `IsRendered`: the model-level field, or a
-registered field, kept registrations included.
+every read: armed; a submit or server error standing; no server error on a field the visible test
+passes; no submit error on a revealed field that is not held back and that the visible test
+passes; and the live view carrying no error that is on a rendered field or that the override
+answers `true` for.
 
-The live clause does not ask the visible test, because that test asks the override first. An
-override answering `false` for a registered field would keep the gate beside that field's live
-message, which the default live policy shows whatever the override says.
+Rendered is `IsRendered`: the model-level field, or a registered field, kept registrations
+included. The live clause does not ask the visible test, because that test asks the override
+first. An override answering `false` for a registered field would keep the gate beside that
+field's live message, which the default live policy shows whatever the override says.
 
 On a field that is neither registered nor the model-level field, such as a native input with no
 anchor, only an error the override answers `true` for counts: nothing tells the engine whether
 such a field is on screen.
 
 A revealed field stays revealed off the page, so the summary keeps listing it and its message is
-back the moment it returns, but it explains the block only while it renders.
+back the moment it returns, but it explains the block only while it renders. A server error is
+stored whatever renders its field, and it too explains the block only while the visible test passes
+for it. A held-back field's client errors are not shown at all, so they explain nothing.
 
 A field-set move can therefore change the answer while the gate is armed and a server error stands
 or a revealed field shows its client errors (`GateTurnsOnVisibility`). There
@@ -863,10 +874,17 @@ While the predicate holds, the views synthesize one model-level issue from
 [`DefensiveGateMessage`](options.md#defensivegatemessage), built afresh from the option at each
 read. There is no stored entry, so a refresh has nothing to delete.
 
-Three kinds of error dissolve the gate: a submit error on a revealed field the visible test passes;
-a live error that is on a rendered field or that the override answers `true` for; and any server
-error, wherever its field is. So does an answer that comes back clean. A warning does not, because
-it does not say why a submit was refused.
+Three kinds of error dissolve the gate: a submit error on a revealed field that is not held back
+and that the visible test passes; a live error that is on a rendered field or that the override
+answers `true` for; and a server error whose field the visible test passes.
+
+A server error the override answers `false` for is never stored, so it never stands. A warning does
+not dissolve the gate, because it does not say why a submit was refused.
+
+A clean submit-profile answer dissolves it once no server error stands, and a passing submit
+disarms it whatever stands. A clean answer that leaves the reply standing, such as the apply's own
+re-check or a live pass, does not dissolve it while every standing server error fails the visible
+test.
 
 ### The message-store projection
 
@@ -938,8 +956,9 @@ that post. Every arm sets the flag before the timer can fire, and a check waitin
 it, so a fire that still has a check to answer always finds it set.
 
 Otherwise the fire tests for a stand-down: the engine is disposed, tracking is off, a submit has
-answered, an edit has armed the refresh, or a probe has already begun at the current edit stamp. A
-server reply alone does not stand it down, since the reply answers nothing the probe computes.
+answered, an edit or a server apply that held answers back has armed the refresh, or a probe has
+already begun at the current edit stamp. A server reply that arms no refresh does not stand it
+down, since the reply answers nothing the probe computes.
 
 An answered submit does not stand down the check an unanswered load owes, because a load's own
 change arms no refresh. The fire's other stand-downs apply to that check unchanged. The
@@ -954,21 +973,24 @@ Otherwise, while a submit or a load is in flight, the fire records that it waite
 flag, as the live timer's fire does, and the end of that pass arms it once more. Otherwise it
 clears the flag, marks the probe it starts as running, and starts it.
 
-A refresh an edit armed can wait for the same pass. Both are then armed at that pass's end, at
-`RefreshDebounce`, so both come due at one instant, and a real timer gives no order between them.
+A refresh an edit or such an apply armed can wait for the same pass. Both are then armed at that
+pass's end, at `RefreshDebounce`, so both come due at one instant, and a real timer gives no order
+between them.
 So the stand-down for that refresh is decided at the arm: the check is dropped and its flag
 cleared, and a refresh that begins first cannot leave it nothing to stand down for.
 
-An edit that arms the refresh decides the same way, at its own arm. It drops a validity check
-still armed or waiting, whatever armed it (the check an unanswered load owes included), disarming
-its timer and clearing its flag and its record. Otherwise the two could still come due together:
-a submit or load that ends unanswered arms its waiting check again, and an edit in that
-millisecond arms the refresh.
+An edit that arms the refresh decides the same way, at its own arm, and so does an apply that arms
+it for answers it held back. Each drops a validity check still armed or waiting, whatever armed it
+(the check an unanswered load owes included), disarming its timer and clearing its flag and its
+record.
 
-The refresh an edit arms adopts `IsFormValid` for the whole model and counts as a re-answer on its
-way, so a probe beside it would only run a still-unanswered async rule a second time. That refresh
-also waits out a submit in flight and runs whether the submit answers or is cancelled, which is
-why the fire tests for it before it defers.
+Without that drop the two could still come due together: a submit or load that ends unanswered
+arms its waiting check again, and an edit in that millisecond arms the refresh.
+
+The refresh an edit or such an apply arms adopts `IsFormValid` for the whole model and counts as
+a re-answer on its way, so a probe beside it would only run a still-unanswered async rule a second
+time. That refresh also waits out a submit in flight and runs whether the submit answers or is
+cancelled, which is why the fire tests for it before it defers.
 
 After `HasSubmitted` no change arms the validity timer at all. A probe due with the refresh the
 same change armed could fire once that refresh had begun, with no armed refresh left to stand down
@@ -1445,6 +1467,49 @@ When the apply landed errors and none of them is on a field the visible test pas
 gate, as a blocked submit with nothing on screen does; it never disarms it
 ([the gate latch](#the-gate-latch)). The store is rebuilt once, after that
 ([the message-store projection](#the-message-store-projection)).
+
+The apply also asks whether the submit channel's stored answer is older than the latest edit. Each
+replacement of that answer records the edit stamp its check read as it began.
+
+When the stamp is behind, a field the apply reveals joins the held-back set. The exception is a
+field that a reveal ledger already held for the issue's severity (the error ledger for an error,
+either ledger for a warning or a note) and that was not held back already.
+
+The submit views, the gate predicate's revealed test and `GateTurnsOnVisibility` skip a held-back
+field's client part, so its submit view shows the server's answer alone; its live view is untouched.
+
+The test is per issue and the hold is the whole field's, so a field revealed as an advisory site but
+not as an error site loses its client warning when the reply brings it an error.
+
+After the store rebuild, a non-empty held-back set arms the refresh timer at zero
+(`RecheckHeldBackAnswers`). Nothing is armed when the apply landed nothing, the client had faulted,
+a refresh is armed or waiting, `RefreshDebounce` never passes or the engine is disposed.
+
+Nothing is armed either while a pass in flight is expected to land an answer that saw the latest
+edit. Any submit counts, since one an edit outdates checks again, and so does a refresh, a load or
+a submit-profile live pass that began at the current stamp.
+
+A `TrackFormValidity` probe is not a pass, but one begun at the current stamp and still out is
+running the same rules, and a re-check beside it would run an async rule a second time. So the arm
+waits for that probe instead (`_heldBackRecheckOwed`).
+
+The probe's exit then arms the re-check (`EndProbe`) under the same guards, with the probe's own
+fault standing in for the client's. A re-check it arms after a landing reuses what the probe
+filed. After that fault, or a submit or load in flight at the exit that ends without an answer,
+the set waits for the next whole-form check.
+
+The arm stands an armed or waiting validity check down, as an edit that arms the refresh does.
+`RefreshArmedByEdit` counts the apply's re-check until it begins, so the held vouch keeps serving
+across the gap and the validity fire stands down for it too.
+
+A landing that replaces the stored answer empties the set only when the check that produced it
+read the current edit stamp (`RecordSubmitAnswer`); a submit that checks again reads it again for
+each check. A check that read an earlier stamp answers for values the model no longer holds, so its
+landing keeps the set, whether the edit came before the reply or after.
+
+When nothing moves before it begins, the re-check the apply arms leaves the reply standing. An edit
+or a field-set move before then re-arms it at `RefreshDebounce`, and its landing replaces the reply
+([what replaces the server's answer](#what-replaces-the-servers-answer)).
 
 ### Which issues an apply lands
 

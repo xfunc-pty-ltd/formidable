@@ -47,7 +47,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 |---|---|---|---|
 | [`LiveProfile`](#liveprofile) | `ValidationProfile?` | `null` (tracks `SubmitProfile`) | Which profile live checking runs. |
 | [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
-| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. Under a `LiveDebounce` that never closes, it also times the validity check. |
+| [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. The re-check a server reply can start itself adds no wait of its own. Under a `LiveDebounce` that never closes, it also times the validity check. |
 | [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
 | [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check, which also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values, and at the check that follows one you edited during. |
 | [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
@@ -126,13 +126,41 @@ the re-check off. The timer behind it takes a wait from zero to just under 42949
 `Timeout.InfiniteTimeSpan` as zero. Either is named once in a logged warning, whether it was set
 before or after the form was built.
 
-Before the first submit or server reply, an edit gets at most one live check, which answers every
-field you have engaged, and no whole-form re-check follows it. A change to which fields are on
-screen (a row leaving, a section collapsing) re-checks the whole form after the same wait at any
-point in the form's life.
+Before the first submit or server reply (the answer your page hands to `ApplyServerIssues`), an edit
+gets one live check at most, and no whole-form re-check follows it. That check answers every engaged
+field: a field becomes engaged when you commit a change to it, and a load of values can engage more.
 
-With `TrackFormValidity` on and a `LiveDebounce` that never passes, the same wait also times the
-validity check an edit before the first submit or server reply starts.
+A change to which fields are on screen (a row leaving, a section collapsing) re-checks the whole
+form after the same wait at any point in the form's life.
+
+A server reply can arrive after the visitor has changed something since the form last checked every
+field. A field the reply brings a message to then displays only the server's answer, beside any
+message from its own live check. The form's own answer joins it once the form has checked the
+values the field now holds
+([Server integration](server-integration.md#does-applying-a-reply-count-as-a-submit)).
+
+The exception is a field the form already watches for the reply's kind of message
+([Disclosure](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)). For a reply that
+brings it an error, that is a field a blocked submit or an earlier reply showed an error on. For a
+reply that brings only a warning or a note, it is a field a submit or an earlier reply showed any
+message on.
+
+Such a field keeps the form's own answer beside the reply's. Any other field waits whole, so a
+warning the form showed there leaves while the reply's error shows.
+
+To bring that answer back, the reply starts a whole-form re-check at once, with no wait of its own.
+It starts none when another check is already on its way to answer for those fields, or when the
+form's last check could not finish. If a live check or a load of values is still running when the
+reply's re-check falls due, the re-check waits for it to end and then for `RefreshDebounce`.
+
+`Timeout.InfiniteTimeSpan` turns that re-check off too. The fields showing the reply's answer alone
+then wait for the next submit or load of values, or for a live check that runs the same rules as a
+submit.
+
+With [`TrackFormValidity`](#trackformvalidity) on (it keeps `IsFormValid` current with a validity
+check of its own) and [`LiveDebounce`](#livedebounce) (the wait between an edit and its live check)
+set to `Timeout.InfiniteTimeSpan`, edits before the first submit or server reply start a validity
+check of their own. It runs `RefreshDebounce` after the last of them.
 
 It is a second debounce because the re-check is whole-form work, too much to repeat on every
 keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst (edits or
