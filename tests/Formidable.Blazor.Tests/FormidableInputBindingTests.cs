@@ -61,7 +61,10 @@ public class FormidableInputBindingTests : BunitContext
             builder.CloseComponent();
         });
 
-        Assert.Equal(ExpectedId(order), cut.Find("input").GetAttribute("id"));
+        // Read inside the dispatcher, as the trigger below is. A lookup made off it can race a
+        // render on another thread (the whole-form re-check on the system clock) and leave bUnit's
+        // cached DOM stale. The trigger would then dispatch to a handler that render removed.
+        Assert.Equal(ExpectedId(order), await cut.InvokeAsync(() => cut.Find("input").GetAttribute("id")));
 
         await cut.InvokeAsync(() => cut.Find("input").Change(new string('x', 11)));
 

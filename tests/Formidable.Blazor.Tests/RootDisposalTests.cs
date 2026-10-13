@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -17,6 +18,9 @@ public class RootDisposalTests : BunitContext
 {
     public RootDisposalTests()
     {
+        // A fake clock keeps the first render's whole-form re-check from firing on a pool
+        // thread. While such a fire holds the dispatcher, DisposeComponentsAsync disposes nothing.
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddFormidableBlazor();
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -210,6 +214,7 @@ public class RootDisposalTests : BunitContext
         form.WaitForAssertion(() => Assert.True(validator.Started >= 1));
 
         await DisposeComponentsAsync();
+        Assert.True(form.IsDisposed, "DisposeComponentsAsync did not dispose the form.");
         validator.Gate.SetResult(); // answers despite the cancelled token
         await submitting;
 
