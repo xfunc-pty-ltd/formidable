@@ -239,7 +239,12 @@ Work top to bottom: the steps build on each other.
       *Request trip*. The three messages left with their fields, and this form has no summary,
       so the gate's explanation is back in the form-level list. Click *Show trip details*: the
       three messages return and the list empties, with no submit
-- [ ] Step 13: the completed form (answer No) confirms on its own status line
+- [ ] Step 13: with Destination and Traveler name filled in and *Yes* chosen, *Request trip* brings
+      the gate's explanation into the form-level list at the top of that form, and it stays
+      there, though the trip details show, because this form has no Type box. Focus moves to
+      the form, and the status line stays empty
+- [ ] Step 14: choosing *No* empties the list, and *Request trip* then confirms on the form's own
+      status line
 - [ ] In both colour schemes, that form-level list takes no visible space while it is empty:
       before the first submit, and again once the inline messages take over. The gate's
       explanation slides open into it on the blocked submit, the way a field's message does

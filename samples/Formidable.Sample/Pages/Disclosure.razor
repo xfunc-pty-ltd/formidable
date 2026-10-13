@@ -19,7 +19,8 @@
             <li>Fill in <strong>Destination</strong>, <strong>Traveler name</strong> and <strong>Special requirements</strong>, then click <strong>Submit</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in the status line.</div></li>
             <li>Under <strong>Without a summary</strong>, click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." at the top of that form.</div></li>
             <li>Click <strong>Show trip details</strong>, then click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> three messages under the fields, and the message at the top clears.</div></li>
-            <li>Fill in <strong>Destination</strong> and <strong>Traveler name</strong>, choose <strong>No</strong>, and click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "Submitted" in that form's status line.</div></li>
+            <li>Fill in <strong>Destination</strong> and <strong>Traveler name</strong>, choose <strong>Yes</strong>, and click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> "The form cannot be submitted because information that is not currently displayed is invalid." at the top of that form, and it stays with the trip details shown.</div><div class="teaching__why"><span class="teaching__label">Why:</span> A Yes makes <strong>Type</strong> required, and this form has no <strong>Type</strong> box to show its message.</div></li>
+            <li>Choose <strong>No</strong>, then click <strong>Request trip</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> the message at the top clears as you choose, then "Submitted" in that form's status line.</div></li>
         </ol>
     </TryIt>
     <Rules>
@@ -29,7 +30,7 @@
             <li><strong>The accommodation question</strong>: required.</li>
             <li><strong>Type</strong>: required when you answer <strong>Yes</strong>.</li>
             <li><strong>Special requirements</strong>: required when <strong>Type</strong> is <strong>Accessible</strong>.</li>
-            <li><strong>Without a summary</strong>: the same validator, on a form with only <strong>Destination</strong>, <strong>Traveler name</strong> and the question.</li>
+            <li><strong>Without a summary</strong>: the same validator, on a form with only <strong>Destination</strong>, <strong>Traveler name</strong> and the question. Answer <strong>Yes</strong> and this form cannot submit: <strong>Type</strong> is required, this form has no <strong>Type</strong> box, so the form's message explains the block. Answer <strong>No</strong> to submit.</li>
         </ul>
     </Rules>
     <HowItWorks>
