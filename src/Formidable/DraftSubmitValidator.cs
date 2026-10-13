@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using FluentValidation.Internal;
 // An alias above the namespace resolves without the file's other using directives, global ones
 // included, so its type is written out in full.
@@ -22,12 +22,14 @@ namespace Formidable;
 // derives from ProfiledValidator<T> directly.
 public abstract class DraftSubmitValidator<T> : ProfiledValidator<T>
 {
-    // The pairs the overlap scan found, one answer per derived class for the life of the
-    // process, because a validator's rules belong to its class while a scoped or transient
+    // The pairs the overlap scan found, one answer per derived class for as long as the class is
+    // loaded, because a validator's rules belong to its class while a scoped or transient
     // registration builds an instance per request or form. Lazy, so the scan and every message
     // lambda it reads run once even when two instances of a new class are built at the same
-    // time. Bounded by the validator classes the code declares.
-    private static readonly ConcurrentDictionary<Type, Lazy<(string Property, string Validator)[]>> OverlapsByType = new();
+    // time. Weak on the class, because a plugin's validator for a model the host owns lands in
+    // the table of a base class the host keeps loaded, and must not keep the plugin's collectible
+    // load context alive. Bounded by the validator classes the code declares.
+    private static readonly ConditionalWeakTable<Type, Lazy<(string Property, string Validator)[]>> OverlapsByType = new();
 
     /// <summary>Routes the common rules to <see cref="ConfigureDraftRules"/>.</summary>
     protected sealed override void ConfigureCommonRules() => ConfigureDraftRules();

@@ -22,4 +22,11 @@
     <ProjectReference Include="..\..\samples\Formidable.Sample.Shared\Formidable.Sample.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Built and copied into plugin\ but never referenced, so the unload tests can load it into a
+         collectible context of their own. -->
+    <ProjectReference Include="..\Formidable.Plugin.Fixture\Formidable.Plugin.Fixture.csproj" ReferenceOutputAssembly="false" OutputItemType="None" CopyToOutputDirectory="PreserveNewest" Link="plugin\Formidable.Plugin.Fixture.dll" />
+    <Compile Include="..\Shared\CollectiblePlugin.cs" Link="Shared\CollectiblePlugin.cs" />
+  </ItemGroup>
+
 </Project>

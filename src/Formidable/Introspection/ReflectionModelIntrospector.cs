@@ -51,6 +51,11 @@ public sealed class ReflectionModelIntrospector : IModelIntrospector
     // the path it was cut from.
     private const int MaxCachedProperties = 1024;
 
+    // Strongly keyed by type: a plugin type whose member it has looked up keeps the plugin's
+    // collectible load context alive for as long as this instance lives. Within Formidable only
+    // the Blazor engine calls the introspector, and Blazor's own FieldIdentifier keeps a static
+    // accessor per type an input's expression reads from, so a plugin whose pages bind inputs
+    // stays loaded whatever this cache holds.
     private readonly ConcurrentDictionary<(Type Type, string Property), PropertyInfo?> _propertyCache = new();
 
     // Keyed on the raw path string. A null entry records a path PropertyPath.TryParse
