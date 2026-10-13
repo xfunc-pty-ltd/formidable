@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -399,8 +400,9 @@ public sealed class ValidateAttribute : ActionFilterAttribute, IActionModelConve
     // every later request: the argument type set for a running app is small and fixed (it's
     // whatever types the app declares validated arguments as), so paying MakeGenericType +
     // GetMethod on the first request per type and caching the result avoids repeating both on
-    // every single request thereafter.
-    private static readonly ConcurrentDictionary<Type, MethodInfo> ValidateAsyncMethods = new();
+    // every single request thereafter. Weak on the type, so a model type from a plugin's
+    // collectible load context does not keep that context alive.
+    private static readonly ConditionalWeakTable<Type, MethodInfo> ValidateAsyncMethods = new();
 
     private static Task<ValidationReport> InvokeValidateAsync(
         object validator, Type argumentType, object model, ValidationProfile profile, CancellationToken cancellationToken)
