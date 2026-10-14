@@ -135,10 +135,11 @@ default mark.
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before the first render and after disposal alike.
 
-**A throw from your `OnValidationStateChanged` or `Engine.StateChanged` handler goes to the boundary
-around the form whenever the form raises the event from work no call of yours is waiting on.** That
-work includes answering a render that adds or removes a field, or starts or stops one
-[waiting for submit](options.md#waitforsubmit-per-component-not-a-formidableoptions-property).
+**A throw from your `OnValidationStateChanged`, `Engine.StateChanged` or `Engine.ValidationFaulted`
+handler goes to the boundary around the form when nothing of yours is waiting on the work that
+raised the event.** One such piece of work is the form answering a render that adds or removes a
+field, or that starts or stops one [waiting for
+submit](options.md#waitforsubmit-per-component-not-a-formidableoptions-property).
 
 The same goes for checking a change, for the waits `LiveDebounce` and `RefreshDebounce` set, and for
 the validity check `TrackFormValidity` runs as the form starts. So does a check your own

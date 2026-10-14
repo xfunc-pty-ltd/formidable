@@ -2647,7 +2647,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="pass">The pass that faulted; a superseded pass's exception still happened, so the event is raised for it too.</param>
     /// <param name="exception">What the validator threw.</param>
     // The sentence is read from ValidationFaultMessage at the one moment it is filed, so the
-    // stored issue keeps the wording in force when it was written.
+    // stored issue keeps the wording in force when it was written. The event is raised inside the
+    // same dispatch, because a rule that throws after an await resumes here off the dispatcher,
+    // and a handler that renders (a banner calling StateHasChanged, say) needs the renderer's
+    // dispatcher. A handler that throws faults the dispatch, and the throw takes the route any
+    // throw from this pass takes.
     private async Task ReportFaultAsync(PassScope pass, Exception exception)
     {
         await _renderDispatch(() =>
@@ -2657,10 +2661,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 _faultIssue = new ValidationIssue(string.Empty, _options.ValidationFaultMessage);
                 RebuildStore();
             }
+
+            ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
             return Task.CompletedTask;
         }).ConfigureAwait(false);
-
-        ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
     }
 
     /// <summary>Runs a live pass for <paramref name="triggeringFields"/> that answers every engaged field as snapshotted at begin, unless a submit or a load is in flight.</summary>
@@ -2814,9 +2818,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // anywhere, stranding a disable-submit button in whatever state it was last in. A
             // fired validity check drops the hold it was carrying before the event is raised, as
             // a pass publishes its fault before raising it, so a handler that throws cannot leave
-            // green held on a check that has already died.
+            // green held on a check that has already died. The event has a dispatch of its own,
+            // as a pass's has (see ReportFaultAsync), and one that runs whether or not the exit
+            // dispatched anything, so a disposed engine raises it too.
             await EndValidityCheckWithoutLandingAsync(validityCheckRun, stamp, faulted: true).ConfigureAwait(false);
-            ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
+            await _renderDispatch(() =>
+            {
+                ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
             return;
         }
 

@@ -57,7 +57,11 @@ public interface IFormidableEngine
     event EventHandler<FormidableStateChangedEventArgs>? StateChanged;
 
     /// <summary>Raised when a check no caller awaits (a live check, the whole-form re-check or the validity check) throws; a submit or a load throws to its caller instead.</summary>
-    /// <remarks>A cancellation is not a fault.</remarks>
+    /// <remarks>
+    /// A cancellation is not a fault. Under <see cref="FormidableForm{TModel}"/> and
+    /// <see cref="FormidableValidator{TModel}"/> it is raised on the renderer's dispatcher, so a
+    /// handler can call <c>StateHasChanged</c>.
+    /// </remarks>
     event EventHandler<FormidableValidationFaultedEventArgs>? ValidationFaulted;
 
     /// <summary>The current state of one field.</summary>

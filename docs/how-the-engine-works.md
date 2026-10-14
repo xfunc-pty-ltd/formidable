@@ -195,10 +195,12 @@ outdated, and once more at the end of a submit or a load its fire waited for, as
 [the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
 
 **A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
-validator that throws under either surfaces through the caller's own `try`/`catch`. A live or
-refresh pass is fire-and-forget, so its exception becomes a form-level issue carrying
-[`ValidationFaultMessage`](options.md#validationfaultmessage) while the pass is still current,
-and raises `ValidationFaulted` either way. The next landing, or a server apply, clears that issue.
+validator that throws under either surfaces through the caller's own `try`/`catch`.
+
+A live or refresh pass is fire-and-forget, so its exception becomes a form-level issue carrying
+[`ValidationFaultMessage`](options.md#validationfaultmessage) while the pass is still current, and
+raises `ValidationFaulted` either way, inside the same dispatch, so a handler runs on the renderer's
+dispatcher. The next landing, or a server apply, clears that issue.
 
 ## The verdict store
 
@@ -1145,9 +1147,10 @@ since a timer at a wait that never passes never fires. Like the deferred fires' 
 the landing's dispatch.
 
 Probes are never cancelled short of disposal, so under a slow async rule and no `LiveDebounce`
-several can be in flight together, each answering for the model state it started at. A probe
-that throws raises `ValidationFaulted` and no form-level fault issue, which would disclose
-something an invisible probe promises never to.
+several can be in flight together, each answering for the model state it started at. A probe that
+throws raises `ValidationFaulted` and no form-level fault issue, which would disclose something an
+invisible probe promises never to. It raises the event in a dispatch of its own, after the exit that
+drops its hold.
 
 The running validity probe also drops the hold when it throws, as the vouch's own section says. It
 drops the hold before it raises the event (as a faulting pass publishes before it raises), so a
