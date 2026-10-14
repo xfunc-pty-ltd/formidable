@@ -1,0 +1,33 @@
+@using Formidable.Blazor
+
+@* Razor-compiled on purpose: the compiler turns @bind-Value:set and @bind-Value:after into the
+   ValueChanged callback Blazor's own InputText calls, and what that callback has written by its
+   first await is what the tests pin. Built with a RenderTreeBuilder, the test would write the
+   callback itself. *@
+<FormidableForm Model="Order">
+    @if (BindAfter)
+    {
+        <InputText @bind-Value="Order.Description" @bind-Value:after="SaveAsync" />
+    }
+    else
+    {
+        <InputText @bind-Value:get="Order.Description" @bind-Value:set="SetDescriptionAsync" />
+    }
+    <ValidationMessage For="() => Order.Description" />
+</FormidableForm>
+
+@code {
+    [Parameter]
+    public EngineOrder Order { get; set; } = default!;
+
+    [Parameter]
+    public bool BindAfter { get; set; }
+
+    private async Task SetDescriptionAsync(string? value)
+    {
+        Order.Description = value ?? string.Empty;
+        await Task.Yield();
+    }
+
+    private async Task SaveAsync() => await Task.Yield();
+}
