@@ -252,6 +252,33 @@ After the workflow's push step succeeds:
       `CHANGELOG.md` as its body. Ticking "Create a discussion for this release" and picking the
       Announcements category also posts it to Discussions.
 
+- [ ] Redeploy the live demo. Run the Deploy Pages workflow on `main` while `main` is still the
+      release commit (Actions → Deploy Pages → Run workflow, or
+      `gh workflow run deploy-pages.yml --ref main`). The `github-pages` environment accepts
+      deployments from `main` only.
+
+- [ ] When the run finishes, open `https://xfunc-pty-ltd.github.io/formidable/mudblazor`. The page
+      should explain that the live demo leaves out the MudBlazor form, which runs when you run the
+      sample locally. That notice is compiled only into the build made for the live demo (published
+      with `-p:HostedDemo=true`); the sample you run locally shows the working form instead. So the
+      notice confirms the run deployed that build. An older demo shows the same notice, so it does
+      not tell you which release is live.
+
+- [ ] Confirm the demo serves the release. Read the version the served `Formidable.Blazor` assembly
+      carries:
+
+  ```bash
+  site=https://xfunc-pty-ltd.github.io/formidable
+  wasm=$(curl -s "$site/_framework/dotnet.js" | grep -o 'Formidable\.Blazor\.[a-z0-9]*\.wasm' | head -1)
+  curl -s "$site/_framework/$wasm" | grep -a -o 'X\.Y\.Z+[0-9a-f]*'
+  ```
+
+  It prints `X.Y.Z+` and the release commit's full SHA. Nothing printed means the demo still serves
+  another version. The site's files may be cached for up to ten minutes (GitHub Pages sends
+  `Cache-Control: max-age=600`), so wait that long and run it again. If it still prints nothing,
+  open the Deploy Pages run and check that it finished green on the release commit. If it did not,
+  run the workflow again on `main`, as the redeploy step says.
+
 ## If something goes wrong mid-release
 
 - **The run appears but the `publish` job never starts**: that is the environment gate, not a stuck
