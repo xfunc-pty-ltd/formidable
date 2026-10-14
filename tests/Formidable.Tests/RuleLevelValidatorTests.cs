@@ -197,6 +197,43 @@ public class RuleLevelValidatorTests
         public new bool PreValidate(ValidationContext<RuleModel> context, ValidationResult result) => false;
     }
 
+    /// <summary>Overrides <c>ValidateAsync</c> to append a failure to what its rules report, over rules in two selection classes.</summary>
+    private sealed class AppendingValidator : AbstractValidator<RuleModel>
+    {
+        public AppendingValidator()
+        {
+            RuleFor(x => x.Notes).MaximumLength(3);
+            RuleSet("Submit", () => RuleFor(x => x.EventName).NotEmpty());
+        }
+
+        public override async Task<ValidationResult> ValidateAsync(ValidationContext<RuleModel> context, CancellationToken cancellation = default)
+        {
+            var result = await base.ValidateAsync(context, cancellation);
+            result.Errors.Add(new ValidationFailure(nameof(RuleModel.Notes), "Appended"));
+            return result;
+        }
+    }
+
+    /// <summary>A base class carrying the <c>ValidateAsync</c> override, for a validator that inherits it.</summary>
+    private abstract class AsyncOverridingBase : AbstractValidator<RuleModel>
+    {
+        public override Task<ValidationResult> ValidateAsync(ValidationContext<RuleModel> context, CancellationToken cancellation = default) =>
+            base.ValidateAsync(context, cancellation);
+    }
+
+    private sealed class InheritedValidateAsyncValidator : AsyncOverridingBase
+    {
+        public InheritedValidateAsyncValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+    }
+
+    /// <summary>Overrides only the synchronous <c>Validate</c>, which no asynchronous validation reaches.</summary>
+    private sealed class SyncOverrideValidator : AbstractValidator<RuleModel>
+    {
+        public SyncOverrideValidator() => RuleFor(x => x.Notes).MaximumLength(3);
+
+        public override ValidationResult Validate(ValidationContext<RuleModel> context) => base.Validate(context);
+    }
+
     /// <summary>The draft-and-submit shape with no override.</summary>
     private sealed class DraftSubmitPlainValidator : DraftSubmitValidator<RuleModel>
     {
@@ -523,6 +560,32 @@ public class RuleLevelValidatorTests
         Assert.True(new FluentValidationModelValidator<RuleModel>(new DraftSubmitPlainValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new PlainRuleValidator()).CanValidateByRule);
         Assert.True(new FluentValidationModelValidator<RuleModel>(new HiddenPreValidateValidator()).CanValidateByRule);
+    }
+
+    // Every validator call passes through ValidateAsync, so what an override appends would be
+    // reported once per set of rules run apart, and a forwarding override would run its target once
+    // per set. An override, declared or inherited, turns the capability off, and every doer then
+    // throws. The rule-level path is async alone, so an override of the synchronous Validate keeps
+    // the capability. Mutation: drop the ValidateAsync test from CanValidateByRule and
+    // RequireRuleLevelCapability, and the capability reads true and SelectRules answers.
+    [Fact]
+    public async Task CanValidateByRule_is_false_for_a_ValidateAsync_override()
+    {
+        var declared = new FluentValidationModelValidator<RuleModel>(new AppendingValidator());
+        Assert.False(declared.CanValidateByRule);
+        var fromDeclared = Assert.Throws<NotSupportedException>(() => declared.SelectRules(ValidationProfile.Submit));
+        Assert.Contains("ValidateAsync", fromDeclared.Message);
+        Assert.Contains(nameof(AppendingValidator), fromDeclared.Message);
+        Assert.Throws<NotSupportedException>(() => declared.GroupBySelectionClass([]));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => declared.ValidateRulesAsync(new RuleModel(), ValidationProfile.Submit, [default]));
+
+        // The whole profile in one call reports the appended failure once.
+        var whole = await declared.ValidateAsync(new RuleModel(), ValidationProfile.Submit);
+        Assert.Single(whole.Issues, issue => issue.Message == "Appended");
+
+        Assert.False(new FluentValidationModelValidator<RuleModel>(new InheritedValidateAsyncValidator()).CanValidateByRule);
+        Assert.True(new FluentValidationModelValidator<RuleModel>(new SyncOverrideValidator()).CanValidateByRule);
     }
 
     [Fact]

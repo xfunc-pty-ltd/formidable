@@ -284,7 +284,7 @@ Whichever of the validity check and your edit's own check runs first has answere
 other looks, and the other reuses those answers.
 
 FluentValidation's `AbstractValidator` can be taken rule by rule unless you set
-`ClassLevelCascadeMode.Stop` or override `PreValidate`, as
+`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
 
 It costs extra where `LiveProfile` narrows (the rules the live check skipped still run on every

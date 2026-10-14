@@ -17,16 +17,17 @@ namespace Formidable;
 public sealed partial class FluentValidationModelValidator<TModel>
     : IModelValidator<TModel>, IRuleLevelValidator<TModel>, IRuleInspectingValidator<TModel>
 {
-    private const int PreValidateUnread = 0;
-    private const int PreValidateNotOverridden = 1;
-    private const int PreValidateOverridden = 2;
+    private const int OverrideUnread = 0;
+    private const int NotOverridden = 1;
+    private const int Overridden = 2;
 
     private readonly IValidator<TModel> _validator;
 
     private SelectedRulesSnapshot? _selectedRules;
 
-    // One of the three PreValidate constants above; an int, so a read is never torn.
+    // Each one of the three override constants above; an int, so a read is never torn.
     private int _preValidateOverride;
+    private int _validateAsyncOverride;
 
     /// <summary>Wraps <paramref name="validator"/>.</summary>
     /// <param name="validator">The FluentValidation validator to adapt.</param>
@@ -57,17 +58,20 @@ public sealed partial class FluentValidationModelValidator<TModel>
     public ValidationReport Validate(TModel model, ValidationProfile profile) =>
         ToReport(_validator.Validate(model, profile));
 
-    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/> and whose class does not override <c>PreValidate</c>.</summary>
+    /// <summary>Whether rules can be selected and run one set at a time: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> whose <see cref="AbstractValidator{T}.ClassLevelCascadeMode"/> is <see cref="CascadeMode.Continue"/> and whose class overrides neither <c>PreValidate</c> nor <c>ValidateAsync</c>.</summary>
     /// <remarks>
     /// A class-level cascade stop lets one failing rule suppress the rules after it, which
     /// running part of a profile cannot reproduce. FluentValidation runs <c>PreValidate</c> once
-    /// per call, so a failure an override adds would be reported once for each set run. Either
-    /// makes this <see langword="false"/>, as does a hand-rolled <see cref="IValidator{T}"/>,
-    /// which cannot list its rules. A per-rule <c>Cascade(CascadeMode.Stop)</c> does not matter.
+    /// per call, and every call passes through <c>ValidateAsync</c>, so what an override of either
+    /// adds would be reported once for each set run. Any of these makes this
+    /// <see langword="false"/>, as does a hand-rolled
+    /// <see cref="IValidator{T}"/>, which cannot list its rules. A per-rule
+    /// <c>Cascade(CascadeMode.Stop)</c> does not matter.
     /// </remarks>
     public bool CanValidateByRule =>
         _validator is AbstractValidator<TModel> { ClassLevelCascadeMode: CascadeMode.Continue } abstractValidator
-        && !OverridesPreValidate(abstractValidator);
+        && !OverridesPreValidate(abstractValidator)
+        && !OverridesValidateAsync(abstractValidator);
 
     /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>PreValidate</c>; worked out on the first ask and kept.</summary>
     /// <param name="validator">The wrapped validator.</param>
@@ -78,13 +82,30 @@ public sealed partial class FluentValidationModelValidator<TModel>
     private bool OverridesPreValidate(AbstractValidator<TModel> validator)
     {
         var known = _preValidateOverride;
-        if (known == PreValidateUnread)
+        if (known == OverrideUnread)
         {
-            known = PreValidateBinding.IsOverriddenBy(validator) ? PreValidateOverridden : PreValidateNotOverridden;
+            known = PreValidateBinding.IsOverriddenBy(validator) ? Overridden : NotOverridden;
             _preValidateOverride = known;
         }
 
-        return known == PreValidateOverridden;
+        return known == Overridden;
+    }
+
+    /// <summary>Whether the class of <paramref name="validator"/>, the wrapped validator, overrides <c>ValidateAsync(ValidationContext&lt;T&gt;, CancellationToken)</c>; worked out on the first ask and kept, as <see cref="OverridesPreValidate"/> is.</summary>
+    /// <param name="validator">The wrapped validator.</param>
+    /// <returns><see langword="true"/> when the override is declared by the validator's class or inherited from a base between it and <see cref="AbstractValidator{T}"/>.</returns>
+    // The rule-level path is async alone, so the synchronous Validate is never reached from it
+    // and an override of that one leaves the capability on.
+    private bool OverridesValidateAsync(AbstractValidator<TModel> validator)
+    {
+        var known = _validateAsyncOverride;
+        if (known == OverrideUnread)
+        {
+            known = EntryPointOverrides<TModel>.OverridesValidateAsync(validator) ? Overridden : NotOverridden;
+            _validateAsyncOverride = known;
+        }
+
+        return known == Overridden;
     }
 
     /// <summary>Finds a <c>PreValidate</c> override by binding the base declaration to a validator and reading which method the call reaches.</summary>
@@ -463,6 +484,14 @@ public sealed partial class FluentValidationModelValidator<TModel>
             throw new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides PreValidate, which FluentValidation runs once " +
                 "per validator call, so a failure it adds would be reported once for every set of rules run apart. " +
+                $"Check {nameof(CanValidateByRule)} first.");
+        }
+
+        if (OverridesValidateAsync(abstractValidator))
+        {
+            throw new NotSupportedException(
+                $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides ValidateAsync, which runs once per validator " +
+                "call, so whatever the override adds or forwards would be run once for every set of rules run apart. " +
                 $"Check {nameof(CanValidateByRule)} first.");
         }
 

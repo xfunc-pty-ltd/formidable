@@ -230,11 +230,12 @@ Why: [how the engine works: what starts each check](how-the-engine-works.md#the-
 ## Does the library ever run my rule twice for one edit?
 
 Not on a validator the library can take rule by rule. FluentValidation's `AbstractValidator` is
-one, unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate`. Submit, then edit a
-field, and no rule runs twice: one edit runs a rule declared once exactly once, however many profile
-names reach it. Whichever of the live check and the whole-form re-check lands first, you see the
-same messages and each rule ran once. On the default profiles the re-check runs no rule the live
-check already answered, and what it refreshes is still complete.
+one, unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`.
+
+Submit, then edit a field, and no rule runs twice: one edit runs a rule declared once exactly once,
+however many profile names reach it. Whichever of the live check and the whole-form re-check lands
+first, you see the same messages and each rule ran once. On the default profiles the re-check runs
+no rule the live check already answered, and what it refreshes is still complete.
 
 The sample's [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes the saving
 visible: submit, then type, and one "checking" cycle runs, not two. The exceptions you can count:
@@ -248,9 +249,10 @@ visible: submit, then type, and one "checking" cycle runs, not two. The exceptio
   run once.
 - A rule written with `RuleForEach` is checked for every row at once, so an expensive per-row
   check costs the whole collection on each edit that reaches it.
-- A validator with a class-level cascade stop or a `PreValidate` override, or one that is not
-  FluentValidation's `AbstractValidator`, has every rule re-run on every check, so after a submit a
-  rule can run twice for one edit. A per-rule `.Cascade(CascadeMode.Stop)` changes nothing.
+- A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or one
+  that is not FluentValidation's `AbstractValidator`, has every rule re-run on every check, so after
+  a submit a rule can run twice for one edit. A per-rule `.Cascade(CascadeMode.Stop)` changes
+  nothing.
 - Pressing Submit right after a live check asks the async rule again, and so can
   [`TrackFormValidity`](#what-does-trackformvalidity-cost-with-async-rules); a memo answers the
   repeat ([next question](#why-did-the-same-value-get-checked-twice-and-how-do-i-stop-it)).
@@ -351,9 +353,10 @@ With `TrackFormValidity` on, its validity check answers the rest, so tracking ca
 field a narrowed live check could not.
 
 Two more setups keep a passing check short of green. A validator the engine cannot take rule by
-rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop` or overrides `PreValidate`, or
-a validator of your own) earns green only from a check that answers the whole model: a submit, the
-whole-form re-check, a load of values, or the validity check, never a live check.
+rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop` or overrides `PreValidate` or
+`ValidateAsync`, or a validator of your own) earns green only from a check that answers the whole
+model: a submit, the whole-form re-check, a load of values, or the validity check, never a live
+check.
 
 And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` with tracking off, an edit before the
 first submit or server reply starts no check. Green after it comes from a submit, the whole-form

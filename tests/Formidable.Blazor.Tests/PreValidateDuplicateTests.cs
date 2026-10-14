@@ -86,6 +86,36 @@ public class PreValidateDuplicateTests : BunitContext
             RuleFor(m => m.Email).NotEmpty().WithMessage("Email is required");
     }
 
+    /// <summary>The same rules, and a <c>ValidateAsync</c> override that appends a failure on Name while it starts with "blocked".</summary>
+    public sealed class AppendingSignupValidator : DraftSubmitValidator<Signup>
+    {
+        protected override void ConfigureDraftRules() =>
+            RuleFor(m => m.Name).MaximumLength(20).WithMessage("Name is 20 characters max");
+
+        protected override void ConfigureSubmitRules() =>
+            RuleFor(m => m.Email).NotEmpty().WithMessage("Email is required");
+
+        public override async Task<FluentValidation.Results.ValidationResult> ValidateAsync(ValidationContext<Signup> context, CancellationToken cancellation = default)
+        {
+            var result = await base.ValidateAsync(context, cancellation);
+            if (context.InstanceToValidate.Name?.StartsWith(Blocked, StringComparison.Ordinal) == true)
+            {
+                result.Errors.Add(new FluentValidation.Results.ValidationFailure(nameof(Signup.Name), PreMessage));
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>Declares no rule of its own and forwards every asynchronous validation to the plain rules.</summary>
+    public sealed class ForwardingSignupValidator : AbstractValidator<Signup>
+    {
+        private readonly PlainSignupValidator _inner = new();
+
+        public override Task<FluentValidation.Results.ValidationResult> ValidateAsync(ValidationContext<Signup> context, CancellationToken cancellation = default) =>
+            _inner.ValidateAsync(context, cancellation);
+    }
+
     /// <summary>Counts the whole-profile and rule-level calls a form makes through it.</summary>
     private sealed class CallCountingValidator(IModelValidator<Signup> inner) : DelegatingModelValidator<Signup>(inner)
     {
@@ -241,6 +271,34 @@ public class PreValidateDuplicateTests : BunitContext
             Assert.Equal(0, counting.WholeProfileCalls);
             Assert.True(counting.RuleLevelCalls >= 2, $"rule-level calls: {counting.RuleLevelCalls}");
         }
+    }
+
+    // Every validator call passes through ValidateAsync, so a failure an override appends would be
+    // reported once per rule group, and a forwarding override with no rules of its own would be
+    // run against an empty selection and validate nothing. Such a validator is validated whole:
+    // the appended failure comes back once, and the forwarded rules block the submit.
+    // Mutation: drop the ValidateAsync test from CanValidateByRule and RequireRuleLevelCapability,
+    // and the appended failure comes back twice while the forwarding validator lets an empty Email
+    // through.
+    [Theory]
+    [InlineData("appending")]
+    [InlineData("forwarding")]
+    public async Task A_ValidateAsync_override_is_validated_whole(string shape)
+    {
+        IValidator<Signup> fluent = shape == "appending" ? new AppendingSignupValidator() : new ForwardingSignupValidator();
+        var counting = new CallCountingValidator(new FluentValidationModelValidator<Signup>(fluent));
+        var model = new Signup { Name = Blocked, Email = shape == "appending" ? "ada@example.com" : string.Empty };
+        var editContext = new EditContext(model);
+        using var engine = new FormidableEngine<Signup>(
+            model, editContext, counting, new ReflectionModelIntrospector(), new FormidableOptions(), _clock);
+
+        var outcome = await engine.ValidateForSubmitAsync();
+
+        Assert.False(counting.CanValidateByRule);
+        Assert.Equal(0, counting.RuleLevelCalls);
+        Assert.False(outcome.CanProceed);
+        var expected = shape == "appending" ? PreMessage : "Email is required";
+        Assert.Single(outcome.Report.Issues, issue => issue.Message == expected);
     }
 
     private static async Task<bool> UntilAsync(Func<bool> condition, int tries = 300)

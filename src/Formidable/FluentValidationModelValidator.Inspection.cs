@@ -26,8 +26,9 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
     /// <summary>Whether the rules can be read: <see langword="true"/> exactly when the wrapped validator is an <see cref="AbstractValidator{T}"/> and the loaded FluentValidation assembly carries the members the reading needs.</summary>
     /// <remarks>
-    /// Neither cascade mode nor a <c>PreValidate</c> override matters, so a validator
-    /// <see cref="CanValidateByRule"/> refuses for either can still be read. A hand-rolled
+    /// Neither cascade mode, a <c>PreValidate</c> override nor a <c>ValidateAsync</c> override
+    /// matters, so a validator <see cref="CanValidateByRule"/> refuses for any of them can still
+    /// be read. A hand-rolled
     /// <see cref="IValidator{T}"/> reports <see langword="false"/>.
     /// The assembly check runs once per process and writes one Trace line when it fails, which
     /// a FluentValidation resolved above the range this package declares can cause; both readers

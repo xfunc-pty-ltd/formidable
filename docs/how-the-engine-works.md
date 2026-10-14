@@ -669,14 +669,20 @@ read.
 
 `FluentValidationModelValidator<TModel>` (what `AddFormidable()` registers) reports the
 capability true exactly when the wrapped validator is an `AbstractValidator<TModel>` whose
-`ClassLevelCascadeMode` is `CascadeMode.Continue` and whose class does not override `PreValidate`.
-A hand-rolled `IValidator<T>` cannot enumerate its rules, so it turns the capability off.
+`ClassLevelCascadeMode` is `CascadeMode.Continue` and whose class overrides neither `PreValidate`
+nor `ValidateAsync`. A hand-rolled `IValidator<T>` cannot enumerate its rules, so it turns the
+capability off.
 
 A class-level cascade stop lets a failing rule suppress later rules within one whole-profile run,
 and executing part of a profile can reproduce neither the stop nor its verdict, so the adapter
 reports the capability absent. FluentValidation runs `PreValidate` once per validator call, and a
 failure it adds belongs to no rule, so one call per selection class would report it once per
 class. An override, declared or inherited, turns the capability off as well.
+
+Every call passes through `ValidateAsync`, so an override of it (one that appends a failure, or
+forwards to another validator) would also run once per class, and it turns the capability off in
+the same way. The rule-level path is async alone, so an override of the synchronous `Validate`
+never runs on it and leaves the capability on.
 
 Whichever path runs, the engine takes its `IModelValidator<TModel>` once, when it is built (the
 root's `Validator` parameter, else the container), and keeps that instance until the root rebuilds

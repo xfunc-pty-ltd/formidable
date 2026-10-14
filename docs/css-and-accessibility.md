@@ -94,7 +94,7 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 On the default profiles, the live check behind a committed change supplies that answer, unless
 `LiveDebounce` is `Timeout.InfiniteTimeSpan`. The live check answers that way only on a validator
 the engine can take rule by rule. FluentValidation's `AbstractValidator` is one unless you set
-`ClassLevelCascadeMode.Stop` or override `PreValidate`, as
+`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
 says. [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the
 submit rules. One answer covers the form, not only the changed field. A submit, and the whole-form
