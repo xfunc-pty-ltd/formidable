@@ -32,7 +32,7 @@
         <p>An error marks its field whether or not you have changed it. Once you have changed a field with no error, it takes the warning or info class when it carries a warning or an info. A changed field with nothing against it, which would pass a submit, takes the valid class: the green border that confirms it.</p>
         <p><code>UpdateOn</code> is the input setting for when a value reaches the form. Every box here sets it to <code>InputUpdateMode.OnInput</code>, so each keystroke is checked and a message arrives as you type, not when you leave the box.</p>
         <p>Renaming is a different setting. The <a href="bootstrap">Fitting a UI library</a> page uses <code>FormidableCssClasses</code> to give those classes another library's names. Overriding a token recolours the sample's own rules; renaming the classes changes whose stylesheet draws the field.</p>
-        <p>The pickers start at the light scheme's colours, and the box around the form carries no style until you pick one. Picking any colour writes every token at once, so in dark mode the other states switch to their light-scheme colours until you reload the page.</p>
+        <p>The pickers start at the colours your colour scheme gives the form, read once as the page opens. The box around the form carries no style until you pick a colour, and a pick writes only that colour's tokens. Every colour you have not picked keeps your scheme's own value, light or dark, and follows a switch of scheme at once. After a switch, a picker you have not used still shows its opening colour until you reload.</p>
         <p>The validator is the <a href="severity">Severity levels</a> page's.</p>
     </HowItWorks>
     <Demo>
@@ -44,7 +44,7 @@
 
         @* "26" is 15% alpha appended to the accent hex for the ring token; it assumes a 6-digit
            hex, which is what <input type="color"> always produces. *@
-        <div style="@WrapperStyle">
+        <div style="@WrapperStyle" @ref="_wrapper">
             <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
                 <div class="summary-slot">
                     <FormidableSummary />

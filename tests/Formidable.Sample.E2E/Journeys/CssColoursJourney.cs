@@ -32,6 +32,50 @@ public sealed class CssColoursJourney(SampleAppFixture app)
         await Expect(wrapper).ToHaveAttributeAsync("style", new Regex(@"--error:\s*#ff0000"));
     }
 
+    // Each picker writes only its own tokens, so every colour nobody picked keeps the value the
+    // visitor's colour scheme gives it. Mutation that must break this: one flag shared by every
+    // picker, which writes all five colours as soon as any one is picked.
+    [E2EFact]
+    public async Task Picking_the_error_colour_writes_only_the_error_tokens()
+    {
+        await using var session = await app.NewPageAsync("/css-colours");
+        var page = session.Page;
+        var wrapper = page.Locator("div:has(> form)");
+
+        await page.Locator("input[type=color]").First.FillAsync("#ff0000");
+
+        await Expect(wrapper).ToHaveAttributeAsync("style", new Regex(@"--error:\s*#ff0000;\s*--error-text:\s*#ff0000"));
+        var style = await wrapper.GetAttributeAsync("style");
+        foreach (var token in new[] { "--accent", "--ring", "--warn", "--info", "--valid" })
+        {
+            Assert.DoesNotContain(token, style);
+        }
+    }
+
+    // The pickers start at the colours the stylesheet gives the form in the visitor's scheme, so
+    // in the dark scheme each swatch opens on the dark value. Reading them is not a pick: the
+    // wrapper still carries no style. Mutations that must break this: drop the read, leaving the
+    // light defaults; or read through the pickers' setters, which records five picks.
+    [E2EFact]
+    public async Task In_the_dark_scheme_the_pickers_start_at_the_dark_colours()
+    {
+        await using var session = await app.NewPageAsync("/css-colours", new BrowserNewContextOptions { ColorScheme = ColorScheme.Dark });
+        var page = session.Page;
+        var pickers = page.Locator("input[type=color]");
+        var theme = await page.EvaluateAsync<string[]>(
+            "names => names.map(n => getComputedStyle(document.documentElement).getPropertyValue(n).trim())",
+            new[] { "--error", "--accent", "--warn", "--info", "--valid" });
+
+        // The control: the dark scheme is in force, so a swatch left at its light default fails.
+        Assert.Equal("#f87171", theme[0]);
+        for (var i = 0; i < theme.Length; i++)
+        {
+            await Expect(pickers.Nth(i)).ToHaveValueAsync(theme[i]);
+        }
+
+        Assert.Null(await page.Locator("div:has(> form)").GetAttributeAsync("style"));
+    }
+
     [E2EFact]
     public async Task An_exclamation_mark_in_description_earns_the_warning_class()
     {

@@ -519,14 +519,15 @@ the Hosted demo section walks.
 
 ### CSS colours
 
-Every colour row here runs in both colour schemes. Reload before checking the second scheme:
-picking any colour sets the others to their light defaults until the page reloads.
+Every colour row here runs in both colour schemes. Reload before checking the second scheme: the
+pickers read the scheme's colours as the page opens, and a picked colour stays until the page
+reloads.
 
-- [ ] **The valid colour, in both colour schemes: do this FIRST, on a fresh load.** Type a title
-      and press Tab. The border turns a green plainly distinct from the accent. Picking any colour
-      writes every colour token (the CSS custom properties the pickers set), the rest at their
-      LIGHT defaults, so the dark green is gone until reload. RELOAD when you are done: step 1
-      needs empty boxes
+- [ ] **The valid colour, in both colour schemes: do this FIRST, on a fresh load.** The five
+      swatches show this scheme's colours: in the DARK scheme, the dark theme's lighter shades.
+      Type a title and press Tab. The border turns a green plainly distinct from the accent. In
+      the dark scheme, pick a new Error colour: the green stays the dark scheme's green, because a
+      pick changes only its own colour. RELOAD when you are done: step 1 needs empty boxes
 - [ ] Steps 1 and 2, in both colour schemes: the border, the message AND the error summary's left
       stripe and entry text all recolour at once
 - [ ] Steps 3 and 4, in both colour schemes: the green border follows the new valid colour

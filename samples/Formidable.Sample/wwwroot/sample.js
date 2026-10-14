@@ -73,6 +73,12 @@ window.formidableSample = {
         const w = window.formidableSample._bsWatches[id];
         if (w) { w.mq.removeEventListener('change', w.apply); delete window.formidableSample._bsWatches[id]; }
     },
+    // Which scheme's colours apply is the stylesheet's decision, so a page that wants to start
+    // from them asks the browser what each named custom property holds on the element.
+    readTokens: (el, names) => {
+        const style = getComputedStyle(el);
+        return names.map(name => style.getPropertyValue(name).trim());
+    },
     // A script added once the app is running runs when its download finishes, and a component
     // that calls into it on its first render can get there first. This adds the script to the
     // head and returns a promise that settles once it has run. A later call for the same script
