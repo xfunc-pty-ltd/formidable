@@ -287,9 +287,11 @@ answers both fields. "Checking" then stays on both until an answer for both land
 `DisplayName` in [the example above](#how-do-i-write-an-async-rule) each show their own "checking",
 and neither lights the other.
 
-The whole-form re-check shows "checking" on a field whose change is still waiting out
-`LiveDebounce`, and after a submit on the fields you edited since. Pressing Submit shows it
-form-wide, because every field is being checked at once. Loading values shows it nowhere.
+The whole-form re-check shows "checking" on a field whose change is still waiting out `LiveDebounce`
+(the wait the form can put between an edit and its check). After a submit, it also shows it on each
+field you edited since. Pressing Submit shows it form-wide, because every field is being checked at
+once. Loading values shows it on fewer fields, and can keep it off a field you changed: the
+paragraphs on loading below say when.
 
 Two flags answer "is something still checking?".
 [`IFormidableEngine.IsValidating`](engine-reference.md#iformidableengine) is true while any check
@@ -300,9 +302,41 @@ follows the per-field rules above. The per-field flag drives the `Pending` class
 `InputBase` components pick up through the class provider every engine installs on its
 `EditContext`.
 
-Loading values (`DiscloseLoadedValuesAsync`) runs every rule once, async ones included, then
-checks the fields it engaged. It shows "checking" on no field (the form-wide flag is true, so a
-page spinner works), moves no focus, and a form that never calls it is unaffected.
+Loading values (`DiscloseLoadedValuesAsync`) runs every rule once, async ones included. While it
+does, it shows "checking" on no field (the form-wide flag is true, so a page spinner works). A load
+moves no focus, and a form that never calls `DiscloseLoadedValuesAsync` is unaffected.
+
+The load then engages each field that holds a value and has a rule. Engaging a field is what your
+own change to it does: from then on its messages show as you edit. A field the load finds empty is
+not engaged by it, so it stays silent unless a committed change of yours engaged it earlier. Where
+your validator cannot report its rules to the library (an `IModelValidator<T>` you wrote yourself,
+say), a load engages only the fields whose values fail ([what a load does with each
+value](component-kit.md#saying-what-loaded-values-have-earned)).
+
+A check of the fields the load engaged follows it, and shows "checking" on them while it runs. It
+usually ends at once, because it reuses the load's answers. Taking a validator rule by rule means
+running its rules separately, so one check can reuse what another found for the same values
+([which validators allow it](#does-the-library-ever-run-my-rule-twice-for-one-edit)).
+
+That check runs rules again when the library cannot take your validator rule by rule, or when a
+value changed while the load ran. It runs all of its rules again when a field appeared on the page
+or left it while the load ran. The form's first sight of its fields counts, so a load your page
+starts from its own first `OnAfterRenderAsync` runs them twice.
+
+Where `LiveProfile` differs from the submit profile, a rule inside an `Include()`, or in some child
+validators, may run again too, as after an edit
+([the exceptions](#does-the-library-ever-run-my-rule-twice-for-one-edit)).
+
+A field you change while the load runs shows no "checking" until the load ends, because the check of
+your change waits for it. With `LiveDebounce` unset, the check after the load is the one that
+answers your change. It shows "checking" on your field only if the load engaged it. So a field you
+emptied shows no "checking", and its message appears when that check ends.
+
+With `LiveDebounce` set, your field's own check also runs once the load has ended and the wait has
+passed: the wait from your last change, or a fresh one from the load's end if yours ran out during
+the load. That check shows "checking" on your field while it runs. If the check after the load has
+already finished, your field's check reuses its answers and ends at once, unless the library cannot
+take your validator rule by rule.
 
 Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
