@@ -232,10 +232,10 @@ After the workflow's push step succeeds:
       and new versions of existing packages can take a few minutes to finish indexing before they're
       visible in search: a listing page returning 404, or still showing the previous version,
       immediately after the workflow finishes is not necessarily a failure.
-- [ ] Open each package's nuget.org page and confirm the README tab renders correctly: the tab
-      shows `docs/nuget-readme.md`, the one file all three packages ship as their `README.md` (see
-      above); a rendering problem here is a packaging bug worth fixing before the next release, not
-      a nuget.org issue.
+- [ ] Open each package's nuget.org page and confirm the README tab renders correctly. The tab shows
+      `docs/nuget-readme.md`, the one file all three packages ship as their `README.md` (see above).
+      A rendering problem here is a packaging bug to fix before the next release, not a nuget.org
+      issue.
 - [ ] Install into a disposable scratch project and confirm it restores at the released version:
 
   ```bash
@@ -248,9 +248,12 @@ After the workflow's push step succeeds:
 - [ ] Spot-check that the installed package's dependency versions match what's declared in the
       relevant `.csproj` (e.g. `Formidable.Blazor` pulling in the matching `Formidable` version, not
       an older one already on nuget.org from a previous release).
-- [ ] Create the GitHub Release on the tag, titled `Formidable X.Y.Z`, with the version's section of
-      `CHANGELOG.md` as its body. Ticking "Create a discussion for this release" and picking the
-      Announcements category also posts it to Discussions.
+
+- [ ] Create the GitHub Release on the tag, titled `Formidable X.Y.Z`. Its body is the version's
+      section of `CHANGELOG.md`. For a release that changes what consumers meet, the body opens with
+      upgrade notes (the breaking changes, then the behaviour they may notice), and the
+      `CHANGELOG.md` section follows under a Changelog heading. Ticking "Create a discussion for
+      this release" and picking the Announcements category also posts it to Discussions.
 
 - [ ] Redeploy the live demo. Run the Deploy Pages workflow on `main` while `main` is still the
       release commit (Actions → Deploy Pages → Run workflow, or
