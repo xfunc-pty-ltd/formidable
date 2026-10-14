@@ -115,16 +115,27 @@ Set it for the whole app with
 
 `TimeSpan`, defaults to 300 ms. After a submit, how long after an edit before the whole form is
 re-checked, so what the submit showed stays truthful: the messages on screen follow your fixes, and
-the `Valid` class stays honest, with no second submit.
+the `Valid` class (the one a field wears when it would pass a submit) stays honest, with no second
+submit.
 
 Set it for the whole app with
 `builder.Services.AddFormidableBlazor(options => options.RefreshDebounce = TimeSpan.FromMilliseconds(500));`.
 
-`TimeSpan.Zero` re-checks as soon as the edit is committed, and `Timeout.InfiniteTimeSpan` turns
-the re-check off. The timer behind it takes a wait from zero to just under 4294967295 milliseconds
-(about 49.7 days). A longer wait reads as `Timeout.InfiniteTimeSpan`, and a negative one other than
-`Timeout.InfiniteTimeSpan` as zero. Either is named once in a logged warning, whether it was set
-before or after the form was built.
+`TimeSpan.Zero` re-checks as soon as the edit is committed. `Timeout.InfiniteTimeSpan` turns the
+re-check off, and then only two kinds of check change what a submit showed before the next submit:
+
+- a load of values (`DiscloseLoadedValuesAsync`);
+- the check each edit starts (the live check), when it runs the same rules as a submit
+  (`SubmitProfile`). It runs them while [`LiveProfile`](#liveprofile), the rules the live check
+  runs, is unset.
+
+With the re-check off and `LiveProfile` set to fewer rules than `SubmitProfile`, a message a submit
+showed stays until the next submit or load of values, even once its field is fixed.
+
+The timer behind it takes a wait from zero to just under 4294967295 milliseconds (about 49.7 days).
+The form treats a longer wait as `Timeout.InfiniteTimeSpan`. It treats any other negative wait as
+zero (`Timeout.InfiniteTimeSpan` is itself minus one millisecond). A logged warning names either
+case once, whether the value was set before or after the form was built.
 
 Before the first submit or server reply (the answer your page hands to `ApplyServerIssues`), an edit
 gets one live check at most, and no whole-form re-check follows it. That check answers every engaged
@@ -163,9 +174,9 @@ set to `Timeout.InfiniteTimeSpan`, edits before the first submit or server reply
 check of their own. It runs `RefreshDebounce` after the last of them.
 
 It is a second debounce because the re-check is whole-form work, too much to repeat on every
-keystroke. The wait is the same whether or not `LiveDebounce` is set, and a burst (edits or
-field-set changes each arriving inside the wait the one before it started) is one re-check, since
-they share one timer.
+keystroke. The wait is the same whether or not `LiveDebounce` is set. Edits and changes to which
+fields are on screen share one timer, and each one that arrives before the wait has passed starts
+the wait again, so a burst of them is one re-check.
 
 This timer and `LiveDebounce`'s both come from the DI container's `TimeProvider` where one is
 registered, so a test can land either window with `Advance` (see
