@@ -496,7 +496,7 @@ public class FormidableRequiredIndicatorTests : BunitContext
     // registered would make a field with no control on the page eligible to have its submit error
     // disclosed. Here Name is failing NotEmpty() and the only thing speaking for it is the marker,
     // so a blocked submit must suppress that error rather than show it, and the form must fall
-    // back on the all-suppressed gate instead. Mutation that must break this: returning
+    // back on the defensive gate instead. Mutation that must break this: returning
     // context.Registry.Register(...) from the marker's Register.
     [Fact]
     public void The_marker_registers_nothing_so_a_field_it_alone_speaks_for_stays_undisclosed()

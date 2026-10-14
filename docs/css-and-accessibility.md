@@ -200,7 +200,7 @@ The owner segment names the instance, so a different model or a different collec
 different one, all but certainly (the exception is
 [below](#can-two-fields-end-up-with-the-same-id)). Nothing you write can name that segment. The
 model-level field gets `form` as its name segment rather than an empty one: that is the field with
-an empty `FieldIdentifier.FieldName`, the one the defensive all-suppressed gate in
+an empty `FieldIdentifier.FieldName`, the one the defensive gate in
 [Disclosure](disclosure.md) targets.
 
 Why: [how the engine works: how an id is derived](how-the-engine-works.md#how-an-id-is-derived).
@@ -597,7 +597,7 @@ focus, and that element is where the summary entry lands. The field's determinis
 of the lookup, so a field with no input of its own can be focused just as well.
 
 `FormidableForm` does this for the model-level field itself, on the `<form>` element it renders
-([Component kit](component-kit.md#formidableformtmodel)). The all-suppressed defensive gate's
+([Component kit](component-kit.md#formidableformtmodel)). The defensive gate's
 summary entry lands there with no page wiring. A collection's rules fail against the list rather
 than against any one control, so nothing renders that id automatically. The `/collections` sample
 gives the container holding every row the collection's id by hand.
@@ -788,4 +788,4 @@ Why: [how the engine works: how a native input's class is computed](how-the-engi
   [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) (the venue region input and the
   attendees group). The model-level gate id needs no page wiring:
   [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor) and `/workout` both show the
-  all-suppressed gate landing on the `<form>` element `FormidableForm` renders it on.
+  defensive gate landing on the `<form>` element `FormidableForm` renders it on.

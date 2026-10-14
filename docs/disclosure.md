@@ -515,5 +515,5 @@ suppressed-issue list reflects only the most recent submit (cleared as each subm
 fully disclosed submit leaves it empty), and its summary-less form shows the defensive gate arriving
 through `FormidableModelMessage` instead of a summary entry.
 [`/workout`](../samples/Formidable.Sample/Pages/Workout.razor) shows the same UI-gating pattern
-(catering toggled off over an unconditional `DietaryNotes` rule) and the all-suppressed defensive
-gate inside a composite form.
+(catering toggled off over an unconditional `DietaryNotes` rule) and the defensive gate inside a
+composite form.

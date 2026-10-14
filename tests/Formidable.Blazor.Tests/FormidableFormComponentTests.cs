@@ -779,7 +779,7 @@ public class FormidableFormComponentTests : BunitContext
     public void Consumer_supplied_id_and_tabindex_are_ignored()
     {
         // Mirrors FormidableInputBase<TValue>'s own policy: the deterministic id is what the
-        // focus service and the all-suppressed gate address the form by, so a consumer-splatted
+        // focus service and the defensive gate address the form by, so a consumer-splatted
         // id/tabindex loses the duplicate-attribute race rather than winning it.
         var order = new EngineOrder();
         var container = Render(builder =>

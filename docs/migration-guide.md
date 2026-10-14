@@ -160,7 +160,7 @@ the validator reaches no `<form>`, so a page rendering it writes the attribute o
 `FormidableFieldId.MessagesFor` of the model-level field.
 
 The model-level field's own id, with `tabindex="-1"`, goes on that same `EditForm`, so the
-all-suppressed gate's summary entry has somewhere to land, and so does a blocked submit's move when
+defensive gate's summary entry has somewhere to land, and so does a blocked submit's move when
 the gate's message is its first error. The element carrying that id is also the
 first one the displaced-click guard looks for here; a page offering neither it nor a `<form>` around
 a registered field gets a diagnostic and no guard (see

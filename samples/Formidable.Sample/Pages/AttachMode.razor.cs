@@ -17,7 +17,7 @@ public partial class AttachMode : IDisposable
     private IFormidableEngine? _subscribedEngine;
     private string _status = string.Empty;
 
-    // FormidableValidator renders no <form> of its own, so the all-suppressed defensive gate's
+    // FormidableValidator renders no <form> of its own, so the defensive gate's
     // summary entry has nowhere to land unless the page's own EditForm carries the id by hand —
     // the same wiring every FormidableForm-rooted page gets for free.
     private string GateId => FormidableFieldId.For(new FieldIdentifier(_report, string.Empty));

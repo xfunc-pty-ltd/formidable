@@ -8,7 +8,7 @@ namespace Formidable.Blazor.Tests;
 
 // The component's contract, pinned surface by surface: the model-level list persists empty on a
 // clean form (id, class, no aria-live), and carries a configured InlineMessageLive on that persistent
-// element; the all-suppressed defensive gate — the reason the component exists — reaches the
+// element; the defensive gate — the reason the component exists — reaches the
 // screen through it on a form that renders no summary; the incomplete-validation fault issue
 // renders after the gate, in the order GetIssues documents; the same list renders under
 // FormidableValidator as under FormidableForm; and the splat follows the shared message-list

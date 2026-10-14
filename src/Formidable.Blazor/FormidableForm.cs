@@ -1187,7 +1187,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             inner.AddAttribute(3, "novalidate", true);
             inner.AddMultipleAttributes(4, AdditionalAttributes!);
             // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
-            // because the all-suppressed gate's summary entry addresses the form by this id (see
+            // because the defensive gate's summary entry addresses the form by this id (see
             // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
             // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
             // policy. aria-describedby, added in this same position, does not win outright — see

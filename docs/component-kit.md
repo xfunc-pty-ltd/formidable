@@ -173,7 +173,7 @@ can render:
 
 | Attribute | Against the splat | What it is |
 |---|---|---|
-| `id` and `tabindex="-1"` | win outright | The model-level field's deterministic `FormidableFieldId`, which the all-suppressed gate's summary entry and the focus service both address, so its value cannot be a consumer's to choose. |
+| `id` and `tabindex="-1"` | win outright | The model-level field's deterministic `FormidableFieldId`, which the defensive gate's summary entry and the focus service both address, so its value cannot be a consumer's to choose. |
 | `novalidate` | loses outright | Renders by default. Splat `novalidate="@false"` — the `bool`, since the string `"false"` would still render the attribute — to hand the submit back to the browser's own constraint UI ([CSS and accessibility](css-and-accessibility.md#why-aria-required-and-not-required) has what a form without it does). |
 | `aria-describedby` | merges | Splatted ids first, the model-level message list's id appended, so a `FormidableModelMessage` describes the form with nothing wired and a page's own hint stays where the page put it. |
 | `inert` | wins while it renders | Renders only [while a prerender window is open](hosting-models.md#what-happens-inside-the-prerender-window), and wins there the way `id` does. The form renders none at any other time, so a page that makes its own form inert keeps that everywhere else. |
@@ -918,7 +918,7 @@ or from anything else it knows about a field. Five properties of the resulting o
 | Property | What it means |
 |---|---|
 | Two issues on one field keep the engine's own order | The sort is by field, so it never reorders what one field reported. |
-| A verdict about the whole form is reported first | The model-level field rides along on every resolution, and its element is the `<form>`, which contains every field on the page, so document order puts the all-suppressed gate's explanation and a validator fault first. An implementation need not special-case it: `FormidableFieldId.For` derives its id the same way. |
+| A verdict about the whole form is reported first | The model-level field rides along on every resolution, and its element is the `<form>`, which contains every field on the page, so document order puts the defensive gate's explanation and a validator fault first. An implementation need not special-case it: `FormidableFieldId.For` derives its id the same way. |
 | A field the page cannot place sorts last | The service answers only for the fields it can locate, so anything it leaves out sorts after everything it placed: a control that renders no id of its own, and a row held only by [`KeepRegistered`](#virtualize-and-keepregistered), which stays registered precisely because it has left the DOM. |
 | An empty answer and no answer are different answers | An empty list says none of these fields are on the page, which is taken as the order. `null` says the order could not be resolved at all, and the form asks again on a later render, as it does after an interop call that threw. Answer `null` where empty was meant and the form re-resolves on every render; answer empty where `null` was meant and it settles on the engine's own order until the registered field set next changes. |
 | Before the first resolution, the order is the engine's own | A resolve lands after the render that produced the elements, so until one has, `GetVisibleIssues()` reports channel by channel: the fault issue, then submit errors (led by the form's own message about hidden fields while it shows), then advisories, then the live channel. The same is true of a host that never resolves an order (`FormidableValidator` in attach mode, or an app that registered no order service), which keeps the summary working and costs it only the reading order ([Migration guide](migration-guide.md#attach-mode-lists-issues-in-the-engines-order-not-the-pages)). |
@@ -1037,7 +1037,7 @@ Four things about it are decided rather than incidental:
 | It groups by field identity, not by display name | Two genuinely different fields are free to carry the same `WithName(...)`, and merging those would drop one of them from a list whose whole job is to be complete. Field identity is what the click has to resolve anyway. |
 | It groups within a band | A field carrying an error and a warning is listed once under each, which is one field described two ways rather than one description repeated. |
 | Entries keep the position of each field's first issue | So a grouped band is still in [the order the page is read in](#the-order-entries-appear-in). |
-| Every model-level issue shares one field identifier | So grouping collapses those too: a band holding both a validator fault and the all-suppressed gate's explanation renders one entry for the pair. |
+| Every model-level issue shares one field identifier | So grouping collapses those too: a band holding both a validator fault and the defensive gate's explanation renders one entry for the pair. |
 
 | When | What you see |
 |---|---|
@@ -1157,7 +1157,7 @@ component has left the page, it logs such a throw and drops it, as the form does
 
 | Attribute | Where it comes from here |
 |---|---|
-| `id` and `tabindex="-1"` | `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`, the model-level field's id, which the all-suppressed gate's summary entry and the focus service both address. |
+| `id` and `tabindex="-1"` | `FormidableFieldId.For(new FieldIdentifier(model, string.Empty))`, the model-level field's id, which the defensive gate's summary entry and the focus service both address. |
 | `novalidate` | The page, wherever it wants FluentValidation to answer a submit ahead of the browser's own constraint UI. Leaving it off is a real choice rather than an oversight. |
 | `aria-describedby` | `FormidableFieldId.MessagesFor` of that same field, and owed only where the page renders a [`FormidableModelMessage`](#formidablemodelmessage). Compute it rather than appending `-messages` by hand, and leave the attribute off with the component: an id naming nothing is ignored by a screen reader, and is what a scanner reports. |
 | `inert` | The page, for [the prerender window](hosting-models.md#what-happens-inside-the-prerender-window) a Blazor Web App opens. `FormidableForm` renders it on the `<form>` it owns while interactivity is coming and has not arrived; there is no `<form>` here for this component to render it on. Write `inert="@(!RendererInfo.IsInteractive)"` on a page that carries a render mode for the same refusal. |
