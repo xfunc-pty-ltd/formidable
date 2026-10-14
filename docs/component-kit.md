@@ -158,10 +158,11 @@ it marks the field touched. A throw there goes to whatever made the commit. That
 (`NotifyChanged()`, say), or the input's change event, which Blazor hands to the nearest boundary
 above the input.
 
-An `OnValidationStateChanged` handler that throws on every call ends a Server circuit even with a
-boundary. As the boundary removes the form, the form raises `OnValidationStateChanged` once more
-(never `StateChanged`), and a throw there ends the circuit. To keep the form on the page whatever
-your handler meets, catch the exception inside the handler.
+An `OnValidationStateChanged` handler that throws on every call gets past a boundary. As the
+boundary removes the form, the form raises `OnValidationStateChanged` once more (never
+`StateChanged`), and a throw there takes Blazor's own unhandled-error path: a Server circuit ends,
+and WebAssembly shows its error UI beside the boundary's content. To keep the form on the page
+whatever your handler meets, catch the exception inside the handler.
 
 A handler that removes the form from the page and then throws leaves nothing to show the throw. The
 form writes it to `Trace` and drops it. Where the host registers an `ILoggerFactory`, the form also
