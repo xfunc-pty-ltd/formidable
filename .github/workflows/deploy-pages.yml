@@ -31,6 +31,8 @@ jobs:
         run: cp "${{ env.SITE_DIR }}/index.html" "${{ env.SITE_DIR }}/404.html"
       - name: Add .nojekyll
         run: touch "${{ env.SITE_DIR }}/.nojekyll"
+      - name: Add the social preview image
+        run: cp docs/assets/social-preview.png "${{ env.SITE_DIR }}/social-preview.png"
       - name: Archive the Pages artifact
         run: |
           tar \

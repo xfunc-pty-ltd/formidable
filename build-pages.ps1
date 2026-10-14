@@ -16,8 +16,9 @@
 
     The published wwwroot is then made GitHub Pages-ready: <base href="/"> is rewritten to
     <base href="/formidable/"> (a project page is served under that path), index.html is copied
-    to 404.html so a deep link falls back to the SPA shell, and .nojekyll is added so GitHub
-    Pages serves the underscore-prefixed _framework folder unmodified.
+    to 404.html so a deep link falls back to the SPA shell, .nojekyll is added so GitHub Pages
+    serves the underscore-prefixed _framework folder unmodified, and docs/assets/social-preview.png
+    is copied to the site root, where the page's preview card points.
 
     Two steps keep the local build the same as CI's. First, the script deletes the sample's
     obj/Release and bin/Release before publishing. A WebAssembly AOT publish leaves IL-stripped
@@ -88,6 +89,10 @@ Set-Content -Path $indexPath -Value $rewritten -NoNewline
 Write-Host 'Adding the SPA 404 fallback and .nojekyll...'
 Copy-Item -Path $indexPath -Destination (Join-Path $siteDir '404.html') -Force
 New-Item -Path (Join-Path $siteDir '.nojekyll') -ItemType File -Force | Out-Null
+
+# The page's preview card names this image by its absolute URL, so it sits at the site root.
+Write-Host 'Adding the social preview image...'
+Copy-Item -Path (Join-Path $repoRoot 'docs/assets/social-preview.png') -Destination (Join-Path $siteDir 'social-preview.png') -Force
 
 Write-Host "Hosted-demo artifact ready at '$siteDir'."
 
