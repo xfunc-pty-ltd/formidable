@@ -594,9 +594,19 @@ components binding afterward.
 ### `InlineMessageLive`
 
 `string?`, defaults to `null`, which renders no `aria-live` attribute at all. Set it to `"polite"`
-and every message list (field-, collection- and model-level alike) is announced as its content
-changes; `"assertive"` interrupts whatever is being read instead. Recommended on forms that render
-no `FormidableSummary`, which already announces on its own.
+and every message list (the element that holds the messages of one field, of one collection, or of
+the form as a whole) is announced as its content changes; `"assertive"` interrupts whatever is being
+read instead.
+
+Whether to set it is a trade, measured with NVDA 2026.2 and Chrome on one machine; other screen
+readers and browsers were not measured. On a form with a `FormidableSummary`, which announces on its
+own, `"polite"` made a blocked submit speak every error twice.
+
+On a form without a summary, `"polite"` spoke each error of a blocked submit once, in an order that
+changed between runs. The blocked submit also moved focus to the first error, and that move went
+unspoken. `"polite"` spoke an edited field's new message twice. On that form the default (no
+`aria-live`) spoke the focus move together with the first error's message. It spoke an edited
+field's message once.
 
 It is `aria-live` rather than a `role`:
 [Component kit](component-kit.md#formidablefieldmessagetvalue) has what a `role` on the list would
@@ -898,8 +908,8 @@ A form that wants different class names assigns a new map to its own copy.
   [`/draft-load`](../samples/Formidable.Sample/Pages/DraftLoad.razor), where a required field
   carries its mark and stays silent at the same time.
 - `InlineMessageLive` — [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor)'s
-  summary-less variant, which has no summary announcing for it, so the attribute is what the browser
-  suite asserts on the model-level list there.
+  summary-less variant, which sets it to show the attribute on a form with no summary; the browser
+  suite asserts it on the model-level list there.
 
 `ClickRecovery` has no sample page either, for a better reason: it is on by default on every page
 here, and what it prevents is a click going missing. The gated browser suite pins it, on the
