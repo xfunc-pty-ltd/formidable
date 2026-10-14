@@ -28,11 +28,16 @@ public sealed class FormidableSummary : FormidableComponentBase
     // consumer cannot re-role a region, or decorate anything under one, by splatting.
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-    /// <summary>Called once when a clicked entry's field does not take focus; return <see langword="true"/> after making it reachable and the click retries once, <see langword="false"/> to leave the miss.</summary>
+    /// <summary>Called once when a clicked entry's field does not take focus; return <see langword="true"/> after making it reachable and the click retries once, unless cancelled as the remarks say; <see langword="false"/> leaves the miss.</summary>
     /// <remarks>
-    /// Unset, a miss is ignored and the click has no effect, where the roots report a
-    /// diagnostic. The same delegate shape as <see cref="FormidableForm{TModel}.FocusFallback"/> and
-    /// <see cref="FormidableValidator{TModel}.FocusFallback"/>, so one callback serves all three.
+    /// Unset, the click does nothing on a miss, where the roots report a diagnostic. The same
+    /// delegate shape as <see cref="FormidableForm{TModel}.FocusFallback"/> and
+    /// <see cref="FormidableValidator{TModel}.FocusFallback"/>, so one callback serves all three. A
+    /// newer focus move through the same focus service instance, made before the callback answers,
+    /// cancels the retry. Under the focus service
+    /// <see cref="FormidableBlazorServiceCollectionExtensions.AddFormidableBlazor(Microsoft.Extensions.DependencyInjection.IServiceCollection)"/>
+    /// registers, so does a key or pointer press of the visitor's while it runs, if focus has moved
+    /// to another control, outside any closed shadow root, by the time it answers.
     /// </remarks>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }

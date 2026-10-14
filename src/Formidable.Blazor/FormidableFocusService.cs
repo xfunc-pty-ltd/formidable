@@ -4,7 +4,7 @@ using Microsoft.JSInterop;
 namespace Formidable.Blazor;
 
 /// <summary>The JS-backed <see cref="IFormidableFocusService"/>: formidable.js scrolls the field's message list (or the element itself) into view, focuses the element carrying the field's id, and reports whether it took focus.</summary>
-internal sealed class FormidableFocusService : FormidableJsBackedService, IFormidableFocusService
+internal sealed class FormidableFocusService : FormidableJsBackedService, IFormidableFocusService, IFormidableFocusRetry
 {
     public FormidableFocusService(IJSRuntime jsRuntime) : base(jsRuntime)
     {
@@ -15,4 +15,11 @@ internal sealed class FormidableFocusService : FormidableJsBackedService, IFormi
             "focusField",
             FormidableFieldId.For(field),
             FormidableFieldId.MessagesFor(field));
+
+    public ValueTask<bool> RetryFocusAsync(FieldIdentifier field) =>
+        Module.InvokeAsync<bool>(
+            "focusField",
+            FormidableFieldId.For(field),
+            FormidableFieldId.MessagesFor(field),
+            true);
 }

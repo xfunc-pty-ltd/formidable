@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -13,16 +14,35 @@ internal static class FirstErrorFocus
     /// <summary>The name of both roots' fallback parameter, as the miss diagnostic prints it.</summary>
     private const string FallbackParameterName = "FocusFallback";
 
+    /// <summary>A move counter per focus service instance; the shipped service is scoped, so there is one per circuit or per WebAssembly app.</summary>
+    // Keyed on the service rather than kept by a root, because the moves competing for a page's
+    // focus come from every root and summary on it, and the service is all they share. Weak, so a
+    // counter goes when its service does.
+    private static readonly ConditionalWeakTable<IFormidableFocusService, StrongBox<int>> MoveCounters = new();
+
+    /// <summary>What one focus move came to.</summary>
+    internal enum FocusMoveResult
+    {
+        /// <summary>An element took focus.</summary>
+        Landed,
+
+        /// <summary>The move ended with no element taking focus.</summary>
+        Missed,
+
+        /// <summary>A newer move began while this one awaited <c>PrepareFocus</c>, its first attempt or <c>FocusFallback</c>, so this one made no further attempt.</summary>
+        StoodDown,
+    }
+
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
     /// <param name="services">The root's provider, for the optional <see cref="IFormidableFocusService"/> and the diagnostic's logger.</param>
     /// <param name="engine">The engine whose visible issues the field is chosen from.</param>
     /// <param name="fallback">The root's <c>FocusFallback</c> parameter, or <see langword="null"/> when unwired.</param>
     /// <param name="prepare">The root's <c>PrepareFocus</c> parameter, or <see langword="null"/> when unwired.</param>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> with no focus service registered, no visible issue, or a miss no fallback recovered.</returns>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> with no focus service registered, no visible issue, a miss no fallback recovered, or a newer move that took over.</returns>
     /// <remarks>
     /// "First" is the order <see cref="IFormidableEngine.GetVisibleIssues"/> reports. A miss with
     /// no <paramref name="fallback"/> wired writes the diagnostic <see cref="ReportFallbackMiss"/>
-    /// describes; a miss with one wired reports nothing.
+    /// describes; a miss with one wired reports nothing, and so does a move a newer one took over.
     /// </remarks>
     internal static async ValueTask<bool> MoveAsync(
         IServiceProvider services,
@@ -49,50 +69,84 @@ internal static class FirstErrorFocus
             return false;
         }
 
-        var took = await TryFocusAsync(focusService, firstIssue.Field, prepare, fallback);
-        if (!took && fallback is null)
+        // A move that stood down for a newer one did not miss: the newer move is where the visitor
+        // is going, and a diagnostic would name a field nothing failed to reach.
+        var result = await TryFocusAsync(focusService, firstIssue.Field, prepare, fallback);
+        if (result == FocusMoveResult.Missed && fallback is null)
         {
             ReportFallbackMiss(services, firstIssue.Issue);
         }
 
-        return took;
+        return result == FocusMoveResult.Landed;
     }
 
-    /// <summary>Awaits <paramref name="prepare"/> once, focuses the field's element, and retries once after a miss when a wired <paramref name="fallback"/> answers <see langword="true"/>.</summary>
+    /// <summary>Awaits <paramref name="prepare"/> once, focuses the field's element, and retries once after a miss when a wired <paramref name="fallback"/> answers <see langword="true"/>, unless a newer move began meanwhile.</summary>
     /// <param name="focusService">The service that addresses the element.</param>
     /// <param name="field">The field to land on, chosen by the caller.</param>
     /// <param name="prepare">The page's <c>PrepareFocus</c> callback, or <see langword="null"/> when unwired; awaited once, before the first attempt.</param>
     /// <param name="fallback">The page's <c>FocusFallback</c> callback, or <see langword="null"/> when unwired; consulted once, after a miss.</param>
-    /// <returns><see langword="true"/> when the first attempt or the retry landed; <see langword="false"/> with no fallback, a fallback that declined, or a retry that missed again.</returns>
+    /// <returns><see cref="FocusMoveResult.Landed"/> when the first attempt or the retry landed; <see cref="FocusMoveResult.StoodDown"/> when a newer move began during either callback or the first attempt; otherwise <see cref="FocusMoveResult.Missed"/>.</returns>
     // Written once for both callers: a page that wires one PrepareFocus or FocusFallback callback
     // to a root and to a summary at once gets one move out of both.
-    internal static async ValueTask<bool> TryFocusAsync(
+    internal static async ValueTask<FocusMoveResult> TryFocusAsync(
         IFormidableFocusService focusService,
         FieldIdentifier field,
         Func<FieldIdentifier, ValueTask>? prepare,
         Func<FieldIdentifier, ValueTask<bool>>? fallback)
     {
+        // Counted before anything is awaited, so a move that starts while this one waits on a
+        // callback is the newer one when this one looks again.
+        var counter = MoveCounters.GetValue(focusService, static _ => new StrongBox<int>());
+        var move = Interlocked.Increment(ref counter.Value);
+
         // Awaited here and nowhere else, below whatever the caller did to decide there is a move
         // to make, and not again before the retry: a callback with a side effect as visible as
         // closing a dialog must not run twice for one move.
         if (prepare is not null)
         {
             await prepare(field);
+
+            // A move made while the page cleared the way, from this root or any other root or
+            // summary, has already taken the visitor somewhere, and this one would take them back.
+            if (Volatile.Read(ref counter.Value) != move)
+            {
+                return FocusMoveResult.StoodDown;
+            }
         }
 
         if (await focusService.FocusAsync(field))
         {
-            return true;
+            return FocusMoveResult.Landed;
+        }
+
+        // The attempt is a script round trip, and a newer move begun in that time (a second click
+        // on the same summary entry, say) owns the fallback; calling it here too would run it once
+        // per move and could take focus from where the newer move put it.
+        if (Volatile.Read(ref counter.Value) != move)
+        {
+            return FocusMoveResult.StoodDown;
         }
 
         // A retry into an element the page has just declined to make reachable would only miss
         // again.
         if (fallback is null || !await fallback(field))
         {
-            return false;
+            return FocusMoveResult.Missed;
         }
 
-        return await focusService.FocusAsync(field);
+        // A fallback can take as long as a dialog the visitor has to answer, and a summary click
+        // made in that time is a newer move.
+        if (Volatile.Read(ref counter.Value) != move)
+        {
+            return FocusMoveResult.StoodDown;
+        }
+
+        // The shipped service tells its script this attempt is the retry, so focus the visitor
+        // moved while the fallback ran stays put. Any other service gets a plain second attempt.
+        var landed = focusService is IFormidableFocusRetry retry
+            ? await retry.RetryFocusAsync(field)
+            : await focusService.FocusAsync(field);
+        return landed ? FocusMoveResult.Landed : FocusMoveResult.Missed;
     }
 
     /// <summary>Writes the focus-miss diagnostic, naming the fallback parameter: a Trace line, and a logged warning when the host has an <see cref="ILoggerFactory"/>.</summary>

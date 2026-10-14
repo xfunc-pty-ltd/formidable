@@ -84,7 +84,7 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
 | `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) it produced. A parameterless handler binds too. |
 | `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A parameterless handler binds too. |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. A blocked submit moves no focus once a newer submit's check has begun; the newer one moves focus itself if it blocks. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too ([what counts](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited before each move this form makes, so the page can clear the way first. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the rendered `<form>`, under the four positions below. |
 
@@ -222,6 +222,7 @@ governs only the moves the form makes unasked. A dialog's own way out is the usu
 |---|---|
 | An element took focus | It answers `true`. |
 | Nothing did: no visible issue, no `IFormidableFocusService` registered, or an element the miss and its fallback could not reach | It answers `false`. |
+| Another move took over: a newer move, or (with the focus service `AddFormidableBlazor()` registers) a visitor who moved focus to another control while `FocusFallback` ran | It answers `false`. |
 | You need to tell a quiet form from an unreachable error | Read `Engine.GetVisibleIssues()`: the answer reports the move, not the form. |
 | A component nested inside the form calls `context.FocusFirstErrorAsync()` | The root's own move, with no `@ref` to reach for, and everything above applies. |
 | The `FormidableFormContext` was built through its public constructor (the shape [Testing](testing.md) points at) | No root behind it: it moves nothing and answers `false`. |
@@ -855,7 +856,7 @@ them until you say otherwise. Within each group, entries follow the page's order
 | `GroupByField` | `bool` | `false` | [One entry per field per band](#one-entry-per-field) instead of one per issue. |
 | `MaxItems` | `int?` | `null` | [The most entries a band renders](#capping-the-list). `null` is all of them; a negative value throws from `OnParametersSet`. |
 | `OverflowTemplate` | `RenderFragment<IReadOnlyList<VisibleIssue>>?` | `null` | What a capped band renders in place of [the entries it held back](#capping-the-list), which it receives — never an empty list, and once for each band that held anything back. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a click whose focus move missed: make the element reachable, return `true`, and it retries once. |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a click whose focus move missed: make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too ([what counts](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited once per click, before the first focus attempt, so the page can clear the way first; a `FocusFallback` retry does not run it again. |
 | `AdditionalAttributes` | `IReadOnlyDictionary<string, object>?` | `null` | Splatted onto the persistent wrapper and reaching nothing below it, since the regions and every element inside them are contract. A splatted `class` merges, the splatted value first and `formidable-summary` after. |
 
@@ -1083,7 +1084,7 @@ page's. [Migration guide](migration-guide.md) has when to reach for it.
 | `Validator` | `IModelValidator<TModel>?` | `null` (from the container) | The validator this form validates through, whole ([Need to know](#need-to-know)). |
 | `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The content the cascade reaches, handed the `FormidableFormContext` as `context` (or as whatever a `Context="..."` renames it to, which the Razor compiler asks for on this element or on the `EditForm` around it). With none, the component renders nothing at all, cascade included, rather than an empty wrapper. The context's `IsSubmitting` always reads `false` here, because the page's own handler runs the submit and keeps the flag ([I want to lock the Submit button while the form submits](recipes.md#i-want-to-lock-the-submit-button-while-the-form-submits)). |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether a submit blocked through `ValidateForSubmitAsync()` moves focus itself. It never gates `FocusFirstErrorAsync()`, which is the page deciding. |
-| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | [Recovers a move that missed](#focusfallback): make the element reachable, return `true`, and it retries once. |
+| `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | [Recovers a move that missed](#focusfallback): make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too. |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | [Awaited before each move this component makes](#preparefocus), so the page can clear the way first. |
 
 There is no `Model` parameter: the model is the cascaded `EditContext`'s, and one of another type
@@ -1410,8 +1411,13 @@ callback to each. What differs is what an unset one leaves behind:
 
 | When | What you see |
 |---|---|
-| Your callback returns `true` | The move is retried exactly once, into the element you made reachable. |
+| Your callback returns `true` | The move tries once more, into the element you made reachable. |
 | Your callback returns `false` | The miss stands. |
+| A newer move starts before your callback answers (a summary click, say) | The newer move wins, and the first move makes no second attempt. |
+| A newer move starts before the first move's attempt answers (a second click on the same summary entry, say) | The first move stands down without calling your callback, so only the newer move can call it, if its own attempt misses. |
+| The visitor tabs or clicks into another control while your callback runs | Focus stays where they put it, and the move answers `false`. A control here is an element in the tab order, or an editable region, outside any closed shadow root. A click on plain text, inside the form or outside it, puts focus on no control, so the retry still lands. |
+| Your own `IFormidableFocusService` is registered instead of the default one that `AddFormidableBlazor` registers (a wrapper around the default counts as your own) | A newer move still cancels the retry, provided your service is registered scoped or singleton, so that every root and summary resolves the same instance. The visitor's own move does not cancel it. The retry calls your `FocusAsync` a second time. If your service moves focus to the field, the retry takes focus away from wherever the visitor put it. |
+| Your callback moves focus itself (to a button, say) | If the visitor pressed no key or pointer button since the miss, the retry still lands. After a press, even of Shift, the retry leaves focus on the control your callback chose, unless that is the control that had focus when the move missed. An element with `tabindex="-1"`, such as a heading, is not a control, so the retry takes focus from it. |
 | The field is merely covered by an overlay | No fallback fires: the element takes focus and reports success. [`PrepareFocus`](#preparefocus) clears the way first. |
 | A move aimed at the form misses | Your callback is handed the model-level field, whose `FieldName` is empty. Under `FormidableValidator` the usual cause is an `EditForm` without the model-level id and `tabindex="-1"`: write them there ([attaching to an existing form](#formidablevalidatortmodel-attaching-to-an-existing-form)) rather than recover in the callback. |
 | One callback on form and summary | The blocked submit's own move recovers too: a visitor who never clicks the summary lands in the failing row. |

@@ -3,6 +3,8 @@ using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -20,6 +22,9 @@ public class PrepareFocusTests : BunitContext
 
     public PrepareFocusTests()
     {
+        // No timer fires unless a test advances it, so the re-check a first render schedules
+        // cannot land while a test holds a hook open.
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
         var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
         module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
@@ -327,6 +332,50 @@ public class PrepareFocusTests : BunitContext
 
         Assert.Equal(2, _focus.Requests.Count);
         Assert.Single(probe.Fields);
+
+        await Services.DisposeAsync();
+    }
+
+    // A page whose hook is still clearing the way when the visitor clicks a summary entry: the
+    // click is the newer move and lands, and the blocked submit's move, once its hook finishes,
+    // stands down rather than take the visitor back. Standing down is not a miss, so the form
+    // reports no diagnostic for it, though it has no FocusFallback wired.
+    [Fact]
+    public async Task A_move_overtaken_while_its_hook_runs_stands_down_without_a_diagnostic()
+    {
+        var order = OrderFailingOnCustomerAlone();
+        var loggerProvider = new CapturingLoggerProvider();
+        Services.AddSingleton<ILoggerFactory>(LoggerFactory.Create(builder => builder.AddProvider(loggerProvider)));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hookCalls = 0;
+        var cut = RenderForm(
+            order,
+            prepareFocus: async _ =>
+            {
+                // The submit's hook waits; the click's, the second call, does not.
+                if (++hookCalls == 1)
+                {
+                    await release.Task;
+                }
+            },
+            withSummary: true);
+
+        var submitting = cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+        await cut.InvokeAsync(() => { });
+        cut.WaitForState(() => hookCalls == 1);
+        Assert.Empty(_focus.Requests);
+
+        await cut.InvokeAsync(() => cut.Find(".formidable-summary__link").ClickAsync(new()));
+        var customer = new FieldIdentifier(order, nameof(EngineOrder.Customer));
+        Assert.Equal(customer, Assert.Single(_focus.Requests));
+
+        release.SetResult();
+        await submitting;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(2, hookCalls);
+        Assert.Equal(customer, Assert.Single(_focus.Requests));
+        Assert.Empty(loggerProvider.Entries);
 
         await Services.DisposeAsync();
     }

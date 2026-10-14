@@ -1,6 +1,22 @@
-export function focusField(id, scrollId) {
+// The first attempt that missed last: the field's element id, the element that held focus at that
+// moment, and whether the visitor has pressed a key or a pointer button since. One is enough,
+// because only the newest focus move retries, and every retry follows its own first attempt.
+let missedFocus = null;
+let listeningForPress = false;
+
+// A third argument marks the retry a focus move makes after its fallback answered true. Every
+// other call is a first attempt.
+export function focusField(id, scrollId, retry) {
+    if (retry && visitorMovedFocusSinceMiss(id)) {
+        return false;
+    }
+
     const element = document.getElementById(id);
     if (!element) {
+        if (!retry) {
+            rememberMiss(id);
+        }
+
         return false;
     }
 
@@ -22,7 +38,75 @@ export function focusField(id, scrollId) {
     // path: a fallback that makes the target reachable and retries, or a diagnostic when none is
     // wired. Reporting "found" as "focused" is what leaves that path unreachable, so the answer is
     // read back from the document rather than assumed from the call.
-    return document.activeElement === element;
+    const took = document.activeElement === element;
+    if (!took && !retry) {
+        rememberMiss(id);
+    }
+
+    return took;
+}
+
+function rememberMiss(id) {
+    missedFocus = { id, origin: focusedElement(), pressed: false };
+    listenForPress(true);
+}
+
+// The element holding focus, followed down through open shadow roots: the document reports only
+// the host, which sits outside the tab order, where the control inside it is the visitor's choice.
+// Both ends of the comparison read it this way, so they compare elements at the same depth. A
+// closed shadow root hides its focused element, and the host is as far as anything can see.
+function focusedElement() {
+    let element = document.activeElement;
+    while (element?.shadowRoot?.activeElement) {
+        element = element.shadowRoot.activeElement;
+    }
+
+    return element;
+}
+
+// Spends the record the retry was kept for and answers whether focus should stay where it is. It
+// stays when the visitor pressed a key or a pointer button after the miss and focus, at the retry,
+// sits on a control other than the one that held it at the miss. A control is an element in the
+// tab order, or a contenteditable region. The body sits outside the tab order, which matters since
+// a removed element drops focus there without anyone choosing. So does a FormidableForm's <form>,
+// with its tabindex="-1", which a click on text inside it focuses. The press is what tells the
+// visitor apart from the page's own fallback, which may move focus while it makes the field
+// reachable.
+function visitorMovedFocusSinceMiss(id) {
+    const miss = missedFocus;
+    if (!miss || miss.id !== id) {
+        return false;
+    }
+
+    missedFocus = null;
+    listenForPress(false);
+    const now = focusedElement();
+    return miss.pressed && now !== null && now !== miss.origin &&
+        (now.tabIndex >= 0 || now.isContentEditable);
+}
+
+// Trusted events only, since a script's own dispatched event is not the visitor. One press settles
+// the question, so the listeners go with it.
+function onPress(event) {
+    if (!event.isTrusted || !missedFocus) {
+        return;
+    }
+
+    missedFocus.pressed = true;
+    listenForPress(false);
+}
+
+// On the document in the capture phase, so a press is seen wherever it lands and whatever stops
+// its propagation further down.
+function listenForPress(wanted) {
+    if (wanted === listeningForPress) {
+        return;
+    }
+
+    listeningForPress = wanted;
+    const bind = wanted ? "addEventListener" : "removeEventListener";
+    document[bind]("keydown", onPress, true);
+    document[bind]("pointerdown", onPress, true);
 }
 
 export function syncValue(id, value) {

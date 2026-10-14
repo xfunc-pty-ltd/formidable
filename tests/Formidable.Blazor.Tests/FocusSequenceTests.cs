@@ -1,8 +1,12 @@
+using System.Linq.Expressions;
 using Bunit;
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Formidable.Blazor.Tests;
 
@@ -11,19 +15,26 @@ namespace Formidable.Blazor.Tests;
 /// block itself, and the page asks for the first-error move later, when whatever it put in front
 /// of the form is out of the way again. Two claims run through everything here. The move a page
 /// asks for is the move a blocked submit makes — same target, same seams, one implementation
-/// behind both — and the handler's word covers the submit it was given and no other.
+/// behind both — and the handler's word covers the submit it was given and no other. The cases at
+/// the end add a third: of two moves, the newer one wins, so an older move whose fallback answers
+/// after a newer move began does not retry.
 /// </summary>
 public class FocusSequenceTests : BunitContext
 {
     private readonly RecordingFocusService _focus = new();
+    private readonly BunitJSModuleInterop _module;
+    private bool _shippedFocusService;
 
     public FocusSequenceTests()
     {
+        // No timer fires unless a test advances it, so the re-check a first render schedules
+        // cannot land in the middle of a held fallback and re-render the summary under a click.
+        Services.AddSingleton<TimeProvider>(new FakeTimeProvider());
         Services.AddSingleton<FluentValidation.IValidator<EngineOrder>, EngineOrderValidator>();
-        var module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
-        module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
-        module.SetupVoid("observeLayout", _ => true).SetVoidResult();
-        module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
+        _module = JSInterop.SetupModule("./_content/Formidable.Blazor/formidable.js");
+        _module.Setup<IReadOnlyList<string>>("orderFields", _ => true).SetResult([]);
+        _module.SetupVoid("observeLayout", _ => true).SetVoidResult();
+        _module.SetupVoid("disconnectLayoutObserver", _ => true).SetVoidResult();
     }
 
     /// <summary>
@@ -36,8 +47,13 @@ public class FocusSequenceTests : BunitContext
         if (withFocusService)
         {
             // Ahead of AddFormidableBlazor, whose focus registration is a TryAdd, so this
-            // instance is the one both roots resolve.
-            Services.AddSingleton<IFormidableFocusService>(_focus);
+            // instance is the one both roots resolve. A test of the shipped service registers
+            // nothing here, and the JavaScript plan stands in for the page.
+            if (!_shippedFocusService)
+            {
+                Services.AddSingleton<IFormidableFocusService>(_focus);
+            }
+
             Services.AddFormidableBlazor();
             return;
         }
@@ -523,5 +539,477 @@ public class FocusSequenceTests : BunitContext
         context.SuppressFirstErrorFocus();
 
         Assert.True(context.FirstErrorFocusSuppressed);
+    }
+
+    // ------------------------------------------------------------------ the newer move wins
+
+    public sealed class Pair
+    {
+        public string? First { get; set; } = string.Empty;
+
+        public string? Second { get; set; } = string.Empty;
+    }
+
+    public sealed class Solo
+    {
+        public string? Third { get; set; } = string.Empty;
+    }
+
+    private sealed class PairValidator : AbstractValidator<Pair>
+    {
+        public PairValidator()
+        {
+            RuleFor(m => m.First).NotEmpty().WithMessage("First required");
+            RuleFor(m => m.Second).NotEmpty().WithMessage("Second required");
+        }
+    }
+
+    private sealed class SoloValidator : AbstractValidator<Solo>
+    {
+        public SoloValidator() => RuleFor(m => m.Third).NotEmpty().WithMessage("Third required");
+    }
+
+    /// <summary>
+    /// A consumer's own focus service, written against the interface's one member: a field named
+    /// in <see cref="Unreachable"/> misses, and any other takes focus and becomes
+    /// <see cref="Focused"/>. The log reads as the visitor would see it, one line per request.
+    /// </summary>
+    private sealed class ScriptedFocusService : IFormidableFocusService
+    {
+        public List<string> Log { get; } = [];
+
+        public HashSet<string> Unreachable { get; } = [];
+
+        public string? Focused { get; private set; }
+
+        public ValueTask<bool> FocusAsync(FieldIdentifier field)
+        {
+            if (Unreachable.Contains(field.FieldName))
+            {
+                Log.Add($"miss {field.FieldName}");
+                return ValueTask.FromResult(false);
+            }
+
+            Focused = field.FieldName;
+            Log.Add($"focus {field.FieldName}");
+            return ValueTask.FromResult(true);
+        }
+    }
+
+    /// <summary>
+    /// A focus service whose every attempt waits for the test to answer it, as the shipped
+    /// service's script round trip does: a field named in <see cref="Unreachable"/> misses when
+    /// answered, and any other takes focus and becomes <see cref="Focused"/>.
+    /// </summary>
+    private sealed class HeldFocusService : IFormidableFocusService
+    {
+        private readonly List<(FieldIdentifier Field, TaskCompletionSource<bool> Answer)> _pending = [];
+
+        public List<string> Log { get; } = [];
+
+        public HashSet<string> Unreachable { get; } = [];
+
+        public string? Focused { get; set; }
+
+        public int Pending => _pending.Count;
+
+        public ValueTask<bool> FocusAsync(FieldIdentifier field)
+        {
+            var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending.Add((field, answer));
+            return new ValueTask<bool>(answer.Task);
+        }
+
+        public void Answer(string fieldName)
+        {
+            var index = _pending.FindIndex(p => p.Field.FieldName == fieldName);
+            var (field, answer) = _pending[index];
+            _pending.RemoveAt(index);
+            if (Unreachable.Contains(field.FieldName))
+            {
+                Log.Add($"miss {field.FieldName}");
+                answer.SetResult(false);
+                return;
+            }
+
+            Focused = field.FieldName;
+            Log.Add($"focus {field.FieldName}");
+            answer.SetResult(true);
+        }
+    }
+
+    /// <summary>A <c>FocusFallback</c> that takes as long as the test says: it waits to be released, then makes the field reachable and answers <see langword="true"/>.</summary>
+    private sealed class HeldFallback(ScriptedFocusService focus)
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Calls { get; private set; }
+
+        public async ValueTask<bool> RunAsync(FieldIdentifier field)
+        {
+            Calls++;
+            await _release.Task;
+            focus.Unreachable.Remove(field.FieldName);
+            return true;
+        }
+
+        public void Release() => _release.SetResult();
+    }
+
+    private static void AddInput(
+        RenderTreeBuilder builder, int region, object receiver, Expression<Func<string?>> accessor, Action<string?> assign)
+    {
+        builder.OpenRegion(region);
+        builder.OpenComponent<FormidableInputText>(0);
+        builder.AddComponentParameter(1, "Value", accessor.Compile()());
+        builder.AddComponentParameter(2, "ValueChanged", EventCallback.Factory.Create(receiver, assign));
+        builder.AddComponentParameter(3, "ValueExpression", accessor);
+        builder.CloseComponent();
+        builder.CloseRegion();
+    }
+
+    /// <summary>A form over <see cref="Pair"/> with a summary, as a region of whatever the test renders, so a second form can sit beside it.</summary>
+    private void AddPairForm(
+        RenderTreeBuilder builder,
+        int region,
+        Pair model,
+        Func<FieldIdentifier, ValueTask<bool>>? formFallback,
+        Func<FieldIdentifier, ValueTask<bool>>? summaryFallback,
+        bool focusFirstErrorOnInvalidSubmit)
+    {
+        builder.OpenRegion(region);
+        builder.OpenComponent<FormidableForm<Pair>>(0);
+        builder.AddComponentParameter(1, "Model", model);
+        builder.AddComponentParameter(
+            2, "Validator", (IModelValidator<Pair>)new FluentValidationModelValidator<Pair>(new PairValidator()));
+        builder.AddComponentParameter(3, "FocusFirstErrorOnInvalidSubmit", focusFirstErrorOnInvalidSubmit);
+        if (formFallback is not null)
+        {
+            builder.AddComponentParameter(4, "FocusFallback", formFallback);
+        }
+
+        builder.AddComponentParameter(5, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+        {
+            inner.OpenComponent<FormidableSummary>(0);
+            if (summaryFallback is not null)
+            {
+                inner.AddComponentParameter(1, "FocusFallback", summaryFallback);
+            }
+
+            inner.CloseComponent();
+            AddInput(inner, 2, this, () => model.First, v => model.First = v);
+            AddInput(inner, 3, this, () => model.Second, v => model.Second = v);
+            inner.AddMarkupContent(4, "<button type=\"submit\">Save</button>");
+        }));
+        builder.CloseComponent();
+        builder.CloseRegion();
+    }
+
+    private static Task ClickEntryAsync<TComponent>(IRenderedComponent<TComponent> cut, string message)
+        where TComponent : IComponent =>
+        cut.InvokeAsync(() => cut.FindAll(".formidable-summary__link")
+            .Single(entry => entry.TextContent.Trim() == message)
+            .ClickAsync(new()));
+
+    // The visitor's click on a summary entry is a newer move than the blocked submit's, whose
+    // fallback is still making First reachable. Once that fallback answers, the submit's retry
+    // would take the visitor back to First, away from the field they asked for.
+    [Fact]
+    public async Task A_summary_click_during_a_fallback_keeps_focus_on_the_clicked_field()
+    {
+        var focus = new ScriptedFocusService();
+        focus.Unreachable.Add(nameof(Pair.First));
+        Services.AddSingleton<IFormidableFocusService>(focus);
+        Services.AddFormidableBlazor();
+        var fallback = new HeldFallback(focus);
+        var model = new Pair();
+        var cut = Render(builder => AddPairForm(
+            builder, 0, model, fallback.RunAsync, summaryFallback: null, focusFirstErrorOnInvalidSubmit: true));
+
+        var submitting = cut.InvokeAsync(() => cut.Find("form").SubmitAsync());
+        await cut.InvokeAsync(() => { });
+        cut.WaitForState(() => fallback.Calls == 1);
+
+        await ClickEntryAsync(cut, "Second required");
+        Assert.Equal(nameof(Pair.Second), focus.Focused);
+
+        fallback.Release();
+        await submitting;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(nameof(Pair.Second), focus.Focused);
+        Assert.Equal(["miss First", "focus Second"], focus.Log);
+
+        await Services.DisposeAsync();
+    }
+
+    // Two clicks on one summary. The first names a field its fallback is still making reachable,
+    // the second lands, and the first click's retry stands down when its fallback answers.
+    [Fact]
+    public async Task A_second_summary_click_wins_over_the_first_clicks_retry()
+    {
+        var focus = new ScriptedFocusService();
+        focus.Unreachable.Add(nameof(Pair.First));
+        Services.AddSingleton<IFormidableFocusService>(focus);
+        Services.AddFormidableBlazor();
+        var fallback = new HeldFallback(focus);
+        var model = new Pair();
+        var cut = Render(builder => AddPairForm(
+            builder, 0, model, formFallback: null, fallback.RunAsync, focusFirstErrorOnInvalidSubmit: false));
+
+        await cut.InvokeAsync(() => cut.Find("form").SubmitAsync());
+        Assert.Empty(focus.Log);
+
+        var firstClick = ClickEntryAsync(cut, "First required");
+        await cut.InvokeAsync(() => { });
+        cut.WaitForState(() => fallback.Calls == 1);
+
+        await ClickEntryAsync(cut, "Second required");
+
+        fallback.Release();
+        await firstClick;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(nameof(Pair.Second), focus.Focused);
+        Assert.Equal(["miss First", "focus Second"], focus.Log);
+
+        await Services.DisposeAsync();
+    }
+
+    // The newer move need not belong to the same form. Two forms on one page share the page's
+    // focus, so a click on the second form's summary wins over the first form's retry.
+    [Fact]
+    public async Task A_click_on_another_forms_summary_wins_over_this_forms_retry()
+    {
+        var focus = new ScriptedFocusService();
+        focus.Unreachable.Add(nameof(Pair.First));
+        Services.AddSingleton<IFormidableFocusService>(focus);
+        Services.AddFormidableBlazor();
+        var fallback = new HeldFallback(focus);
+        var pair = new Pair();
+        var solo = new Solo();
+        var cut = Render(builder =>
+        {
+            AddPairForm(builder, 0, pair, fallback.RunAsync, summaryFallback: null, focusFirstErrorOnInvalidSubmit: true);
+
+            builder.OpenRegion(1);
+            builder.OpenComponent<FormidableForm<Solo>>(0);
+            builder.AddComponentParameter(1, "Model", solo);
+            builder.AddComponentParameter(
+                2, "Validator", (IModelValidator<Solo>)new FluentValidationModelValidator<Solo>(new SoloValidator()));
+            builder.AddComponentParameter(3, "ChildContent", (RenderFragment<FormidableFormContext>)(_ => inner =>
+            {
+                inner.OpenComponent<FormidableSummary>(0);
+                inner.CloseComponent();
+                AddInput(inner, 1, this, () => solo.Third, v => solo.Third = v);
+            }));
+            builder.CloseComponent();
+            builder.CloseRegion();
+        });
+
+        // The second form shows its error first, so its summary has an entry to click.
+        await cut.InvokeAsync(() => cut.FindAll("form")[1].SubmitAsync());
+        focus.Log.Clear();
+
+        var submitting = cut.InvokeAsync(() => cut.FindAll("form")[0].SubmitAsync());
+        await cut.InvokeAsync(() => { });
+        cut.WaitForState(() => fallback.Calls == 1);
+
+        await ClickEntryAsync(cut, "Third required");
+
+        fallback.Release();
+        await submitting;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(nameof(Solo.Third), focus.Focused);
+        Assert.Equal(["miss First", "focus Third"], focus.Log);
+
+        await Services.DisposeAsync();
+    }
+
+    // The shipped service tells the script which call is the retry, with a third argument, so the
+    // script can leave focus where the visitor put it while the fallback ran. The first attempt
+    // carries the two ids alone.
+    [Fact]
+    public async Task The_retry_call_carries_the_retry_flag()
+    {
+        _shippedFocusService = true;
+        _module.Setup<bool>("focusField", call => call.Arguments.Count == 2).SetResult(false);
+        _module.Setup<bool>("focusField", call => call.Arguments.Count == 3).SetResult(true);
+        var order = OrderFailingOnTwoFields();
+        var fallbackFields = new List<FieldIdentifier>();
+        var cut = RenderForm(
+            order,
+            focusFirstErrorOnInvalidSubmit: false,
+            focusFallback: field =>
+            {
+                fallbackFields.Add(field);
+                return ValueTask.FromResult(true);
+            });
+
+        await cut.InvokeAsync(() => cut.Instance.SubmitAsync());
+        var landed = await cut.InvokeAsync(() => cut.Instance.FocusFirstErrorAsync());
+
+        Assert.True(landed);
+        Assert.Equal(FirstError(order), Assert.Single(fallbackFields));
+        var calls = _module.Invocations["focusField"].Select(call => call.Arguments).ToList();
+        Assert.Equal(2, calls.Count);
+        var id = FormidableFieldId.For(FirstError(order));
+        var scrollId = FormidableFieldId.MessagesFor(FirstError(order));
+        Assert.Equal(new object?[] { id, scrollId }, calls[0]);
+        Assert.Equal(new object?[] { id, scrollId, true }, calls[1]);
+
+        await Services.DisposeAsync();
+    }
+
+    // A newer move that begins while the older move's first attempt is still out owns the
+    // fallback. The older move's attempt then misses, and it stands down without calling the
+    // fallback, so a fallback that moves focus itself cannot take the visitor away from the field
+    // the newer move landed on. Called on the helper, with every attempt held, so the order is
+    // the test's. Mutation that must break it: drop the counter check between the first attempt
+    // and the fallback call, and the fallback runs and moves focus to the heading.
+    [Fact]
+    public async Task A_move_overtaken_during_its_first_attempt_calls_no_fallback()
+    {
+        var focus = new HeldFocusService();
+        focus.Unreachable.Add(nameof(Pair.First));
+        var model = new Pair();
+        var fallbackCalls = 0;
+
+        var older = FirstErrorFocus.TryFocusAsync(
+            focus,
+            new FieldIdentifier(model, nameof(Pair.First)),
+            prepare: null,
+            fallback: field =>
+            {
+                fallbackCalls++;
+                focus.Focused = "heading";
+                focus.Unreachable.Remove(field.FieldName);
+                return ValueTask.FromResult(true);
+            }).AsTask();
+        var newer = FirstErrorFocus.TryFocusAsync(
+            focus, new FieldIdentifier(model, nameof(Pair.Second)), prepare: null, fallback: null).AsTask();
+        Assert.Equal(2, focus.Pending);
+
+        focus.Answer(nameof(Pair.Second));
+        Assert.Equal(FirstErrorFocus.FocusMoveResult.Landed, await newer);
+        focus.Answer(nameof(Pair.First));
+
+        Assert.Equal(FirstErrorFocus.FocusMoveResult.StoodDown, await older);
+        Assert.Equal(0, fallbackCalls);
+        Assert.Equal(nameof(Pair.Second), focus.Focused);
+    }
+
+    // Two clicks on the summary entry of a field that is out of reach, the second made while the
+    // first click's attempt is still out: a double click on a slow circuit. Through the shipped
+    // service, both attempts miss, and the fallback and its retry run once, for the newer click.
+    // Mutation that must break it: drop the counter check between the first attempt and the
+    // fallback call, and the fallback runs twice and the retry is sent twice.
+    [Fact]
+    public async Task A_double_click_on_an_unreachable_entry_runs_the_fallback_once()
+    {
+        Services.AddFormidableBlazor();
+        var model = new Pair();
+        var firstId = FormidableFieldId.For(new FieldIdentifier(model, nameof(Pair.First)));
+        var firstAttempt = _module.Setup<bool>(
+            "focusField", call => call.Arguments.Count == 2 && Equals(call.Arguments[0], firstId));
+        _module.Setup<bool>("focusField", call => call.Arguments.Count == 3).SetResult(true);
+        var fallbackCalls = 0;
+        var cut = Render(builder => AddPairForm(
+            builder,
+            0,
+            model,
+            formFallback: null,
+            summaryFallback: _ =>
+            {
+                fallbackCalls++;
+                return ValueTask.FromResult(true);
+            },
+            focusFirstErrorOnInvalidSubmit: false));
+
+        await cut.InvokeAsync(() => cut.Find("form").SubmitAsync());
+
+        var firstClick = ClickEntryAsync(cut, "First required");
+        await cut.InvokeAsync(() => { });
+        var secondClick = ClickEntryAsync(cut, "First required");
+        await cut.InvokeAsync(() => { });
+        cut.WaitForState(() => FocusFieldCalls(arguments: 2) == 2);
+
+        await cut.InvokeAsync(() => firstAttempt.SetResult(false));
+        await firstClick;
+        await secondClick;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(1, fallbackCalls);
+        Assert.Equal(1, FocusFieldCalls(arguments: 3));
+
+        await Services.DisposeAsync();
+    }
+
+    private int FocusFieldCalls(int arguments) =>
+        _module.Invocations.Identifiers.Contains("focusField")
+            ? _module.Invocations["focusField"].Count(call => call.Arguments.Count == arguments)
+            : 0;
+
+    // Moves are counted per focus service, and each circuit has its own, so a move through one
+    // service never stands down a move through another: on Blazor Server, one visitor's click must
+    // not cancel another visitor's retry. Called on the helper directly, so nothing but the two
+    // services separates the moves.
+    [Fact]
+    public async Task A_move_through_another_focus_service_leaves_this_ones_retry_alone()
+    {
+        var mine = new ScriptedFocusService();
+        mine.Unreachable.Add(nameof(Pair.First));
+        var theirs = new ScriptedFocusService();
+        var fallback = new HeldFallback(mine);
+        var model = new Pair();
+
+        var move = FirstErrorFocus.TryFocusAsync(
+            mine, new FieldIdentifier(model, nameof(Pair.First)), prepare: null, fallback.RunAsync).AsTask();
+        Assert.Equal(1, fallback.Calls);
+
+        var other = await FirstErrorFocus.TryFocusAsync(
+            theirs, new FieldIdentifier(new Pair(), nameof(Pair.Second)), prepare: null, fallback: null);
+        Assert.Equal(FirstErrorFocus.FocusMoveResult.Landed, other);
+
+        fallback.Release();
+
+        Assert.Equal(FirstErrorFocus.FocusMoveResult.Landed, await move);
+        Assert.Equal(["miss First", "focus First"], mine.Log);
+    }
+
+    // A consumer's own focus service knows nothing of the shipped service's retry flag, and keeps
+    // the retry it has always had: a miss, the fallback, and one more FocusAsync that lands.
+    [Fact]
+    public async Task A_custom_focus_service_keeps_the_single_retry()
+    {
+        var focus = new ScriptedFocusService();
+        focus.Unreachable.Add(nameof(Pair.First));
+        Services.AddSingleton<IFormidableFocusService>(focus);
+        Services.AddFormidableBlazor();
+        var fallbackCalls = 0;
+        var model = new Pair();
+        var cut = Render(builder => AddPairForm(
+            builder,
+            0,
+            model,
+            field =>
+            {
+                fallbackCalls++;
+                focus.Unreachable.Remove(field.FieldName);
+                return ValueTask.FromResult(true);
+            },
+            summaryFallback: null,
+            focusFirstErrorOnInvalidSubmit: false));
+        var form = cut.FindComponent<FormidableForm<Pair>>().Instance;
+
+        await cut.InvokeAsync(() => cut.Find("form").SubmitAsync());
+        var landed = await cut.InvokeAsync(() => form.FocusFirstErrorAsync());
+
+        Assert.True(landed);
+        Assert.Equal(1, fallbackCalls);
+        Assert.Equal(["miss First", "focus First"], focus.Log);
+
+        await Services.DisposeAsync();
     }
 }

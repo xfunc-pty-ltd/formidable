@@ -1271,6 +1271,38 @@ Which field a move aims at is chosen above this layer: [Read order](#read-order)
 `FirstErrorFocus`. `TryFocusAsync` then awaits `PrepareFocus` once, tries the element, consults
 `FocusFallback` once after a miss, and retries once when the fallback answers `true`.
 
+A newer move cancels that retry. Every move bumps a counter kept per focus service instance in a
+`ConditionalWeakTable`. The shipped service is scoped, so there is one counter per circuit or
+WebAssembly app, shared by every root and summary on the page.
+
+A move that finds the counter moved on stands down. It looks after `PrepareFocus`, after a first
+attempt that missed, and after the fallback answers, so a move overtaken while its first attempt
+was out never calls the fallback. Its result is `StoodDown` rather than `Missed`, so `MoveAsync`
+writes no miss diagnostic for it.
+
+The visitor can cancel it too. The shipped `FormidableFocusService` also implements the internal
+`IFormidableFocusRetry`, whose `RetryFocusAsync` calls `focusField(id, scrollId, true)`. A consumer's
+own focus service, or one wrapping the shipped one, gets a plain second `FocusAsync` instead.
+
+In the script, a first attempt that misses records the field's id, the element holding focus, and
+whether a trusted `keydown` or `pointerdown` has happened since. Two capture-phase document
+listeners watch for that press: they are attached at the miss and removed at the first press, or
+when a retry spends the record. One record is kept, the latest miss, because only the newest move
+retries and every retry follows its own first attempt.
+
+A retry for the recorded id answers `false` without touching focus when a press happened and focus
+sits on a control other than the recorded element. A control here is an element in the tab order
+(`tabIndex` 0 or more) or a `contenteditable` one.
+
+The miss and the retry both read the focused element down through open shadow roots, because the
+document reports a web component's host, outside the tab order, rather than the input inside it. A
+closed shadow root hides that input, so focus there reads as the host, which counts only if it is
+itself a control.
+
+The body is not a control, and neither is the `tabindex="-1"` `<form>` that a click on text inside a
+`FormidableForm` focuses, so that click leaves the retry to land. A fallback that moves focus itself
+presses nothing, so its retry still lands.
+
 ### The summary's regions and entries
 
 `FormidableSummary` builds each fixed-role region inside its own sequence-number region

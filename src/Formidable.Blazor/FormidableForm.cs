@@ -168,10 +168,15 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     [Parameter]
     public bool FocusFirstErrorOnInvalidSubmit { get; set; } = true;
 
-    /// <summary>Called once when a focus move misses; return <see langword="true"/> after making the field reachable and the move retries once, <see langword="false"/> to leave the miss.</summary>
+    /// <summary>Called once when a focus move misses; return <see langword="true"/> after making the field reachable and the move retries once, unless cancelled as the remarks say; <see langword="false"/> leaves the miss.</summary>
     /// <remarks>
     /// The same delegate shape as <see cref="FormidableSummary.FocusFallback"/>, so one callback
-    /// serves both; unset, a miss logs a diagnostic naming this parameter.
+    /// serves both; unset, a miss logs a diagnostic naming this parameter. A newer focus move through
+    /// the same focus service instance, made before the callback answers, cancels the retry. Under
+    /// the focus service
+    /// <see cref="FormidableBlazorServiceCollectionExtensions.AddFormidableBlazor(Microsoft.Extensions.DependencyInjection.IServiceCollection)"/>
+    /// registers, so does a key or pointer press of the visitor's while it runs, if focus has moved
+    /// to another control, outside any closed shadow root, by the time it answers.
     /// </remarks>
     [Parameter]
     public Func<FieldIdentifier, ValueTask<bool>>? FocusFallback { get; set; }
@@ -839,7 +844,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Moves focus to the first visible error, or to the first visible issue when no error shows, and reports whether an element took it.</summary>
-    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, the field is out of reach, or the form has been disposed.</returns>
+    /// <returns><see langword="true"/> when an element took focus; <see langword="false"/> when nothing moved, whether the form shows no issue, no <see cref="IFormidableFocusService"/> is registered, the field is out of reach, a newer focus move took over, the visitor pressed a key or pointer button while <see cref="FocusFallback"/> ran and focus ended on another control outside any closed shadow root (under the focus service <see cref="FormidableBlazorServiceCollectionExtensions.AddFormidableBlazor(Microsoft.Extensions.DependencyInjection.IServiceCollection)"/> registers), or the form has been disposed.</returns>
     /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
     /// <remarks>
     /// The move a blocked submit makes, with <see cref="PrepareFocus"/> and

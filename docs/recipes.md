@@ -754,8 +754,10 @@ input, and so does the model-level field on a page using `FormidableValidator`, 
 `<form>` to carry the id that `FormidableForm` puts on its own.
 
 **For a field a summary click cannot reach**, give `FormidableSummary` a `FocusFallback`: make the
-element reachable, return `true`, and the summary retries the focus once. `FormidableForm` takes the
-identical parameter for its own blocked-submit auto-focus, so wire the same callback to both.
+element reachable, return `true`, and the summary retries the focus once. A newer click cancels
+the retry. So does the visitor moving focus to another control meanwhile, unless you registered a
+focus service of your own. `FormidableForm` takes the identical parameter for its own
+blocked-submit auto-focus, so wire the same callback to both.
 
 **Read more:**
 

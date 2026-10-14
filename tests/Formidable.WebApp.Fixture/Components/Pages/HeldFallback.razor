@@ -1,0 +1,96 @@
+@*
+    A form whose first field sits in a closed section, so a blocked submit's focus move misses it.
+    The form's FocusFallback opens the section once the delay in ?delay= has passed (1500 ms when
+    absent) and answers true, which leaves the visitor that long to act. With ?mode=selffocus the
+    callback first moves focus to the heading button itself, as a page announcing the section
+    might. The page makes the move itself from OnInvalidSubmit, so it can show the answer: #result
+    reads took=True or took=False once the move ends, and #state reads running while the callback
+    waits. #inside is text inside the form, and #blank is text outside it.
+*@
+@page "/held-fallback"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using FluentValidation
+@using Formidable
+@using Microsoft.AspNetCore.Components.Forms
+
+<h1>Held fallback</h1>
+
+<button type="button" id="heading" @ref="_heading">Section heading</button>
+
+<FormidableForm @ref="_form" Model="_model" Validator="_validator" OnInvalidSubmit="MoveAsync" FocusFallback="OpenSectionAsync">
+    <FormidableSummary />
+    <details open="@_open">
+        <summary>More details</summary>
+        <label>First <FormidableInputText @bind-Value="_model.First" /></label>
+    </details>
+    <label>Second <FormidableInputText @bind-Value="_model.Second" /></label>
+    <p id="inside">Plain text inside the form</p>
+    <button type="submit">Submit</button>
+    <input id="after" aria-label="After" />
+</FormidableForm>
+
+<p id="blank" style="height: 80px">Blank area</p>
+<input id="other" aria-label="Other" />
+<p>State: <output id="state">@_state</output></p>
+<p>Result: <output id="result">@_result</output></p>
+
+@code {
+    private readonly Sections _model = new();
+    private readonly IModelValidator<Sections> _validator =
+        new FluentValidationModelValidator<Sections>(new SectionsValidator());
+    private FormidableForm<Sections>? _form;
+    private ElementReference _heading;
+    private bool _open;
+    private string _state = "idle";
+    private string _result = "none";
+
+    [SupplyParameterFromQuery(Name = "delay")]
+    public int? Delay { get; set; }
+
+    [SupplyParameterFromQuery(Name = "mode")]
+    public string? Mode { get; set; }
+
+    private async Task MoveAsync(FormidableInvalidSubmitContext context)
+    {
+        context.SuppressFirstErrorFocus();
+        _result = "moving";
+        var took = await _form!.FocusFirstErrorAsync();
+        _result = $"took={took}";
+    }
+
+    private async ValueTask<bool> OpenSectionAsync(FieldIdentifier field)
+    {
+        _state = "running";
+        StateHasChanged();
+        if (Mode == "selffocus")
+        {
+            await _heading.FocusAsync();
+        }
+
+        await Task.Delay(Delay ?? 1500);
+        _open = true;
+        _state = "expanded";
+        StateHasChanged();
+
+        // The retry looks the field up in the page, so the render that opens the section has to
+        // reach the browser first.
+        await Task.Delay(50);
+        return true;
+    }
+
+    public sealed class Sections
+    {
+        public string First { get; set; } = string.Empty;
+
+        public string Second { get; set; } = string.Empty;
+    }
+
+    private sealed class SectionsValidator : AbstractValidator<Sections>
+    {
+        public SectionsValidator()
+        {
+            RuleFor(m => m.First).NotEmpty().WithMessage("First is required");
+            RuleFor(m => m.Second).NotEmpty().WithMessage("Second is required");
+        }
+    }
+}

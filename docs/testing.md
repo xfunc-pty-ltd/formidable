@@ -311,7 +311,7 @@ front of you reaches:
 | Call | Reached when | Planned with |
 |---|---|---|
 | `orderFields` | the order resolve itself runs | `Setup<IReadOnlyList<string>>` — it hands back the ordered ids |
-| `focusField` | a blocked submit, a summary-entry click, `FormidableForm`'s own error-carrying `ApplyServerIssues`, or a page calling `FocusFirstErrorAsync()` moves focus | `Setup<bool>` — did the element take focus? |
+| `focusField` | a blocked submit, a summary-entry click, `FormidableForm`'s own error-carrying `ApplyServerIssues`, or a page calling `FocusFirstErrorAsync()` moves focus | `Setup<bool>` — did the element take focus? Each call passes the field's element id (`FormidableFieldId.For(field)`) and the id of its message list (`FormidableFieldId.MessagesFor(field)`). When a `FocusFallback` answers `true`, the retry that follows adds a third argument, `true`. Every other call passes the two ids alone, so `call => call.Arguments.Count == 3` plans the retry apart. With it, the script answers `false` and leaves focus alone when the visitor has pressed a key or pointer button since the miss and focus sits on another control. |
 | `registerClickRecovery` | the form establishes the displaced-click guard | `Setup<bool>` — did the script find an element to scope the guard to? |
 | `releaseClickRecovery` | that guard is released | `SetupVoid` |
 | `observeLayout` | the form establishes the browser-side layout observer beside the resolve | `SetupVoid` |
