@@ -9,27 +9,27 @@ tests, running a real project's forms today.
 
 ## What it is
 
-- Draft and Submit from one validator — two lifecycles ship built in: a lenient Draft profile
+- **Draft and Submit from one validator:** two lifecycles ship built in: a lenient Draft profile
   for save-as-you-go, a strict Submit profile for the real thing, both defined once in the same
   FluentValidation class. Wizard steps and approval stages are custom profiles over that same
   definition.
-- A headless component kit — FormidableForm, FormidableField, FormidableFieldMessage, and
+- **A headless component kit:** FormidableForm, FormidableField, FormidableFieldMessage, and
   FormidableSummary own the EditContext and render the validator's verdict. The library ships no
   CSS, so the kit drops into a UI library, a design system, or plain HTML.
-- One validator, client and server — the same FluentValidation rules run in the browser and
+- **One validator, client and server:** the same FluentValidation rules run in the browser and
   again on the server, and the server's ValidationProblemDetails response applies straight into
   the engine, so a rejected save lights up the exact fields inline.
-- Progressive disclosure — a message waits until the visitor has earned it. A field nobody has
+- **Progressive disclosure:** a message waits until the visitor has earned it. A field nobody has
   touched stays silent whatever its rules say; once they have engaged it, it tells them what
   would actually block the save. A form opened on a saved draft says what those loaded values
   have already earned in one call. At submit, which errors show is decided by what is on screen
   at that moment, and a defensive gate catches the case where every failure would otherwise go
   unseen.
-- Warnings and infos that never block — a FluentValidation check followed by
+- **Warnings and infos that never block:** a FluentValidation check followed by
   .WithSeverity(Severity.Warning) or Severity.Info fails as a warning or an info. Either one
   shows in the kit's field messages and summary as an error does, with a CSS class of its own.
   Only errors stop a submit.
-- Collections that keep their errors — a message on a row object belongs to the object, not to
+- **Collections that keep their errors:** a message on a row object belongs to the object, not to
   the row number, so adding, removing, and reordering rows can never move its error onto the wrong
   line.
 
