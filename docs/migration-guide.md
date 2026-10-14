@@ -133,7 +133,7 @@ still wrong.
 that root the two names stay, handed a `SubmitOutcome` and a `FormidableInvalidSubmitContext` in
 place of the `EditContext`.
 
-Why: [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ### Attach mode leaves `novalidate` to you
 

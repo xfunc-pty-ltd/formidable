@@ -57,7 +57,7 @@ flowchart TD
     READ --> STORE["ValidationMessageStore: a projection rebuilt whenever a source moves"]
 ```
 
-## The five pass kinds
+## The pass kinds
 
 Every pass runs one lifecycle (`RunPassAsync`): begin, taking a version and a cancellation token;
 validate under its profile; dispatch the verdict only if the pass is still the current one and
@@ -1575,7 +1575,7 @@ client answer ([Sources and views](#sources-and-views)). `ApplyServerIssues` wri
 synchronously on the calling thread.
 
 It sets `HasSubmitted` first, which is one of the two conditions under which a field change arms
-the refresh timer ([the five pass kinds](#the-five-pass-kinds)). It clears the fault issue
+the refresh timer ([the pass kinds](#the-pass-kinds)). It clears the fault issue
 unconditionally, one of the two places that issue is cleared (a pass landing is the other). It then
 clears both dictionaries before it reads the payload, so a replace is a wholesale swap of that one
 source and the client's own verdict sources are untouched.
@@ -1663,7 +1663,7 @@ A live pass leaves the server store standing, whatever profile it ran: it is an 
 not the settling point the server's snapshot yields to.
 
 A refresh, a submit and a load clear both
-dictionaries as they land ([the five pass kinds](#the-five-pass-kinds)), but only when their
+dictionaries as they land ([the pass kinds](#the-pass-kinds)), but only when their
 answer is newer than the server's (`SupersedesServerAnswer`). A server-only issue goes with the
 first landing that is, and one a client rule agrees with continues through the client's own answer.
 

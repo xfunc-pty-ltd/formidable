@@ -151,7 +151,7 @@ starts, and what work depends on whether the form has been submitted. Before the
 edit starts one check, which answers every field you have engaged; after a submit it also
 re-checks the whole form ([below](#why-did-the-summary-change-a-moment-after-i-fixed-a-field)).
 
-Why: [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ## What happens if I keep typing while a check is running?
 
@@ -225,7 +225,7 @@ a load of values. A live check for one field does not. Set `LiveDebounce` wider 
 submit disclosed then updates a beat before the field's own message; the settled state, and the
 cost, are the same whichever lands first.
 
-Why: [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ## Does the library ever run my rule twice for one edit?
 
@@ -304,7 +304,7 @@ Loading values (`DiscloseLoadedValuesAsync`) runs every rule once, async ones in
 checks the fields it engaged. It shows "checking" on no field (the form-wide flag is true, so a
 page spinner works), moves no focus, and a form that never calls it is unaffected.
 
-Why: [how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ## Why isn't my field green even though the check passed?
 

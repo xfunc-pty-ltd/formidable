@@ -95,7 +95,7 @@ about hidden fields stays down
 
 [Profiles](profiles.md) has why narrowing is the blunter of the two levers that keep a live channel
 from nagging, and why a save-progress flow is unaffected either way. Why:
-[how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+[how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 **Recipe:**
 [narrow what the live channel validates](recipes.md#i-want-to-narrow-what-the-live-channel-validates).
@@ -173,7 +173,7 @@ registered, so a test can land either window with `Advance` (see
 
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
 has what the re-check waits for. Why:
-[how the engine works: what starts each check](how-the-engine-works.md#the-five-pass-kinds).
+[how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ### `LiveDebounce`
 
@@ -222,7 +222,7 @@ or per form, on the `FormidableOptions` the form's `Options` parameter takes
 The two waits run independently. Setting one wider than the other changes which check lands first,
 not the cost:
 [Async validation](async-validation.md#why-did-the-summary-change-a-moment-after-i-fixed-a-field)
-has what you see in each order. Why: [how the engine works: the two timers](how-the-engine-works.md#the-five-pass-kinds).
+has what you see in each order. Why: [how the engine works: the two timers](how-the-engine-works.md#the-pass-kinds).
 
 **Sample:** [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor): a checkbox swaps the
 immediate default for a 400 ms window.

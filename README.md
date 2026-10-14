@@ -49,10 +49,10 @@ software development company, working across Australia.
   touched stays silent whatever its rules say; once they have engaged it, it tells them what would
   actually block the save. At submit, which errors show is decided by what is on screen at that
   moment, and a defensive gate catches the case where every failure would otherwise go unseen.
-- **Warnings and infos that never block**: a FluentValidation check followed by
+- **Warnings and infos that never block** — a FluentValidation check followed by
   `.WithSeverity(Severity.Warning)` or `Severity.Info` fails as a warning or an info. Either one
-  shows in the same field messages and summary as an error, with its own CSS class, but only
-  errors stop a submit.
+  shows in the kit's field messages and summary as an error does, with a CSS class of its own.
+  Only errors stop a submit.
 - **Collections that keep their errors** — a message on a row object belongs to the object, not to
   the row number, so adding, removing, and reordering rows can never move its error onto the wrong
   row.
@@ -232,7 +232,7 @@ Eight documents, in reading order. Start at the top and keep going.
 |---|---|
 | [Why Formidable](docs/why-formidable.md) | Why this layer exists, with one row per workaround it replaces. |
 | [Quickstart](docs/quickstart.md) | A model, a validator, and the four components that render it. |
-| [Draft and submit rules](docs/tutorial/2-draft-and-submit.md) | One validator carrying draft rules and submit rules, a draft save that demands nothing, and field state made visible. |
+| [Draft and submit rules](docs/tutorial/2-draft-and-submit.md) | One validator carrying draft rules and submit rules, a draft save that checks shape and lets empty fields through, and field state made visible. |
 | [A warning alongside an error](docs/tutorial/3-severity.md) | A rule that advises instead of blocking, and a submit that goes through with the warning still showing. |
 | [A list of members](docs/tutorial/4-collections.md) | Rows that keep their errors, a rule for the list itself, and the notify a page-driven edit owes. |
 | [Async rules](docs/tutorial/5-async.md) | An async rule that asks a service for an answer, and the pending state that shows while it waits. |

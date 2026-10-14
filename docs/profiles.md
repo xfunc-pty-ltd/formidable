@@ -232,7 +232,7 @@ private async Task SaveDraft()
 
 <!-- Excerpt from `samples/Formidable.Sample/Pages/Profiles.razor.cs` -->
 
-Why: [how the engine works: which profile each check runs](how-the-engine-works.md#the-five-pass-kinds).
+Why: [how the engine works: which profile each check runs](how-the-engine-works.md#the-pass-kinds).
 
 **Sample:** [`/profiles`](../samples/Formidable.Sample/Pages/Profiles.razor) — draft-save next to an
 ordinary submit, both against the same `DraftSubmitValidator<T>`.
