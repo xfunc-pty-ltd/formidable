@@ -521,8 +521,8 @@ form select.formidable-pending {
     margin-top: .15rem;
 }
 
-/* Severity's colour. It is the ONLY thing telling a warning from an info inline, which the
-   summary's own band headings say in words wherever one is rendered — see the backlog. */
+/* Severity's colour is the only thing telling a warning from an info inline. A page that shows
+   warnings or infos heads its summary's bands, which say it in words. */
 .formidable-message--error {
     color: var(--error-text);
 }

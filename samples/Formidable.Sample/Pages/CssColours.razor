@@ -8,7 +8,7 @@
     <TryIt>
         <ol>
             <li>Click <strong>Submit</strong> with every box empty.<div class="teaching__result"><span class="teaching__label">You see:</span> "Title is required" under <strong>Title</strong> and in the error summary.</div></li>
-            <li>Pick a new colour with the <strong>Error</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s border, its message, and the error summary's left stripe and entry text all take the new colour.</div></li>
+            <li>Pick a new colour with the <strong>Error</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s border, its message, and the error summary's heading, left stripe and entry text all take the new colour.</div></li>
             <li>Type <code>Synth</code> into <strong>Title</strong> and press Tab.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s message clears and the box takes a green border, confirming the value would pass a submit.</div></li>
             <li>Pick a new colour with the <strong>Valid</strong> picker.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Title</strong>'s green border takes the new colour.</div></li>
             <li>Pick a new colour with the <strong>Accent</strong> picker, then click into <strong>Description</strong>.<div class="teaching__result"><span class="teaching__label">You see:</span> <strong>Description</strong>'s focus ring and border take the new colour while the box has focus.</div></li>
@@ -27,7 +27,7 @@
     </Rules>
     <HowItWorks>
         <p>Formidable paints nothing itself. It puts a class on each field for its state, and the sample's stylesheet colours those classes from a handful of tokens (CSS custom properties): <code>--error</code> and <code>--error-text</code>, <code>--warn</code>, <code>--info</code>, <code>--valid</code> and <code>--accent</code>. Borders, messages and the error summary all read them, and so does the spinner a field shows while a check runs.</p>
-        <p>Each picker writes its token onto the box around the form as an inline style (the accent also sets <code>--ring</code>, the focus ring's tint). A token set on an element applies to everything inside it, so overriding one on any ancestor recolours the whole form at once. Formidable is not involved: it never sees a colour.</p>
+        <p>Each picker writes its token onto the box around the form as an inline style (the error picker also sets <code>--error-text</code>, and the accent picker also sets <code>--ring</code>, the focus ring's tint). A token set on an element applies to everything inside it, so overriding one on any ancestor recolours the whole form at once. Formidable is not involved: it never sees a colour.</p>
         <p>Each of those classes reads its own token: <code>formidable-invalid</code> reads <code>--error</code>, <code>formidable-warning</code> reads <code>--warn</code>, <code>formidable-info</code> reads <code>--info</code> and <code>formidable-valid</code> reads <code>--valid</code>. So the valid state, which says nothing is wrong, recolours the same way as the error, warning and info states, which say something is.</p>
         <p>An error marks its field whether or not you have changed it. Once you have changed a field with no error, it takes the warning or info class when it carries a warning or an info. A changed field with nothing against it, which would pass a submit, takes the valid class: the green border that confirms it.</p>
         <p><code>UpdateOn</code> is the input setting for when a value reaches the form. Every box here sets it to <code>InputUpdateMode.OnInput</code>, so each keystroke is checked and a message arrives as you type, not when you leave the box.</p>
@@ -47,7 +47,7 @@
         <div style="@WrapperStyle" @ref="_wrapper">
             <FormidableForm Model="_listing" OnValidSubmit="HandleValid">
                 <div class="summary-slot">
-                    <FormidableSummary />
+                    <FormidableSummary ErrorsHeading="Errors" WarningsHeading="Warnings" InfosHeading="Info" />
                 </div>
 
                 @* OnInput commits each keystroke, so a message lands as it is typed rather than at

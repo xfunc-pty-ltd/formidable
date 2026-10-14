@@ -865,7 +865,8 @@ them until you say otherwise. Within each group, entries follow the page's order
     <FormidableSummary GroupByField="_groupByField"
                        MaxItems="@(_capped ? 3 : (int?)null)"
                        ItemTemplate="@(_nameTheField ? FieldName : null)"
-                       OverflowTemplate="@(_reveal ? HeldBack : null)" />
+                       OverflowTemplate="@(_reveal ? HeldBack : null)"
+                       ErrorsHeading="Errors" WarningsHeading="Warnings" InfosHeading="Info" />
 </div>
 ```
 

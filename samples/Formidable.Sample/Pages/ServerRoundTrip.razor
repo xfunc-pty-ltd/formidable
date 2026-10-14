@@ -62,7 +62,7 @@
 
         <FormidableForm @ref="_form" Model="_order" Options="_options">
             <div class="summary-slot">
-                <FormidableSummary />
+                <FormidableSummary ErrorsHeading="Errors" WarningsHeading="Warnings" InfosHeading="Info" />
             </div>
 
             <div class="field"><label>Description <FormidableRequiredIndicator For="() => _order.Description" /> <FormidableInputText @bind-Value="_order.Description" /></label>

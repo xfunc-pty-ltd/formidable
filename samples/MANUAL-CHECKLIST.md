@@ -528,8 +528,8 @@ reloads.
       Type a title and press Tab. The border turns a green plainly distinct from the accent. In
       the dark scheme, pick a new Error colour: the green stays the dark scheme's green, because a
       pick changes only its own colour. RELOAD when you are done: step 1 needs empty boxes
-- [ ] Steps 1 and 2, in both colour schemes: the border, the message AND the error summary's left
-      stripe and entry text all recolour at once
+- [ ] Steps 1 and 2, in both colour schemes: the border, the message AND the error summary's
+      heading, left stripe and entry text all recolour at once
 - [ ] Steps 3 and 4, in both colour schemes: the green border follows the new valid colour
 - [ ] Step 5, in both colour schemes: the focus ring and the border the box wears while focused
       both follow the new accent

@@ -139,7 +139,7 @@
     <Demo>
         <FormidableForm @ref="_form" Model="_registration" Options="_options" OnValidSubmit="SendToServer" OnInvalidSubmit="HandleBlocked" FocusFallback="RecoverMissedFocusAsync">
             <div class="summary-slot">
-                <FormidableSummary FocusFallback="RecoverMissedFocusAsync" />
+                <FormidableSummary FocusFallback="RecoverMissedFocusAsync" ErrorsHeading="Errors" WarningsHeading="Warnings" InfosHeading="Info" />
             </div>
 
             <fieldset>

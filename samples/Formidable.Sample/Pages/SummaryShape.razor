@@ -57,7 +57,8 @@
                 <FormidableSummary GroupByField="_groupByField"
                                    MaxItems="@(_capped ? 3 : (int?)null)"
                                    ItemTemplate="@(_nameTheField ? FieldName : null)"
-                                   OverflowTemplate="@(_reveal ? HeldBack : null)" />
+                                   OverflowTemplate="@(_reveal ? HeldBack : null)"
+                                   ErrorsHeading="Errors" WarningsHeading="Warnings" InfosHeading="Info" />
             </div>
 
             <div class="field"><label>Ticket reference <FormidableRequiredIndicator For="() => _ticket.Reference" /> <FormidableInputText @bind-Value="_ticket.Reference" /></label>
