@@ -481,9 +481,10 @@ first one, so focus lands on the form, which `FormidableForm` makes focusable
 submit sends focus there too: the form shows its [fault message](options.md#validationfaultmessage)
 (its own message for a check that could not finish), which is also an error and is listed first.
 
-Every entry in `FormidableSummary` is a button that calls the same service for the field it names,
-`IFormidableFocusService.FocusAsync`, which locates and focuses the DOM element carrying a field's
-deterministic id:
+Every entry in `FormidableSummary` is a button. It calls `IFormidableFocusService.FocusAsync` for
+the field it names, the service the form's own moves call too. The service locates and focuses the
+DOM element carrying the field's id, which `FormidableFieldId.For(...)` derives from the field the
+same way every time:
 
 ```csharp
 ValueTask<bool> FocusAsync(FieldIdentifier field);
@@ -491,11 +492,11 @@ ValueTask<bool> FocusAsync(FieldIdentifier field);
 
 <!-- Source: `src/Formidable.Blazor/IFormidableFocusService.cs` -->
 
-Focus and scroll come apart there, deliberately. Focus always lands on the field's own element,
+A move's focus and its scroll come apart, deliberately. Focus always lands on the field's own element,
 because that is what a keyboard visitor has to be able to type into. The scroll prefers the field's
 message list, so an issue with no input of its own brings the message that named the problem into
-view rather than the middle of the group. A collection-level rule is that case: its element is the
-container holding every row.
+view. A collection-level rule is that case: its element is the container holding every row, and the
+scroll shows its message rather than the middle of those rows.
 
 Then the target's own height decides the alignment: taller than 60% of the viewport and it aligns
 to its top, smaller and it centres.
@@ -516,16 +517,19 @@ Both reach the caller as one answer, because the visitor is in the same place on
 merely covered by an overlay does take focus, so that shape answers `true`. A field with no message
 list is not a miss: the scroll lands on the field's own element.
 
-What happens next diverges by caller. `FormidableSummary`'s click-to-focus handler no-ops silently
-when `FocusAsync` reports a miss and no `FocusFallback` is set, or the fallback itself fails to
-recover it. The form's own moves read the identical miss and retry it through its own
-`FocusFallback` parameter, the same name and delegate shape as the summary's, and typically wired
-to the same callback.
+What happens next diverges by caller. Both the summary and the form take a `FocusFallback`, a
+callback of yours that is handed the field a move missed. It can make that field reachable and
+return `true`, and the move then tries once more.
+
+A summary click whose `FocusAsync` misses does nothing, silently, when no `FocusFallback` is set.
+It does nothing either when your fallback fails to recover the miss. The form's own moves read the identical miss and retry it through the form's own
+`FocusFallback` parameter, the same delegate shape as the summary's, and typically wired to the same
+callback.
 
 With no `FocusFallback` wired, the form does not share the summary's silent no-op: it reports a
-diagnostic instead ([Component kit](component-kit.md#focusfallback)). A visitor sent to a field
-nobody clicked has nowhere else to land, where a summary click simply has no effect. The gap
-`FocusFallback` recovers, on either component, matters for three cases:
+diagnostic instead ([Component kit](component-kit.md#focusfallback)). A visitor the form sent to a
+field has nowhere else to land. A summary click that misses, by contrast, simply has no effect. The
+gap `FocusFallback` recovers, on either component, matters for three cases:
 
 | The case | What it is |
 |---|---|
@@ -574,8 +578,9 @@ which is rarely what a programmatic jump wants.
 
 A sticky header needs one more declaration. A target taller than 60% of the viewport aligns to its
 top, which puts it under the header. Give the element the move scrolls a `scroll-margin-top` of the
-header's height: the field's message list where one renders, otherwise the element carrying the
-field's id. A margin on the field does nothing while its message list is the one scrolled.
+header's height. That element is the field's message list where one renders, and otherwise the
+element carrying the field's id. A margin on the field does nothing while its message list is the
+one scrolled.
 
 ```css
 :root {
@@ -599,10 +604,14 @@ focus, and that element is where the summary entry lands. The field's determinis
 of the lookup, so a field with no input of its own can be focused just as well.
 
 `FormidableForm` does this for the model-level field itself, on the `<form>` element it renders
-([Component kit](component-kit.md#formidableformtmodel)). The defensive gate's
-summary entry lands there with no page wiring. A collection's rules fail against the list rather
-than against any one control, so nothing renders that id automatically. The `/collections` sample
-gives the container holding every row the collection's id by hand.
+([Component kit](component-kit.md#formidableformtmodel)). The model-level field is where an issue
+that names no field of its own belongs: the form's own message about hidden fields, the fault
+message, a rule on the whole model, or a server error with an empty path.
+
+The defensive gate's summary entry lands on that `<form>` with no page wiring. A collection's rules
+fail against the list rather than against any one control, so nothing renders that id
+automatically. The `/collections` sample gives the container holding every row the collection's id
+by hand.
 
 A container shows nothing when it takes focus, so the sample stylesheet marks those landings with an
 outline, scoped to `:focus-visible`. The scope matters because `tabindex="-1"` leaves an element
