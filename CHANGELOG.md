@@ -5,6 +5,65 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-10-15
+
+### Breaking changes
+
+- *(blazor)* If the visitor changes a value while a submit is being checked, the submit checks again before it reports, at most three times in all. OnValidSubmit runs only after the last check has passed the values. A change made after that last check reaches OnValidSubmit unchecked. If the visitor edits during all three checks, the submit shows the last check's errors. If that check found no errors, the submit is blocked with no message, and OnValidSubmit does not run. Most apps need no change. With NormalizeOnSubmit, Normalize() can run up to three times in one submit, so it must be safe to run more than once. A test that holds a submit's check open and then changes a value sees the validator called again. The test must let those new calls finish too. ([1fb977c](https://github.com/xfunc-pty-ltd/formidable/commit/1fb977c060501051f1b4cfc24f5b2880856e1895))
+- *(blazor)* ToFieldIdentifier returns (list, "0") for an element of a list that implements only IList<T> or IReadOnlyList<T>, such as ImmutableArray<T>.Builder or a JsonArray, as it already did for an array or a List<T>. It returned (list, "[0]"), so a row bound with () => Model.Tags[i] showed none of its messages and could wear the valid class. Code that looks up such a row's state or issues by (list, "[0]") passes (list, "0"), or FieldIdentifier.Create(() => Model.Tags[0]). ([f8e4160](https://github.com/xfunc-pty-ltd/formidable/commit/f8e416023af44177da46e342fb6268afb9d9e058))
+- *(core)* A profile that leaves out the default rules and selects no rule of a plain AbstractValidator<T> whose class overrides neither Validate nor ValidateAsync throws InvalidOperationException wherever it is validated. A ProfiledValidator<T> already throws the same way for a ruleset name it never registered. Such a profile used to accept every value and write one Trace line. As a form's SubmitProfile, the profile shows ValidationFaultMessage from the whole-form re-check after the first render and from each live check that runs it. A submit or DiscloseLoadedValuesAsync throws the exception to its caller. As a LiveProfile alone, the profile shows the message from each live check. Validate<TModel>() lets the exception reach the host. An Include built by a factory counts as selecting, since what it builds can depend on the model. Check the profile's ruleset names against the validator's RuleSet calls, or include the default rules. ([3242e9e](https://github.com/xfunc-pty-ltd/formidable/commit/3242e9e275996fff9cbb668c3b21637519306f89))
+- *(blazor)* FormidableFieldContext gains Edit(Func<ValueTask>) and TryEdit(Func<ValueTask<bool>>); OverloadResolutionPriority on the Task overloads keeps async lambdas on them. A project compiled with LangVersion 12 or lower gets CS0121 on async-lambda Edit and TryEdit calls. Use C# 13 or later, or declare the lambda's return type, as in Edit(async Task () => ...), which builds from LangVersion 10. Edit(() => repo.MoveAsync()) binds the new overload and returns a Task, so leaving it unawaited inside an async method raises CS4014. In markup that call rebinds without a warning: the click waits for the edit, and an exception from it reaches Blazor's error handling. ([165ccd4](https://github.com/xfunc-pty-ltd/formidable/commit/165ccd4742a75c570fbe5dc8b430caf0abe518a3))
+- *(blazor)* With LiveDisclosure set to LiveIssueDisclosure.EngagedAndVisible, a message that DisclosureOverride shows stays when its field leaves the page (in a collapsed section, say), as long as the message still belongs to that field. In 2.0.0 the message disappeared with the field. If your override was written to show messages for fields that are off the page, you need no change. If it was meant only to show messages while their field is on the page, answer null, not false, once your page has hidden that field (a collapsed section, say). The form asks again whenever fields appear or leave, and drops the message then. A list row that is off the page can still lose its message after rows above it are added, removed or moved. It loses it if an input for any field then appears on the page or leaves it before the form checks again. Put KeepRegistered on the row's inputs to keep the message in that case. ([3a15c03](https://github.com/xfunc-pty-ltd/formidable/commit/3a15c03250efb276bc97281daf6e83334fc07cb0))
+- *(blazor)* When a rule throws or times out (an HttpClient timeout, say) during a submit or a load, the form reports the failure instead of throwing it to your code. The submit is blocked, as an invalid one is. The form shows ValidationFaultMessage and raises ValidationFaulted. It also logs a warning and puts the exception in SubmitOutcome.Fault. A load shows the same message. If a newer submit or load begins its check while an older one is still checking, the older one shows no message. An older submit's Fault stays empty. A timeout while the visitor types also shows the message, where 2.0.0 showed nothing. In 2.0.0 an exception a rule threw reached your code. When the visitor pressed a Submit button inside FormidableForm, Blazor's error handling received it instead. If you caught that exception around SubmitAsync or ValidateForSubmitAsync, read SubmitOutcome.Fault instead. Around DiscloseLoadedValuesAsync, handle ValidationFaulted instead. To show your own message on the field when a service fails, catch the failure inside the rule and fail the rule with that message. Errors in Formidable's own setup, such as a profile that selects no rule, still throw from a submit or a load. ([0f4f3b4](https://github.com/xfunc-pty-ltd/formidable/commit/0f4f3b49524e042693dcd3651c083c73b336eded))
+
+### Added
+
+- *(blazor)* Drop a server reply the visitor has edited past ([2cef034](https://github.com/xfunc-pty-ltd/formidable/commit/2cef034824270c806c4e0bdcb3b0d0b485ef62e5))
+- *(blazor)* Say when a submit is running ([9e9d3c0](https://github.com/xfunc-pty-ltd/formidable/commit/9e9d3c026dde93449994f25d189d97736d1eb712))
+
+### Fixed
+
+- *(blazor)* Send a throwing handler's error to the form's boundary ([8641b29](https://github.com/xfunc-pty-ltd/formidable/commit/8641b2962a325bca70e6a484f739b869bba9e81f))
+- *(blazor)* Keep IsFormValid unchanged once tracking is turned off ([24df250](https://github.com/xfunc-pty-ltd/formidable/commit/24df2500193285d1865f939ff47132d5c44def85))
+- *(blazor)* Rerun the checks a cancelled submit or load displaced ([b6efe4b](https://github.com/xfunc-pty-ltd/formidable/commit/b6efe4bd90d73ea44cc626766df5740fdb8adb46))
+- *(blazor)* Check an edit made while a submit ran once the submit ends ([5bafe21](https://github.com/xfunc-pty-ltd/formidable/commit/5bafe21b0d4b94038ba273e70f990f040ff8cc09))
+- *(blazor)* Keep a field's checking state until its own answer arrives ([82f370f](https://github.com/xfunc-pty-ltd/formidable/commit/82f370fdcd3306f372030e55c2564bd6b8fa6110))
+- *(blazor)* Run an async rule once when two checks fall due together ([5a9a014](https://github.com/xfunc-pty-ltd/formidable/commit/5a9a0144c46e89b1ca01b3e51a8afaec9a05002c))
+- *(blazor)* Ignore a hidden unregistered field's live error at the gate ([6405c90](https://github.com/xfunc-pty-ltd/formidable/commit/6405c90aeee3d24d83284e4becb14793763d355c))
+- *(blazor)* Show the form's message if a reply names only hidden fields ([1fb934a](https://github.com/xfunc-pty-ltd/formidable/commit/1fb934a0228dd28d7bc98e9fa92d2d807adb7d02))
+- *(blazor)* Focus the form when the gate stands for hidden fields ([f725733](https://github.com/xfunc-pty-ltd/formidable/commit/f725733deacff09f6996c658a1aee3bd091a51fe))
+- *(blazor)* Hold back a client answer older than the latest edit ([f681b17](https://github.com/xfunc-pty-ltd/formidable/commit/f681b173e30248a5910c5244058c126ebe73a9e7))
+- *(core)* Stop a PreValidate failure showing once per rule group ([478e89f](https://github.com/xfunc-pty-ltd/formidable/commit/478e89f2db867c2c7076fb3fa8764e506172cd51))
+- *(core)* Let a plugin's validator types unload ([ddad3f7](https://github.com/xfunc-pty-ltd/formidable/commit/ddad3f75e89c26acb93cff1009e9d6d51475f0aa))
+- *(aspnetcore)* Let a plugin's model types unload ([89a3e57](https://github.com/xfunc-pty-ltd/formidable/commit/89a3e57afe93355527d89de815630299ebce1a24))
+- *(blazor)* Let a plugin's model types unload ([9863c26](https://github.com/xfunc-pty-ltd/formidable/commit/9863c2698b9aa65d2fd928f7b2a8f39d168b8700))
+- *(blazor)* Keep focus where the visitor moves it during a fallback ([2fc8bbd](https://github.com/xfunc-pty-ltd/formidable/commit/2fc8bbd922b17d31cd1dcfddba96bfe43399bd8e))
+- *(blazor)* Raise ValidationFaulted on the renderer's dispatcher ([940289c](https://github.com/xfunc-pty-ltd/formidable/commit/940289c186b1294d0e7b57dbae578a64673f6ea4))
+- *(core)* Validate a validator that overrides ValidateAsync whole ([50c45fd](https://github.com/xfunc-pty-ltd/formidable/commit/50c45fd0d53e58bac41eda120664889edc4e88a9))
+
+### Documentation
+
+- Name xfunc in the README and link its Formidable page ([3a1e0c8](https://github.com/xfunc-pty-ltd/formidable/commit/3a1e0c8fe178b09a48f0c7cadd518fa97fe4d681))
+- Say Formidable runs a real client's forms, without the count ([69bfd5d](https://github.com/xfunc-pty-ltd/formidable/commit/69bfd5dd27ed29a409ca893e4a6dd197bf653749))
+- Say what replaces a reply and when focus can follow its apply ([5b5b7cd](https://github.com/xfunc-pty-ltd/formidable/commit/5b5b7cdfc61108f914d8971517d7681b4da1f6db))
+- *(sample)* Show the disclosure form's message for a field it lacks ([733716b](https://github.com/xfunc-pty-ltd/formidable/commit/733716b218e42c3b61291163197f203918eb10cd))
+- Answer by-id row binding and settle nested-rule re-runs ([d511564](https://github.com/xfunc-pty-ltd/formidable/commit/d5115643835c840c6c933a24bd167b7203e31d94))
+- *(sample)* Mark each send so a stale reply is dropped ([4633f12](https://github.com/xfunc-pty-ltd/formidable/commit/4633f121b39268fa8b0b371a32c6485ea1a286bd))
+- *(sample)* Lock the async page's Submit button while it submits ([5e34cd4](https://github.com/xfunc-pty-ltd/formidable/commit/5e34cd47d9c4bd0f6ea2694af4c42ee5f11570be))
+- Correct where warnings show and the pass-kind heading ([f3c1db2](https://github.com/xfunc-pty-ltd/formidable/commit/f3c1db2563c7114896f96dfc52698a8a6d88ef0e))
+- Explain the stale message an async setter can leave ([c41f725](https://github.com/xfunc-pty-ltd/formidable/commit/c41f72523845204bfec1c7e2eb6c2057fd66080f))
+- *(sample)* Name each severity in the summaries ([6c70d96](https://github.com/xfunc-pty-ltd/formidable/commit/6c70d965992e42c8eeedbe9b21bdc0c4ad880ed9))
+- Redeploy the live demo as part of each release ([949e79f](https://github.com/xfunc-pty-ltd/formidable/commit/949e79ffbb9eca15efdc4e349e241c6f055a87e5))
+- Say where "checking" shows during a load and what it engages ([d275512](https://github.com/xfunc-pty-ltd/formidable/commit/d27551274dd1b30d74ec77af975548b840d8e0fc))
+- Say what still updates a submit's messages with the re-check off ([b30a7c3](https://github.com/xfunc-pty-ltd/formidable/commit/b30a7c3db3a14ab6afb6be0a29418a96549b38e6))
+- Say a handler throwing on every call gets past a boundary ([e91bfee](https://github.com/xfunc-pty-ltd/formidable/commit/e91bfeeabbc4de3ca35c28864164de905f4ccb93))
+- Give InlineMessageLive's measured trade instead of advice ([0fd3890](https://github.com/xfunc-pty-ltd/formidable/commit/0fd3890eb0095c8b29bdb25c90606ac178afc777))
+- Give the release body's shape and state the README check plainly ([32e1efa](https://github.com/xfunc-pty-ltd/formidable/commit/32e1efa105b57a68c9cc6f10e284e1b977b6e206))
+- *(sample)* Correct two notes on loads and InlineMessageLive ([79fc814](https://github.com/xfunc-pty-ltd/formidable/commit/79fc814366564e74f488433f3d17c65bd7ad20dd))
+- Name the form's hidden-field message the defensive gate ([3793d3d](https://github.com/xfunc-pty-ltd/formidable/commit/3793d3dc2b407bd9b22b27f7c9cfdac2dc3dfe31))
+- Put a colon after each feature label in the READMEs ([34e18da](https://github.com/xfunc-pty-ltd/formidable/commit/34e18da0ca8bf06536e1ef9b57fb893d0aa9c977))
+- Define FocusFallback and the model-level field at first use ([05d41d1](https://github.com/xfunc-pty-ltd/formidable/commit/05d41d1035879d6e5783bf66ca67e817dd830c80))
+
 ## [2.0.0] - 2026-10-10
 
 ### Breaking changes
@@ -230,6 +289,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[3.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.0.0
 [2.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v2.0.0
 [1.0.2]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.2
 [1.0.1]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.1
