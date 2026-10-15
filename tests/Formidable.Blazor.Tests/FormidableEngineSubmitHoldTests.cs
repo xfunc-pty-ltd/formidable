@@ -173,7 +173,7 @@ public class FormidableEngineSubmitHoldTests
         editContext.NotifyFieldChanged(description);
 
         validator.Throw = true;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => engine.ValidateForSubmitAsync());
+        Assert.NotNull((await engine.ValidateForSubmitAsync()).Fault);
 
         Assert.False(engine.HasSubmitted);
         Assert.Empty(engine.GetIssues(description));

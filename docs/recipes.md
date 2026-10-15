@@ -1202,8 +1202,8 @@ English:
   when every field that failed is hidden.
 - **`ModelLevelDisplayName`** is the name a model-level entry is listed under, in
   `SubmitOutcome.VisibleErrorSummary` and on each visible issue's `DisplayName`.
-- **`ValidationFaultMessage`** is what the form shows when a validator throws during a live check
-  or the whole-form re-check (a submit or a load throws to your own code instead).
+- **`ValidationFaultMessage`** is what the form shows when a rule fails during a live check, the
+  whole-form re-check, a submit or a load of values.
 
 Nothing else the kit renders on a form is the library's own words: every other message was written
 by a rule, or came back from your server.

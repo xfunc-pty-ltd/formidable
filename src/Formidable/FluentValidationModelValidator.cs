@@ -220,10 +220,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
         {
             if (rule.Key is not IValidationRule key)
             {
-                throw new ArgumentException(
+                throw FormidableConfigurationError.Mark(new ArgumentException(
                     $"A rule identity carries no rule of this validator " +
                     $"('{FriendlyTypeName.Of(validator.GetType())}') — identities are validator-instance-scoped.",
-                    nameof(rules));
+                    nameof(rules)));
             }
 
             wanted.Add(key);
@@ -240,10 +240,10 @@ public sealed partial class FluentValidationModelValidator<TModel>
 
         if (resolved.Count != wanted.Count)
         {
-            throw new ArgumentException(
+            throw FormidableConfigurationError.Mark(new ArgumentException(
                 $"A rule identity was not produced by SelectRules on this validator " +
                 $"('{FriendlyTypeName.Of(validator.GetType())}') — identities are validator-instance-scoped.",
-                nameof(rules));
+                nameof(rules)));
         }
 
         return resolved;
@@ -466,33 +466,33 @@ public sealed partial class FluentValidationModelValidator<TModel>
     {
         if (_validator is not AbstractValidator<TModel> abstractValidator)
         {
-            throw new NotSupportedException(
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' does not enumerate its rules; rule-level validation requires a " +
-                $"FluentValidation AbstractValidator<{FriendlyTypeName.Of(typeof(TModel))}>. Check {nameof(CanValidateByRule)} first.");
+                $"FluentValidation AbstractValidator<{FriendlyTypeName.Of(typeof(TModel))}>. Check {nameof(CanValidateByRule)} first."));
         }
 
         if (abstractValidator.ClassLevelCascadeMode != CascadeMode.Continue)
         {
-            throw new NotSupportedException(
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' sets ClassLevelCascadeMode.{abstractValidator.ClassLevelCascadeMode}, " +
                 "which lets a failing rule suppress later rules within one whole-profile pass — executing part " +
-                $"of a profile cannot reproduce that. Check {nameof(CanValidateByRule)} first.");
+                $"of a profile cannot reproduce that. Check {nameof(CanValidateByRule)} first."));
         }
 
         if (OverridesPreValidate(abstractValidator))
         {
-            throw new NotSupportedException(
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides PreValidate, which FluentValidation runs once " +
                 "per validator call, so a failure it adds would be reported once for every set of rules run apart. " +
-                $"Check {nameof(CanValidateByRule)} first.");
+                $"Check {nameof(CanValidateByRule)} first."));
         }
 
         if (OverridesValidateAsync(abstractValidator))
         {
-            throw new NotSupportedException(
+            throw FormidableConfigurationError.Mark(new NotSupportedException(
                 $"'{FriendlyTypeName.Of(_validator.GetType())}' overrides ValidateAsync, which runs once per validator " +
                 "call, so whatever the override adds or forwards would be run once for every set of rules run apart. " +
-                $"Check {nameof(CanValidateByRule)} first.");
+                $"Check {nameof(CanValidateByRule)} first."));
         }
 
         return abstractValidator;

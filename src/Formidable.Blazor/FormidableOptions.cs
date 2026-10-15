@@ -240,10 +240,12 @@ public sealed class FormidableOptions
     /// <summary>The name an issue is given when neither its display name nor its path has text (the gate's explanation, a validation fault, a model-level rule, a server reply's model-level issue), in <see cref="VisibleIssue.DisplayName"/> and <see cref="SubmitOutcome.VisibleErrorSummary"/>. Defaults to <c>"This form"</c>.</summary>
     public string ModelLevelDisplayName { get; set; } = "This form";
 
-    /// <summary>The form-level message shown when a live check or the whole-form re-check throws before finishing, which leaves what the form shows incomplete. Defaults to <c>"Validation could not run to completion; recent changes may not be fully validated."</c>.</summary>
+    /// <summary>The form-level message shown when a rule fails during a live check, the whole-form re-check, a submit or a load. Defaults to <c>"Validation could not run to completion; recent changes may not be fully validated."</c>.</summary>
     /// <remarks>
-    /// It says nothing about what threw: the exception goes to
-    /// <see cref="IFormidableEngine.ValidationFaulted"/>, where a host logs it.
+    /// What the form shows is then incomplete, and a submit it shows for is blocked. It says
+    /// nothing about what threw: the exception goes to
+    /// <see cref="IFormidableEngine.ValidationFaulted"/>, where a host can log it, and a submit or a
+    /// load also logs it as a warning.
     /// </remarks>
     public string ValidationFaultMessage { get; set; } =
         "Validation could not run to completion; recent changes may not be fully validated.";

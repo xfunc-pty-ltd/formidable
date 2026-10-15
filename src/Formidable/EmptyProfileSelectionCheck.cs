@@ -66,7 +66,7 @@ internal static class EmptyProfileSelectionCheck
 
         if (!selectsAny)
         {
-            throw new InvalidOperationException(EmptySelectionMessage(validator, profile));
+            throw FormidableConfigurationError.Mark(new InvalidOperationException(EmptySelectionMessage(validator, profile)));
         }
 
         selecting.TryAdd(profile, 0);

@@ -108,6 +108,13 @@ public class HandleValidator : DraftSubmitValidator<Handle>
 
 Honour the token. A newer keystroke cancels the older check, and a rule that ignores its token
 wastes the request, never the answer: you still only see the answer for what you last typed.
+
+A rule that cancels its own work instead, as an `HttpClient` timeout does, has failed rather than
+been cancelled. The form treats it as any rule that throws: a check as you type, a submit or a load
+of values that is still the form's latest check shows the form's
+[fault message](options.md#validationfaultmessage). A submit that shows it is blocked, and its
+outcome's `Fault` carries what the rule threw.
+
 Then render the pending flag, which `FormidableField`'s cascaded context exposes as
 `field.State.IsValidating`:
 
@@ -194,10 +201,12 @@ your change is answered by the check that follows the load. With `TrackFormValid
 for the check that answers your change.
 
 Only a second Submit, or a load of values, can overtake a submit (start while it is still checking);
-the overtaken submit blocks without writing an error of its own, leaving what was already showing. A
-blocked submit focuses the first error, or the first visible issue when no error is on screen, and a
-validator that throws propagates to the caller. On `FormidableForm`, a blocked submit moves no focus
-once a second Submit has started. The second Submit moves focus itself if it blocks.
+the overtaken submit blocks without writing an error of its own, leaving what was already showing.
+
+A blocked submit focuses the first error, or the first visible issue when no error is on screen. A
+rule that throws blocks the submit too: the form shows its fault message, and focus moves to the
+form. On `FormidableForm`, a blocked submit moves no focus once a second Submit's check has
+begun. The second Submit moves focus itself if it blocks.
 
 Why: [how the engine works: which check yields to which](how-the-engine-works.md#supersession-and-deferral).
 

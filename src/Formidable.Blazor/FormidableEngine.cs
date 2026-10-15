@@ -2053,8 +2053,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="external">The caller's token; only a submit and a load carry one, so a cancellation with none requested means supersession.</param>
     /// <param name="beginScope">Produces the pending scope once the pass has begun; for a refresh, producing it clears the refresh's own accumulator, so when it runs matters.</param>
     /// <param name="applyVerdict">Writes the verdict into engine state, on the dispatcher, in the same dispatch as the store rebuild that publishes it; it receives the report and the edit stamp read as the answering check began.</param>
+    /// <param name="faulted">Told what a failed rule threw, once the fault is reported, and whether the fault message was filed for it, which it is only while the pass is still current.</param>
     /// <returns>The report, or <see langword="null"/> when the validation was cancelled by supersession or faulted; a pass superseded at its verdict dispatch returns the report it never applied, as does a submit whose last check passed once its restarts were spent but an edit outdated.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load before the verdict landed, whether or not the validator read it; a validator's exception under either kind propagates as well.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="external"/> was cancelled during a submit or a load before the verdict landed, whether or not the validator read it; one of Formidable's own refusals of the app's setup propagates from either kind as well.</exception>
     // One skeleton for every kind: the kinds differ in what they hand in, not in how they run,
     // and a copy hand-rolled per kind is one where a single copy can quietly stop raising a
     // notification, or stop clearing a flag, that the others still do.
@@ -2063,7 +2064,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ValidationProfile profile,
         CancellationToken external,
         Func<HashSet<FieldIdentifier>?> beginScope,
-        Action<ValidationReport, int> applyVerdict)
+        Action<ValidationReport, int> applyVerdict,
+        Action<Exception, bool>? faulted = null)
     {
         // The check this pass cancels as it begins, and the fields its "checking" covered, read
         // before the begin records this pass in their place (see CarryCancelledFields).
@@ -2117,17 +2119,27 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         editStamp,
                         pass.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (!external.IsCancellationRequested)
+                catch (OperationCanceledException) when (pass.Token.IsCancellationRequested && !external.IsCancellationRequested)
                 {
                     return null; // superseded by a newer pass or by Dispose, not cancelled by the caller
                 }
-                catch (Exception exception) when (kind is not (PassKind.Submit or PassKind.Load))
+                catch (Exception exception) when (IsRuleFailure(kind, exception, external))
                 {
-                    // A submit and a load are the passes someone is awaiting, so a validator that
-                    // throws under either has somewhere to surface: the caller's own try/catch. A
-                    // live or refresh pass is fire-and-forget, so its fault has to become form
-                    // state and an event instead.
-                    await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                    // A rule that failed is an answer of its own beside valid and invalid, whichever
+                    // kind of check met it: the form shows its fault message while the pass is still
+                    // current, and raises the event either way.
+                    // A rule that cancels its own work, with neither the caller's token nor this
+                    // pass's cancelled, has failed the same way (an HttpClient timeout arrives like
+                    // this). A submit and a load also log it, before the event a handler could throw
+                    // from, because their caller gets an outcome where a throw would have reached
+                    // the host's error handling; the submit's outcome carries the exception.
+                    if (kind is PassKind.Submit or PassKind.Load)
+                    {
+                        ReportFaultedCheck(kind, exception);
+                    }
+
+                    var filed = await ReportFaultAsync(pass, exception).ConfigureAwait(false);
+                    faulted?.Invoke(exception, filed);
                     return null;
                 }
 
@@ -2542,8 +2554,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="token">Cancels the validation.</param>
     /// <returns>The report, always a whole-profile answer; the sets executed, <see langword="null"/> when none ran; and whether the rule-level path ran, which the verdict list alone cannot say.</returns>
     // Nothing is caught and nothing is written, because the callers' fault policies differ: a
-    // pass tells supersession from its caller's cancellation and reports or rethrows by kind,
-    // where a probe nobody awaits has only the event. Each caller files the verdicts through its
+    // pass tells supersession from its caller's cancellation, and a rule failure from one of
+    // Formidable's own refusals, which only a submit or a load hands on, where a probe nobody
+    // awaits has only the event. Each caller files the verdicts through its
     // own version- and generation-gated apply.
     private async Task<(ValidationReport Report, List<SetVerdict>? Executed, bool RuleCapable)> EvaluateAsync(
         ValidationProfile profile,
@@ -2632,11 +2645,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // grouping that repeats a rule is caught by the same count.
             if (grouped != plan.Remainder.Count)
             {
-                throw new InvalidOperationException(
+                throw FormidableConfigurationError.Mark(new InvalidOperationException(
                     $"GroupBySelectionClass on this validator " +
                     $"('{ruleLevel.GetType().Name}') returned {grouped} rules for a set of " +
                     $"{plan.Remainder.Count} — the groups must hold each of the set's rules " +
-                    "exactly once, because they are the only thing a caller runs.");
+                    "exactly once, because they are the only thing a caller runs."));
             }
         }
 
@@ -2646,25 +2659,63 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Files the form-level fault issue while <paramref name="pass"/> is still current, then raises <see cref="ValidationFaulted"/> either way.</summary>
     /// <param name="pass">The pass that faulted; a superseded pass's exception still happened, so the event is raised for it too.</param>
     /// <param name="exception">What the validator threw.</param>
+    /// <returns>Whether the fault issue was filed, which it is only while <paramref name="pass"/> is still current.</returns>
     // The sentence is read from ValidationFaultMessage at the one moment it is filed, so the
     // stored issue keeps the wording in force when it was written. The event is raised inside the
     // same dispatch, because a rule that throws after an await resumes here off the dispatcher,
     // and a handler that renders (a banner calling StateHasChanged, say) needs the renderer's
     // dispatcher. A handler that throws faults the dispatch, and the throw takes the route any
     // throw from this pass takes.
-    private async Task ReportFaultAsync(PassScope pass, Exception exception)
+    private async Task<bool> ReportFaultAsync(PassScope pass, Exception exception)
     {
+        var filed = false;
         await _renderDispatch(() =>
         {
             if (pass.Version == _version)
             {
                 _faultIssue = new ValidationIssue(string.Empty, _options.ValidationFaultMessage);
+                filed = true;
                 RebuildStore();
             }
 
             ValidationFaulted?.Invoke(this, new FormidableValidationFaultedEventArgs(exception));
             return Task.CompletedTask;
         }).ConfigureAwait(false);
+        return filed;
+    }
+
+    /// <summary>Whether <paramref name="exception"/>, thrown while a check of <paramref name="kind"/> ran, is a failure the form reports as a fault rather than one that reaches the caller.</summary>
+    /// <param name="kind">The kind of the check that threw.</param>
+    /// <param name="exception">What the check threw.</param>
+    /// <param name="external">The caller's token; <see cref="CancellationToken.None"/> for a check nobody awaits.</param>
+    /// <returns><see langword="false"/> for the caller's own cancellation, and for one of Formidable's own refusals of the app's setup thrown under a submit or a load.</returns>
+    // A refusal (a profile that selects nothing, a ruleset name no validator registered) fails
+    // every time it is reached, so a submit or a load hands it to the caller as the bug it is
+    // rather than showing a message about a check that could not finish. A check nobody awaits
+    // has no caller to hand it to, so it reports even a refusal.
+    private static bool IsRuleFailure(PassKind kind, Exception exception, CancellationToken external) =>
+        !(exception is OperationCanceledException && external.IsCancellationRequested)
+        && (kind is not (PassKind.Submit or PassKind.Load) || !FormidableConfigurationError.IsMarked(exception));
+
+    /// <summary>Writes a warning that a submit's or a load's check could not finish, with the exception, to Trace and the host's logger.</summary>
+    /// <param name="kind">The submit or the load.</param>
+    /// <param name="exception">What the check threw.</param>
+    // Worded for what is known, which is that the check did not finish: the exception can come
+    // from the work around a rule as well as from the rule itself.
+    private void ReportFaultedCheck(PassKind kind, Exception exception)
+    {
+        var model = FriendlyTypeName.Of(typeof(TModel));
+        var check = kind == PassKind.Submit ? "submit" : "load of values";
+        var outcome = kind == PassKind.Submit ? ", so the submit is blocked" : string.Empty;
+        FormidableDiagnostics.Warn(
+            _logger,
+            exception,
+            $"Formidable: the {check} on the form for {model} could not finish its check{outcome}: " +
+            $"{exception.GetType().Name}: {exception.Message}",
+            "Formidable: the {Check} on the form for {Model} could not finish its check{Outcome}.",
+            check,
+            model,
+            outcome);
     }
 
     /// <summary>Runs a live pass for <paramref name="triggeringFields"/> that answers every engaged field as snapshotted at begin, unless a submit or a load is in flight.</summary>
@@ -2801,11 +2852,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 editStamp,
                 _probeCts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_probeCts.IsCancellationRequested)
         {
             // Disposal cancels the probe's token, and then nothing is left to write into. A rule
-            // that cancels itself ends a live engine's probe with no answer just the same, so a
-            // fired validity check ends here as it would on a fault.
+            // that cancels its own work, with the token still live, is the validator's fault and
+            // takes the catch below, as it does in a pass.
             await EndValidityCheckWithoutLandingAsync(validityCheckRun, stamp, faulted: false).ConfigureAwait(false);
             return;
         }
@@ -3404,7 +3455,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the check.</param>
-    /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise, as does a submit edited during each of its three checks whose last check found no error, with that check's report.</returns>
+    /// <returns>The outcome; a pass a newer submit or load, or the engine's disposal, displaced reports blocked with an empty summary, its report empty when the validator honoured the cancellation and its own otherwise, as does a submit edited during each of its three checks whose last check found no error, with that check's report; a check a rule failure ended reports blocked with the exception as <see cref="SubmitOutcome.Fault"/>, unless a newer submit or load had taken its place, and then as a displaced submit does.</returns>
     public async Task<SubmitOutcome> ValidateForSubmitAsync(CancellationToken cancellationToken = default)
     {
         NormalizeForSubmit();
@@ -3413,6 +3464,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // checks again (see RunPassAsync), so these always describe the check that answered.
         var canProceed = false;
         var summary = new List<string>();
+        Exception? fault = null;
+        var faultFiled = false;
 
         var passReport = await RunPassAsync(
             PassKind.Submit,
@@ -3544,7 +3597,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                         summary.Add(modelLevelName);
                     }
                 }
+            },
+            (exception, filed) =>
+            {
+                fault = exception;
+                faultFiled = filed;
             }).ConfigureAwait(false);
+
+        // A rule failure blocks the submit, and the outcome carries what was thrown along with the
+        // fault message's model-level name, as the gate's is listed. A submit a newer check had
+        // already displaced filed no message, so it reports as any displaced submit does, and only
+        // the event and the warning record its exception: a page that reacts to the outcome's
+        // fault would otherwise speak of a check the visitor never saw, after the newer one saved.
+        if (fault is not null && faultFiled)
+        {
+            return new SubmitOutcome(false, ValidationReport.Empty, [_options.ModelLevelDisplayName])
+            {
+                Fault = fault,
+            };
+        }
 
         // No report at all means the pass was superseded before one existed — report blocked
         // quietly. A pass superseded at the verdict dispatch has a report but never ran the writes
@@ -3898,9 +3969,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 // visitor had already engaged — and can adopt nothing at all while doing it, if
                 // what it loaded leaves every readable field merely unfilled — and skipping the
                 // pass there would leave that field's filed verdict describing the values the
-                // load overwrote. A null adopted set is the other case: the pass was superseded,
-                // either by a newer pass, which owns what happens next, or by Dispose, after
-                // which nothing does. A cancelled load never gets here: it throws first. Nor does
+                // load overwrote. A null adopted set is the other case: the pass faulted, which
+                // discloses nothing, or was superseded, either by a newer pass, which owns what
+                // happens next, or by Dispose, after which nothing does. A cancelled load never
+                // gets here: it throws first. Nor does
                 // a load whose engine was disposed after it landed: the landing and this dispatch
                 // are separate turns, and a live pass begun on a disposed engine would cancel a
                 // token source Dispose already disposed, as every arm site's own stand-down says.
@@ -4685,7 +4757,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 }
 
-/// <summary>The kind of a running pass, which decides what stands down for it and whether a validator's exception becomes form state or reaches the caller awaiting the pass.</summary>
+/// <summary>The kind of a running pass, which decides what stands down for it, whether a rule failure is logged, and whether one of Formidable's own refusals of the app's setup reaches the caller awaiting the pass.</summary>
 internal enum PassKind
 {
     /// <summary>A live pass: an edit's own check under the live profile, answering every engaged field.</summary>

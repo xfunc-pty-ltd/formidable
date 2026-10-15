@@ -82,7 +82,7 @@ a real `EditForm` underneath, so native `InputBase` descendants, `ValidationMess
 | `Options` | `FormidableOptions?` | `null` (app-wide default, then `new FormidableOptions()`) | The [engine options](options.md) this form is built with. A different instance arriving without a new `Model` throws, since the engine [reads `Options` once](options.md#formidableoptions-is-read-once). |
 | `ChildContent` | `RenderFragment<FormidableFormContext>?` | `null` | The form's content, handed the cascaded `FormidableFormContext` as `context`. The context carries the engine's members, plus `FocusFirstErrorAsync()` (it lives there because `PrepareFocus` and `FocusFallback` are the form's) and `IsSubmitting`, the form's own flag (below). `ResetAsync` stays out of reach, since it rebuilds the engine the context belongs to. Nesting another typed fragment that also leaves its parameter name implicit makes the Razor compiler ask for a `Context="..."` on one of the two, since what collides is the declaration rather than any use of it. |
 | `OnValidSubmit` | `EventCallback<SubmitOutcome>` | unbound | Runs when the submit pipeline passes, with the [`SubmitOutcome`](severity.md#does-a-warning-or-an-info-block-the-submit) it produced. A parameterless handler binds too. |
-| `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A parameterless handler binds too. |
+| `OnInvalidSubmit` | `EventCallback<FormidableInvalidSubmitContext>` | unbound | Runs when it blocks, with a context carrying that outcome and the [suppression call](#suppressing-the-automatic-focus). A rule that fails during the check blocks it too, and the outcome's `Fault` then carries what was thrown, unless a newer submit or load took the check's place. A parameterless handler binds too. |
 | `FocusFirstErrorOnInvalidSubmit` | `bool` | `true` | Whether the form moves focus itself on a blocked submit and on a rejected round trip. A blocked submit moves no focus once a newer submit's check has begun; the newer one moves focus itself if it blocks. |
 | `FocusFallback` | `Func<FieldIdentifier, ValueTask<bool>>?` | `null` | Recovers a move that missed: make the element reachable, return `true`, and it retries once. A newer move cancels the retry, unless a focus service of your own is registered transient. With the focus service `AddFormidableBlazor()` registers, the visitor moving focus to another control cancels the retry too ([what counts](#focusfallback)). |
 | `PrepareFocus` | `Func<FieldIdentifier, ValueTask>?` | `null` | Awaited before each move this form makes, so the page can clear the way first. |
@@ -200,8 +200,8 @@ moves and nothing throws.
 first visible issue where a submit blocks with no error on screen, and
 [what a miss looks like](css-and-accessibility.md#why-did-nothing-take-focus).
 [Async validation](async-validation.md#what-happens-if-i-press-submit-while-a-check-is-running) has
-the overtaken submit that leaves a form in that state, and the validator throw that propagates
-instead of blocking.
+the overtaken submit that leaves a form in that state, and the rule failure that blocks a submit
+with the form's fault message.
 
 ### Asking for the first-error move
 
@@ -702,8 +702,8 @@ Some verdicts are about the form rather than about any field: the defensive gate
 a blocked submit or a rejected server reply with no failing field on screen
 ([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)), a server error
 applied with an empty path, and the
-[`ValidationFaultMessage`](options.md#validationfaultmessage) a throwing validator leaves behind,
-which `GetIssues` orders last.
+[`ValidationFaultMessage`](options.md#validationfaultmessage) a check that could not finish leaves
+behind, which `GetIssues` orders last.
 
 They live on the model-level field, an empty `FieldIdentifier.FieldName`, which no
 `FormidableFieldMessage` can name: `For` takes an accessor expression, and no expression reaches

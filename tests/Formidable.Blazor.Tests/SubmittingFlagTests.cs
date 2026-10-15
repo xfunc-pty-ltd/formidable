@@ -395,7 +395,7 @@ public class SubmittingFlagTests : BunitContext
                 break;
 
             case Ending.Faults:
-                await Assert.ThrowsAsync<InvalidOperationException>(() => submit);
+                Assert.NotNull((await submit).Fault);
                 break;
 
             case Ending.IsCancelled:
@@ -673,10 +673,10 @@ public class SubmittingFlagTests : BunitContext
         Assert.Equal(1, kit.Validator.Runs - runsBefore);
     }
 
-    // A submit whose check throws still lowers the form's flag and renders, as the throw reaches
-    // the caller.
+    // A submit whose check a rule failure ends still lowers the form's flag and renders, and its
+    // outcome carries the fault.
     [Fact]
-    public async Task A_submit_that_throws_lowers_the_form_flag()
+    public async Task A_submit_whose_rule_fails_lowers_the_form_flag()
     {
         var kit = await RenderFormAsync(new Account());
         var runsBefore = kit.Validator.Runs;
@@ -688,7 +688,7 @@ public class SubmittingFlagTests : BunitContext
         Assert.Equal(Locked, await kit.Cut.InvokeAsync(kit.Read));
 
         await kit.Cut.InvokeAsync(kit.Validator.Release);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => submit);
+        Assert.NotNull((await submit).Fault);
 
         Assert.Equal(new Snapshot(false, false, false, false, false, string.Empty), await kit.Cut.InvokeAsync(kit.Read));
     }

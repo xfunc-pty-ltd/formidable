@@ -111,8 +111,8 @@ public abstract class ProfiledValidator<T> : AbstractValidator<T>
                 var available = _registeredRuleSetNames.Count > 0
                     ? string.Join(", ", _registeredRuleSetNames.OrderBy(name => name, StringComparer.Ordinal).Select(name => $"'{name}'"))
                     : "none registered";
-                throw new InvalidOperationException(
-                    $"Profile ruleset '{ruleSetName}' matches no ruleset on '{FriendlyTypeName.Of(GetType())}' — available: {available}.");
+                throw FormidableConfigurationError.Mark(new InvalidOperationException(
+                    $"Profile ruleset '{ruleSetName}' matches no ruleset on '{FriendlyTypeName.Of(GetType())}' — available: {available}."));
             }
         }
 

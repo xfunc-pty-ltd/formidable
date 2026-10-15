@@ -477,7 +477,9 @@ being left wherever the submit button was.
 When every failing field is hidden, the form shows a message of its own that says so
 ([`DefensiveGateMessage`](options.md#defensivegatemessage)). That message is an error, and the
 first one, so focus lands on the form, which `FormidableForm` makes focusable
-([below](#how-do-i-send-focus-to-something-that-is-not-an-input)).
+([below](#how-do-i-send-focus-to-something-that-is-not-an-input)). A rule that throws during the
+submit sends focus there too: the form shows its [fault message](options.md#validationfaultmessage)
+(its own message for a check that could not finish), which is also an error and is listed first.
 
 Every entry in `FormidableSummary` is a button that calls the same service for the field it names,
 `IFormidableFocusService.FocusAsync`, which locates and focuses the DOM element carrying a field's
@@ -632,11 +634,14 @@ If the first submit is still checking as the second one's check begins, the seco
 The first stops holding the flag at that moment and makes no focus move. If the second blocks, it
 makes the move itself, once the flag has fallen.
 
-If the first submit has passed and is saving in `OnValidSubmit`, its hold keeps the flag up as a
-blocked second submit moves focus, so a lock bound to the flag still stands. Under `disabled` or
-`<fieldset disabled>`, the move to the first error misses and focus stays on the page. The form then
-calls your `FocusFallback`, or reports a diagnostic where none is set. Nothing moves focus when the
-save ends and the lock lifts. Under `readonly`, the move lands on the first error.
+If the first submit has passed and is saving in `OnValidSubmit`, it keeps the flag up while a
+blocked second submit moves focus. So a lock bound to the flag still stands during that move.
+
+Under `disabled` or `<fieldset disabled>`, a move to a field misses and focus stays on the page.
+The form then calls your `FocusFallback`, or reports a diagnostic where none is set. A move to the
+form itself, for the fault message or the form's own message about hidden fields, still lands.
+Nothing moves focus when the save ends and the lock lifts. Under `readonly`, the move lands on the
+first error.
 
 A passing submit moves no focus, so a visitor the lock moved stays on the page. The recipe's status
 line (`role="status"`) is what tells a screen-reader user why.

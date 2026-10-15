@@ -258,8 +258,8 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
     }
 
     /// <summary>Runs the submit and returns the outcome for the page's own <see cref="EditForm"/> handler to route; a blocked submit moves focus to the first error under <see cref="FocusFirstErrorOnInvalidSubmit"/>.</summary>
-    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place, and when values were edited during each of its three checks and the last found no error; blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, while the submit awaited its answer, and when this component was disposed before the call.</returns>
-    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <returns>The submit's outcome; blocked with an empty summary when a newer submit or load answered in its place, and when values were edited during each of its three checks and the last found no error; blocked, with the fault message showing and <see cref="SubmitOutcome.Fault"/> set, when a rule failed during the check while no newer submit or load had taken its place (focus moves, as for any blocked submit); blocked and empty when the cascaded <see cref="EditContext"/> was replaced, or this component was disposed, while the submit awaited its answer, and when this component was disposed before the call.</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet, or the submit profile leaves out the default rules and selects no rule of the validator, or names a ruleset a <see cref="Formidable.ProfiledValidator{T}"/> never registered, or the validator's <c>GroupBySelectionClass</c> returns more or fewer rules than it was handed.</exception>
     /// <remarks>
     /// A value edited while the check runs makes it check again before it reports, at most twice,
     /// so an outcome that may proceed answers for the values the model holds as the check ends. A

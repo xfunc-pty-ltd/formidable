@@ -15,6 +15,8 @@ namespace Formidable.Blazor.Tests;
 /// validates under it: a live check or the whole-form re-check that runs it shows the fault
 /// message, and a submit or a load of values that runs it throws to whoever called it.
 /// </summary>
+// Mutation that must break it: drop the configuration-error mark from either refusal, and the
+// submit and load rows of that validator kind report a fault instead of throwing.
 public class EmptyProfileFormTests : BunitContext
 {
     private readonly FakeTimeProvider _clock = new();

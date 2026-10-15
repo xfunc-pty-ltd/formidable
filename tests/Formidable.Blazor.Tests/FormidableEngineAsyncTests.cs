@@ -287,14 +287,12 @@ public class FormidableEngineAsyncTests
         Assert.Empty(editContext.GetValidationMessages(new FieldIdentifier(order, string.Empty)));
     }
 
-    // The mirror of the live-fault test above, and the half that is easy to lose: a submit is a
-    // pass someone is awaiting, so a validator that throws under it belongs to that caller. The
-    // pass DiscloseLoadedValuesAsync runs is awaited too and rethrows identically.
-    // Live and refresh are fire-and-forget, which is why their faults become form state plus the
-    // ValidationFaulted event instead - a submit must do neither, or a caller's try/catch silently
-    // stops seeing failures it used to handle and gets a quietly-blocked outcome in their place.
+    // The mirror of the live-fault test above: a rule that throws under a submit faults the form as
+    // it does under a live check, with the fault message and the event, and the submit is blocked.
+    // The caller learns of it through the outcome, which carries the exception, rather than through
+    // a throw. Here the rule throws synchronously, before any await.
     [Fact]
-    public async Task Throwing_submit_rule_propagates_to_the_caller_instead_of_reporting_a_fault()
+    public async Task Throwing_submit_rule_blocks_the_submit_and_reports_the_fault()
     {
         var order = new EngineOrder();
         var validator = new ThrowingValidator();
@@ -310,10 +308,12 @@ public class FormidableEngineAsyncTests
         Exception? observed = null;
         engine.ValidationFaulted += (_, e) => observed = e.Exception;
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => engine.ValidateForSubmitAsync());
+        var outcome = await engine.ValidateForSubmitAsync();
 
-        Assert.Null(observed); // no fault event: the exception went to the caller, not to a subscriber
-        Assert.DoesNotContain(
+        Assert.False(outcome.CanProceed);
+        Assert.NotNull(observed);
+        Assert.Same(observed, outcome.Fault);
+        Assert.Contains(
             editContext.GetValidationMessages(new FieldIdentifier(order, string.Empty)),
             m => m.Contains("could not run to completion"));
         Assert.False(engine.IsValidating); // the pass still ended, however it left

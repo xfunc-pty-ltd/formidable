@@ -65,7 +65,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`InlineMessageLive`](#inlinemessagelive) | `string?` | `null` (no attribute) | The `aria-live` politeness every message list carries. |
 | [`DefensiveGateMessage`](#defensivegatemessage) | `string` | `"The form cannot be submitted because information that is not currently displayed is invalid."` | The sentence a blocked submit or a rejected server reply shows when every failing field is hidden. |
 | [`ModelLevelDisplayName`](#modelleveldisplayname) | `string` | `"This form"` | The name a fieldless issue is listed under. |
-| [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The form-level message shown when a live check or the whole-form re-check throws. |
+| [`ValidationFaultMessage`](#validationfaultmessage) | `string` | `"Validation could not run to completion; recent changes may not be fully validated."` | The form-level message shown when a rule fails during a live check, the whole-form re-check, a submit or a load. |
 | [`OrderIssues`](#orderissues) | `Func<IReadOnlyList<FieldIdentifier>, IReadOnlyList<FieldIdentifier>>?` | `null` (document order) | Re-sorts the order visible issues are reported in. |
 | [`CssClasses`](#cssclasses) | `FormidableCssClasses` | a new instance | The five field-state class names. |
 
@@ -647,17 +647,39 @@ A `FormidableSummary` entry renders its issue's `Message` until an `ItemTemplate
 ### `ValidationFaultMessage`
 
 `string`, defaults to `"Validation could not run to completion; recent changes may not be fully
-validated."`. It is the form-level message for a check that threw before finishing, and appears
-when a live check or the whole-form re-check throws, since what the form shows is then incomplete
-rather than wrong; a submit or a load of values throws to the code that awaited it instead.
+validated."`. It is the form-level message for a check that threw before finishing: what the form
+shows is then incomplete rather than wrong. A rule that cancels its own work (an `HttpClient`
+timeout, say) counts as throwing.
 
-Its read timing is not `DefensiveGateMessage`'s. The issue is filed when the fault is reported and
-then stored, so a change reaches the *next* fault while one already on screen goes on saying what it
-said when it was written.
+The message shows in the form's summary and in
+[`FormidableModelMessage`](component-kit.md#formidablemodelmessage), and only for a check that is
+still the form's latest when the rule fails.
+
+A live check and the whole-form re-check show it, and the form goes on checking as usual. The
+field whose rule failed keeps what it last showed: an earlier message stays, with its class, though
+it may describe a value the field no longer holds. A field that was green loses green, since nothing
+has answered for its new value, and its "checking" ends with the check.
+
+A submit still the form's latest check shows it and is blocked, and the outcome's `Fault` carries
+what was thrown ([`SubmitOutcome`](engine-reference.md#submitoutcome)). On `FormidableForm`,
+`OnInvalidSubmit` runs, `IsSubmitting` falls and focus moves to the form, as for any blocked
+submit. A submit that a newer submit or load has already overtaken shows nothing, and its outcome
+carries no `Fault`.
+
+A load of values (`DiscloseLoadedValuesAsync`) shows it and returns, and the loaded fields show
+nothing of what their values earned. Neither a submit nor a load throws to your code for a failed
+rule. A profile Formidable refuses (one that selects no rule, say) still throws
+([Profiles](profiles.md#how-do-i-define-a-custom-profile)).
+
+The form reads this option once, as it reports a fault, and stores the message it filed. So a
+change to the option reaches the *next* fault, while a fault message already on screen goes on
+saying what it said when it was written. A change to
+[`DefensiveGateMessage`](#defensivegatemessage), by contrast, reaches each component at its next
+read.
 
 It says nothing about what threw: the exception goes to the engine's `ValidationFaulted` event,
-where a host logs it. The stored issue clears at the next check that completes without throwing,
-and at `ApplyServerIssues`, with no check involved.
+where a host logs it, and a submit or a load also logs it as a warning. The stored issue clears at
+the next check that completes without throwing, and at `ApplyServerIssues`, with no check involved.
 
 ### `OrderIssues`
 

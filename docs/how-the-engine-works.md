@@ -194,13 +194,23 @@ after an edit under a live window that never closes, under any window after a la
 outdated, and once more at the end of a submit or a load its fire waited for, as
 [the `TrackFormValidity` probe](#the-trackformvalidity-probe) describes.
 
-**A fault becomes what the kind allows.** A submit and a load are awaited by a caller, so a
-validator that throws under either surfaces through the caller's own `try`/`catch`.
+**A fault is form state on every kind.** A rule that throws under any pass becomes a form-level
+issue carrying [`ValidationFaultMessage`](options.md#validationfaultmessage) while the pass is still
+current. It raises `ValidationFaulted` either way, inside the same dispatch, so a handler runs on
+the renderer's dispatcher. The next landing, or a server apply, clears that issue.
 
-A live or refresh pass is fire-and-forget, so its exception becomes a form-level issue carrying
-[`ValidationFaultMessage`](options.md#validationfaultmessage) while the pass is still current, and
-raises `ValidationFaulted` either way, inside the same dispatch, so a handler runs on the renderer's
-dispatcher. The next landing, or a server apply, clears that issue.
+A submit and a load are awaited by a caller, so each also logs the exception as a warning before
+the event (`ReportFaultedCheck`), and a submit's outcome carries it as `Fault` while the pass is
+still current.
+
+Of what the check itself throws, only the caller's own cancellation and one of
+Formidable's own refusals of the app's setup still reach their caller. Core and the engine mark
+those refusals in the exception's `Data` (`FormidableConfigurationError`, read by
+`IsRuleFailure`).
+
+The refusals are a profile that selects no rule, a ruleset name a `ProfiledValidator` never
+registered, and a rule-level seam that cannot do what it claims. Each fails every time it is
+reached. A live or refresh pass has no caller, so it reports even a refusal as a fault.
 
 ## The verdict store
 
@@ -523,6 +533,13 @@ verdict dispatch reads the caller's token before anything lands, so the pass end
 as it does when the rule reads the token, and the call throws `OperationCanceledException`. A pass
 both superseded and cancelled throws too.
 
+A cancellation that neither the caller, a newer pass nor the disposal made is the rule's own (an
+`HttpClient` timeout arrives this way), and it is a fault. Every pass reports it as it reports any
+throw, and the validity probe raises `ValidationFaulted` for it.
+
+A submit's outcome carries it as `Fault` while the pass is current. Handed on as a cancellation,
+it would read as the caller's, and Blazor drops a cancelled event or lifecycle task without a word.
+
 A timer fire that defers arms nothing. It records that it waited, and the end of the pass it
 deferred to, landed or not, arms its timer once at its own debounce. A superseded pass's end arms
 nothing, since the pass that superseded it ends later. So a `TimeSpan.Zero` debounce costs one
@@ -779,7 +796,7 @@ kept holds.
 
 The first answered submit, or `ApplyServerIssues`, sets `HasSubmitted`, and the store rebuild that
 follows that write discloses the verdict with no pass of its own. A submit that ends without landing
-never sets it, so the hold stands: one superseded, cancelled or thrown, and one whose restarts were
+never sets it, so the hold stands: one superseded, cancelled or faulted, and one whose restarts were
 spent on a passing answer an edit outdated.
 
 The registry keeps one entry per field: how many registrations stand, how many of them hold, and

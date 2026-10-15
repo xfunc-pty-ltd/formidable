@@ -23,6 +23,7 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\FriendlyTypeName.cs" Link="Shared\FriendlyTypeName.cs" />
+        <Compile Include="..\Shared\FormidableConfigurationError.cs" Link="Shared\FormidableConfigurationError.cs" />
         <Using Include="Formidable.Shared" />
     </ItemGroup>
 

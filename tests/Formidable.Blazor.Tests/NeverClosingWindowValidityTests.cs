@@ -805,9 +805,11 @@ public class NeverClosingWindowValidityTests
         Assert.False(engine.GetFieldState(name).WouldPassSubmit);
     }
 
-    // Mutations: (a) the cancel exit leaves the check counted, so a rule that cancels itself, with
-    // the engine still live, holds the name's green until the bound; (b) the cancel exit drops the
-    // hold without publishing.
+    // A rule that cancels itself, with the engine still live, is the validator's fault, so the
+    // check takes the fault exit: it drops the hold, publishes, and raises the event.
+    // Mutations: (a) the exit leaves the check counted, so the name keeps its green until the
+    // bound; (b) the exit drops the hold without publishing; (c) the cancellation exit takes the
+    // rule's own cancellation, and no event is raised.
     [Fact]
     public async Task A_running_check_whose_rule_cancels_drops_the_hold()
     {
@@ -824,9 +826,9 @@ public class NeverClosingWindowValidityTests
 
         validator.CancelOnRelease = true;
         validator.Gate.SetResult();
-        await UntilAsync(() => published > 0);
+        await UntilAsync(() => faulted > 0 && published > 0);
 
-        Assert.Equal(0, faulted);
+        Assert.Equal(1, faulted);
         Assert.True(published > 0);
         Assert.False(engine.GetFieldState(name).WouldPassSubmit);
     }

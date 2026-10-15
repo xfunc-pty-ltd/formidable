@@ -114,7 +114,8 @@ public abstract class DelegatingModelValidator<TModel>
             : throw NoRuleLevelCapability();
 
     private NotSupportedException NoRuleLevelCapability() =>
-        new($"'{FriendlyTypeName.Of(_inner.GetType())}' does not implement IRuleLevelValidator<{FriendlyTypeName.Of(typeof(TModel))}>, " +
+        FormidableConfigurationError.Mark(new NotSupportedException(
+            $"'{FriendlyTypeName.Of(_inner.GetType())}' does not implement IRuleLevelValidator<{FriendlyTypeName.Of(typeof(TModel))}>, " +
             $"so the rules it holds cannot be selected or run apart from a whole-profile pass. " +
-            $"Check {nameof(CanValidateByRule)} first.");
+            $"Check {nameof(CanValidateByRule)} first."));
 }

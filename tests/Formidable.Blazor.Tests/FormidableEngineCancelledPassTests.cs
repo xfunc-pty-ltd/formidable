@@ -924,7 +924,7 @@ public class FormidableEngineCancelledPassTests
     }
 
     // The submit's own run of the async rule throws, so the submit ends without an answer, as a
-    // cancelled one does, and the throw reaches its caller.
+    // cancelled one does, and its outcome carries the fault.
     // Mutation: give back only when the caller cancelled. The live check is then never run again,
     // and the message the empty Name earned stays under "Bo".
     [Fact]
@@ -934,7 +934,7 @@ public class FormidableEngineCancelledPassTests
 
         var beforeSubmit = form.Validator.Runs;
         form.Validator.ThrowOnRun = beforeSubmit + 1; // the submit's run
-        await Assert.ThrowsAsync<InvalidOperationException>(() => form.Engine.ValidateForSubmitAsync());
+        Assert.NotNull((await form.Engine.ValidateForSubmitAsync()).Fault);
 
         form.Validator.Release();
         Assert.True(await UntilAsync(() => !form.Engine.IsValidating));
