@@ -73,6 +73,16 @@ internal sealed class SubmitCoverageTracker(
     // clears it, so an earned answer is never re-checked.
     private bool _coverageServedAcrossEdit;
 
+    // Whether the cached stale answer declined the held one for want of a re-answer on its way
+    // (ServeHeldCoverage's second route). Whether a re-answer is on its way is a fact that can
+    // become true after the decline: a field change arms or starts its re-answer after its
+    // first-touch publish, and a server apply arms the held-back re-check after its publish, so a
+    // read made inside either publish (a page that reads field state in its StateChanged handler)
+    // asks before the arm exists. The held vouch is served while a re-answer is demonstrably on
+    // its way, so a declined answer re-checks the promise at each read, as a served one does, and
+    // serves the held answer the moment the promise appears. Every recompute clears it.
+    private bool _heldDeclinedForWantOfPromise;
+
     // The fields edited since the held answer was computed — added beside the edit stamp as each
     // field change arrives, cleared whenever a fresh compute holds a new answer. While an answer
     // is served across an edit these are the fields it cannot speak for: the edits invalidated
@@ -271,7 +281,7 @@ internal sealed class SubmitCoverageTracker(
         }
     }
 
-    /// <summary>Recomputes the cached coverage answer when the stamp, the version or the profile moved, or a held answer served across an edit finds no re-answer on its way; a throwing selection reads as stale, nothing held standing in.</summary>
+    /// <summary>Recomputes the cached coverage answer when the stamp, the version or the profile moved, or whether a re-answer is on its way has changed since; a throwing selection reads as stale, nothing held standing in.</summary>
     /// <param name="editStamp">The current edit stamp.</param>
     /// <param name="profile">The submit profile.</param>
     /// <param name="selectRules">The rule selection, or <see langword="null"/> for a validator without the rule-level seam.</param>
@@ -291,7 +301,10 @@ internal sealed class SubmitCoverageTracker(
             // the promise of is still on its way; nothing re-keys this cache while a pass merely
             // hangs, so the promise is re-checked at the read itself. Once a recompute lands the
             // flag is clear and the short-circuit is unconditional again.
-            && (!_coverageServedAcrossEdit || _reAnswerOnItsWay()))
+            && (!_coverageServedAcrossEdit || _reAnswerOnItsWay())
+            // The mirror: an answer that declined the held one for want of a promise stands only
+            // while none has appeared, because the arm can follow the read that declined.
+            && (!_heldDeclinedForWantOfPromise || !_reAnswerOnItsWay()))
         {
             return;
         }
@@ -302,6 +315,7 @@ internal sealed class SubmitCoverageTracker(
         _coverageFresh = false;
         _coverageErrorFields = null;
         _coverageServedAcrossEdit = false;
+        _heldDeclinedForWantOfPromise = false;
 
         if (selectRules is null)
         {
@@ -369,7 +383,7 @@ internal sealed class SubmitCoverageTracker(
         _editedPastHold.Clear();
     }
 
-    /// <summary>Serves the held answer in place of a recomputed one, either because only the rendered field set changed or because a re-answer of the edit is on its way.</summary>
+    /// <summary>Serves the held answer in place of a recomputed one, either because only the rendered field set changed or because a re-answer of the edit is on its way; a decline for want of one is recorded.</summary>
     /// <param name="editStamp">The current edit stamp.</param>
     /// <param name="profile">The submit profile, which must be the held answer's instance.</param>
     private void ServeHeldCoverage(int editStamp, ValidationProfile profile)
@@ -389,6 +403,7 @@ internal sealed class SubmitCoverageTracker(
 
         if (!_reAnswerOnItsWay())
         {
+            _heldDeclinedForWantOfPromise = true;
             return;
         }
 
