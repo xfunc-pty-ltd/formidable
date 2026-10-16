@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] - 2026-10-17
+
+### Added
+
+- *(blazor)* Say which fields a state change moved ([4a58ca2](https://github.com/xfunc-pty-ltd/formidable/commit/4a58ca28df6c2fcfeaa36d176abc6d6b37a3c709))
+
+### Fixed
+
+- *(blazor)* Stop a shape change under the form redrawing the form ([bb7898e](https://github.com/xfunc-pty-ltd/formidable/commit/bb7898e79d04bcaadfb6d2a845d196bff82e502e))
+- *(blazor)* Let VerifyRowKeys pass a keyed row the same batch rebuilds ([89a6529](https://github.com/xfunc-pty-ltd/formidable/commit/89a6529d3cbe359070ba15a21262205489100b79))
+- *(blazor)* Keep a held green across an inline read at a first touch ([bc7f741](https://github.com/xfunc-pty-ltd/formidable/commit/bc7f7410eb23ee7d4b814f3999b1660d42847092))
+- *(blazor)* Keep other fields' green through a first touch's publish ([2ae966f](https://github.com/xfunc-pty-ltd/formidable/commit/2ae966fec4df3e03f79807e57bad3209ed4f202f))
+
+### Performance
+
+- *(blazor)* Deliver one publish as one render batch ([14badf3](https://github.com/xfunc-pty-ltd/formidable/commit/14badf3624e6ae6a28ca85af6de53ad7dae00d07))
+- *(blazor)* Render only the fields whose view changed ([feaa0cf](https://github.com/xfunc-pty-ltd/formidable/commit/feaa0cfc57d61cc5e2310743a9c8fdca632fe1b5))
+
 ## [3.0.0] - 2026-10-15
 
 ### Breaking changes
@@ -289,6 +307,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Trimming happens at publish, and the defaults come first-class ([bb84eb5](https://github.com/xfunc-pty-ltd/formidable/commit/bb84eb5b3c9c514fbdbdadd32dee43d27cad21b2))
 - Retire the publish-day markers ([6255237](https://github.com/xfunc-pty-ltd/formidable/commit/62552376cd6712bc79a8cbe41fdae72fbcd05d11))
 
+[3.1.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.1.0
 [3.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v3.0.0
 [2.0.0]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v2.0.0
 [1.0.2]: https://github.com/xfunc-pty-ltd/formidable/releases/tag/v1.0.2
