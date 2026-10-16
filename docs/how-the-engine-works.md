@@ -59,9 +59,10 @@ flowchart TD
 
 ### How a publish reaches the kit
 
-Every `StateChanged` publish leaves the engine through one method, `NotifyStateChanged`, which the
-eight sites that move state call. Under a root it hands the event to a relay component the root
-renders first in its cascade (`StateChangedRelay`); an engine with no root raises the event itself.
+Every `StateChanged` publish leaves the engine through one method, `NotifyStateChanged`. The sites
+that move state call it. Under a root, a `FormidableForm` or a `FormidableValidator`, it hands the
+event to a relay component (`StateChangedRelay`) that the root renders first in its cascade. An
+engine with no root raises the event itself.
 
 The relay renders nothing. It queues the event and calls its own `StateHasChanged`. With no render
 batch in progress the renderer runs that render at once, inside the call, and the render raises
@@ -74,8 +75,16 @@ with no root does, and Blazor coalesces those renders into the running batch. Ei
 handlers run before the publish returns, in subscription order, once per publish.
 
 A handler's throw during the relay's render is kept and rethrown from the publish, so a call that
-raises the event (`ApplyServerIssues`, `MarkTouched`) still gets it, and the engine's own work
-still hands it to the boundary around the form.
+raises the event (`ApplyServerIssues`, `MarkTouched`) still gets it. The engine's own work still
+hands it to the form's boundary: a check ending on its own, a debounce firing, or the hold publish,
+the notification a hold change posts past its batch ([the live view](#the-live-view)). A throw
+raised inside an event handler reaches that event's caller.
+
+Each kit component reads the event's change set and re-renders only for a publish that names its
+field; the summary re-renders for any publish that names a field or a form-level value, and a
+page's own handler reads whatever it is written to read. Under `VerifyRowKeys` or
+`ReportStaleRegistrations` every publish re-renders every observing kit component, so the row-key
+check judges the accessor after each notify.
 
 ## The pass kinds
 
@@ -457,7 +466,7 @@ pass behind it lands.
 it, but a probe begun before the edit still can, until a later probe starts; the check that answers
 the edit then writes the current answer.
 
-"On its way" (`ReAnswerOnItsWay`) means one of five things. A pass is in flight whose landing
+"On its way" (`ReAnswerOnItsWay`) means one of six things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
 to the submit profile instance. A narrowed live pass promises nothing itself and counts only for
 a refresh or a validity check armed, or running, behind it.
@@ -473,14 +482,20 @@ faults or is cancelled, whatever tracking says by then. The fire numbers it and 
 started, so only its own exits end it, and the bound below has a start to run from. No other
 probe is consulted: those are fire-and-forget, with no start time to bound them by.
 
+The sixth is the handler of a committed change or of a server apply, from its start until it
+returns, when the branch it is about to run will arm or start one of the five
+(`_reAnswerArmsBeforeReturn`). The publishes that handler raises before the arm then serve a held
+vouch, so a first touch does not drop every green sibling. A nested change keeps an outer handler's
+promise through its own run.
+
 One configuration therefore blinks on an edit as a form with nothing scheduled does: a narrowed
 live channel with `TrackFormValidity` on and any `LiveDebounce` but one that never passes,
 before any submit, re-answers only through the probe, and its vouch waits for that landing.
 
 **The bound.** A pass in flight counts only while it is younger than `HeldVouchBound`, thirty
 seconds. The bound is the current pass's age, never the held answer's, and past it nothing armed
-behind the pass can stand in for it. The running validity probe counts under the same bound,
-measured from its fire.
+behind the pass can stand in for it, the running handler's coming arm included. The running
+validity probe counts under the same bound, measured from its fire.
 
 A hold across an edit is therefore bounded: a form whose pass hangs loses those borders at the
 next read rather than keeping them for ever, and a rule slower than the bound loses the held
@@ -1601,15 +1616,19 @@ With no `LiveDebounce` the live pass starts inside the same call, and its pendin
 render dispatch (`InvokeAsync`), which runs inline when the caller is already on the renderer's
 context, as an event handler is.
 
-Every component observing the engine answers each publish with `InvokeAsync(StateHasChanged)`, so
-it re-renders before the notify returns. Inside an event dispatch the relay raises directly; outside
-one it raises from its own render, which runs inside the publish
-([How a publish reaches the kit](#how-a-publish-reaches-the-kit)).
+Every component observing the engine answers a publish that names its field with
+`InvokeAsync(StateHasChanged)`, and under either row-key check it answers every publish. With no
+render batch in progress it re-renders before the notify returns: the relay raises from its own
+render, which runs inside the publish ([How a publish reaches the kit](#how-a-publish-reaches-the-kit)).
 
-That is why replacing an owner and notifying before rendering trips the checks in the middle of the
-notify. The re-render re-supplies the parameters of the bound components inside the wrapper, each
-re-runs `ResolveField()` against an accessor that now names the replacement, and its kept identifier
-still names the instance that left.
+With a batch in progress (an event dispatch, or a render in progress) the relay raises directly, and
+the renders run later in that batch: after the handler returns, inside an event dispatch.
+
+That is why replacing an owner and notifying before rendering trips the checks: inside the notify
+with no batch in progress, and in the batch that follows the handler inside an event dispatch. The
+re-render re-supplies the parameters of the bound components inside the wrapper, each re-runs
+`ResolveField()` against an accessor that now names the replacement, and its kept identifier still
+names the instance that left.
 
 The throw does not climb the notify's frames: the component raises it through the renderer from its
 `OnAfterRender`, so the notify call returns normally while the app's error boundary or

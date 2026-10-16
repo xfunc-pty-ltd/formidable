@@ -93,6 +93,9 @@ public abstract class FormidableInputBase<[DynamicallyAccessedMembers(Dynamicall
     /// <summary>Returns <see cref="WaitForSubmit"/>; sealed so every input waits exactly when its parameter says.</summary>
     private protected sealed override bool HoldsLiveMessages => WaitForSubmit;
 
+    /// <summary>The field the input registered, so a publish that names it re-renders the input.</summary>
+    private protected override FieldIdentifier? ObservedField => Field;
+
     /// <summary>Resolves the field, computes its two ids and registers it with <paramref name="context"/>'s registry; sealed so every input speaks for the field its accessor names.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>The registration the base releases on the next rebind or on disposal.</returns>

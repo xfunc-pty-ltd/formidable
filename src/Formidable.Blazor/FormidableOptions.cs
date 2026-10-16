@@ -198,11 +198,11 @@ public sealed class FormidableOptions
 
     /// <summary>Whether a bound component throws <see cref="InvalidOperationException"/>, naming the field and the fix, when its accessor names a different field than it registered, as an unkeyed row list produces. Defaults to <see langword="false"/>.</summary>
     /// <remarks>
-    /// For Development builds: the misfiling is invisible on screen, and where a throw is the
-    /// wrong severity <see cref="ReportStaleRegistrations"/> reports the same divergence. Read
-    /// once per bound component as it binds, so a change mid-form reaches only components binding
-    /// afterwards. A list keyed by its row objects never trips it, whatever the edit, and nor does
-    /// a list of strings with unkeyed rows whose loop element is keyed by the list. Replacing a
+    /// For Development: the misfiling is invisible; where a throw is the wrong severity,
+    /// <see cref="ReportStaleRegistrations"/> reports it. While on, every observing kit component
+    /// re-renders on every change, so a wrapper's re-render reaches the components inside it, where
+    /// the check reads. Read once per bound component as it binds. A list keyed by its row objects
+    /// never trips it, nor unkeyed string rows under a loop element keyed by the list; replacing a
     /// nested object under a bound field does.
     /// </remarks>
     public bool VerifyRowKeys { get; set; }
@@ -210,11 +210,12 @@ public sealed class FormidableOptions
     /// <summary>Whether a bound component reports, without throwing, when its accessor names a different field than it registered. Defaults to <see langword="false"/>.</summary>
     /// <remarks>
     /// A divergence is reported once, through a Trace line, a logged warning and
-    /// <see cref="StaleRegistrationDiagnostic"/>, and again only after it heals and reopens or the
-    /// component rebinds; an accessor that cannot resolve is skipped, and with
-    /// <see cref="VerifyRowKeys"/> on the exception replaces the report. Read once per bound
-    /// component as it binds. Pair them:
-    /// <c>VerifyRowKeys = isDevelopment; ReportStaleRegistrations = !isDevelopment;</c>.
+    /// <see cref="StaleRegistrationDiagnostic"/>, and again only after a heal and reopen or a
+    /// rebind; an unresolvable accessor is skipped, and with <see cref="VerifyRowKeys"/> on the
+    /// exception replaces the report. Read once, as each bound component binds. While on, every
+    /// observing kit component re-renders per change (a wrapper's re-render reaches the components
+    /// inside it, where the check reads): turn it on while hunting a misfiled row, not permanently
+    /// in production.
     /// </remarks>
     // Off by default on a measurement: detection costs an accessor resolution per bound component
     // per parameter set, and a one-hop accessor (() => Order.Total) resolves in nanoseconds while

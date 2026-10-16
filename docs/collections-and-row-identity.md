@@ -405,8 +405,10 @@ than a diagnostic where a developer is watching.
 divergence through the diagnostic channels instead of throwing, and the form renders on, misfiled
 messages and all.
 
-Pair them: the throwing check in Development builds, the reporting one everywhere else. A form that
-reaches production with the mistake should misfile a message rather than take the page down.
+Turn the throwing check on in Development builds. Turn the reporting one on while hunting a misfiled
+row, not permanently in production: while either check is on, every kit component that observes the
+engine re-renders on every change. With both off, a form that reaches production with the mistake
+misfiles a message rather than taking the page down.
 
 A row list rendered without `@key` is the common way to produce the divergence, and not the only
 one. Another shape needs no collection anywhere on the page: a page that replaces the object a
@@ -439,8 +441,13 @@ however short its path.
 
 Each compiled resolution costs tens of microseconds and about 4 KB on desktop .NET 10 in a Release
 build; WebAssembly is not measured. Budget for the deepest accessors the form renders, and for every
-row bound by its index. That cost is another reason the throwing check belongs in Development
-builds.
+row bound by its index.
+
+While either check is on, every kit component that observes the engine also re-renders on every
+change, not only on a change that names its own field. That re-render is a cost of its own. It is
+also what multiplies the parameter sets the resolution runs on: each wrapper's re-render re-sets the
+components inside it, and each re-set resolves an accessor again. Both costs are why the checks
+belong in Development builds or in a hunt for a misfiled row, not in production.
 
 ### Can the reporting check take the page down?
 

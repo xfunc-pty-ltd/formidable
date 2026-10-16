@@ -27,12 +27,15 @@ public sealed class FormidableField<TValue> : FormidableAccessorComponentBase<TV
     [Parameter]
     public bool WaitForSubmit { get; set; }
 
-    /// <summary>The markup to render, handed the field's current <see cref="FormidableFieldContext"/>. Required.</summary>
+    /// <summary>The markup to render, handed the field's current <see cref="FormidableFieldContext"/>; it renders when the field's state or messages move, when the form renders and when the page does. Required.</summary>
     [Parameter, EditorRequired]
     public RenderFragment<FormidableFieldContext> ChildContent { get; set; } = default!;
 
     /// <summary>Returns <see cref="WaitForSubmit"/>.</summary>
     private protected override bool HoldsLiveMessages => WaitForSubmit;
+
+    /// <summary>The wrapped field, so a publish that names it renders <see cref="ChildContent"/> again.</summary>
+    private protected override FieldIdentifier? ObservedField => _field;
 
     /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names and its element id, and registers it with <paramref name="context"/>'s registry under <see cref="KeepRegistered"/> and <see cref="WaitForSubmit"/>.</summary>
     /// <param name="context">The context being bound.</param>

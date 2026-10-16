@@ -551,7 +551,9 @@ names and types come from the component's own accessor.
 
 `bool`, defaults to `false`. A development-time check that each bound component still speaks for the
 field it registered: it re-reads its accessor on every parameter set, and a divergence throws an
-`InvalidOperationException` naming the field and the fix.
+`InvalidOperationException` naming the field and the fix. While it is on, every kit component that
+observes the engine re-renders on every change: a `FormidableField`'s re-render re-sets the
+components inside it, and the check reads as each one is re-set.
 
 Correctly keyed rows never trip it for anything done to the list itself (for a list of strings or
 numbers, the element around the loop keyed by the list and no key on the rows);
@@ -570,9 +572,14 @@ it is on in every build, since the page's whole point is the row-key discipline 
 ### `ReportStaleRegistrations`
 
 `bool`, defaults to `false`. The report-never-throw sibling of [`VerifyRowKeys`](#verifyrowkeys),
-for environments where a throw is the wrong severity: a divergence is reported rather than thrown,
-through the channels [`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic) documents. The
-form renders on, misfiled messages and all; with `VerifyRowKeys` on, the exception replaces it.
+for a misfiled row you are hunting where a throw is the wrong severity: a divergence is reported
+rather than thrown, through the channels
+[`StaleRegistrationDiagnostic`](#staleregistrationdiagnostic) documents. The form renders on,
+misfiled messages and all; with `VerifyRowKeys` on, the exception replaces the report.
+
+While it is on, every kit component that observes the engine re-renders on every change (every kit
+component except `FormidableFieldAnchor` and `FormidableRequiredIndicator`). A `FormidableField`'s re-render
+re-sets the components inside it, and the check reads as each one is re-set.
 
 One divergence is one report, repeating only after the accessor names the registered field again or
 the component rebinds. Off by default because detection is not free (the same accessor resolution
@@ -583,13 +590,15 @@ sizes by shape).
 builder.Services.AddFormidableBlazor(options =>
 {
     options.VerifyRowKeys = builder.HostEnvironment.IsDevelopment();
-    options.ReportStaleRegistrations = !builder.HostEnvironment.IsDevelopment();
+    options.ReportStaleRegistrations = true; // while hunting a misfiled row
 });
 ```
 
-That pairing covers both environments. This option latches as `VerifyRowKeys` does: the answer is
-captured once, per component, the moment it binds, so flipping it mid-session reaches only
-components binding afterward.
+The first line turns `VerifyRowKeys` on in Development. The second turns this option on while you
+hunt a misfiled row; take it out again afterwards rather than leaving it on in production, since
+while it is on every kit component that observes the engine re-renders on every change. This option
+latches as `VerifyRowKeys` does: the answer is captured once, per component, the moment it binds, so
+flipping it mid-session reaches only components binding afterward.
 
 ### `InlineMessageLive`
 

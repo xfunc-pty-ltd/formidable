@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Components.Forms;
 
 namespace Formidable.Blazor;
 
-/// <summary>The base of the kit's components other than the two roots: it binds to the cascaded <see cref="FormidableFormContext"/>, holds whatever <see cref="Register"/> registers, and re-renders on <see cref="IFormidableEngine.StateChanged"/> while <see cref="ObservesEngineState"/> is <see langword="true"/>.</summary>
+/// <summary>The base of every kit component but the two roots: it binds to the cascaded <see cref="FormidableFormContext"/>, registers through <see cref="Register"/>, and while <see cref="ObservesEngineState"/> is <see langword="true"/> re-renders on each <see cref="IFormidableEngine.StateChanged"/> publish naming its field, or any change for a form-wide one.</summary>
 /// <remarks>
 /// Not an extension point (the constructor is not accessible outside the assembly): derive
 /// from <see cref="FormidableInputBase{TValue}"/> for a validated control, or put markup of your
@@ -48,6 +48,12 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     // Passed to RegisterWithHold by the components that wait, and read again at every later
     // parameter set, so a mounted component's hold follows its parameter at its next render.
     private protected virtual bool HoldsLiveMessages => false;
+
+    /// <summary>The one field this component draws, or <see langword="null"/> for a component that draws form-wide state; decides which publishes re-render it.</summary>
+    // A field-scoped component re-renders for a publish that names its field; a form-wide one
+    // (the summary) for any publish that names a field or a form-level change. A derived control
+    // that must redraw on every publish overrides OnEngineStateChanged and calls StateHasChanged.
+    private protected virtual FieldIdentifier? ObservedField => null;
 
     /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise applies a change of <c>WaitForSubmit</c> where the component has one, and resolves the field for the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for, which <see cref="OnAfterRender"/> judges.</summary>
     /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
@@ -134,7 +140,8 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <summary>Resolves the field the accessor names now and keeps any divergence from the registered field for <see cref="OnAfterRender"/>, in whichever mode is on: <see cref="FormidableOptions.VerifyRowKeys"/> throws there, <see cref="FormidableOptions.ReportStaleRegistrations"/> alone reports there, and with both on the throw wins.</summary>
     /// <exception cref="InvalidOperationException">Under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
     // Resolved here rather than after the render, so the cost stays one accessor resolution per
-    // parameter set: a component re-renders on every publish, and most of those set no parameter.
+    // parameter set: under a check a component re-renders on every publish, and most of those set
+    // no parameter.
     private void VerifyRowKey()
     {
         _divergenceFound = false;
@@ -247,11 +254,45 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     /// <returns>The handle the base releases on the next rebind or on disposal, or <see langword="null"/>.</returns>
     protected abstract FieldRegistration? Register(FormidableFormContext context);
 
-    /// <summary>Re-renders the component when the engine raises <see cref="IFormidableEngine.StateChanged"/>; an override that still wants the re-render calls the base.</summary>
+    /// <summary>Re-renders the component when the engine raises <see cref="IFormidableEngine.StateChanged"/> for its field, or for any field or form-level change where it draws form-wide state; an override that still wants the re-render calls the base.</summary>
     /// <param name="sender">The engine that raised the event.</param>
-    /// <param name="e">The event's arguments.</param>
-    protected virtual void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e) =>
+    /// <param name="e">The event's arguments, which say what moved.</param>
+    /// <remarks>
+    /// The base answers only a publish whose <see cref="FormidableStateChangedEventArgs.Includes"/>
+    /// names this component's field; a form-wide component (the summary) answers any publish that
+    /// names a field or a form-level value. While <see cref="FormidableOptions.VerifyRowKeys"/> or
+    /// <see cref="FormidableOptions.ReportStaleRegistrations"/> is on, every publish re-renders
+    /// the component, so the row-key check judges the accessor after each notify. A control that
+    /// must redraw on every publish overrides this and calls <c>StateHasChanged</c> itself.
+    /// </remarks>
+    protected virtual void OnEngineStateChanged(object? sender, FormidableStateChangedEventArgs e)
+    {
+        if (!ShouldRenderFor(e))
+        {
+            return;
+        }
+
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Whether <paramref name="e"/> moved anything this component draws, or a row-key check wants the re-render regardless.</summary>
+    /// <param name="e">The publish's arguments.</param>
+    /// <returns><see langword="true"/> under either row-key check; otherwise <see langword="true"/> for a field-scoped component whose field the publish names, and for a form-wide component when any field or form-level value moved.</returns>
+    // The row-key checks judge the accessor at the parameter set a parent's render drives, and a
+    // wrapper's render under a notify is what re-sets a retained component inside it: a notify
+    // for a replaced owner names the replacement's field, never the field the retained component
+    // registered, so the filter alone would leave that divergence unjudged until the page renders.
+    private bool ShouldRenderFor(FormidableStateChangedEventArgs e)
+    {
+        if (_verifyRowKeys || _reportStaleRegistrations)
+        {
+            return true;
+        }
+
+        return ObservedField is { } field
+            ? e.Includes(field)
+            : e.Everything || e.FormChanged || e.ChangedFields!.Count > 0;
+    }
 
     /// <summary>Runs <see cref="DisposeCore"/>, then releases the field registration and the engine subscription, whether or not <see cref="DisposeCore"/> threw.</summary>
     // Deliberately not virtual: the base's cleanup is not a derived control's to forget, so a

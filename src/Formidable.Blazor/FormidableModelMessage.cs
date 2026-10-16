@@ -22,6 +22,9 @@ public sealed class FormidableModelMessage : FormidableComponentBase
     [Parameter]
     public RenderFragment<VisibleIssue>? ItemTemplate { get; set; }
 
+    /// <summary>The model-level field, so a publish that names it re-renders the list.</summary>
+    private protected override FieldIdentifier? ObservedField => _field;
+
     /// <summary>Resolves the model-level field from <paramref name="context"/>'s model, computes the list's id, and registers nothing.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>Always <see langword="null"/>.</returns>

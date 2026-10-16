@@ -472,7 +472,7 @@ where `min` and `max` splat through `AdditionalAttributes` untouched.
 | `OnParametersSet` is where the field resolves, registers, and binds the engine subscription | Call `base` from any override, or the control registers nothing and never re-renders as checks start and finish. |
 | `OnAfterRender` is where the row-key checks judge what the last parameter set found | Call `base` from any override of the synchronous `OnAfterRender`, or `VerifyRowKeys` and `ReportStaleRegistrations` fall silent for the control. |
 | `Dispose` is non-virtual and always releases the registration and the subscription | Override `DisposeCore` for resources of your own. A control implementing `IAsyncDisposable` has to call `Dispose()` from its `DisposeAsync`, since Blazor calls only the async overload when a component implements both. |
-| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. Override the relay and call `base` so the re-render still happens. |
+| `ObservesEngineState` and `OnEngineStateChanged` are why a control re-renders as checks on its field start and finish | Leave them alone unless you mean it: `false` freezes the state class, `aria-invalid`, `aria-describedby` and `aria-required` at whatever the last render gave them. With the row-key checks off (their default), the base re-renders only for a change whose `Includes` names the control's field. Override `OnEngineStateChanged` and call `base` to keep that field-scoped re-render, or call `StateHasChanged` yourself for a control that must redraw on every change. |
 
 One more seam serves a control whose native element can display text it reports as empty, a number
 box holding `e3` being the kit's own case. No render-tree diff can overwrite that, because the
@@ -1200,6 +1200,32 @@ Not every control belongs to the kit: a UI library's own `<select>`, a checkbox 
 date-picker widget. `FormidableField` is the any-UI-library integration point for those. It renders
 no markup of its own: it registers its field, and hands its `ChildContent` a fresh
 `FormidableFieldContext` on every render.
+
+It renders when its own field's state or messages move, when the form renders and when your page
+does. Anything else your fragment reads inline (another field's state, say) refreshes only then.
+
+Under `FormidableForm`, a `disabled` bound to `IsSubmitting` still follows a submit, because
+`FormidableForm` renders at a submit's start and at its end. Under `FormidableValidator`,
+`IsSubmitting` on the form's context (`FormidableFormContext`) is always `false`; the page that runs
+the handler keeps its own flag.
+
+For a live read of another field's state, subscribe to the engine's `StateChanged`. Its
+[arguments](engine-reference.md#iformidableengine) say what moved. `Includes(field)` takes the
+`FieldIdentifier` of the field you read (`FieldIdentifier.Create(() => Model.B)`) and answers whether
+the change moved that field's state or messages. `FormChanged` says something form-wide moved (the
+reading order, `IsFormValid`, `IsValidating`, `IsSubmitting` or `HasSubmitted`). In the handler, call
+`StateHasChanged` when `Includes` names your field or `FormChanged` is set.
+
+Put that read in a component of your own, not in markup, which cannot subscribe. Take the form's
+context as a `[CascadingParameter] FormidableFormContext`; subscribe to its `Engine.StateChanged` as
+the parameters are set, subscribe again when the engine instance has changed (a reset rebuilds it),
+and unsubscribe on dispose.
+[I want my own summary markup](recipes.md#i-want-my-own-summary-markup) is the worked example; its
+handler redraws on every change where yours tests `Includes` first.
+
+> [!NOTE]
+> While `VerifyRowKeys` or `ReportStaleRegistrations` is on, a `FormidableField` renders on every
+> change, so the checks can judge the accessors of the components inside it after each one.
 
 | Parameter | Type | Default | One line |
 |---|---|---|---|

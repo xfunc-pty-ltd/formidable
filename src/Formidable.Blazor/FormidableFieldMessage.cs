@@ -35,6 +35,9 @@ public abstract class FormidableMessageBase<TValue> : FormidableAccessorComponen
     /// <returns>The registration the base releases on the next rebind or on disposal, or <see langword="null"/>.</returns>
     private protected virtual FieldRegistration? RegisterField(FormidableFormContext context, FieldIdentifier field) => null;
 
+    /// <summary>The field the list speaks for, so a publish that names it re-renders the list.</summary>
+    private protected override FieldIdentifier? ObservedField => _field;
+
     /// <summary>Resolves the field <see cref="FormidableAccessorComponentBase{TValue}.For"/> names, computes the list's id, and hands registration to <see cref="RegisterField"/>.</summary>
     /// <param name="context">The context being bound.</param>
     /// <returns>Whatever <see cref="RegisterField"/> returns.</returns>
