@@ -157,6 +157,33 @@ public class StateChangedRelayTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // The args of a publish the renderer refused must not wait in the relay's queue for the next
+    // publish, which would raise them late, out of order and naming a field that did not move in
+    // it. Mutation: drop the clear from Publish's catch; the later publish then raises twice, the
+    // refused args first.
+    [Fact]
+    public async Task A_publish_after_a_refused_one_raises_only_its_own_args()
+    {
+        Services.AddSingleton<IValidator<EngineOrder>, EngineOrderValidator>();
+        Services.AddFormidableBlazor();
+        var order = new EngineOrder { Customer = new EngineCustomer() };
+        var cut = Render<RelayHost>(p => p.Add(x => x.Order, order));
+        var engine = RelayHost.EngineOf(cut, attach: false);
+        var description = new FieldIdentifier(order, nameof(EngineOrder.Description));
+        var customerName = new FieldIdentifier(order.Customer!, nameof(EngineCustomer.Name));
+        Assert.Throws<InvalidOperationException>(() => engine.MarkTouched(description));   // off the dispatcher: refused
+        var events = new List<FormidableStateChangedEventArgs>();
+        engine.StateChanged += (_, e) => events.Add(e);
+
+        await cut.InvokeAsync(() => engine.MarkTouched(customerName));
+
+        var e = Assert.Single(events);
+        Assert.True(e.Includes(customerName));
+        Assert.False(e.Includes(description), "the refused publish's args were raised late");
+
+        await Services.DisposeAsync();
+    }
+
     // Review focus 1: a handler that unsubscribes itself during the relay's render.
     [Fact]
     public async Task A_handler_that_unsubscribes_during_a_publish_does_not_break_the_relay()

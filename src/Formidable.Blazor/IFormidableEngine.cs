@@ -53,7 +53,7 @@ public interface IFormidableEngine
     /// </remarks>
     bool IsFormValid { get; }
 
-    /// <summary>Raised whenever validation or field state changes; the sender is the engine and <see cref="FormidableStateChangedEventArgs"/> carries no detail.</summary>
+    /// <summary>Raised whenever validation or field state changes; the sender is the engine and <see cref="FormidableStateChangedEventArgs"/> names the fields whose state or messages moved and whether a form-level value did.</summary>
     event EventHandler<FormidableStateChangedEventArgs>? StateChanged;
 
     /// <summary>Raised when a rule fails while the form checks it: in a live check, the whole-form re-check, the validity check, a submit or a load of values.</summary>

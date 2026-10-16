@@ -256,6 +256,31 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     private ValidationIssue? _faultIssue;
     private IReadOnlyDictionary<FieldIdentifier, int>? _fieldOrder;
 
+    // The view of each field as of the last publish, keyed by field: what the kit draws for it
+    // (its FieldState) and its messages (severity and text, in order). The next publish diffs the
+    // current views against it and names the fields that differ. A field stays while the engine
+    // holds something for it; one nothing holds any more is compared once more as it leaves, so a
+    // view reverting to the default still counts as a change the one time it reverts
+    // (DescribeChange).
+    private Dictionary<FieldIdentifier, FieldView> _publishedViews = [];
+    private IReadOnlyDictionary<FieldIdentifier, int>? _publishedOrder;
+    private bool _publishedIsFormValid;
+    private bool _publishedIsValidating;
+    private bool _publishedIsSubmitting;
+    private bool _publishedHasSubmitted;
+
+    /// <summary>A field's rendered view: its state and its messages as severity and text, compared by value.</summary>
+    /// <param name="State">What <see cref="GetFieldState"/> answers for the field.</param>
+    /// <param name="Issues">The field's messages as <see cref="IssueText"/> writes them.</param>
+    private readonly record struct FieldView(FieldState State, string Issues);
+
+    // The view of a field the engine holds nothing for: no flag set, no message, and no vouch,
+    // since the coverage tracker withholds the vouch from a field no answer covers. A field the
+    // baseline lacks is compared against this rather than named outright, so a field that enters
+    // the key set (a sibling registered beside the first edited field, say) is named only once
+    // its view differs from a field the engine knows nothing about.
+    private static readonly FieldView DefaultView = new(default, string.Empty);
+
     /// <summary>The empty list every issue read returns for a field with nothing to say.</summary>
     private static readonly IReadOnlyList<ValidationIssue> NoIssues = [];
 
@@ -1397,6 +1422,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>The model-level identifier: the root model with an empty field name, which an issue with an empty path resolves to.</summary>
     internal FieldIdentifier ModelLevelField => new(_model, string.Empty);
+
+    /// <summary>How many fields the last publish kept a view for, which bounds the work the next publish's diff does.</summary>
+    internal int PublishedViewCount => _publishedViews.Count;
 
     /// <summary>Sets the order <see cref="GetVisibleIssues"/> lists by; an order equal to the one in force raises nothing, and <see langword="null"/> restores the engine's own order.</summary>
     /// <param name="order">Each rendered field's ordinal in document order, as the host resolved it, or <see langword="null"/>.</param>
@@ -3455,10 +3483,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Publishes a state change: through the root's relay as one render batch where one is attached, else straight to the handlers.</summary>
+    /// <summary>Publishes a state change, naming the fields whose view moved: through the root's relay as one render batch where one is attached, else straight to the handlers.</summary>
     private void NotifyStateChanged()
     {
-        var args = FormidableStateChangedEventArgs.Empty;
+        var args = DescribeChange();
         if (_relay is { } relay && !_disposed)
         {
             relay.Publish(args);
@@ -3466,6 +3494,105 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         ((IStateChangedPublisher)this).RaiseStateChanged(args);
+    }
+
+    /// <summary>Names the fields whose view moved since the last publish, and whether a form-level value did, then keeps the views of the fields the engine still holds as the next publish's baseline.</summary>
+    /// <returns>The arguments for this publish.</returns>
+    // One self-contained diff through the same reads the components render from, in place of
+    // dirty tracking across every store: a field's view is GetFieldState plus GetIssues, which is
+    // exactly what a FormidableField hands its ChildContent and what the inputs and messages
+    // draw. The key set is every field the engine holds anything for; a message-only field
+    // nothing registers is reached through the issue stores, which is what the key-set test pins.
+    // A field the baseline lacks is compared against DefaultView. A field the baseline holds and
+    // nothing live does any more is compared once more, so the publish that lets it go still
+    // names its last move, and is then dropped: the baseline is bounded by what the engine holds,
+    // where keeping every field once seen would grow it by every row a page ever rendered and
+    // charge a state read per dead field at every later publish. Nothing the kit renders draws a
+    // dropped field (a component registers its field; a message needs a verdict), so a view that
+    // moves while nothing holds the field goes unnamed, as a never-held field's does. A dropped
+    // field that returns is compared against DefaultView again and may be named once more than
+    // its view warrants: a render for a component that has just mounted, never a stale one.
+    private FormidableStateChangedEventArgs DescribeChange()
+    {
+        var keys = new HashSet<FieldIdentifier>(Registry.RegisteredFields);
+        keys.UnionWith(_touched);
+        keys.UnionWith(_engagedFields);
+        keys.UnionWith(_liveVerdicts.Keys);
+        keys.UnionWith(_submitVerdictErrors.Keys);
+        keys.UnionWith(_submitVerdictAdvisories.Keys);
+        keys.UnionWith(_serverErrors.Keys);
+        keys.UnionWith(_serverAdvisories.Keys);
+        if (_validatingScope is not null)
+        {
+            keys.UnionWith(_validatingScope);
+        }
+
+        keys.Add(ModelLevelField);
+
+        var changed = new HashSet<FieldIdentifier>();
+        var next = new Dictionary<FieldIdentifier, FieldView>(keys.Count);
+        foreach (var field in keys)
+        {
+            var view = CurrentView(field);
+            next[field] = view;
+            if (!_publishedViews.TryGetValue(field, out var previous))
+            {
+                previous = DefaultView;
+            }
+
+            if (previous != view)
+            {
+                changed.Add(field);
+            }
+        }
+
+        foreach (var (field, previous) in _publishedViews)
+        {
+            if (!keys.Contains(field) && previous != CurrentView(field))
+            {
+                changed.Add(field);
+            }
+        }
+
+        var formChanged = !ReferenceEquals(_publishedOrder, _fieldOrder)
+            || _publishedIsFormValid != _isFormValid
+            || _publishedIsValidating != IsValidating
+            || _publishedIsSubmitting != IsSubmitting
+            || _publishedHasSubmitted != HasSubmitted;
+
+        _publishedViews = next;
+        _publishedOrder = _fieldOrder;
+        _publishedIsFormValid = _isFormValid;
+        _publishedIsValidating = IsValidating;
+        _publishedIsSubmitting = IsSubmitting;
+        _publishedHasSubmitted = HasSubmitted;
+
+        return new FormidableStateChangedEventArgs { ChangedFields = changed, FormChanged = formChanged };
+    }
+
+    /// <summary>The field's view as the kit would draw it at this moment: its state and its messages.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>What <see cref="DescribeChange"/> compares and keeps.</returns>
+    private FieldView CurrentView(FieldIdentifier field) => new(GetFieldState(field), IssueText(field));
+
+    /// <summary>The field's messages as one comparable string: severity and text per issue, in the order <see cref="GetIssues"/> lists them.</summary>
+    /// <param name="field">The field.</param>
+    /// <returns>The empty string for a field with no issue.</returns>
+    private string IssueText(FieldIdentifier field)
+    {
+        var issues = GetIssues(field);
+        if (issues.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var text = new System.Text.StringBuilder();
+        foreach (var issue in issues)
+        {
+            text.Append((int)issue.Severity).Append(':').Append(issue.Message).Append('\u001f');
+        }
+
+        return text.ToString();
     }
 
     void IStateChangedPublisher.AttachRelay(StateChangedRelay relay) => _relay = relay;
