@@ -9,6 +9,12 @@ namespace Formidable.Blazor;
 
 /// <summary>The base of the kit's validated inputs and its extension point: a derived control renders its element and calls <see cref="AddCommonAttributes"/> and one of the <see cref="AddValueBinding(RenderTreeBuilder, int)"/> overloads; the base wires the field, the state class, the id and the aria attributes.</summary>
 /// <typeparam name="TValue">The field's value type.</typeparam>
+/// <remarks>
+/// An override of <see cref="FormidableComponentBase.OnParametersSet"/> or of the synchronous
+/// <see cref="FormidableComponentBase.OnAfterRender"/> must call the base: without the first the
+/// control registers nothing, and without the second <see cref="FormidableOptions.VerifyRowKeys"/>
+/// and <see cref="FormidableOptions.ReportStaleRegistrations"/> fall silent for it.
+/// </remarks>
 public abstract class FormidableInputBase<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue>
     : FormidableComponentBase
 {

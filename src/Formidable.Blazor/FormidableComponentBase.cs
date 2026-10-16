@@ -23,6 +23,16 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     private bool _reportStaleRegistrations;
     private bool _staleReported;
 
+    // A divergence a parameter set found, held until the render batch that found it has settled.
+    // Judged there rather than at the parameter set, because a batch can repair one: a page that
+    // replaces an owner from an EditContext.OnFieldChanged handler has the engine publish inside
+    // that notify, ahead of its handler, so the wrappers the publish re-renders re-set the
+    // components inside them before the page's own render, queued behind, retires those
+    // components through their keys. A component the batch retires never reaches OnAfterRender,
+    // and its divergence was never a misfiled row; one that survives the batch is.
+    private bool _divergenceFound;
+    private FieldIdentifier _divergentField;
+
     private protected FormidableComponentBase()
     {
     }
@@ -39,8 +49,8 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
     // parameter set, so a mounted component's hold follows its parameter at its next render.
     private protected virtual bool HoldsLiveMessages => false;
 
-    /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise applies a change of <c>WaitForSubmit</c> where the component has one, and runs the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for.</summary>
-    /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor names a different field than the component registered.</exception>
+    /// <summary>Binds the component to the cascaded context when that is a new instance; otherwise applies a change of <c>WaitForSubmit</c> where the component has one, and resolves the field for the row-key check <see cref="FormidableOptions.VerifyRowKeys"/> or <see cref="FormidableOptions.ReportStaleRegistrations"/> asks for, which <see cref="OnAfterRender"/> judges.</summary>
+    /// <exception cref="InvalidOperationException">No <see cref="FormidableFormContext"/> is cascaded (the component stands outside a root), or, under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
     /// <remarks>
     /// An override must call <c>base.OnParametersSet()</c>, or the component registers nothing
     /// and never re-renders on a state change.
@@ -67,79 +77,37 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         _reportStaleRegistrations = options.ReportStaleRegistrations;
         _registeredField = _verifyRowKeys || _reportStaleRegistrations ? ResolveField() : default;
         _staleReported = false;
+        _divergenceFound = false;
     }
 
-    /// <summary>The field the component's accessor names at this moment, resolved afresh; the empty identifier for a component with no accessor.</summary>
-    /// <returns>The field the accessor currently resolves to, or the empty identifier, which matches itself on every render and so never counts as a divergence.</returns>
-    // Every component that speaks for a field overrides this and calls it from its own Register,
-    // so the identifier a component registers and the identifier the row-key check compares
-    // against it are the same expression evaluated at two different times, which is the only
-    // thing that comparison is entitled to assume. FormidableSummary and FormidableModelMessage
-    // keep the default: the first speaks for the whole form, the second for the model-level field
-    // no accessor expression can name.
-    private protected virtual FieldIdentifier ResolveField() => default;
-
-    /// <summary>Runs the row-key check in whichever mode is on: <see cref="FormidableOptions.VerifyRowKeys"/> throws on a divergence, <see cref="FormidableOptions.ReportStaleRegistrations"/> alone reports it, and with both on the throw wins.</summary>
-    /// <exception cref="InvalidOperationException">Under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor names a different field than the component registered.</exception>
-    private void VerifyRowKey()
+    /// <summary>Raises or reports a divergence the parameter set found, now that the render batch that found it has settled; does nothing when it found none.</summary>
+    /// <param name="firstRender">Whether this is the component's first render; not consulted.</param>
+    /// <remarks>
+    /// Under <see cref="FormidableOptions.VerifyRowKeys"/> the divergence reaches the nearest
+    /// error boundary, or the renderer's unhandled path, as an <see cref="InvalidOperationException"/>
+    /// thrown by this component. A component the batch retired (a keyed row rebuilt for a replaced
+    /// owner) is never called here, so its divergence is not judged. An override must call
+    /// <c>base.OnAfterRender(firstRender)</c> for the checks to run.
+    /// </remarks>
+    // Handed to the renderer rather than thrown: a throw from OnAfterRender arrives at the boundary
+    // wrapped in an AggregateException, where a throw from a parameter set arrives as itself, and
+    // the diagnostic should read the same from either.
+    protected override void OnAfterRender(bool firstRender)
     {
-        if (!_verifyRowKeys)
-        {
-            if (_reportStaleRegistrations)
-            {
-                ReportStaleRegistration();
-            }
-
-            return;
-        }
-
-        var current = ResolveField();
-        if (current.Equals(_registeredField))
+        if (!_divergenceFound)
         {
             return;
         }
 
-        var fix = DescribeIndexedRowFix(_registeredField, current) ??
-            "A field is the object owning the " +
-            "value plus a member name, so this happens whenever something replaces that " +
-            "object without rebuilding the components bound to it. A row list rendered " +
-            "without @key is the common way to do it: remove or reorder a row, and Blazor " +
-            "reuses each row's components for the next item along — the field " +
-            "registration, the element id, the aria attributes and the messages stay with " +
-            "the row that moved away, while the input shows the new row's value. Key each " +
-            "row by the row object — @key=\"item\" on the element the loop renders " +
-            "— so a row's components travel with it. If the list is already keyed " +
-            "that way, or there is no list to key at all, something else re-pointed the " +
-            "accessor: a key taken from the row's id while the row object itself was " +
-            "replaced, or a For that now names another field.";
-
-        throw new InvalidOperationException(
-            $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, " +
-            $"without having been rebuilt in between. {fix} " +
-            $"(Reported by {nameof(FormidableOptions)}." +
-            $"{nameof(FormidableOptions.VerifyRowKeys)}.)");
-    }
-
-    /// <summary>Reports a divergence between the registered field and the field the accessor currently names, once until it heals, through <see cref="IStaleRegistrationReporter"/> where the engine implements it; an accessor that throws is skipped.</summary>
-    private void ReportStaleRegistration()
-    {
-        FieldIdentifier current;
-        try
+        _divergenceFound = false;
+        var current = _divergentField;
+        if (_verifyRowKeys)
         {
-            current = ResolveField();
-        }
-        catch (Exception)
-        {
-            // A shape the check cannot answer for must render exactly as it would with no check
-            // at all, because reporting is this mode's whole severity.
-            return;
-        }
-
-        if (current.Equals(_registeredField))
-        {
-            // The latch resets here and on rebind, so a divergence that heals and then reopens is
-            // a fresh finding.
-            _staleReported = false;
+            _ = DispatchExceptionAsync(new InvalidOperationException(
+                $"{FriendlyTypeName.Of(GetType())} {DescribeChange(_registeredField, current)}, " +
+                $"without having been rebuilt in between. {DescribeFix(_registeredField, current)} " +
+                $"(Reported by {nameof(FormidableOptions)}." +
+                $"{nameof(FormidableOptions.VerifyRowKeys)}.)"));
             return;
         }
 
@@ -152,6 +120,78 @@ public abstract class FormidableComponentBase : ComponentBase, IDisposable
         (Context!.Engine as IStaleRegistrationReporter)?.Report(
             new StaleRegistrationReport(GetType(), _registeredField, current));
     }
+
+    /// <summary>The field the component's accessor names at this moment, resolved afresh; the empty identifier for a component with no accessor.</summary>
+    /// <returns>The field the accessor currently resolves to, or the empty identifier, which matches itself on every render and so never counts as a divergence.</returns>
+    // Every component that speaks for a field overrides this and calls it from its own Register,
+    // so the identifier a component registers and the identifier the row-key check compares
+    // against it are the same expression evaluated at two different times, which is the only
+    // thing that comparison is entitled to assume. FormidableSummary and FormidableModelMessage
+    // keep the default: the first speaks for the whole form, the second for the model-level field
+    // no accessor expression can name.
+    private protected virtual FieldIdentifier ResolveField() => default;
+
+    /// <summary>Resolves the field the accessor names now and keeps any divergence from the registered field for <see cref="OnAfterRender"/>, in whichever mode is on: <see cref="FormidableOptions.VerifyRowKeys"/> throws there, <see cref="FormidableOptions.ReportStaleRegistrations"/> alone reports there, and with both on the throw wins.</summary>
+    /// <exception cref="InvalidOperationException">Under <see cref="FormidableOptions.VerifyRowKeys"/>, the accessor cannot be resolved.</exception>
+    // Resolved here rather than after the render, so the cost stays one accessor resolution per
+    // parameter set: a component re-renders on every publish, and most of those set no parameter.
+    private void VerifyRowKey()
+    {
+        _divergenceFound = false;
+        if (!_verifyRowKeys && !_reportStaleRegistrations)
+        {
+            return;
+        }
+
+        FieldIdentifier current;
+        if (_verifyRowKeys)
+        {
+            current = ResolveField();
+        }
+        else
+        {
+            try
+            {
+                current = ResolveField();
+            }
+            catch (Exception)
+            {
+                // A shape the check cannot answer for must render exactly as it would with no
+                // check at all, because reporting is this mode's whole severity.
+                return;
+            }
+        }
+
+        if (current.Equals(_registeredField))
+        {
+            // The report latch resets here and on rebind, so a divergence that heals and then
+            // reopens is a fresh finding.
+            _staleReported = false;
+            return;
+        }
+
+        _divergenceFound = true;
+        _divergentField = current;
+    }
+
+    /// <summary>The fix the throw names for a divergence: the indexed-row advice where both fields are rows bound by their index, else the general one.</summary>
+    /// <param name="registered">The field the component registered.</param>
+    /// <param name="current">The field the accessor currently names.</param>
+    /// <returns>The sentence that follows the description of the change.</returns>
+    private static string DescribeFix(FieldIdentifier registered, FieldIdentifier current) =>
+        DescribeIndexedRowFix(registered, current) ??
+            "A field is the object owning the " +
+            "value plus a member name, so this happens whenever something replaces that " +
+            "object without rebuilding the components bound to it. A row list rendered " +
+            "without @key is the common way to do it: remove or reorder a row, and Blazor " +
+            "reuses each row's components for the next item along — the field " +
+            "registration, the element id, the aria attributes and the messages stay with " +
+            "the row that moved away, while the input shows the new row's value. Key each " +
+            "row by the row object — @key=\"item\" on the element the loop renders " +
+            "— so a row's components travel with it. If the list is already keyed " +
+            "that way, or there is no list to key at all, something else re-pointed the " +
+            "accessor: a key taken from the row's id while the row object itself was " +
+            "replaced, or a For that now names another field.";
 
     /// <summary>Describes a divergence: the same field on a different owner (the row case), or two different fields.</summary>
     /// <param name="registered">The field the component registered.</param>

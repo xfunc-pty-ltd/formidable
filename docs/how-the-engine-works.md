@@ -1539,14 +1539,16 @@ Under [`VerifyRowKeys`](options.md#verifyrowkeys) or
 `ResolveField()` on every later parameter set and compares the answer with that copy: the same
 expression evaluated at two times, which is the only thing the comparison assumes.
 
-The throwing check calls `ResolveField()` with no `try` around it and throws on a difference. The
-reporting check resolves inside a `try`, skips an accessor that throws, and hands a difference to
-`IStaleRegistrationReporter` once, until the accessor names the registered field again or the
-component rebinds.
+Both checks resolve at the parameter set and judge at the component's `OnAfterRender`, once the
+render batch that found the difference has settled. The throwing check (`VerifyRowKeys`) calls
+`ResolveField()` outside any `try` and raises an `InvalidOperationException` through the renderer
+on a difference. The reporting check (`ReportStaleRegistrations`) resolves inside a `try`,
+skips an accessor that throws, and hands a difference to `IStaleRegistrationReporter` once, until
+the accessor names the registered field again or the component rebinds.
 
 The engine's `Report` writes the Trace line itself, and a logger warning when the host resolved an
 `ILoggerFactory`, then invokes `StaleRegistrationDiagnostic` bare, so a throwing callback surfaces
-from the component's own parameter-set lifecycle.
+from the component's own after-render step.
 
 ### Why a keyed list never trips the checks
 
@@ -1585,11 +1587,21 @@ notify. The re-render re-supplies the parameters of the bound components inside 
 re-runs `ResolveField()` against an accessor that now names the replacement, and its kept identifier
 still names the instance that left.
 
-The throw does not climb the notify's frames: the renderer catches it from its own render batch and
-completes its unhandled-exception path, so the notify call returns normally while the app's
+The throw does not climb the notify's frames: the component raises it through the renderer from its
+`OnAfterRender`, so the notify call returns normally while the app's error boundary or
 unhandled-exception handling fires. Rendered first, the keyed diff disposes those components and
 builds fresh ones that register the replacement, and the notify that follows finds every comparison
 passing.
+
+A page that replaces the owner from an `EditContext.OnFieldChanged` handler cannot render first.
+The engine publishes inside that notify, ahead of the handler, so the wrappers re-render first. The
+page's own render, queued behind those re-renders, retires the wrappers through their keys only
+afterwards.
+
+Judging at `OnAfterRender` is what lets that shape pass. The renderer never calls it on a component
+the batch disposed, so a divergence the same batch repairs raises nothing, and one that survives
+the batch is the misfiled row the checks exist for. On Blazor Server that call waits for the client
+to acknowledge the batch, so a divergence a later batch repairs before then is not judged either.
 
 ## Server issues: how an apply lands
 

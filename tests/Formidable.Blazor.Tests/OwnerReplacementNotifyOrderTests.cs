@@ -40,12 +40,12 @@ public class OwnerReplacementNotifyOrderTests : BunitContext
 
         // The exception cannot surface on the notify frames. The publish reaches each observing
         // component as an ordinary event, the handler re-renders through InvokeAsync (whose task
-        // it discards), and the renderer catches a synchronous throw from its own render batch
-        // rather than letting it propagate to whoever queued the render — so NotifyFieldChanged
-        // returns normally and the throw completes Renderer.UnhandledException, bUnit's view of
-        // the renderer's unhandled-exception path. The flag read after the notify pins that it
-        // surfaced there before the consumer's own call returned: the mid-notify timing is the
-        // whole hazard the ordering rule exists for.
+        // it discards), and the component judges the divergence from OnAfterRender once that
+        // render's batch has settled, handing the throw to the renderer rather than to whoever
+        // queued the render — so NotifyFieldChanged returns normally and the throw completes
+        // Renderer.UnhandledException, bUnit's view of the renderer's unhandled-exception path.
+        // The flag read after the notify pins that it surfaced there before the consumer's own
+        // call returned: the mid-notify timing is the whole hazard the ordering rule exists for.
         var surfacedInsideTheNotify = false;
         Exception? thrownFromNotify = null;
         await cut.InvokeAsync(() =>
