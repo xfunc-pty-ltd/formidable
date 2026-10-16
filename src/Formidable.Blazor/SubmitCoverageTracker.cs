@@ -78,9 +78,14 @@ internal sealed class SubmitCoverageTracker(
     // become true after the decline: a field change arms or starts its re-answer after its
     // first-touch publish, and a server apply arms the held-back re-check after its publish, so a
     // read made inside either publish (a page that reads field state in its StateChanged handler)
-    // asks before the arm exists. The held vouch is served while a re-answer is demonstrably on
-    // its way, so a declined answer re-checks the promise at each read, as a served one does, and
-    // serves the held answer the moment the promise appears. Every recompute clears it.
+    // asks before the arm exists. The engine answers most of those reads itself: a change's or an
+    // apply's handler counts the arm it is about to make from its first publish on (its own flag,
+    // which the promise delegate here reads), so the promise usually stands at the publish. The
+    // held vouch is served while a re-answer is demonstrably on its way, so a declined answer
+    // re-checks the promise at each read, as a served one does, and serves the held answer the
+    // moment the promise appears: a decline with nothing on its way serves again as a pass begins
+    // or a fire arms one; one past a hung pass's bound serves again only as a pass begins, since
+    // the bound outranks every arm while that pass stays current. Every recompute clears it.
     private bool _heldDeclinedForWantOfPromise;
 
     // The fields edited since the held answer was computed — added beside the edit stamp as each

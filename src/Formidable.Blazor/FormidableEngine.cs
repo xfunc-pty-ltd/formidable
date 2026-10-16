@@ -93,6 +93,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // carries no locking or dispatch of its own; its two edit-shaped writes (NoteEdit on a field
     // change, Abandon at the load's opening) ride the caller's context beside the stamp moves
     // they belong to, and every other write happens on the dispatcher.
+    // _reAnswerArmsBeforeReturn is set and restored synchronously on the caller's context, around
+    // HandleCommittedChange in a field change's handler and around the held-back re-check's arm
+    // in ApplyServerIssues, and is read by ReAnswerOnItsWay on whichever context reads field
+    // state inside those two runs.
     //
     // An await calls ConfigureAwait(false) exactly when its continuation is off the dispatcher
     // and needs neither the renderer's context nor the state above. Every await in this file and
@@ -274,11 +278,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <param name="Issues">The field's messages as <see cref="IssueText"/> writes them.</param>
     private readonly record struct FieldView(FieldState State, string Issues);
 
-    // The view of a field the engine holds nothing for: no flag set, no message, and no vouch,
-    // since the coverage tracker withholds the vouch from a field no answer covers. A field the
-    // baseline lacks is compared against this rather than named outright, so a field that enters
-    // the key set (a sibling registered beside the first edited field, say) is named only once
-    // its view differs from a field the engine knows nothing about.
+    // The view every field reads before any answer exists: no flag set, no message, and no vouch.
+    // A field the baseline lacks is compared against this rather than named outright, so a field
+    // that enters the key set (a sibling registered beside the first edited field, say) is named
+    // only once its view has moved from that starting point; one that already wears green as it
+    // enters is named once, which errs toward naming. default(FieldState) is deliberate:
+    // new FieldState() runs the initialiser that starts WouldPassSubmit true.
     private static readonly FieldView DefaultView = new(default, string.Empty);
 
     /// <summary>The empty list every issue read returns for a field with nothing to say.</summary>
@@ -368,6 +373,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // A probe begun at the current stamp is on its way to answering IsFormValid for the latest
     // edit, so a landing whose answer predates that edit leaves IsFormValid to it.
     private int _lastProbeEditStamp = -1;
+
+    // Whether the handler running, a committed change's or a server apply's, arms or starts a
+    // re-answer of the submit rules before it returns. Each publishes before it arms: the change
+    // publishes its touch ahead of the live start, the debounce add, the refresh arm and the
+    // validity arm, and the apply publishes its rebuilt store ahead of the re-check it arms for
+    // the answers it held back. A vouch read inside that publish (the change set's diff, or a
+    // page reading field state in its StateChanged handler) would otherwise find nothing on its
+    // way and decline the held answer, taking green off every other field for one publish and
+    // putting it back at the next. So the handler decides, from the same conditions its arms
+    // use, whether an arm follows, and ReAnswerOnItsWay counts it while the handler runs, behind
+    // the bound as every other arm is (a pass hung past HeldVouchBound outranks it). Decided
+    // per configuration, never assumed: under a window that never closes with tracking off and
+    // no submit yet nothing follows, and the vouch is withheld as documented.
+    private bool _reAnswerArmsBeforeReturn;
 
     // Whether a refresh is armed at a wait that passes and has not yet fired, whichever arm site
     // armed it (an edit, a rendered-field-set move, or an apply that held answers back); set as
@@ -750,7 +769,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // may swap at any moment.
     private ValidationProfile ResolvedLiveProfile => _options.LiveProfile ?? _options.SubmitProfile;
 
-    /// <summary>Whether a pass in flight, an armed timer or the running validity check is demonstrably about to re-answer the submit-selected rules, which is what lets the held vouch serve across an edit.</summary>
+    /// <summary>Whether a pass in flight, an armed timer, the running validity check or the running handler's coming arm is demonstrably about to re-answer the submit-selected rules, which lets the held vouch serve across an edit.</summary>
     /// <returns><see langword="true"/> for a pass younger than <see cref="SubmitCoverageTracker.HeldVouchBound"/> whose landing answers the submit selection; for a refresh armed by an edit or by an apply that held answers back, a submit-running live window, or a validity check armed while tracking is on, each behind a debounce that can fire; or for the probe a validity timer's fire started, until it ends or the bound passes; a pass past the bound answers <see langword="false"/> whatever is armed behind it.</returns>
     // The options are read here at each ask, per their read-at-each-use contract. The validity
     // timer is consulted while it is armed: its fire stands down once a submit has answered
@@ -763,21 +782,29 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // page under the submit-coverage vouch.
     private bool ReAnswerOnItsWay()
     {
+        if (_currentPass is { } hung
+            && _timeProvider.GetElapsedTime(hung.StartedAt) >= SubmitCoverageTracker.HeldVouchBound)
+        {
+            // A pass past the bound stops vouching whatever is scheduled behind it, the running
+            // handler's coming arm included: a hung submit, live or load pass defers every armed
+            // refresh indefinitely (RunRefreshPassAsync defers to exactly those kinds), and a
+            // hung refresh is displaced by the next fire rather than deferred to, beginning a
+            // pass with a bound of its own. So at this read nothing below can stand in for the
+            // pass past it.
+            return false;
+        }
+
+        // The running handler's arm counts from its first publish on (_reAnswerArmsBeforeReturn),
+        // behind the bound as every other arm is.
+        if (_reAnswerArmsBeforeReturn)
+        {
+            return true;
+        }
+
         var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
 
         if (_currentPass is { } pass)
         {
-            // A pass past the bound stops vouching whatever is scheduled behind it: a hung
-            // submit, live or load pass defers every armed refresh indefinitely
-            // (RunRefreshPassAsync defers to exactly those kinds), and a hung refresh is
-            // displaced by the next fire rather than deferred to, beginning a pass with a bound
-            // of its own — so at this read the arms below cannot stand in for the pass past it.
-            if (_timeProvider.GetElapsedTime(pass.StartedAt)
-                >= SubmitCoverageTracker.HeldVouchBound)
-            {
-                return false;
-            }
-
             // A pass whose landing answers the submit selection is itself the re-answer.
             if (pass.Kind != PassKind.Live || liveAnswersSubmit)
             {
@@ -1801,6 +1828,34 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         NotifyStateChanged();
     }
 
+    /// <summary>Whether the committed change being handled arms or starts a re-answer of the submit rules before its handler returns: a submit-profile live pass, now or behind a window that closes; the refresh after a submit; or the validity check.</summary>
+    /// <returns><see langword="true"/> when one of <see cref="HandleCommittedChange"/>'s branches will leave something <see cref="ReAnswerOnItsWay"/> counts; <see langword="false"/> under a narrowed live profile with nothing else armed, a wait that never passes, or a window that never closes with tracking off and no submit yet.</returns>
+    // The same conditions the branches test, read before any of them runs, so the promise can
+    // never outrun the arm: a narrowed live profile is no re-answer of the submit rules, a wait
+    // that never passes arms nothing the vouch counts, and the validity branch's own guards apply.
+    private bool ChangeArmsReAnswer()
+    {
+        var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
+        var refreshFires = UsableWait(_options.RefreshDebounce) is not null;
+
+        if (liveAnswersSubmit
+            && (_options.LiveDebounce is not { } window || UsableWait(window) is not null))
+        {
+            return true;
+        }
+
+        if (HasSubmitted || SubmitInFlight)
+        {
+            return refreshFires;
+        }
+
+        return _options.TrackFormValidity
+            && _options.LiveDebounce is { } neverClosing
+            && UsableWait(neverClosing) is null
+            && !RefreshArmedByEdit
+            && refreshFires;
+    }
+
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
     {
         // First, before anything here can start a pass: a pass reads this counter as it begins
@@ -1812,6 +1867,25 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         _editStamp++;
         _submitCoverage.NoteEdit(e.FieldIdentifier);
 
+        // Decided before the touch publishes, from the conditions HandleCommittedChange's branches
+        // arm on (see _reAnswerArmsBeforeReturn). A nested change (a StateChanged handler that
+        // commits one) keeps an outer promise through its own run.
+        var outerPromise = _reAnswerArmsBeforeReturn;
+        _reAnswerArmsBeforeReturn = outerPromise || ChangeArmsReAnswer();
+        try
+        {
+            HandleCommittedChange(e);
+        }
+        finally
+        {
+            _reAnswerArmsBeforeReturn = outerPromise;
+        }
+    }
+
+    /// <summary>Marks the committed field touched and engaged, then starts or arms what answers it: the live pass or the live window, the refresh once a submit has run, or the validity check under a window that never closes.</summary>
+    /// <param name="e">The field-changed notification.</param>
+    private void HandleCommittedChange(FieldChangedEventArgs e)
+    {
         MarkTouched(e.FieldIdentifier);
 
         // A notification is a committed change, and a committed change engages the field: from
@@ -3486,8 +3560,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     /// <summary>Publishes a state change, naming the fields whose view moved: through the root's relay as one render batch where one is attached, else straight to the handlers.</summary>
     private void NotifyStateChanged()
     {
+        if (_disposed)
+        {
+            // The raise reaches no handler once disposed, so the diff would be work for nothing.
+            return;
+        }
+
         var args = DescribeChange();
-        if (_relay is { } relay && !_disposed)
+        if (_relay is { } relay)
         {
             relay.Publish(args);
             return;
@@ -3951,16 +4031,45 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         // The arm sits in a finally: a handler that throws as the rebuild publishes the reply has
         // already seen the held-back set, and without the re-check those fields would show the
-        // server's answer alone until the next edit, submit or load.
+        // server's answer alone until the next edit, submit or load. The rebuild's publish counts
+        // the arm that follows it when the arm's own guards say it will happen (see
+        // _reAnswerArmsBeforeReturn).
+        var outerPromise = _reAnswerArmsBeforeReturn;
+        _reAnswerArmsBeforeReturn = outerPromise || HeldBackRecheckArms(landed, clientFaulted);
         try
         {
             RebuildStore();
         }
         finally
         {
+            _reAnswerArmsBeforeReturn = outerPromise;
             RecheckHeldBackAnswers(landed, clientFaulted);
         }
     }
+
+    /// <summary>Whether an apply's re-check is due: something landed, the held-back set holds fields, the client had not faulted, the engine lives, no refresh is armed or deferred, nothing on its way answers the latest edit, and the wait passes.</summary>
+    /// <param name="landed">Whether the apply landed at least one issue.</param>
+    /// <param name="clientFaulted">Whether a check had faulted before the apply cleared the fault.</param>
+    /// <returns><see langword="true"/> when <see cref="RecheckHeldBackAnswers"/> arms the re-check or waits for a probe to do so.</returns>
+    private bool HeldBackRecheckDue(bool landed, bool clientFaulted) =>
+        landed
+        && _heldBackFields.Count > 0
+        && !clientFaulted
+        && !_disposed
+        && !_refreshArmed
+        && !_refreshFireDeferred
+        && !HeldBackAnswerOnItsWay
+        && UsableWait(_options.RefreshDebounce) is not null;
+
+    /// <summary>Whether a <see cref="FormidableOptions.TrackFormValidity"/> probe begun at the latest edit stamp is still out, computing the rules an apply's re-check would run.</summary>
+    private bool ProbeComputesLatestEdit => _probeOut != 0 && _lastProbeEditStamp == _editStamp;
+
+    /// <summary>Whether <see cref="RecheckHeldBackAnswers"/> arms the re-check itself for these arguments, rather than arming nothing or waiting for a probe.</summary>
+    /// <param name="landed">Whether the apply landed at least one issue.</param>
+    /// <param name="clientFaulted">Whether a check had faulted before the apply cleared the fault.</param>
+    /// <returns><see langword="true"/> when the arm follows the apply's publish.</returns>
+    private bool HeldBackRecheckArms(bool landed, bool clientFaulted) =>
+        HeldBackRecheckDue(landed, clientFaulted) && !ProbeComputesLatestEdit;
 
     /// <summary>Arms the whole-form re-check at zero for the held-back set, unless the apply landed nothing, the client had faulted, the re-check cannot run, or something on its way answers the latest edit; waits for a probe still computing that edit.</summary>
     /// <param name="landed">Whether the apply landed at least one issue.</param>
@@ -3988,19 +4097,12 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // (RefreshArmedByEdit), so standing the check down drops no field's valid class.
     private void RecheckHeldBackAnswers(bool landed, bool clientFaulted)
     {
-        if (!landed
-            || _heldBackFields.Count == 0
-            || clientFaulted
-            || _disposed
-            || _refreshArmed
-            || _refreshFireDeferred
-            || HeldBackAnswerOnItsWay
-            || UsableWait(_options.RefreshDebounce) is null)
+        if (!HeldBackRecheckDue(landed, clientFaulted))
         {
             return;
         }
 
-        if (_probeOut != 0 && _lastProbeEditStamp == _editStamp)
+        if (ProbeComputesLatestEdit)
         {
             _heldBackRecheckOwed = true;
             return;

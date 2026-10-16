@@ -1,3 +1,4 @@
+using FluentValidation;
 using Formidable.Blazor.Tests.Fixtures;
 using Formidable.Introspection;
 using Microsoft.AspNetCore.Components.Forms;
@@ -46,26 +47,102 @@ public class HeldGreenInlineReadTests
         Assert.True(form.Engine.GetFieldState(form.Name).WouldPassSubmit);
     }
 
+    // A decline with nothing on its way is asked again at each read, so a submit that begins
+    // afterwards re-serves the held answer for as long as its check runs. Tracking is off at the
+    // edit (options are read at each use) under the window that never closes, so the edit starts
+    // and arms nothing and the vouch is withheld, as documented; the submit's own check is then
+    // the re-answer on its way, and the name is green while its gated rule waits.
+    [Fact]
+    public async Task A_submit_beginning_after_a_decline_re_serves_the_held_vouch_while_it_runs()
+    {
+        var validator = new GatedValidator();
+        validator.Gate.SetResult();
+        using var form = GreenNameForm.Build(validator);
+        form.Options.TrackFormValidity = false;
+        validator.Gate = new TaskCompletionSource();
+
+        form.Order.Description = "still ok";
+        form.EditContext.NotifyFieldChanged(form.Description);
+        Assert.False(form.Engine.GetFieldState(form.Name).WouldPassSubmit, "precondition: nothing is on its way, so the vouch is withheld");
+
+        var submit = form.Engine.ValidateForSubmitAsync();
+        for (var i = 0; i < 50 && !form.Engine.IsValidating; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(form.Engine.IsValidating, "the gated check is not running");
+        Assert.True(form.Engine.GetFieldState(form.Name).WouldPassSubmit);
+
+        validator.Gate.SetResult();
+        await submit;
+    }
+
+    // The handler's promise never outranks the bound. A pass hung past HeldVouchBound has stopped
+    // vouching for every other field, and a new edit's handler, which will arm a re-check the hung
+    // pass defers, must not put the green back for the one publish it runs in. Mutation: test the
+    // promise before the bound in ReAnswerOnItsWay; the touch publish then vouches and the first
+    // read after the handler declines.
+    [Fact]
+    public async Task A_new_edits_touch_publish_does_not_vouch_past_the_bound_of_a_hung_pass()
+    {
+        var validator = new GatedValidator();
+        validator.Gate.SetResult();
+        using var form = GreenNameForm.Build(validator);
+        validator.Gate = new TaskCompletionSource();
+        var location = new FieldIdentifier(form.Order, nameof(EngineOrder.Location));
+
+        // An edit after the hold, so the held answer is served across it on a re-answer's promise.
+        form.Order.Description = "still ok";
+        form.EditContext.NotifyFieldChanged(form.Description);
+        Assert.True(form.Engine.GetFieldState(form.Name).WouldPassSubmit, "precondition: the name is not green across the edit");
+
+        // A submit that hangs on the gated rule, then the bound passes.
+        var submit = form.Engine.ValidateForSubmitAsync();
+        for (var i = 0; i < 50 && !form.Engine.IsValidating; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(form.Engine.IsValidating, "the gated check is not running");
+        form.Time.Advance(SubmitCoverageTracker.HeldVouchBound);
+        Assert.False(form.Engine.GetFieldState(form.Name).WouldPassSubmit, "precondition: the hung pass still vouches past the bound");
+        var reads = new List<bool>();
+        form.Engine.StateChanged += (_, _) => reads.Add(form.Engine.GetFieldState(form.Name).WouldPassSubmit);
+
+        form.EditContext.NotifyFieldChanged(location);
+
+        Assert.NotEmpty(reads);
+        Assert.All(reads, read => Assert.False(read, "the touch publish vouched past the bound"));
+        Assert.False(form.Engine.GetFieldState(form.Name).WouldPassSubmit);
+
+        validator.Gate.SetResult();
+        await submit;
+    }
+
     /// <summary>An engine whose customer name wears green on a landed validity check, and whose description has never been touched.</summary>
     private sealed class GreenNameForm : IDisposable
     {
         public required FormidableEngine<EngineOrder> Engine { get; init; }
         public required EditContext EditContext { get; init; }
+        public required FormidableOptions Options { get; init; }
         public required EngineOrder Order { get; init; }
         public required FieldIdentifier Name { get; init; }
         public required FieldIdentifier Description { get; init; }
+        public required FakeTimeProvider Time { get; init; }
 
-        public static GreenNameForm Build()
+        public static GreenNameForm Build(IValidator<EngineOrder>? validator = null)
         {
             var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer { Name = "Bo" } };
             var editContext = new EditContext(order);
             var time = new FakeTimeProvider();
+            var options = new FormidableOptions { TrackFormValidity = true, LiveDebounce = Timeout.InfiniteTimeSpan };
             var engine = new FormidableEngine<EngineOrder>(
                 order,
                 editContext,
-                new FluentValidationModelValidator<EngineOrder>(new DeclarationOrderValidator()),
+                new FluentValidationModelValidator<EngineOrder>(validator ?? new DeclarationOrderValidator()),
                 new ReflectionModelIntrospector(),
-                new FormidableOptions { TrackFormValidity = true, LiveDebounce = Timeout.InfiniteTimeSpan },
+                options,
                 time);
             var name = new FieldIdentifier(order.Customer!, nameof(EngineCustomer.Name));
 
@@ -80,12 +157,38 @@ public class HeldGreenInlineReadTests
             {
                 Engine = engine,
                 EditContext = editContext,
+                Options = options,
                 Order = order,
                 Name = name,
                 Description = new FieldIdentifier(order, nameof(EngineOrder.Description)),
+                Time = time,
             };
         }
 
         public void Dispose() => Engine.Dispose();
+    }
+
+    /// <summary>A synchronous description rule and a name rule that waits on <see cref="Gate"/> and then passes.</summary>
+    private sealed class GatedValidator : DraftSubmitValidator<EngineOrder>
+    {
+        public TaskCompletionSource Gate { get; set; } = new();
+
+        protected override void ConfigureDraftRules()
+        {
+        }
+
+        protected override void ConfigureSubmitRules()
+        {
+            RuleFor(x => x.Description).NotEmpty().WithMessage("Description is required");
+
+            RuleFor(x => x.Customer!.Name)
+                .MustAsync(async (_, ct) =>
+                {
+                    await Gate.Task.WaitAsync(ct);
+                    return true;
+                })
+                .WithMessage("Customer name failed its async check")
+                .When(x => x.Customer is not null);
+        }
     }
 }
