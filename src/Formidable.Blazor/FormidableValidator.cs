@@ -497,7 +497,14 @@ public sealed class FormidableValidator<TModel> : ComponentBase, IDisposable
         builder.OpenComponent<CascadingValue<FormidableFormContext>>(0);
         builder.AddComponentParameter(1, "IsFixed", true);
         builder.AddComponentParameter(2, "Value", _context);
-        builder.AddComponentParameter(3, "ChildContent", ChildContent(_context));
+        var content = ChildContent(_context);
+        builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
+        {
+            inner.OpenComponent<StateChangedRelay>(0);
+            inner.AddComponentParameter(1, nameof(StateChangedRelay.Publisher), _engine!);
+            inner.CloseComponent();
+            inner.AddContent(2, content);
+        }));
         builder.CloseComponent();
         // IsFixed: same reasoning as FormidableForm's identical cascade — a non-fixed
         // CascadingValue re-supplies every subscriber's parameters from a stale snapshot on every

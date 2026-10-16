@@ -57,6 +57,26 @@ flowchart TD
     READ --> STORE["ValidationMessageStore: a projection rebuilt whenever a source moves"]
 ```
 
+### How a publish reaches the kit
+
+Every `StateChanged` publish leaves the engine through one method, `NotifyStateChanged`, which the
+eight sites that move state call. Under a root it hands the event to a relay component the root
+renders first in its cascade (`StateChangedRelay`); an engine with no root raises the event itself.
+
+The relay renders nothing. It queues the event and calls its own `StateHasChanged`. With no render
+batch in progress the renderer runs that render at once, inside the call, and the render raises
+the event. Every subscriber's `StateHasChanged` then lands in the batch the relay opened, so one
+publish is one batch.
+
+With a render batch already in progress (an event dispatch, or a render in progress, this relay's
+own included), the render cannot run yet. The relay then raises the event directly, as an engine
+with no root does, and Blazor coalesces those renders into the running batch. Either way the
+handlers run before the publish returns, in subscription order, once per publish.
+
+A handler's throw during the relay's render is kept and rethrown from the publish, so a call that
+raises the event (`ApplyServerIssues`, `MarkTouched`) still gets it, and the engine's own work
+still hands it to the boundary around the form.
+
 ## The pass kinds
 
 Every pass runs one lifecycle (`RunPassAsync`): begin, taking a version and a cancellation token;
@@ -1579,8 +1599,12 @@ edit stamp, and `MarkTouched` raises `StateChanged` inline whenever the field wa
 
 With no `LiveDebounce` the live pass starts inside the same call, and its pending publish rides the
 render dispatch (`InvokeAsync`), which runs inline when the caller is already on the renderer's
-context, as an event handler is. Every component observing the engine answers each publish with
-`InvokeAsync(StateHasChanged)`, so it re-renders before the notify returns.
+context, as an event handler is.
+
+Every component observing the engine answers each publish with `InvokeAsync(StateHasChanged)`, so
+it re-renders before the notify returns. Inside an event dispatch the relay raises directly; outside
+one it raises from its own render, which runs inside the publish
+([How a publish reaches the kit](#how-a-publish-reaches-the-kit)).
 
 That is why replacing an owner and notifying before rendering trips the checks in the middle of the
 notify. The re-render re-supplies the parameters of the bound components inside the wrapper, each

@@ -1207,9 +1207,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         builder.AddComponentParameter(2, "Value", _context);
         builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(inner =>
         {
-            inner.OpenComponent<EditForm>(0);
-            inner.AddComponentParameter(1, nameof(EditForm.EditContext), _engine!.EditContext);
-            inner.AddComponentParameter(2, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
+            // First in the cascade, so it is attached before any subscriber binds; see StateChangedRelay.
+            inner.OpenComponent<StateChangedRelay>(0);
+            inner.AddComponentParameter(1, nameof(StateChangedRelay.Publisher), _engine!);
+            inner.CloseComponent();
+
+            inner.OpenComponent<EditForm>(2);
+            inner.AddComponentParameter(3, nameof(EditForm.EditContext), _engine!.EditContext);
+            inner.AddComponentParameter(4, nameof(EditForm.OnSubmit), EventCallback.Factory.Create<EditContext>(this, _ => SubmitAsync()));
             // Rendered BEFORE the splat, so a consumer can splat it away (novalidate="@false").
             // The default is deliberate: without it, any native constraint attribute inside the
             // form — a splatted required/pattern/min/max, a type="email" — has the browser block
@@ -1217,17 +1222,17 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             // visitor sees stops being FluentValidation's. novalidate switches off only that
             // interactive check: :invalid still matches, ValidityState is still computed, and
             // checkValidity()/reportValidity() still work when called.
-            inner.AddAttribute(3, "novalidate", true);
-            inner.AddMultipleAttributes(4, AdditionalAttributes!);
+            inner.AddAttribute(5, "novalidate", true);
+            inner.AddMultipleAttributes(6, AdditionalAttributes!);
             // Rendered after the splat: id and tabindex win the duplicate-attribute race outright,
             // because the defensive gate's summary entry addresses the form by this id (see
             // FormidableFieldId), and a consumer-supplied id or tabindex would break that the same
             // way a consumer-supplied input id would — see FormidableInputBase<TValue>'s identical
             // policy. aria-describedby, added in this same position, does not win outright — see
             // ComputeModelLevelAriaDescribedBy for why it merges instead.
-            inner.AddAttribute(5, "id", _modelLevelFieldId);
-            inner.AddAttribute(6, "tabindex", "-1");
-            inner.AddAttribute(7, "aria-describedby", ComputeModelLevelAriaDescribedBy());
+            inner.AddAttribute(7, "id", _modelLevelFieldId);
+            inner.AddAttribute(8, "tabindex", "-1");
+            inner.AddAttribute(9, "aria-describedby", ComputeModelLevelAriaDescribedBy());
             if (Rendering is FormRendering.Inert)
             {
                 // Also after the splat, and for the same reason id is: what it prevents is the
@@ -1235,10 +1240,10 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
                 // though, because an explicitly false attribute added after a splat removes the
                 // splatted one of the same name — and a page's own inert, for its own reasons, is
                 // no business of this form's outside the window.
-                inner.AddAttribute(8, "inert", true);
+                inner.AddAttribute(10, "inert", true);
             }
 
-            inner.AddComponentParameter(9, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
+            inner.AddComponentParameter(11, nameof(EditForm.ChildContent), (RenderFragment<EditContext>)(_ => ChildContent?.Invoke(_context!) ?? (_ => { })));
             inner.CloseComponent();
         }));
         builder.CloseComponent();

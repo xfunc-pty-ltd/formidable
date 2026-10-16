@@ -384,7 +384,7 @@ public class FormidableFormComponentTests : BunitContext
         var cut = RenderForm(order);
         var descriptionField = new FieldIdentifier(order, nameof(EngineOrder.Description));
 
-        cut.Instance.Engine!.MarkTouched(descriptionField);
+        await cut.InvokeAsync(() => cut.Instance.Engine!.MarkTouched(descriptionField));
         Assert.True(cut.Instance.Engine!.GetFieldState(descriptionField).IsTouched);
 
         await cut.InvokeAsync(() => cut.Find("form").Submit());

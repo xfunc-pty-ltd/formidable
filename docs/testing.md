@@ -390,6 +390,11 @@ still. Three habits cover it:
   event can aim that event at the old handler, which fails the test with
   `UnknownEventHandlerIdException`. Inside `InvokeAsync`, a render from anything else waits until
   the lambda returns or awaits.
+- **Engine calls that publish go inside `InvokeAsync` too.** `Engine.MarkTouched(...)`,
+  `Engine.ApplyServerIssues(...)`, `EditContext.NotifyFieldChanged(...)` and the
+  `FormidableFieldContext` helpers that reach them (`NotifyChanged()`, `MarkTouched()` and the edit
+  helpers) each raise `StateChanged`, and a publish is made on the renderer's dispatcher. Called
+  from the test thread, they throw Blazor's dispatcher error.
 
 Pinning a *pending* state needs one more thing, because "checking…" is by definition gone by the
 time the rule answers. Hold the rule open with a `TaskCompletionSource` the test controls: assert

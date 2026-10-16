@@ -22,7 +22,7 @@ namespace Formidable.Blazor;
 /// deferral.
 /// </para>
 /// </remarks>
-public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IStaleRegistrationReporter, IDisposable
+public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFieldReader, IStaleRegistrationReporter, IStateChangedPublisher, IDisposable
     where TModel : class
 {
     // Thread discipline, in one place. Every source above mutates on the renderer's dispatcher
@@ -326,6 +326,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     private bool _disposed;
     private HashSet<FieldIdentifier>? _validatingScope;
+
+    // The root's relay, which delivers each publish as one render batch; null with no root, or
+    // after the relay is disposed. See StateChangedRelay for the delivery rules.
+    private StateChangedRelay? _relay;
 
     // Raises the two notifications a flip of a field's hold owes, once per render batch however
     // many fields the batch flips (see OnHeldStateChanged). Its callback does nothing once the
@@ -3451,7 +3455,36 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    private void NotifyStateChanged() => StateChanged?.Invoke(this, FormidableStateChangedEventArgs.Empty);
+    /// <summary>Publishes a state change: through the root's relay as one render batch where one is attached, else straight to the handlers.</summary>
+    private void NotifyStateChanged()
+    {
+        var args = FormidableStateChangedEventArgs.Empty;
+        if (_relay is { } relay && !_disposed)
+        {
+            relay.Publish(args);
+            return;
+        }
+
+        ((IStateChangedPublisher)this).RaiseStateChanged(args);
+    }
+
+    void IStateChangedPublisher.AttachRelay(StateChangedRelay relay) => _relay = relay;
+
+    void IStateChangedPublisher.DetachRelay(StateChangedRelay relay)
+    {
+        if (ReferenceEquals(_relay, relay))
+        {
+            _relay = null;
+        }
+    }
+
+    void IStateChangedPublisher.RaiseStateChanged(FormidableStateChangedEventArgs args)
+    {
+        if (!_disposed)
+        {
+            StateChanged?.Invoke(this, args);
+        }
+    }
 
     /// <inheritdoc />
     /// <param name="cancellationToken">Cancels the check.</param>
@@ -4736,6 +4769,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
 
         _disposed = true;
+        _relay = null;
         EditContext.OnFieldChanged -= HandleFieldChanged;
         _refreshTimer?.Dispose();
         _liveTimer?.Dispose();
