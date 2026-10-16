@@ -159,10 +159,11 @@ export function observeLayout(formId, dotNetRef) {
     const observer = new MutationObserver(() => {
         // One notification per frame. Moving a single field can produce a burst of childList
         // records, and each one taken on its own would cost an interop round trip and a fresh
-        // order resolve. This cannot feed itself: an observer reports DOM changes, and resolving
-        // an order only reads where elements sit; it writes nothing back. So the render the
-        // notification provokes either changes the DOM because the order really did change, which
-        // settles on the next pass, or changes nothing and produces no records at all.
+        // order resolve. The notification provokes that resolve and no render of the form, and
+        // resolving an order only reads where elements sit; it writes nothing back. So the
+        // observer does not feed itself: the one change a notification can lead to is a summary
+        // re-listed in a changed order, whose records provoke one more resolve that finds the
+        // same order and stops.
         if (frame) {
             return;
         }

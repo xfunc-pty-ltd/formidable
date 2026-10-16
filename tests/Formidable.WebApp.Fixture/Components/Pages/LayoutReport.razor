@@ -1,0 +1,57 @@
+@*
+    A form whose contents change shape while no field registers or leaves: a note added and removed
+    beside the fields, and the two fields swapped by key. The browser reports each change to the
+    form, which must answer by measuring where the fields sit, not by redrawing the form. The
+    counter inside the form is what tells those two apart: a redraw re-sets its parameters, a
+    measurement does not.
+*@
+@page "/layout-report"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<h1>Layout report</h1>
+
+<p>
+    <button type="button" id="toggle-note" @onclick="() => _showNote = !_showNote">Toggle note</button>
+    <button type="button" id="swap-fields" @onclick="() => _swapped = !_swapped">Swap fields</button>
+</p>
+
+<FormidableForm Model="_contact">
+    <FormidableSummary />
+
+    @if (_showNote)
+    {
+        <p id="note">A note beside the fields.</p>
+    }
+
+    @foreach (var field in Fields)
+    {
+        <div @key="field">
+            @if (field == "name")
+            {
+                <label>Name
+                    <FormidableInputText @bind-Value="_contact.Name" />
+                </label>
+                <FormidableFieldMessage For="() => _contact.Name" />
+            }
+            else
+            {
+                <label>Email
+                    <FormidableInputText @bind-Value="_contact.Email" />
+                </label>
+                <FormidableFieldMessage For="() => _contact.Email" />
+            }
+        </div>
+    }
+
+    <ParameterSetCounter Token="_contact" />
+
+    <button type="submit">Submit</button>
+</FormidableForm>
+
+@code {
+    private readonly Contact _contact = new();
+    private bool _showNote;
+    private bool _swapped;
+
+    private IEnumerable<string> Fields => _swapped ? ["email", "name"] : ["name", "email"];
+}

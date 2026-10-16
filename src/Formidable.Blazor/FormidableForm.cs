@@ -62,12 +62,6 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // earlier resolve returning afterward can no longer match.
     private int _resolveStamp;
 
-    // The one thing none of the counters above can carry. A keyed reorder MOVES rendered elements
-    // without registering or unregistering anything, so the registry's version — which answers
-    // which fields exist, not where they are — does not move either. Only the browser sees it
-    // happen, so the browser is what says so, and this is what the render that follows reads.
-    private bool _layoutMoved;
-
     // The observer's own half. The module is this component's rather than a shared service's:
     // FormidableJsModule is written so whoever holds one disposes it, and the form is the only
     // thing that knows when its own element stops existing. The reference is created once and
@@ -252,7 +246,7 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         }
     }
 
-    /// <summary>After each render, tells the engine when fields left the page, installs the displaced-click guard once per engine, and asks <see cref="IFormidableFieldOrderService"/> where the fields sit when the set or the layout moved.</summary>
+    /// <summary>After each render, tells the engine when fields left the page, installs the displaced-click guard once per engine, and asks <see cref="IFormidableFieldOrderService"/> where the fields sit when the registered set changed.</summary>
     /// <param name="firstRender">Whether this is the component's first render; not consulted.</param>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -288,26 +282,33 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         await ResolveFieldOrderAsync(version);
     }
 
-    /// <summary>Resolves the reading order when the registry version or a reported layout move changed, else leaves the order in force.</summary>
+    /// <summary>Resolves the reading order when the registry version moved since the last resolve, else leaves the order in force.</summary>
     /// <param name="version">The registry version this render observed.</param>
-    private async Task ResolveFieldOrderAsync(int version)
-    {
-        if (version == _fieldOrderVersion && !_layoutMoved)
-        {
-            return;
-        }
+    private Task ResolveFieldOrderAsync(int version) =>
+        version == _fieldOrderVersion ? Task.CompletedTask : ResolveFieldOrderCoreAsync(version);
 
+    /// <summary>Resolves the reading order for the browser's report of a change under the form element: the registered fields, measured where they sit now, with no render of the form.</summary>
+    // A keyed reorder moves rendered elements without registering or unregistering anything, so
+    // the registry's version, which says which fields exist and not where they sit, does not move
+    // for it; only the browser sees it happen, and this is what its report runs. The version
+    // handed on is the one the last render resolved against, not the registry's current one: a
+    // registration whose render has not reached OnAfterRenderAsync yet keeps its own resolve.
+    private Task ResolveMovedLayoutAsync() => ResolveFieldOrderCoreAsync(_fieldOrderVersion);
+
+    /// <summary>Asks <see cref="IFormidableFieldOrderService"/> where the registered fields sit and hands the engine the answer, unless a resolve started later has already answered.</summary>
+    /// <param name="version">The registry version this resolve answers for.</param>
+    private async Task ResolveFieldOrderCoreAsync(int version)
+    {
         var orderService = Services.GetService<IFormidableFieldOrderService>();
         if (orderService is null)
         {
             return;
         }
 
-        // Cleared before anything below is awaited, for the same reason the version is latched
-        // before the resolve starts: a move reported while this pass is in flight describes a page
-        // the answer already being awaited cannot account for, so it has to survive as a set flag
-        // for the next render to act on rather than be wiped by this pass finishing.
-        _layoutMoved = false;
+        // Latched before anything below is awaited, so a render that lands while this resolve is
+        // in flight starts one of its own only when it observed a newer version. A layout report
+        // that arrives in the window asks again at once, and the stamp below decides which of the
+        // two answers stands.
         _fieldOrderVersion = version;
 
         await EstablishLayoutObserverAsync();
@@ -388,9 +389,14 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         _engine.SetFieldOrder(order);
     }
 
-    // What the browser's report does: record the move and provoke a render, which is where
-    // OnAfterRenderAsync picks it up. The resolve needs a rendered page to measure, and this
-    // arrives on a browser callback rather than on the renderer's own loop.
+    // What the browser's report does: resolve the reading order again, on the renderer's
+    // dispatcher, since the report arrives on a browser callback rather than on the renderer's
+    // own loop. No render is provoked for it. The page the report describes is already drawn, so
+    // a render would add nothing to measure; it would only run the consumer's fragment again,
+    // re-setting the parameters of every component in it that Blazor cannot prove unchanged (any
+    // component handed a model, a list or a callback) for a change that was never theirs. A
+    // component whose render then changed the DOM would make the observer report once more, and
+    // the two would feed each other for as long as the component kept changing it.
     private async Task OnLayoutMovedAsync()
     {
         if (_disposed)
@@ -398,11 +404,36 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
             return;
         }
 
-        _layoutMoved = true;
-
         try
         {
-            await InvokeAsync(StateHasChanged);
+            await InvokeAsync(async () =>
+            {
+                if (_disposed || _engine is null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await ResolveMovedLayoutAsync();
+                }
+                catch (Exception) when (_disposed)
+                {
+                    // Torn down while the browser was answering: there is no reading order left to
+                    // resolve and no component left to report to.
+                }
+                catch (Exception exception)
+                {
+                    // The resolve keeps an interop failure to itself, so what reaches here is a
+                    // throw from code outside this form: the order service's, the OrderIssues
+                    // delegate's, or a StateChanged handler's when the order changed. On the
+                    // render path it left OnAfterRenderAsync for the renderer to handle; here
+                    // there is no lifecycle method to leave, and the script drops whatever its
+                    // callback is answered with, so it is handed to the renderer directly, which
+                    // takes it to the nearest error boundary or its own unhandled path.
+                    await DispatchExceptionAsync(exception);
+                }
+            });
         }
         catch (Exception exception) when (
             exception is ObjectDisposedException or OperationCanceledException)
@@ -449,10 +480,12 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // unregisters and not when the page merely moves the existing ones, which is what every host
     // with no JavaScript already does.
     //
-    // The observer cannot feed itself. It reports DOM changes, and resolving an order only reads
-    // where elements sit (nothing here writes to the page), so the render a report provokes
-    // either changes the DOM because the order genuinely changed, which the following resolve
-    // finds settled, or changes nothing and produces no records to report.
+    // The observer does not feed itself. A report provokes a measuring round trip and no render
+    // (see OnLayoutMovedAsync), and resolving an order only reads where elements sit; nothing
+    // here writes to the page. The one write a report can lead to is the engine's, when the
+    // resolved order differs from the one in force: the kit's surfaces that list issues re-render
+    // in the new order, the observer reports that, the resolve it provokes finds the same order,
+    // and the sequence stops there.
     private async Task EstablishLayoutObserverAsync()
     {
         if (ReferenceEquals(_observedContext, _context))
@@ -605,8 +638,8 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
     // registers or removes a field while no render of the form is waiting for its
     // OnAfterRenderAsync. A batch the form renders in is left to that method, so posting for it
     // would only queue work that finds nothing to do and holds the dispatcher while it runs. A
-    // render that follows a posted reconcile (the layout observer's, say) finds the version
-    // recorded and skips. The disposed test stops a reconcile posted before Dispose from reaching
+    // render that follows a posted reconcile (the page's own, say) finds the version recorded
+    // and skips. The disposed test stops a reconcile posted before Dispose from reaching
     // the engine Dispose tore down, which the form keeps rather than clears.
     private RenderedFieldSetReconciler Reconciler => _reconciler ??= new RenderedFieldSetReconciler(
         registry: () => _disposed ? null : _engine?.Registry,

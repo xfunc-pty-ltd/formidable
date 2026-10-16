@@ -126,7 +126,7 @@ The three seams, and what a double over each one buys:
 | `IFormidableFieldOrderService` | `FormidableForm` asks it for the document order its summary lists issues in. | An order stated without a document, and with it both the issue order and the field a blocked submit focused. |
 
 `FormidableForm` asks for a reading order after any render that changed its registered fields, and
-after one a browser-side observer reports moved the existing elements around.
+again, with no render, whenever a browser-side observer reports that the existing elements moved.
 
 The order seam speaks fields rather than element ids in both directions, so a double states its
 answer in the same currency the assertions are written in:

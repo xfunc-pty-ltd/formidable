@@ -897,8 +897,8 @@ Entries follow the page: within each severity group, issues list in the document
 that render them, so the first error a visitor reads about is the topmost one rather than whichever
 rule the validator declared first.
 
-`FormidableForm` supplies that order. After a render that changed the registered field set, or one a
-browser-side observer reports moved the form's elements around, it asks
+`FormidableForm` supplies that order. After a render that changed the registered field set, and
+whenever a browser-side observer reports that the form's elements moved, it asks
 `IFormidableFieldOrderService` where those fields sit and hands the answer to its engine, which
 sorts `GetVisibleIssues()` by it. The seam is JS-backed, only the browser knowing where an element
 is, and public so a test can fake it ([Testing](testing.md#the-form-under-bunit)).

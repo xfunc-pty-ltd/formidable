@@ -1027,10 +1027,14 @@ field's submit errors, advisories and live issues) and sorts by the page's field
 root resolved one.
 
 `FormidableForm` asks `IFormidableFieldOrderService` for the reading order after a render only when
-the registry's version moved or the module's layout observer (`observeLayout`, private to the
-library's script and no part of the interface) reported a change under the form element (a keyed
-reorder moves elements without a registration changing); a resolve that returns after a newer one
-started is discarded, and an interop failure or a null answer is retried on the next render.
+the registry's version moved. It asks again whenever the module's layout observer (`observeLayout`,
+private to the library's script, outside the interface) reports a change under the form element: a
+keyed reorder moves elements and registers nothing. A resolve that returns after a newer
+one started is discarded, and an interop failure or a null answer is retried on the next render.
+
+The observer's report runs that resolve on the renderer's dispatcher and renders nothing. The page
+the report describes is already drawn, and a render of the form would run the consumer's markup
+again for a change the consumer's components did not make.
 
 Within the submit view the client's errors and advisories are merged first (`MergeServer`): a
 server issue whose message and severity both match one the client already shows is dropped, the

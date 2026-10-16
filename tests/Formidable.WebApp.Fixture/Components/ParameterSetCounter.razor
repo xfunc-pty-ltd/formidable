@@ -1,0 +1,20 @@
+@*
+    A consumer-shaped component inside a form: it does work whenever its parameters are set, and
+    says how often that has happened. Its parameter is an object, which Blazor cannot prove
+    unchanged, so every render of the markup around it re-sets its parameters, as every render does
+    for a component handed a model, a list or a callback. The count rides on an attribute rather
+    than in text, so the counter's own render adds or removes no node under the form.
+*@
+<span id="parameter-sets" data-parameter-sets="@_parameterSets"></span>
+
+@code {
+    [Parameter]
+    public object? Token { get; set; }
+
+    private int _parameterSets;
+
+    protected override void OnParametersSet()
+    {
+        _parameterSets++;
+    }
+}
