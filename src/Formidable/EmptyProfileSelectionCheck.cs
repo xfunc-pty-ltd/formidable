@@ -23,6 +23,12 @@ internal static class EmptyProfileSelectionCheck
     // tenant or query value) grow the record by one entry per distinct value.
     private static readonly ConditionalWeakTable<Type, ConcurrentDictionary<ValidationProfile, byte>> Selecting = new();
 
+    /// <summary>The sentence for an <c>Include</c> built by a factory, which the message cannot look inside.</summary>
+    private const string FactoryIncludeSentence = "An Include built by a factory cannot be read.";
+
+    /// <summary>The sentence for an <c>Include</c> whose kind or validator the reader cannot tell.</summary>
+    private const string UnrecognisedIncludeSentence = "An Include of an unrecognised kind cannot be read.";
+
     /// <summary>Throws when <paramref name="profile"/> selects no rule of <paramref name="validator"/> that checks anything, and the validator's class overrides neither <c>Validate</c> nor <c>ValidateAsync</c>.</summary>
     /// <typeparam name="TModel">The model type the validator accepts.</typeparam>
     /// <param name="validator">The validator whose rules are counted.</param>
@@ -72,28 +78,99 @@ internal static class EmptyProfileSelectionCheck
         selecting.TryAdd(profile, 0);
     }
 
-    /// <summary>The refusal's text: the profile, the validator, the profile's rulesets, and the rulesets the validator's top-level rules carry, or "none".</summary>
+    /// <summary>The refusal's text: the profile, the validator, the profile's rulesets, the rulesets the validator's top-level rules carry (or "none"), and a sentence for each validator it includes.</summary>
     /// <typeparam name="TModel">The model type the validator accepts.</typeparam>
     /// <param name="validator">The validator the profile selects nothing of.</param>
     /// <param name="profile">The profile being refused.</param>
     /// <returns>The message, with each name quoted.</returns>
     // The validator's own rulesets sit beside the profile's, so a misspelt name reads next to the
-    // one it meant. Only the top-level rules are read, as the text says, so the tags on a child
-    // validator's rules and on an included validator's rules are not listed.
+    // one it meant. The included validators follow, each with the rulesets its own rules carry,
+    // because a name the profile meant can live there and nowhere in the top-level list. Every
+    // Include is read whether or not the profile's selector admits it, which is how a factory can
+    // be named here: the selection stops at an admitted factory and counts it as selecting, so one
+    // reaches the message only where the selector skipped it.
     private static string EmptySelectionMessage<TModel>(AbstractValidator<TModel> validator, ValidationProfile profile)
     {
         var ruleSets = string.Join(", ", profile.RuleSets.Select(name => $"'{name}'"));
-        var carried = ((IEnumerable<IValidationRule>)validator)
+        var included = new List<string>();
+        NameIncludedValidators(validator, new HashSet<object>(ReferenceEqualityComparer.Instance) { validator }, included);
+
+        // An identical sentence says nothing the first did not, so a validator included twice, or
+        // two factories, are named once.
+        return $"Profile '{profile.Name}' leaves out the default rules, and no rule of " +
+            $"'{FriendlyTypeName.Of(validator.GetType())}' carries its rulesets ({ruleSets}), so validating " +
+            $"under it would check nothing. Rulesets its top-level rules carry: " +
+            $"{Listed(CarriedRuleSets(validator))}." +
+            string.Concat(included.Distinct().Select(sentence => " " + sentence));
+    }
+
+    /// <summary>The rulesets <paramref name="rules"/> carry, quoted, once each in ordinal order.</summary>
+    /// <param name="rules">One validator's rules.</param>
+    /// <returns>The quoted names; empty when no rule carries a ruleset.</returns>
+    private static List<string> CarriedRuleSets(IEnumerable<IValidationRule> rules) =>
+        rules
             .SelectMany(rule => rule.RuleSets ?? [])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.Ordinal)
             .Select(name => $"'{name}'")
             .ToList();
 
-        return $"Profile '{profile.Name}' leaves out the default rules, and no rule of " +
-            $"'{FriendlyTypeName.Of(validator.GetType())}' carries its rulesets ({ruleSets}), so validating " +
-            $"under it would check nothing. Rulesets its top-level rules carry: " +
-            $"{(carried.Count > 0 ? string.Join(", ", carried) : "none")}.";
+    /// <summary>The names joined with commas, or "none" for an empty list.</summary>
+    /// <param name="names">The quoted names.</param>
+    /// <returns>The text the message prints for the list.</returns>
+    private static string Listed(List<string> names) => names.Count > 0 ? string.Join(", ", names) : "none";
+
+    /// <summary>Adds to <paramref name="sentences"/> one sentence for each <c>Include</c> among <paramref name="rules"/> and, below each validator it holds, the includes that validator makes.</summary>
+    /// <param name="rules">One validator's rules.</param>
+    /// <param name="path">The validators on the way down to <paramref name="rules"/>, compared by reference.</param>
+    /// <param name="sentences">Receives the sentences, in the order the walk meets the includes.</param>
+    // The same reads as the selection walk (ChildValidatorReader, the same factory test and the
+    // same guard against going round), so the message names what the count could look inside and
+    // says plainly what it could not. A reading that fails is unreadable, never an exception: this
+    // runs while the refusal is being raised.
+    private static void NameIncludedValidators(IEnumerable<IValidationRule> rules, HashSet<object> path, List<string> sentences)
+    {
+        foreach (var rule in rules)
+        {
+            if (rule is not IIncludeRule)
+            {
+                continue;
+            }
+
+            foreach (var component in rule.Components)
+            {
+                var holdsFactory = ChildValidatorReader.HoldsFactory(component);
+                if (holdsFactory is not false)
+                {
+                    sentences.Add(holdsFactory is true ? FactoryIncludeSentence : UnrecognisedIncludeSentence);
+                    continue;
+                }
+
+                var reading = ChildValidatorReader.Read(component, rule.TypeToValidate, rule.TypeToValidate);
+                if (reading.Validator is null)
+                {
+                    sentences.Add(UnrecognisedIncludeSentence);
+                    continue;
+                }
+
+                var name = FriendlyTypeName.Of(reading.Validator.GetType());
+                if (reading.Validator is not IEnumerable<IValidationRule> includedRules)
+                {
+                    sentences.Add($"Included validator '{name}' cannot be read.");
+                    continue;
+                }
+
+                if (ChildValidatorReader.RepeatsPath(path, reading.Validator, component, rule.TypeToValidate, rule.TypeToValidate))
+                {
+                    continue;
+                }
+
+                sentences.Add($"Included validator '{name}' carries: {Listed(CarriedRuleSets(includedRules))}.");
+                path.Add(reading.Validator);
+                NameIncludedValidators(includedRules, path, sentences);
+                path.Remove(reading.Validator);
+            }
+        }
     }
 
     /// <summary>Whether <paramref name="selector"/> admits a rule of <paramref name="rules"/> that checks anything: any rule but an <c>Include</c>, or an <c>Include</c> built by a factory, or whose validator has such a rule or cannot be judged.</summary>

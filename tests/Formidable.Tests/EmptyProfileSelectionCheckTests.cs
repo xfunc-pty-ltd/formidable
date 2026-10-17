@@ -77,11 +77,11 @@ public class EmptyProfileSelectionCheckTests
     }
 
     // The top-level rules carry 'Review' twice and 'Approve' once, listed once each in ordinal
-    // order. The included validator's rule carries 'Nested', which no top-level rule carries, so it
-    // is not listed.
-    // Mutation: list the rulesets of the included validator's rules too, or list them in
-    // declaration order, or drop the duplicates' merge, so the first message differs. Mutation:
-    // print an empty list as nothing at all, so the second message differs.
+    // order. The included validator's rule carries 'Nested', which no top-level rule carries, so the
+    // top-level list leaves it out and the sentence after it names it.
+    // Mutation: list the rulesets of the included validator's rules in the top-level list, or list
+    // them in declaration order, or drop the duplicates' merge, so the first message differs.
+    // Mutation: print an empty list as nothing at all, so the second message differs.
     [Fact]
     public void The_message_names_the_profile_the_validator_and_its_top_level_rulesets()
     {
@@ -95,13 +95,96 @@ public class EmptyProfileSelectionCheckTests
         Assert.Equal(
             "Profile 'Escalte' leaves out the default rules, and no rule of " +
             "'CarriedRuleSetsPhantomProfileModelValidator' carries its rulesets ('Escalte', 'Aprove'), " +
-            "so validating under it would check nothing. Rulesets its top-level rules carry: 'Approve', 'Review'.",
+            "so validating under it would check nothing. Rulesets its top-level rules carry: 'Approve', 'Review'. " +
+            "Included validator 'RuleSetPartValidator' carries: 'Nested'.",
             carried.Message);
         Assert.Equal(
             "Profile 'Escalte' leaves out the default rules, and no rule of " +
             "'DefaultOnlyPhantomProfileModelValidator' carries its rulesets ('Escalte', 'Aprove'), " +
             "so validating under it would check nothing. Rulesets its top-level rules carry: none.",
             none.Message);
+    }
+
+    // The child declares its rulesets in the order Draft, Audit, so the sentence naming them in the
+    // other order is the ordinal sort and not the declaration order. The validator itself declares
+    // no rule, so the included validator is the only place the names appear.
+    // Mutation: drop the include clause from the message, so the sentence is missing. Mutation:
+    // list the child's rulesets in declaration order, so 'Draft' leads.
+    [Fact]
+    public void Message_names_each_included_validators_rulesets()
+    {
+        var typo = ValidationProfile.Named("Escalte", includeDefaultRules: false, "Escalte");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => new DraftAuditIncludingPhantomProfileModelValidator().Validate(new PhantomProfileModel(), typo));
+
+        Assert.EndsWith(
+            "Rulesets its top-level rules carry: none. " +
+            "Included validator 'DraftAuditPartValidator' carries: 'Audit', 'Draft'.",
+            exception.Message);
+    }
+
+    // The middle validator declares no rule and includes the innermost, whose rule is in 'A'. Both
+    // are named in the order the walk meets them, the empty one as "none".
+    // Mutation: stop at the first level of includes, so the innermost sentence is missing.
+    // Mutation: print an empty list as nothing at all, so the middle sentence differs.
+    [Fact]
+    public void Message_names_nested_includes_and_an_include_with_no_rulesets()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => new NestedIncludePhantomProfileModelValidator().Validate(new PhantomProfileModel(), OnlyB));
+
+        Assert.EndsWith(
+            "Included validator 'MiddleIncludePhantomProfileModelValidator' carries: none. " +
+            "Included validator 'IncludedPhantomProfileModelValidator' carries: 'A'.",
+            exception.Message);
+    }
+
+    // An Include built by a factory counts as selecting where the selector admits it, so the
+    // refusal never meets one there. This one sits in a ruleset the profile does not select: the
+    // check cannot read what the factory builds, and the message says so rather than list nothing.
+    // Mutation: drop the include clause from the message, so the sentence is missing.
+    [Fact]
+    public void Message_names_a_factory_include_as_unreadable()
+    {
+        var typo = ValidationProfile.Named("Escalte", includeDefaultRules: false, "Escalte");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => new LateFactoryIncludePhantomProfileModelValidator().Validate(new PhantomProfileModel(), typo));
+
+        Assert.EndsWith(
+            "Rulesets its top-level rules carry: 'Late'. An Include built by a factory cannot be read.",
+            exception.Message);
+    }
+
+    // An included validator that cannot list its rules is named, with the plain statement that it
+    // cannot be read, in place of a list that would claim it carries nothing.
+    // Mutation: print such a validator as carrying none, so the sentence differs.
+    [Fact]
+    public void Message_names_an_included_validator_that_cannot_list_its_rules_as_unreadable()
+    {
+        var typo = ValidationProfile.Named("Escalte", includeDefaultRules: false, "Escalte");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => new LateHandRolledIncludePhantomProfileModelValidator().Validate(new PhantomProfileModel(), typo));
+
+        Assert.EndsWith(
+            "Rulesets its top-level rules carry: 'Late'. " +
+            "Included validator 'HandRolledPhantomProfileModelValidator' cannot be read.",
+            exception.Message);
+    }
+
+    // A validator that includes itself is named nowhere in the include sentences: the walk stops
+    // at the validator already on the way down, as the selection walk does.
+    // Mutation: drop the guard against a validator met twice. The walk then recurses until the
+    // stack overflows, which takes the test host down, so run that mutation alone with a filter.
+    [Fact]
+    public void Message_does_not_name_a_validator_that_includes_itself()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => new SelfIncludingPhantomProfileModelValidator().Validate(new PhantomProfileModel(), OnlyB));
+
+        Assert.EndsWith("Rulesets its top-level rules carry: 'A'.", exception.Message);
     }
 
     // The profile is never remembered as empty, so the equal profile built afresh is counted and
@@ -712,6 +795,36 @@ public class EmptyProfileSelectionCheckTests
     public sealed class FactoryIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
     {
         public FactoryIncludePhantomProfileModelValidator() => Include(_ => new IncludedPhantomProfileModelValidator());
+    }
+
+    /// <summary>One rule in <c>Draft</c> and one in <c>Audit</c>, declared in that order.</summary>
+    public sealed class DraftAuditPartValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public DraftAuditPartValidator()
+        {
+            RuleSet("Draft", () => RuleFor(x => x.Name).NotEmpty());
+            RuleSet("Audit", () => RuleFor(x => x.Code).NotEmpty());
+        }
+    }
+
+    /// <summary>Declares no rule of its own, and includes <see cref="DraftAuditPartValidator"/>.</summary>
+    public sealed class DraftAuditIncludingPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public DraftAuditIncludingPhantomProfileModelValidator() => Include(new DraftAuditPartValidator());
+    }
+
+    /// <summary>An include built by a factory, scoped to ruleset <c>Late</c>.</summary>
+    public sealed class LateFactoryIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public LateFactoryIncludePhantomProfileModelValidator() =>
+            RuleSet("Late", () => Include(_ => new DraftAuditPartValidator()));
+    }
+
+    /// <summary>An include of a validator that cannot list its rules, scoped to ruleset <c>Late</c>.</summary>
+    public sealed class LateHandRolledIncludePhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>
+    {
+        public LateHandRolledIncludePhantomProfileModelValidator() =>
+            RuleSet("Late", () => Include(new HandRolledPhantomProfileModelValidator()));
     }
 
     public sealed class SelfIncludingPhantomProfileModelValidator : AbstractValidator<PhantomProfileModel>

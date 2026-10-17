@@ -157,9 +157,16 @@ A plain validator whose class overrides `Validate` or `ValidateAsync` (one that 
 another validator, say) is never refused for selecting nothing: what it validates need not be among
 the rules it declares.
 
-The exception's message ends with the rulesets the validator's top-level rules carry: the rules it
-declares itself, not those of a child or an included validator. So when the profile misspells one of
-those rulesets, the message shows both spellings.
+The exception's message lists the rulesets the validator's top-level rules carry (the rules it
+declares itself, so not those of a child validator). So when the profile misspells one of those
+rulesets, the message shows both spellings.
+
+The message then adds a sentence for each included validator it has not already named (an
+identical sentence is not repeated). It names the validator with the rulesets its rules carry, or
+"none" if it carries none. A validator that cannot list its rules is marked as one the message
+cannot read, and so is an `Include` built by a factory. The message can mark a factory `Include`
+only inside a ruleset the profile does not select, since one outside such a ruleset counts as a
+selected rule.
 
 On the server, a minimal-API route validated with `Validate<TModel>(profile)` lets the exception
 reach the host's exception handling. `[Validate]` never meets it, because every profile it builds
