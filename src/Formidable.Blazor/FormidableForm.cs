@@ -990,6 +990,31 @@ public sealed class FormidableForm<TModel> : ComponentBase, IDisposable
         return engine.MarkServerRequest();
     }
 
+    /// <summary>Whether the form still stands where <paramref name="mark"/> found it, counting a field that has started or stopped rendering although the form has not yet taken that change in.</summary>
+    /// <param name="mark">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when nothing that drops a reply marked with <paramref name="mark"/> has happened since; <see langword="false"/> otherwise, for the default mark, after a <see cref="ResetAsync(TModel?)"/>, and once the form is disposed.</returns>
+    /// <exception cref="InvalidOperationException">No engine has been built yet.</exception>
+    /// <remarks>
+    /// Unlike <see cref="MarkServerRequest"/> and the marked
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/>, it takes no
+    /// such change in and raises no event: while one waits it answers <see langword="false"/>, as a
+    /// marked apply would then drop the reply. The rest of the contract is
+    /// <see cref="IFormidableEngine.IsCurrent"/>'s. Call it from the renderer's synchronization
+    /// context.
+    /// </remarks>
+    // A change OnAfterRenderAsync has not yet taken in moves the generation once it is, so the mark
+    // cannot be current while one waits, and reading that leaves the call free of side effects.
+    public bool IsCurrent(ServerRequestMark mark)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var engine = RequireEngine();
+        return !Reconciler.HasRenderedChange && engine.IsCurrent(mark);
+    }
+
     /// <summary>Applies a server reply as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, focus move included, unless the form has moved on since <paramref name="sentAt"/> was taken.</summary>
     /// <param name="issues">The server's issues for the request <paramref name="sentAt"/> marks; enumerated at most once.</param>
     /// <param name="sentAt">The mark taken as the request was sent.</param>

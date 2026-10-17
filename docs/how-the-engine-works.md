@@ -321,6 +321,7 @@ Either root's `MarkServerRequest()` makes the call at once too, whenever the ver
 the last reconcile, so a change that has rendered counts before the mark. Either root's marked
 `ApplyServerIssues` makes it for any mark but the default one, so a change that has rendered since
 the mark drops the reply ([what replaces the server's answer](#what-replaces-the-servers-answer)).
+Either root's `IsCurrent` makes no call, answering `false` while the version has moved since the last reconcile.
 
 On Blazor Server the form's `OnAfterRenderAsync` runs only once the client acknowledges the render
 batch. A field the form's own render removed keeps its live message (in the summary and the
@@ -1846,14 +1847,27 @@ mark. Their marked `ApplyServerIssues` run it first too, for any mark but the de
 change that has rendered since the mark drops the reply before the root's own reconcile comes
 round.
 
-The engine's own `MarkServerRequest` and marked `ApplyServerIssues` read the generation as it
-stands. A reconcile at a root's mark or marked apply can rebuild the message store, so those calls
-can raise both events.
+The engine's own `MarkServerRequest`, `IsCurrent` and marked `ApplyServerIssues` read the
+generation as it stands. A reconcile at a root's mark or marked apply can rebuild the message
+store, so those calls can raise both events.
 
 The drop itself returns `false` before the engine reads the reply or writes anything: no source
 moves, the message store is not rebuilt, neither event is raised, and `FormidableForm` moves no
 focus. A mark that is still current runs the unmarked apply unchanged and returns `true`. The
 default mark holds no token and applies every reply.
+
+`IsCurrent` is that test with nothing applied: the engine's token, both readings where the mark
+found them, and an engine not yet disposed. The marked apply calls it, so the two cannot drift
+apart. The default mark holds no token, so it is never current, although the marked apply applies
+every reply given it.
+
+Each root's `IsCurrent` runs no reconcile. While the registry has moved since the root's last one,
+it answers `false`: every reconcile that returns empties the verdict store and moves the
+generation, so the mark could not be current once the change was taken in. A reconcile a throw cut
+short records no version, so the change still reads as waiting.
+
+For any mark but the default one, the root's answer therefore agrees with what a marked apply at
+that moment would decide, and the call raises neither event.
 
 At read time the submit view merges client-first: `MergeServer` drops a server issue whose message
 and severity both match one the client already shows, and `ExceptShadowed` is the separate,

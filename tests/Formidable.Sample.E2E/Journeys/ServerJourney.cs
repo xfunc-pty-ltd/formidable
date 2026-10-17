@@ -7,8 +7,9 @@ namespace Formidable.Sample.E2E;
 /// <summary>
 /// The server round trip: a rejected request applies at the severity it carries (errors block,
 /// advisories don't), a resubmission replaces the previous verdict rather than stacking on it, a
-/// reply to a send the visitor has since changed is dropped, and the same filter answers behind
-/// either hosting style the page can post to.
+/// reply to a send the visitor has since changed is dropped (or, when the server accepted that
+/// send and no later send has left, reported as an older send's), and the same filter answers
+/// behind either hosting style the page can post to.
 /// </summary>
 [Collection("e2e")]
 public sealed class ServerJourney(SampleAppFixture app)
@@ -19,6 +20,7 @@ public sealed class ServerJourney(SampleAppFixture app)
     private const string SkuRequired = "SKU is required";
     private const string HyphenAdvisory = "Hyphens make order references harder to read aloud";
     private const string Accepted = "Server accepted the order.";
+    private const string OlderAccepted = "An older send was accepted; the form has moved since.";
 
     [E2EFact]
     public async Task Server_advisories_render_beside_the_errors_and_outlive_them()
@@ -232,6 +234,75 @@ public sealed class ServerJourney(SampleAppFixture app)
         await page.WaitForTimeoutAsync(1_500);
         await Expect(MessagesFor(page, "sku")).ToHaveCountAsync(0);
         await Expect(SummaryBands(page)).ToHaveCountAsync(0);
+        await Expect(page.Locator("p[role='status']")).ToHaveTextAsync(Accepted);
+    }
+
+    // An older send the server accepts after the visitor has moved on. The order goes out complete
+    // and its request is held in the browser. The visitor then changes the description, and the
+    // request goes through. The server accepts the order it was sent, which is no longer the one on
+    // screen, so the status line says an older send was accepted instead of saying the order was.
+    [E2EFact]
+    public async Task An_older_send_accepted_after_an_edit_says_the_form_has_moved()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        await TypeAsync(Field(page, "description"), "Q3 restock");
+        await TabAsync(page);
+        await Field(page, "sku").FillAsync("ABC123");
+        await TabAsync(page);
+
+        await using var held = await HeldRequest.HoldNextAsync(page, "**/api/orders/", "POST");
+        await SendAsync(page);
+        await held.RequestedAsync();
+
+        await Field(page, "description").FillAsync("Q4 restock");
+        await TabAsync(page);
+
+        var accepted = page.WaitForResponseAsync(
+            response => response.Request.Method == "POST" && response.Url.Contains("/api/orders/", StringComparison.Ordinal) && response.Status == 200,
+            new() { Timeout = AsyncTimeoutMs });
+        held.Release();
+        await accepted;
+
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync(OlderAccepted, new() { Timeout = AsyncTimeoutMs });
+    }
+
+    // Two overlapping sends the server accepts, the older reply last. The first send's request is
+    // held in the browser, the visitor edits the description and sends again, and that send is
+    // accepted. The first reply then arrives, also a 200, for an order that has since changed. The
+    // status line describes the latest send, so it keeps reading that the order was accepted. The
+    // wait after the reply arrives is long enough for the page to have handled it, which is what
+    // makes the unchanged line mean something.
+    [E2EFact]
+    public async Task An_older_accepted_reply_after_a_newer_send_leaves_the_status_alone()
+    {
+        await using var session = await app.NewPageAsync("/server");
+        var page = session.Page;
+
+        await TypeAsync(Field(page, "description"), "Q3 restock");
+        await TabAsync(page);
+        await Field(page, "sku").FillAsync("ABC123");
+        await TabAsync(page);
+
+        await using var first = await HeldRequest.HoldNextAsync(page, "**/api/orders/", "POST");
+        await SendAsync(page);
+        await first.RequestedAsync();
+
+        await Field(page, "description").FillAsync("Q4 restock");
+        await TabAsync(page);
+        await SendAsync(page);
+        await Expect(page.Locator("p[role='status']"))
+            .ToHaveTextAsync(Accepted, new() { Timeout = AsyncTimeoutMs });
+
+        var late = page.WaitForResponseAsync(
+            response => response.Request.Method == "POST" && response.Url.Contains("/api/orders/", StringComparison.Ordinal) && response.Status == 200,
+            new() { Timeout = AsyncTimeoutMs });
+        first.Release();
+        await late;
+        await page.WaitForTimeoutAsync(1_500);
+
         await Expect(page.Locator("p[role='status']")).ToHaveTextAsync(Accepted);
     }
 

@@ -116,6 +116,7 @@ The members a page calls:
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned). |
 | `ApplyServerIssues(...)` | Applies a server verdict — a sequence of issues, or a deserialized `FormidableValidationProblem`. Focuses the page's first error where the payload carries one, under `FocusFirstErrorOnInvalidSubmit` — [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. Given the mark `MarkServerRequest()` took, it first catches up with any field that has started or stopped rendering, as marking does, then drops a reply the form has moved on from since the mark ([what counts](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)), moves no focus for it, and returns `false`. |
 | `MarkServerRequest()` | Marks the form as a request leaves, for a marked `ApplyServerIssues` to check its reply against. Before marking, it catches up with any field that has started or stopped rendering, so a row change that has rendered comes before the mark. Catching up can rebuild the form's messages, so the call can raise `OnValidationStateChanged` and `StateChanged` ([How do I stop a late reply showing over newer values?](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)). |
+| `IsCurrent(ServerRequestMark)` | Answers whether the form still stands where the mark found it, by the rule a marked `ApplyServerIssues` drops a reply by, so a page can tell whether the form has moved since a request the server accepted left. A field that has started or stopped rendering counts as soon as it has rendered, but the call catches up with nothing and raises neither `OnValidationStateChanged` nor `StateChanged`. The default mark is never current ([what counts](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)). |
 | `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine), where `IsValidating`, `HasSubmitted` and `IsFormValid` are read. `IsFormValid` is kept current only while [`TrackFormValidity`](options.md#trackformvalidity) is on. With it off, `IsFormValid` keeps its last answer, `false` on a form that has never tracked. |
 
 Call the methods from the renderer's synchronization context, and after the form's first render.
@@ -129,8 +130,8 @@ Once the form is disposed, `Engine` still returns the last engine it built, now 
 awaiting its answer at disposal does, and `FocusFirstErrorAsync` answers `false`.
 
 A server reply that arrives after the form is disposed is dropped, so its handler needs no check
-that the form is still there; a marked apply returns `false`, and `MarkServerRequest()` returns the
-default mark.
+that the form is still there; a marked apply and `IsCurrent(...)` return `false`, and
+`MarkServerRequest()` returns the default mark.
 
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before the first render and after disposal alike.
@@ -1126,6 +1127,7 @@ The members a page calls:
 | `FocusFirstErrorAsync()` | [Makes the first-error move on demand](#asking-for-the-first-error-move) (the same code that submit runs) and answers whether an element took focus. |
 | `ApplyServerIssues(...)` | Applies a server verdict, as a sequence of issues or a deserialized `FormidableValidationProblem`, and focuses nothing where `FormidableForm`'s overloads move; [Server integration](server-integration.md#why-did-focus-move-when-i-applied-the-reply) has the round trip. Given the mark `MarkServerRequest()` took, it first catches up with any field that has started or stopped rendering, as marking does, then drops a reply the form has moved on from since the mark ([what counts](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)) and returns `false`. |
 | `MarkServerRequest()` | Marks the form as a request leaves, for a marked `ApplyServerIssues` to check its reply against. Before marking, it catches up with any field that has started or stopped rendering, as `NotifyFieldSetChanged()` does. A new `EditContext` handed to the `EditForm` after the mark drops the reply, as a reset does ([How do I stop a late reply showing over newer values?](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)). |
+| `IsCurrent(ServerRequestMark)` | Answers whether the form still stands where the mark found it, by the rule a marked `ApplyServerIssues` drops a reply by. A field that has started or stopped rendering counts as soon as it has rendered, but the call catches up with nothing and raises neither `OnValidationStateChanged` nor `StateChanged`. A new `EditContext` handed to the `EditForm` after the mark makes it answer `false`, as a reset does. The default mark is never current ([what counts](server-integration.md#how-do-i-stop-a-late-reply-showing-over-newer-values)). |
 | `DiscloseLoadedValuesAsync(CancellationToken)` | [Says what the loaded values have earned](#saying-what-loaded-values-have-earned), that contract whole. |
 | `NotifyFieldSetChanged()` | Reconciles the rendered field set now. Ordinary use never calls it: the component notices a field arriving or leaving on its own, shortly after the render that moved it, so removing a row prunes its live issues and [re-checks the whole form](collections-and-row-identity.md#what-happens-when-a-row-leaves-or-the-list-reorders) unasked ([`/attach`](../samples/Formidable.Sample/Pages/AttachMode.razor) removes a line with `List.Remove` and nothing more). |
 | `Engine` | The engine as the non-generic [`IFormidableEngine`](engine-reference.md#iformidableengine). |
@@ -1139,7 +1141,7 @@ Once the component is disposed, `Engine` reads `null` again and `NotifyFieldSetC
 nothing, while the other methods do nothing and throw nothing. `ValidateForSubmitAsync()` returns a
 blocked outcome carrying nothing, `FocusFirstErrorAsync()` answers `false`, and a server reply that
 arrives after the component is disposed is dropped (a marked apply returns `false`).
-`MarkServerRequest()` returns the default mark.
+`MarkServerRequest()` returns the default mark, and `IsCurrent(...)` answers `false`.
 
 `ApplyServerIssues` checks its argument before anything else, so a `null` reply throws
 `ArgumentNullException` before binding and after disposal alike.

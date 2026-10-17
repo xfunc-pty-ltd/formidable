@@ -173,6 +173,23 @@ A reply the form does not drop applies exactly as an unmarked reply does, and th
 two sends, the older send's reply is dropped whichever arrives first. With no change between them,
 both replies describe the same values.
 
+An accepted request brings back nothing to apply, so the form has nothing to drop. To tell whether
+the form has moved since the request the server accepted left, pass its mark to
+`IsCurrent(sentAt)`. It answers `false` once anything that drops a marked reply has happened since
+the mark, and it changes nothing itself. The default mark marks nothing, so it is never current.
+The sample's status line asks as the accepted reply lands:
+
+```csharp
+_status = _form!.IsCurrent(sentAt)
+    ? "Server accepted the order."
+    : "An older send was accepted; the form has moved since.";
+```
+
+<!-- Excerpt from `samples/Formidable.Sample/Pages/ServerRoundTrip.razor.cs` -->
+
+The sample also numbers its sends, so an accepted reply to a send that a later one has overtaken
+leaves the status line alone.
+
 Your send handler may add or remove rows before it posts, as the sample's `Normalize()` drops blank
 lines. Let that change render before you take the mark, because a row arriving or leaving after the
 mark drops the reply. `MarkServerRequest()` on `FormidableForm` or `FormidableValidator` first takes
@@ -187,14 +204,16 @@ after an earlier `await` renders only once something asks for a render, so call
 
 A row change that renders after the mark drops the reply, even one that rendered only a moment
 before the reply landed. The marked `ApplyServerIssues` overloads on `FormidableForm` and
-`FormidableValidator` take such a change in before they decide.
+`FormidableValidator` take such a change in before they decide. Their `IsCurrent` answers `false`
+while such a change waits, and takes nothing in itself.
 
-`FormidableValidator` has the same `MarkServerRequest()` and `ApplyServerIssues` overloads as
-`FormidableForm`. The engine behind either component's `Engine` property has `MarkServerRequest()`
-too. Its marked `ApplyServerIssues` takes issues rather than the problem, so hand it
-`problem.ToIssues()`. Neither `FormidableValidator` nor the engine moves focus when it applies.
-The engine's own `MarkServerRequest()` and marked `ApplyServerIssues` take no row change in first,
-so mark and apply through the component when your send adds or removes rows.
+`FormidableValidator` has the same `MarkServerRequest()`, `IsCurrent` and `ApplyServerIssues`
+members as `FormidableForm`. The engine behind either component's `Engine` property has
+`MarkServerRequest()` and `IsCurrent` too. Its marked `ApplyServerIssues` takes issues rather than
+the problem, so hand it `problem.ToIssues()`. Neither `FormidableValidator` nor the engine moves
+focus when it applies. The engine's own `MarkServerRequest()` and marked `ApplyServerIssues` take
+no row change in first, and its `IsCurrent` counts one only once the component has taken it in. So
+mark, ask and apply through the component when your send adds or removes rows.
 
 Why: [how the engine works: what replaces the server's answer](how-the-engine-works.md#what-replaces-the-servers-answer).
 
@@ -333,6 +352,8 @@ private async Task Send()
         await Task.Yield();
     }
 
+    var send = ++_latestSend;
+
     // The mark records where the form stands as the order leaves. If the visitor changes a
     // field, or a line comes or goes, before the reply arrives, the form drops the reply
     // instead of showing it over values it was never about.
@@ -341,7 +362,19 @@ private async Task Send()
 
     if (response.IsSuccessStatusCode)
     {
-        _status = "Server accepted the order.";
+        // An accepted order brings back nothing for the form to show or drop, so the page
+        // asks the form whether anything has changed since this send left. When the visitor
+        // has changed a field, or a line has come or gone, the order the server accepted may
+        // not be the one on screen, and the status line says so. A reply to a send that a
+        // later send has overtaken writes nothing: the status line describes the latest send.
+        if (send != _latestSend)
+        {
+            return;
+        }
+
+        _status = _form!.IsCurrent(sentAt)
+            ? "Server accepted the order."
+            : "An older send was accepted; the form has moved since.";
         return;
     }
 

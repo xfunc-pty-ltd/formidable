@@ -28,8 +28,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // Thread discipline, in one place. Every source above mutates on the renderer's dispatcher
     // and only from the still-current pass, except that ApplyServerIssues writes synchronously
     // on the calling thread, which is why it and ValidateForSubmitAsync ask to be called from
-    // the renderer's synchronization context, as MarkServerRequest does for the two readings it
-    // takes. The two stamps that date the submit channel's
+    // the renderer's synchronization context, as MarkServerRequest and IsCurrent do for the two
+    // readings they take and compare. The two stamps that date the submit channel's
     // client answer and the server's answer keep the same rule: _submitAnswerEditStamp moves only
     // beside the stored answer it dates, in a landing's version-gated dispatch, and
     // _serverAnswerEditStamp only in ApplyServerIssues. Pass bookkeeping (_version, _passCts,
@@ -3944,25 +3944,33 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     public ServerRequestMark MarkServerRequest() => new(_markToken, _editStamp, _verdictStore.Generation);
 
     /// <inheritdoc />
+    // The test the marked apply drops a reply by, whose comment gives each part's reason: this
+    // engine's token, both readings where the mark found them, and the engine not disposed. The
+    // default mark carries no token, so it is never current. It reads nothing else and writes
+    // nothing.
+    public bool IsCurrent(ServerRequestMark mark) =>
+        !_disposed
+        && ReferenceEquals(mark.Owner, _markToken)
+        && mark.EditStamp == _editStamp
+        && mark.Generation == _verdictStore.Generation;
+
+    /// <inheritdoc />
     /// <param name="issues">The server's issues for the marked request.</param>
     /// <param name="sentAt">The mark taken as the request was sent.</param>
     /// <returns><see langword="true"/> when the reply was applied; <see langword="false"/> when it was dropped.</returns>
-    // Dropped exactly when a re-check begun as the reply arrives would replace an answer applied at
-    // the mark (the refresh rule in SupersedesServerAnswer): an edit since the mark, or a load,
-    // which moves the edit stamp as it begins; a rendered-field-set change, which moves the
-    // generation; or a mark another engine took. A disposed engine drops its own marks too, since a
-    // page that held it across a reset is applying to a form no longer on the page. The test reads
-    // nothing else and writes nothing, so a dropped reply leaves every source, the message store,
-    // focus and both events exactly as they were. The default mark carries no token, and applies
-    // as the unmarked overload does.
+    // Dropped exactly when the mark is no longer current (IsCurrent), which is when a re-check
+    // begun as the reply arrives would replace an answer applied at the mark (the refresh rule in
+    // SupersedesServerAnswer): an edit since the mark, or a load, which moves the edit stamp as it
+    // begins; a rendered-field-set change, which moves the generation; or a mark another engine
+    // took. A disposed engine drops its own marks too, since a page that held it across a reset is
+    // applying to a form no longer on the page. The test reads nothing else and writes nothing, so
+    // a dropped reply leaves every source, the message store, focus and both events exactly as
+    // they were. The default mark carries no token, so it is never current, and it applies as the
+    // unmarked overload does.
     public bool ApplyServerIssues(IEnumerable<ValidationIssue> issues, ServerRequestMark sentAt)
     {
         ArgumentNullException.ThrowIfNull(issues);
-        if (!sentAt.IsDefault
-            && (_disposed
-                || !ReferenceEquals(sentAt.Owner, _markToken)
-                || sentAt.EditStamp != _editStamp
-                || sentAt.Generation != _verdictStore.Generation))
+        if (!sentAt.IsDefault && !IsCurrent(sentAt))
         {
             return false;
         }

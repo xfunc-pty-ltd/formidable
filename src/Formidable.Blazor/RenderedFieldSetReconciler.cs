@@ -9,7 +9,7 @@ namespace Formidable.Blazor;
 /// </remarks>
 // Read and written on the renderer's dispatcher only: the registry raises Changed from inside a
 // render batch, the post runs back on that dispatcher, and NotifyFieldSetChanged and both roots'
-// MarkServerRequest and marked ApplyServerIssues are documented to be called from it.
+// MarkServerRequest, IsCurrent and marked ApplyServerIssues are documented to be called from it.
 internal sealed class RenderedFieldSetReconciler
 {
     private readonly Func<FieldRegistry?> _registry;
@@ -105,6 +105,20 @@ internal sealed class RenderedFieldSetReconciler
         ReconcileCount++;
         _reconcile();
         _reconciledVersion = version;
+    }
+
+    /// <summary>Whether the registry's version has moved since the last completed reconcile, so that <see cref="ReconcileIfChanged"/> would run the reconcile; <see langword="false"/> while the root has no engine.</summary>
+    // Runs nothing. A root's IsCurrent answers from it instead of reconciling: every
+    // reconcile that returns empties the verdict store and moves its generation, so a mark is never
+    // current while a change waits here. A reconcile a throw cuts short records no version, so the
+    // change still reads as waiting.
+    internal bool HasRenderedChange
+    {
+        get
+        {
+            var registry = _registry();
+            return registry is not null && registry.Version != _reconciledVersion;
+        }
     }
 
     /// <summary>Forgets the last version reconciled, because a rebuilt engine's registry counts from zero and could match it.</summary>

@@ -18,7 +18,8 @@ namespace Formidable.Blazor.Tests;
 /// visitor has edited past is dropped, and so is one after a load, a change to which fields
 /// render, or a reset. A dropped reply changes nothing at all and the apply answers false. A
 /// reply with none of those since its mark applies exactly as an unmarked one does, and an
-/// unmarked apply applies every reply, whenever it arrives.
+/// unmarked apply applies every reply, whenever it arrives. Asked whether a mark is still
+/// current, the form answers by the same rule, and the default mark never is.
 /// </summary>
 /// <remarks>
 /// Most forms here are judged by their server, as /server is: the live profile is the empty
@@ -455,9 +456,9 @@ public class ServerRequestMarkTests : BunitContext
         await Services.DisposeAsync();
     }
 
-    // Once a root is disposed its mark is the default one and its marked apply answers false,
-    // changing nothing, as every late call on a disposed root does nothing. A null reply still
-    // throws first.
+    // Once a root is disposed its mark is the default one, no mark is current, and its marked
+    // apply answers false, changing nothing, as every late call on a disposed root does nothing. A
+    // null reply still throws first.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -476,6 +477,7 @@ public class ServerRequestMarkTests : BunitContext
         await cut.InvokeAsync(() =>
         {
             Assert.Equal(default, form?.MarkServerRequest() ?? validator!.MarkServerRequest());
+            Assert.False(form?.IsCurrent(sentAt) ?? validator!.IsCurrent(sentAt));
             Assert.False(form?.ApplyServerIssues(issues, sentAt) ?? validator!.ApplyServerIssues(issues, sentAt));
             Assert.False(form?.ApplyServerIssues(problem, sentAt) ?? validator!.ApplyServerIssues(problem, sentAt));
             Assert.Throws<ArgumentNullException>(() => form?.ApplyServerIssues((IEnumerable<ValidationIssue>)null!, sentAt) ?? validator!.ApplyServerIssues((IEnumerable<ValidationIssue>)null!, sentAt));
@@ -704,6 +706,251 @@ public class ServerRequestMarkTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // ================================================================ whether a mark is current ====
+
+    // A mark is current from the moment it is taken until the visitor commits an edit or the page
+    // loads values. Asked straight after the mark, and again after a render that moves no field,
+    // the form, attach mode and the engine answer true, and asking raises no event and runs no
+    // rule. After the edit, whether it came from an input or from the page's own notification, or
+    // after the load, they answer false.
+    // Mutation that must break it: leave the edit stamp out of the engine's comparison, and every
+    // row answers true at the end.
+    [Theory]
+    [InlineData("form", "edit")]
+    [InlineData("form", "notify")]
+    [InlineData("form", "load")]
+    [InlineData("validator", "edit")]
+    [InlineData("validator", "load")]
+    [InlineData("engine", "edit")]
+    [InlineData("engine", "load")]
+    public async Task A_mark_is_current_until_an_edit(string route, string change)
+    {
+        var model = new Reservation();
+        var rules = new ReservationRules();
+        var cut = RenderHost(model, rules, Options("judged"), attach: route == "validator");
+        await SettleAsync(cut);
+        var engine = Engine(cut);
+        var events = 0;
+        engine.StateChanged += (_, _) => events++;
+        engine.EditContext.OnValidationStateChanged += (_, _) => events++;
+
+        var sentAt = await MarkAsync(cut, route);
+        await cut.InvokeAsync(() =>
+        {
+            var before = events;
+            Assert.True(IsCurrent(cut, route, sentAt));
+            Assert.Equal(before, events);
+        });
+
+        await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.Caption, "Sending")));
+        await SettleAsync(cut);
+        var runs = rules.Runs;
+        await cut.InvokeAsync(() =>
+        {
+            var before = events;
+            Assert.True(IsCurrent(cut, route, sentAt));
+            Assert.Equal(before, events);
+        });
+        await SettleAsync(cut);
+        Assert.Equal(runs, rules.Runs);
+
+        switch (change)
+        {
+            case "notify":
+                await cut.InvokeAsync(() => engine.EditContext.NotifyFieldChanged(FieldIdentifier.Create(() => model.Code)));
+                break;
+            case "load":
+                await cut.InvokeAsync(() => engine.DiscloseLoadedValuesAsync());
+                break;
+            default:
+                await EditAsync(cut, "Code", "B2");
+                break;
+        }
+
+        await SettleAsync(cut);
+        Assert.False(await cut.InvokeAsync(() => IsCurrent(cut, route, sentAt)));
+        await Services.DisposeAsync();
+    }
+
+    // A component that renders a field arrives or leaves after the mark, and the mark is no longer
+    // current, on either root and on the engine once the root has taken the change in. A nested
+    // component that hides its own field, asked about in the same work item, is a change the root
+    // has not yet taken in: the state the form is in on Blazor Server until the browser
+    // acknowledges a render. Each root answers false at once without taking the change in, so the
+    // call raises no event and runs no reconcile. The engine takes nothing in, so it still answers
+    // true at that moment. Once the root's post has taken the change in, every route answers false.
+    // Mutations that must break it: leave the generation out of the engine's comparison, and every
+    // row but the engine's nested one answers true; drop the roots' test for a change still
+    // waiting, and the roots' nested rows answer true.
+    [Theory]
+    [InlineData("form", "show-note", false)]
+    [InlineData("form", "hide-note", false)]
+    [InlineData("form", "anchor-code", false)]
+    [InlineData("form", "nested-hide", false)]
+    [InlineData("validator", "show-note", false)]
+    [InlineData("validator", "nested-hide", false)]
+    [InlineData("engine", "show-note", false)]
+    [InlineData("engine", "nested-hide", true)]
+    public async Task A_mark_is_not_current_after_a_field_set_change(string route, string change, bool expected)
+    {
+        var model = new Reservation();
+        var cut = RenderHost(model, new ReservationRules(), Options("judged"), attach: route == "validator", showNote: change == "hide-note", nestNote: change == "nested-hide");
+        await SettleAsync(cut);
+        var sentAt = await MarkAsync(cut, route);
+
+        bool current;
+        if (change == "nested-hide")
+        {
+            var engine = Engine(cut);
+            var events = 0;
+            engine.StateChanged += (_, _) => events++;
+            engine.EditContext.OnValidationStateChanged += (_, _) => events++;
+            var reconciles = ReconcileCount(cut);
+            current = await cut.InvokeAsync(() =>
+            {
+                cut.FindComponent<NestedNote>().Instance.Hide();
+                Assert.Equal(reconciles, ReconcileCount(cut));
+                var before = events;
+                var answer = IsCurrent(cut, route, sentAt);
+                Assert.Equal(before, events);
+                Assert.Equal(reconciles, ReconcileCount(cut));
+                return answer;
+            });
+
+            await SettleAsync(cut);
+            Assert.True(ReconcileCount(cut) > reconciles);
+            Assert.False(await cut.InvokeAsync(() => IsCurrent(cut, route, sentAt)));
+        }
+        else
+        {
+            if (change == "anchor-code")
+            {
+                await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.AnchorCode, true)));
+            }
+            else
+            {
+                await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.ShowNote, change == "show-note")));
+            }
+
+            await SettleAsync(cut);
+            current = await cut.InvokeAsync(() => IsCurrent(cut, route, sentAt));
+        }
+
+        Assert.Equal(expected, current);
+        await Services.DisposeAsync();
+    }
+
+    // A reply applied with its mark leaves the mark current, since applying it changes no value
+    // and no field arrives or leaves. The apply answers true, and the mark is still current once
+    // the whole-form re-check the reply arms has run Code's and Name's rules, on either root and on
+    // the engine. The reply's message still stands.
+    // Mutation that must break it: let the unmarked apply count as an edit, and every row answers
+    // false after the apply.
+    [Theory]
+    [InlineData("form")]
+    [InlineData("validator")]
+    [InlineData("engine")]
+    public async Task A_mark_applied_with_its_reply_is_current(string route)
+    {
+        var model = new Reservation();
+        var rules = new ReservationRules();
+        var cut = RenderHost(model, rules, Options("judged"), attach: route == "validator");
+        await SettleAsync(cut);
+        await EditAsync(cut, "Code", "B2");
+        await SettleAsync(cut);
+        var sentAt = await MarkAsync(cut, route);
+        var runs = rules.Runs;
+
+        Assert.True(await cut.InvokeAsync(() => Apply(cut, route, sentAt, new ValidationIssue("Code", "Code B2 is taken"))));
+        Assert.True(await cut.InvokeAsync(() => IsCurrent(cut, route, sentAt)));
+
+        await SettleAsync(cut);
+        Assert.Equal(runs + 2, rules.Runs);
+        Assert.True(await cut.InvokeAsync(() => IsCurrent(cut, route, sentAt)));
+        Assert.Equal(["Code B2 is taken"], Messages(Engine(cut), FieldIdentifier.Create(() => model.Code)));
+        await Services.DisposeAsync();
+    }
+
+    // The default mark marks nothing, so no form can say it still stands where that mark found it.
+    // With nothing changed since the form opened, the form, attach mode and the engine answer false
+    // for it, while a mark taken at the same moment is current. An engine written before the member
+    // answers false for every mark: its own, which is the default one, and a real engine's.
+    // Mutations that must break it: answer true for the default mark, as the marked apply applies
+    // every reply given it, and every row fails; make the interface's own answer true, and the
+    // older engine's answers fail.
+    [Theory]
+    [InlineData("form")]
+    [InlineData("validator")]
+    [InlineData("engine")]
+    public async Task The_default_mark_is_never_current(string route)
+    {
+        var model = new Reservation();
+        var cut = RenderHost(model, new ReservationRules(), Options("judged"), attach: route == "validator");
+        await SettleAsync(cut);
+        var sentAt = await MarkAsync(cut, route);
+        IFormidableEngine older = new EngineWithoutTheMark(Engine(cut));
+
+        await cut.InvokeAsync(() =>
+        {
+            Assert.False(IsCurrent(cut, route, default));
+            Assert.True(IsCurrent(cut, route, sentAt));
+            Assert.False(older.IsCurrent(older.MarkServerRequest()));
+            Assert.False(older.IsCurrent(sentAt));
+        });
+        await Services.DisposeAsync();
+    }
+
+    // The form is reset, attach mode's EditForm is handed a new EditContext, or the page renders
+    // the form away and back, after the mark. The mark is not current on the form as it now
+    // stands, on the form the page re-created it from, or on the engine the page held before,
+    // which the change disposed. A mark the new engine takes is current.
+    // Mutations that must break it: leave the owner out of the engine's comparison, and the rows
+    // asked of the form as it now stands answer true, since the new engine's readings start again
+    // from zero; leave disposal out, and the held engine answers true.
+    [Theory]
+    [InlineData("form", "reset")]
+    [InlineData("form", "re-created")]
+    [InlineData("validator", "new-edit-context")]
+    public async Task A_reset_forms_old_mark_is_not_current(string route, string change)
+    {
+        var model = new Reservation();
+        var cut = RenderHost(model, new ReservationRules(), Options("judged"), attach: route == "validator");
+        await SettleAsync(cut);
+        var held = Engine(cut);
+        var oldForm = route == "form" ? cut.FindComponent<FormidableForm<Reservation>>().Instance : null;
+        var sentAt = await MarkAsync(cut, route);
+
+        switch (change)
+        {
+            case "reset":
+                await cut.InvokeAsync(() => cut.FindComponent<FormidableForm<Reservation>>().Instance.ResetAsync());
+                break;
+            case "re-created":
+                await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.Hidden, true)));
+                await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.Hidden, false)));
+                break;
+            case "new-edit-context":
+                await cut.InvokeAsync(() => cut.Render(p => p.Add(h => h.AttachContext, new EditContext(model))));
+                break;
+        }
+
+        await SettleAsync(cut);
+        await cut.InvokeAsync(() =>
+        {
+            Assert.NotSame(held, Engine(cut));
+            Assert.False(IsCurrent(cut, route, sentAt));
+            Assert.False(held.IsCurrent(sentAt));
+            if (change == "re-created")
+            {
+                Assert.NotSame(oldForm, cut.FindComponent<FormidableForm<Reservation>>().Instance);
+                Assert.False(oldForm!.IsCurrent(sentAt));
+            }
+
+            Assert.True(IsCurrent(cut, route, MarkThrough(cut, route == "validator")));
+        });
+        await Services.DisposeAsync();
+    }
+
     // ================================================================ helpers ====
 
     private static FormidableOptions Options(string config) => config switch
@@ -756,6 +1003,14 @@ public class ServerRequestMarkTests : BunitContext
         "validator-problem" => cut.FindComponent<FormidableValidator<Reservation>>().Instance.ApplyServerIssues(Problem(issues), sentAt),
         "form-problem" => cut.FindComponent<FormidableForm<Reservation>>().Instance.ApplyServerIssues(Problem(issues), sentAt),
         _ => cut.FindComponent<FormidableForm<Reservation>>().Instance.ApplyServerIssues(issues, sentAt),
+    };
+
+    // Called inside the test's own InvokeAsync, as the apply is.
+    private static bool IsCurrent(IRenderedComponent<ReservationHost> cut, string route, ServerRequestMark mark) => route switch
+    {
+        "engine" => Engine(cut).IsCurrent(mark),
+        "validator" => cut.FindComponent<FormidableValidator<Reservation>>().Instance.IsCurrent(mark),
+        _ => cut.FindComponent<FormidableForm<Reservation>>().Instance.IsCurrent(mark),
     };
 
     private static void ApplyUnmarked(IRenderedComponent<ReservationHost> cut, string route, params ValidationIssue[] issues)

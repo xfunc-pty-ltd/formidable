@@ -31,6 +31,10 @@ public partial class ServerRoundTrip
     private string _status = string.Empty;
     private string _endpoint = "/api/orders/";
 
+    // The number of the latest send to leave. An accepted reply to an earlier send leaves the
+    // status line to the later send's reply.
+    private int _latestSend;
+
     private async Task Send()
     {
         // Normalizing before the POST keeps the client's line list identical to what the
@@ -45,6 +49,8 @@ public partial class ServerRoundTrip
             await Task.Yield();
         }
 
+        var send = ++_latestSend;
+
         // The mark records where the form stands as the order leaves. If the visitor changes a
         // field, or a line comes or goes, before the reply arrives, the form drops the reply
         // instead of showing it over values it was never about.
@@ -53,7 +59,19 @@ public partial class ServerRoundTrip
 
         if (response.IsSuccessStatusCode)
         {
-            _status = "Server accepted the order.";
+            // An accepted order brings back nothing for the form to show or drop, so the page
+            // asks the form whether anything has changed since this send left. When the visitor
+            // has changed a field, or a line has come or gone, the order the server accepted may
+            // not be the one on screen, and the status line says so. A reply to a send that a
+            // later send has overtaken writes nothing: the status line describes the latest send.
+            if (send != _latestSend)
+            {
+                return;
+            }
+
+            _status = _form!.IsCurrent(sentAt)
+                ? "Server accepted the order."
+                : "An older send was accepted; the form has moved since.";
             return;
         }
 

@@ -426,6 +426,9 @@ Work top to bottom: the steps build on each other.
       because the form's own copy of the rule still fails it. This accepted send carries no
       error, so it moves focus nowhere. Remove the hyphen and leave the field, and the advisory
       goes
+- [ ] With the network tab's throttling on, send a complete order, then change Description and
+      press Tab before the reply lands. The status line reads "An older send was accepted; the
+      form has moved since.", not "Server accepted the order."
 - [ ] Step 6: the caption rewrites to `POST /api/controller/orders` on the spot. Click
       *Minimal API* and it returns, then click *MVC controller* again. The caption always names
       the URL the next send will use

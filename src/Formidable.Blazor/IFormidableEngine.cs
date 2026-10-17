@@ -151,6 +151,21 @@ public interface IFormidableEngine
     /// </remarks>
     ServerRequestMark MarkServerRequest() => default;
 
+    /// <summary>Whether the form still stands where <paramref name="mark"/> found it, so that a reply to the marked request describes the values and the fields the form holds now.</summary>
+    /// <param name="mark">The mark taken as the request was sent.</param>
+    /// <returns><see langword="true"/> when nothing that drops a reply marked with <paramref name="mark"/> has happened since it was taken; <see langword="false"/> otherwise, for the default mark, which marks nothing, and from an engine without the feature.</returns>
+    /// <remarks>
+    /// What moves the form is what drops a marked reply in
+    /// <see cref="ApplyServerIssues(IEnumerable{ValidationIssue}, ServerRequestMark)"/>, and asking
+    /// changes nothing, so a page can tell whether the form has moved since a request the server
+    /// accepted left. As for <see cref="MarkServerRequest"/>, a component that renders a field
+    /// arriving or leaving counts once the root has taken it in;
+    /// <see cref="FormidableForm{TModel}.IsCurrent"/> and
+    /// <see cref="FormidableValidator{TModel}.IsCurrent"/> count it as soon as it has rendered. Call
+    /// it from the renderer's synchronization context.
+    /// </remarks>
+    bool IsCurrent(ServerRequestMark mark) => false;
+
     /// <summary>Applies a server reply as <see cref="ApplyServerIssues(IEnumerable{ValidationIssue})"/> does, unless the form has moved on since <paramref name="sentAt"/> was taken; a dropped reply changes nothing.</summary>
     /// <param name="issues">The server's issues for the request <paramref name="sentAt"/> marks; enumerated at most once.</param>
     /// <param name="sentAt">The mark taken as the request was sent.</param>
