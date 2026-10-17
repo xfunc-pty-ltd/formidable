@@ -1427,8 +1427,12 @@ public class NeverClosingWindowValidityTests
         Assert.Equal(1, validator.Started);
         Assert.Equal("formidable-valid", editContext.FieldCssClass(name));
 
+        // The re-check lands on a pool thread. Wait for its publish, not for IsFormValid (true
+        // throughout), so the last read sees the landed answer rather than racing the landing.
+        var published = 0;
+        engine.StateChanged += (_, _) => published++;
         validator.Gate.SetResult();
-        await UntilAsync(() => engine.IsFormValid);
+        await UntilAsync(() => published > 0);
         Assert.Equal("formidable-valid", editContext.FieldCssClass(name));
     }
 
