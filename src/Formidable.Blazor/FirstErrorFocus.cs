@@ -14,6 +14,14 @@ internal static class FirstErrorFocus
     /// <summary>The name of both roots' fallback parameter, as the miss diagnostic prints it.</summary>
     private const string FallbackParameterName = "FocusFallback";
 
+    /// <summary>The diagnostic for a miss on the form itself, which the first issue shown reaches when it is the form's own message.</summary>
+    private const string FormMissMessage =
+        "Formidable: the first issue shown is the form's own message, so the focus move aimed at the " +
+        "form, and the form did not take focus: its element takes focus only when it carries the " +
+        "model-level field's id (FormidableFieldId.For(new FieldIdentifier(model, string.Empty))) " +
+        "and tabindex=\"-1\". FormidableForm writes both; under FormidableValidator the page " +
+        "writes them on its EditForm.";
+
     /// <summary>A move counter per focus service instance; the shipped service is scoped, so there is one per circuit or per WebAssembly app.</summary>
     // Keyed on the service rather than kept by a root, because the moves competing for a page's
     // focus come from every root and summary on it, and the service is all they share. Weak, so a
@@ -149,11 +157,21 @@ internal static class FirstErrorFocus
         return landed ? FocusMoveResult.Landed : FocusMoveResult.Missed;
     }
 
-    /// <summary>Writes the focus-miss diagnostic, naming the fallback parameter: a Trace line, and a logged warning when the host has an <see cref="ILoggerFactory"/>.</summary>
+    /// <summary>Writes the focus-miss diagnostic: a Trace line, and a logged warning when the host has an <see cref="ILoggerFactory"/>. A field's diagnostic names the fallback parameter; the form's own message names the form's attributes.</summary>
     /// <param name="services">The root's provider; without an <see cref="ILoggerFactory"/> the Trace line is the whole report.</param>
     /// <param name="issue">The issue whose field the move could not focus.</param>
+    // An empty path is the model-level field, whose element is the form. The form is not a field a
+    // callback recovers: it takes focus where it carries the model-level id and tabindex, so the
+    // field sentence's advice (wire a fallback) would send the reader to the wrong fix. The phrase
+    // "did not take focus" appears in both, because the docs tell a reader to search a log for it.
     private static void ReportFallbackMiss(IServiceProvider services, ValidationIssue issue)
     {
+        if (issue.Path.Length == 0)
+        {
+            FormidableDiagnostics.Warn(FormidableEngineFactory.ResolveLogger(services), FormMissMessage);
+            return;
+        }
+
         var path = DiagnosticPathSanitizer.ForDiagnostic(issue.Path);
         FormidableDiagnostics.Warn(
             FormidableEngineFactory.ResolveLogger(services),
