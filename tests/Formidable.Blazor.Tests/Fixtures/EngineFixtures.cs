@@ -358,8 +358,8 @@ public sealed class AdvisoryAboveErrorValidator : DraftSubmitValidator<EngineOrd
 /// splitting the count by profile, is what keeps the counter discriminating: the live channel
 /// selects the submit profile's own rules unless a test narrows it, so the profile a call carries
 /// does not say which caller made it. What each count means is a matter of arithmetic at the call
-/// site — a pristine engine and one field change cost one validation with tracking off and three
-/// with it on.
+/// site — a pristine engine and one field change cost one validation with tracking off and two
+/// with it on, the live check answering for tracking on the default profiles.
 /// </summary>
 public sealed class CountingValidator<TModel>(IModelValidator<TModel> inner) : IModelValidator<TModel>
 {

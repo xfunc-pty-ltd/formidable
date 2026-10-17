@@ -106,10 +106,10 @@ public class NeverClosingWindowValidityTests
     }
 
     // A pin: it holds whether or not a never-closing window arms a check, and guards the cadence
-    // every other window keeps.
-    // Mutation: drop the never-closing condition, so every LiveDebounce arms the validity check.
-    // Each value here then pays one more whole-form check RefreshDebounce after the change, on top
-    // of the live check and the validity check its own cadence already ran.
+    // every other window keeps. On the default profiles the change's live check runs the submit
+    // profile and answers IsFormValid, so nothing runs beside it.
+    // Mutation: start the validity check beside a live check that runs the submit profile. Each
+    // value here then pays one more whole-form check on its own cadence.
     [Theory]
     [InlineData(null)]
     [InlineData(150)]
@@ -133,9 +133,10 @@ public class NeverClosingWindowValidityTests
         time.Advance(TimeSpan.FromMilliseconds(150)); // closes the finite window; nothing waits on null
 
         // The validator here hides its rule-by-rule capability, so each check is one call: the
-        // change's live check and the validity check that rides its cadence.
+        // change's live check, which also answers IsFormValid.
         var afterCadence = counting.CallCount;
-        Assert.Equal(afterBuild + 2, afterCadence);
+        Assert.Equal(afterBuild + 1, afterCadence);
+        Assert.True(engine.IsFormValid);
 
         time.Advance(TimeSpan.FromHours(1));
         Assert.Equal(afterCadence, counting.CallCount);
@@ -899,9 +900,12 @@ public class NeverClosingWindowValidityTests
         Assert.True(engine.GetFieldState(name).WouldPassSubmit);
     }
 
-    // Mutation: stand the fire down behind a load in flight, as it stands down once a submit has
-    // answered. The load's answer predates the edit made while it ran, and nothing then answers
-    // for that edit.
+    // LiveProfile is narrowed, so the live check that follows the load answers fewer rules than a
+    // submit and leaves the edit's IsFormValid to this check. On the default profiles that live
+    // check answers it.
+    // Mutation: leave a fire that waited for the load unarmed as the load ends. The waiting check
+    // still counts as on its way, so the load's outdated answer owes nothing more, and nothing
+    // answers the edit.
     [Fact]
     public async Task A_check_that_fires_during_a_load_waits_for_it_and_then_runs()
     {
@@ -910,9 +914,11 @@ public class NeverClosingWindowValidityTests
         var time = new FakeTimeProvider();
         var validator = new GatedCountingValidator();
         validator.Gate.SetResult();
+        var options = NeverClosing();
+        options.LiveProfile = ValidationProfile.Draft;
         using var engine = Build(
             order, editContext, new FluentValidationModelValidator<EngineOrder>(validator),
-            NeverClosing(), time);
+            options, time);
         Assert.False(engine.IsFormValid);
 
         // The load reads the empty description and waits on the rule.

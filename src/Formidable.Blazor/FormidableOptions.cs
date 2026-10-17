@@ -90,14 +90,14 @@ public sealed class FormidableOptions
     /// A further change inside the wait restarts it. <see cref="TimeSpan.Zero"/> is a wait of no
     /// width, not a spelling of <see langword="null"/>: the check starts from a timer, not inside
     /// the change. A wait past the timer's limit reads as <see cref="Timeout.InfiniteTimeSpan"/>
-    /// and any other negative one as zero, each named once in a logged warning. With <see cref="TrackFormValidity"/> on, the validity check
-    /// waits for the same window, except under <see cref="Timeout.InfiniteTimeSpan"/>, where
-    /// changes before a submit or server reply run it <see cref="RefreshDebounce"/> after the last
-    /// of them.
+    /// and any other negative one as zero, each named once in a logged warning. With
+    /// <see cref="TrackFormValidity"/> on, <see cref="IFormidableEngine.IsFormValid"/> waits for the
+    /// same window, except under <see cref="Timeout.InfiniteTimeSpan"/>, where changes before a
+    /// submit or server reply run its check <see cref="RefreshDebounce"/> after the last of them.
     /// </remarks>
     public TimeSpan? LiveDebounce { get; set; }
 
-    /// <summary>Whether <see cref="IFormidableEngine.IsFormValid"/> is kept current as the visitor edits (unless <see cref="LiveDebounce"/> and <see cref="RefreshDebounce"/> both never pass), by a whole-form check of the submit profile that shows no message and no "checking", so a Submit button can be disabled. Defaults to <see langword="false"/>.</summary>
+    /// <summary>Whether <see cref="IFormidableEngine.IsFormValid"/> is kept current (unless <see cref="LiveDebounce"/> and <see cref="RefreshDebounce"/> both never pass), by a whole-form check of the submit profile that adds no message and no "checking" of its own, so a Submit button can be disabled. Defaults to <see langword="false"/>.</summary>
     /// <remarks>
     /// The check runs once when the form is built, then at the live check's own cadence, once per
     /// window under <see cref="LiveDebounce"/>. Under a <see cref="LiveDebounce"/> of

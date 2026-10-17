@@ -49,7 +49,7 @@ once per root, at its first interactive render, and [`VerifyRowKeys`](#verifyrow
 | [`SubmitProfile`](#submitprofile) | `ValidationProfile` | `ValidationProfile.Submit` | Which profile a submit, the whole-form re-check, a load of values and `TrackFormValidity` run. |
 | [`RefreshDebounce`](#refreshdebounce) | `TimeSpan` | 300 ms | How long the whole-form re-check waits: after an edit, once a submit or server reply has happened, and after any change to which fields are on screen. The re-check a server reply can start itself adds no wait of its own. Under a `LiveDebounce` that never closes, it also times the validity check. |
 | [`LiveDebounce`](#livedebounce) | `TimeSpan?` | `null` (immediate) | How long after a field change before rules run, instead of at once. |
-| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current with a whole-form validity check, which also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values, and at the check that follows one you edited during. |
+| [`TrackFormValidity`](#trackformvalidity) | `bool` | `false` | Keeps `IsFormValid` current: on the default profiles the live check each change starts answers it, and a whole-form validity check of its own runs where `LiveProfile` narrows, under a `LiveDebounce` that never closes (before the first submit or server reply), and once as the form is built. The answer also feeds the `Valid` class. The exception: with `LiveDebounce` and `RefreshDebounce` both never closing, `IsFormValid` moves only at a submit or a load of values, and at the check that follows one you edited during. |
 | [`NormalizeOnSubmit`](#normalizeonsubmit) | `bool` | `false` | Whether a submit calls `Normalize()` first. |
 | [`ClickRecovery`](#clickrecovery) | `DisplacedClickRecovery` | `Buttons` | Whether a click the page displaced is re-delivered. |
 | [`DisclosureOverride`](#disclosureoverride) | `Func<ValidationIssue, bool?>?` | `null` | A per-issue answer to whether an issue may be shown. |
@@ -207,13 +207,14 @@ and a memo answers the expensive rule's repeat asks
 `LiveDebounce` and a memo work together: the wait cuts how often the check runs, and the memo cuts
 what asking again about the same value costs.
 
-With `TrackFormValidity` on, its validity check waits for the same window (a wait that never passes
-is the exception, below).
+With `TrackFormValidity` on, `IsFormValid` waits for the same window (a wait that never passes is
+the exception, below). On the default profiles the window's live check answers it; where
+`LiveProfile` narrows, a validity check beside that check does.
 
 After a submit or server reply, an edit under a finite `LiveDebounce` starts two waits. The live
 check runs when this window passes, and the whole-form re-check runs
-[`RefreshDebounce`](#refreshdebounce) after the edit. With `TrackFormValidity` on, the validity
-check runs with the live check.
+[`RefreshDebounce`](#refreshdebounce) after the edit. With `TrackFormValidity` on, the live check
+answers `IsFormValid`, or a validity check runs beside it where `LiveProfile` narrows.
 
 `Timeout.InfiniteTimeSpan` is a wait that never passes, so no edit starts a live check. With
 `TrackFormValidity` on, edits before the first submit or server reply start a validity check of
@@ -241,10 +242,13 @@ immediate default for a 400 ms window.
 ### `TrackFormValidity`
 
 `bool`, defaults to `false`. Keeps
-[`IFormidableEngine.IsFormValid`](engine-reference.md#iformidableengine) current (the answer a disabled
-Submit button needs) with a whole-form validity check by the submit profile: once when the form is
-built, then on every field change, or once per window when `LiveDebounce` is set. It shows no
-message and no "checking".
+[`IFormidableEngine.IsFormValid`](engine-reference.md#iformidableengine) current (the answer a
+disabled Submit button needs) with a whole-form check by the submit profile: once when the form is
+built, then on every field change, or once per window when `LiveDebounce` is set.
+
+On the default profiles the live check each change starts is that check. Where `LiveProfile`
+narrows, a validity check of its own runs beside it. Tracking adds no message and no "checking" of
+its own.
 
 A `LiveDebounce` of `Timeout.InfiniteTimeSpan` is a window that never closes, so the check cannot
 wait for it. Before the first submit or server reply, edits start a validity check of their own
@@ -266,31 +270,39 @@ An edit made while a load of values is still checking leaves `IsFormValid` where
 load answers for the values it read. So does a submit whose values you keep changing through all
 three of its checks.
 
-For edits made during a load, or through all three of a submit's checks, the latest edit's own check
-answers `IsFormValid` instead: its own validity check under a window that never closes, the validity
-check its `LiveDebounce` window runs, or the whole-form re-check it brings after a submit.
+For edits made during a load, a later check answers `IsFormValid` instead. On the default profiles
+that is the live check that follows the load. Where `LiveProfile` narrows, it is the latest edit's
+own check: its own validity check under a window that never closes, the validity check its
+`LiveDebounce` window runs, or the whole-form re-check it brings after a submit.
 
-Some edits made during a load, or during a submit's third check, bring no check of their own. With
-`LiveDebounce` unset, an edit during a load before any submit or server reply brings none. A
-validity check runs for that edit `RefreshDebounce` after the load ends. When `RefreshDebounce`
-never passes, the validity check for an edit that brings no check of its own runs as the submit or
-load ends.
+For edits made through all three of a submit's checks, the latest edit's own check answers once the
+submit ends. On the default profiles that is its live check, unless a window that never closes
+holds it. Otherwise it is the validity check its `LiveDebounce` window runs, or the whole-form
+re-check it brings.
+
+Some edits made during a load, or during a submit's third check, bring no check of their own. Where
+`LiveProfile` narrows and `LiveDebounce` is unset, an edit during a load before any submit or server
+reply brings none, and a validity check runs for it `RefreshDebounce` after the load ends. When
+`RefreshDebounce` never passes, the validity check for an edit that brings no check of its own runs
+as the submit or load ends.
 
 Off by default because a form with nothing reading `IsFormValid` gets nothing for the work.
 
-On the default profiles, tracking adds no rule executions to an edit that starts a live check, as
-long as the engine can take the validator rule by rule and every rule answers without waiting.
-Whichever of the validity check and your edit's own check runs first has answered by the time the
-other looks, and the other reuses those answers.
+On the default profiles, tracking adds no rule executions to an edit that starts a live check,
+async rules included: that check runs the submit profile, so its own answer moves `IsFormValid`.
 
-FluentValidation's `AbstractValidator` can be taken rule by rule unless you set
-`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
+It costs extra where `LiveProfile` narrows: the rules the live check skipped still run on every
+edit, in the validity check beside it. An async rule both checks run is paid twice (a memo folds the
+pair into one round trip).
+
+On a validator the engine cannot take rule by rule, each such validity check is one whole
+`SubmitProfile` validation on top of the live check. FluentValidation's `AbstractValidator` can be
+taken rule by rule unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or
+`ValidateAsync`, as
 [Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
 
-It costs extra where `LiveProfile` narrows (the rules the live check skipped still run on every
-edit) and on any other validator, where each validity check is one whole `SubmitProfile`
-validation on top of the live check. Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit
-starts a live check, so each validity check there is work of its own.
+Under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each validity
+check there is work of its own.
 [Async validation](async-validation.md#what-does-trackformvalidity-cost-with-async-rules) has the
 async-rule cost and what happens when several validity checks overlap.
 
@@ -304,9 +316,10 @@ Submit blocks on an error.
 <button type="submit" disabled="@(_form?.Engine?.IsFormValid != true)">Submit</button>
 ```
 
-With tracking off `IsFormValid` keeps its last answer, `false` on a form that has never tracked; with
-it on, `false` until a whole-form check has answered once (a validity check, a submit, a load, or the
-whole-form re-check). Issues a server applied through `ApplyServerIssues` are not part of the answer.
+With tracking off `IsFormValid` keeps its last answer, `false` on a form that has never tracked.
+With it on, it reads `false` until a whole-form check has answered once (a validity check, a live
+check on the default profiles, a submit, a load, or the whole-form re-check). Issues a server
+applied through `ApplyServerIssues` are not part of the answer.
 
 Each time the form is built, the first read with tracking off writes a note naming this option, as a
 logged warning and a `Trace` line. `ResetAsync`, a new model, and a new `EditContext` under

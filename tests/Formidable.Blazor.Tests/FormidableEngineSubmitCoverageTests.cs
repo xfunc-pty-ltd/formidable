@@ -275,12 +275,41 @@ public class FormidableEngineSubmitCoverageTests
 
         editContext.NotifyFieldChanged(Description(order));
 
-        // Three whole-profile validations for one pristine form and one edit: the construction
-        // probe, the edit's live pass, and the edit's own probe. Nothing is shared, because there
-        // is no store to share through — which is the fallback's honest cost and the reason the
-        // count, not the profile, is what this pins.
-        Assert.Equal(3, counting.CallCount);
+        // Two whole-profile validations for one pristine form and one edit: the construction
+        // probe, and the edit's live pass, which runs the submit profile and so answers
+        // IsFormValid itself. Nothing is shared, because there is no store to share through —
+        // which is the fallback's honest cost and the reason the count, not the profile, is what
+        // this pins.
+        Assert.Equal(2, counting.CallCount);
         Assert.True(engine.IsFormValid);
+    }
+
+    // With tracking on, the edit's live check on the default profiles is the whole-model answer
+    // that puts green on a field this validator cannot vouch for rule by rule, in place of a probe
+    // beside it. With tracking off the live check records nothing, so green waits for a check
+    // that answers the whole form. Mutation: drop the coverage record from the live check's
+    // landing, and the tracked row reads no green.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_capability_less_validator_wears_green_from_the_live_check_with_tracking_on(bool tracking)
+    {
+        var order = new EngineOrder { Description = "ok", Customer = new EngineCustomer() };
+        var editContext = new EditContext(order);
+        var counting = new CountingValidator<EngineOrder>(
+            new FluentValidationModelValidator<EngineOrder>(new EngineOrderValidator()));
+        using var engine = new FormidableEngine<EngineOrder>(
+            order,
+            editContext,
+            counting,
+            new ReflectionModelIntrospector(),
+            new FormidableOptions { TrackFormValidity = tracking },
+            new FakeTimeProvider());
+
+        order.Description = "fine";
+        editContext.NotifyFieldChanged(Description(order));
+
+        Assert.Equal(tracking, engine.GetFieldState(Description(order)).WouldPassSubmit);
     }
 
     // ---------------------------------------------------------------------------------------

@@ -42,7 +42,8 @@ public class FormidableEngineHandlerThrowTests : BunitContext
         // The live check a committed change starts, with no LiveDebounce.
         LivePass,
 
-        // The TrackFormValidity check a committed change starts beside that live check.
+        // The TrackFormValidity check a committed change starts beside that live check, under a
+        // narrowed LiveProfile.
         EditValidityCheck,
 
         // The LiveDebounce timer's fire, which runs the window's live check.
@@ -57,13 +58,14 @@ public class FormidableEngineHandlerThrowTests : BunitContext
 
         // The TrackFormValidity check a submit's end starts when its restarts are spent and an edit
         // made during its last check outdated the answer that landed, under a RefreshDebounce that
-        // never passes.
+        // never passes and a narrowed LiveProfile.
         CheckBehindAnOutdatedAnswer,
 
         // The validity timer's check, armed by a change under a LiveDebounce that never closes.
         ValidityTimerFire,
 
-        // The TrackFormValidity check the LiveDebounce timer's fire starts beside its live check.
+        // The TrackFormValidity check the LiveDebounce timer's fire starts beside its live check,
+        // under a narrowed LiveProfile.
         LiveDebounceFireCheck,
 
         // Control: the notification the engine posts when a field starts waiting for submit, which
@@ -173,12 +175,13 @@ public class FormidableEngineHandlerThrowTests : BunitContext
     /// <summary>Engine work that goes on after the work it started has thrown.</summary>
     public enum WorkAfterTheThrow
     {
-        // LiveDebounce and TrackFormValidity: the validity check the window's fire starts throws,
-        // and the fire goes on to start its live check.
+        // LiveDebounce, TrackFormValidity and a narrowed LiveProfile: the validity check the
+        // window's fire starts throws, and the fire goes on to start its live check.
         LiveDebounceFire,
 
-        // TrackFormValidity: page code outside any DOM event commits a change, the live check it
-        // starts throws, and the change goes on to start its validity check.
+        // TrackFormValidity and a narrowed LiveProfile: page code outside any DOM event commits a
+        // change, the live check it starts throws, and the change goes on to start its validity
+        // check beside it.
         ChangeFromPageCode,
     }
 
@@ -187,16 +190,19 @@ public class FormidableEngineHandlerThrowTests : BunitContext
     // lands in the middle of that call. Nothing the engine raises comes after the boundary took the
     // throw, and no check runs on a disposed engine (which would raise ValidationFaulted with an
     // ObjectDisposedException). Mutation: hand the throw to the root inline, inside the
-    // continuation, and the LiveDebounceFire row sees StateChanged from a live check run after the
-    // boundary, the ChangeFromPageCode row a ValidationFaulted from a check on the disposed engine.
+    // continuation, and the ChangeFromPageCode row sees a ValidationFaulted from the validity check
+    // run on the disposed engine. Mutation: drop the hand-off, and neither row's boundary shows the
+    // throw.
     [Theory]
     [InlineData(WorkAfterTheThrow.LiveDebounceFire)]
     [InlineData(WorkAfterTheThrow.ChangeFromPageCode)]
     public async Task Nothing_reaches_the_page_after_the_boundary_takes_the_throw(WorkAfterTheThrow work)
     {
+        // A validity check starts beside a live check, at a change or at the window's fire, only
+        // where the live check is narrowed.
         var options = work == WorkAfterTheThrow.LiveDebounceFire
-            ? new FormidableOptions { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(50), RefreshDebounce = Timeout.InfiniteTimeSpan }
-            : new FormidableOptions { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan };
+            ? new FormidableOptions { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(50), RefreshDebounce = Timeout.InfiniteTimeSpan, LiveProfile = ValidationProfile.Draft }
+            : new FormidableOptions { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan, LiveProfile = ValidationProfile.Draft };
         var order = new EngineOrder { Customer = new EngineCustomer() };
         var cut = Render<ThrowSiteHost>(p => p
             .Add(x => x.Order, order)
@@ -322,15 +328,18 @@ public class FormidableEngineHandlerThrowTests : BunitContext
         await Services.DisposeAsync();
     }
 
+    // The three sites that start a validity check beside a live check, or behind one an outdated
+    // answer leaves, narrow LiveProfile: a live check that runs the submit profile answers
+    // IsFormValid itself, and no validity check starts beside it or behind it.
     private static FormidableOptions OptionsFor(Site site) => site switch
     {
-        Site.EditValidityCheck => new() { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan },
+        Site.EditValidityCheck => new() { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan, LiveProfile = ValidationProfile.Draft },
         Site.LiveDebounceFire => new() { LiveDebounce = TimeSpan.FromMilliseconds(50), RefreshDebounce = Timeout.InfiniteTimeSpan },
         Site.RefreshFire => new() { RefreshDebounce = TimeSpan.FromMilliseconds(300) },
         Site.FirstValidityCheck => new() { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan },
-        Site.CheckBehindAnOutdatedAnswer => new() { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan },
+        Site.CheckBehindAnOutdatedAnswer => new() { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan, LiveProfile = ValidationProfile.Draft },
         Site.ValidityTimerFire => new() { TrackFormValidity = true, LiveDebounce = Timeout.InfiniteTimeSpan, RefreshDebounce = TimeSpan.FromMilliseconds(300) },
-        Site.LiveDebounceFireCheck => new() { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(50), RefreshDebounce = Timeout.InfiniteTimeSpan },
+        Site.LiveDebounceFireCheck => new() { TrackFormValidity = true, LiveDebounce = TimeSpan.FromMilliseconds(50), RefreshDebounce = Timeout.InfiniteTimeSpan, LiveProfile = ValidationProfile.Draft },
         _ => new() { RefreshDebounce = Timeout.InfiniteTimeSpan },
     };
 

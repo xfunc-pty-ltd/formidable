@@ -81,6 +81,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // moves the stamp and writes IsFormValid on the dispatcher only while no edit has arrived
     // since its pass began (AdoptFormValidity). _lastProbeEditStamp and _probeOut move beside the
     // probe's own stamp, _probeOut also on the dispatcher as that probe exits (EndProbe);
+    // _lastSubmitLiveEditStamp as a live check that runs the submit profile begins, and as a
+    // submit's or a load's begin cancels one (RecordDisplaced), on whichever context that begin
+    // runs;
     // _heldBackRecheckOwed on the caller's context in ApplyServerIssues and on the dispatcher as
     // the probe it waits for exits; _refreshArmed where the refresh timer is armed and where it
     // fires; and _validityRecheckOwed on the dispatcher alone. The probe is not a pass and never
@@ -373,6 +376,13 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // A probe begun at the current stamp is on its way to answering IsFormValid for the latest
     // edit, so a landing whose answer predates that edit leaves IsFormValid to it.
     private int _lastProbeEditStamp = -1;
+
+    // The edit stamp the latest live check that runs the submit profile read as it began; -1
+    // before any has. Its landing adopts IsFormValid, so one begun at the current stamp answers
+    // the latest edit as a probe begun there does. A submit or a load that cancels it drops this
+    // record as it begins (RecordDisplaced), then answers in its place or gives the check back to
+    // run again.
+    private int _lastSubmitLiveEditStamp = -1;
 
     // Whether the handler running, a committed change's or a server apply's, arms or starts a
     // re-answer of the submit rules before it returns. Each publishes before it arms: the change
@@ -774,7 +784,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // The options are read here at each ask, per their read-at-each-use contract. The validity
     // timer is consulted while it is armed: its fire stands down once a submit has answered
     // (which answered the selection itself), an edit has armed the refresh (counted here in its
-    // own right) or a probe has begun for the latest edit, defers to a submit or a load in flight,
+    // own right) or a probe, or a live check that runs the submit profile, has begun for the
+    // latest edit, defers to a submit or a load in flight,
     // and otherwise starts the probe. That probe is consulted too, from the fire until one of its
     // exits, under the bound a pass has, measured from the fire. No other probe is: they are
     // fire-and-forget, with no start time to bound them by. The serve condition itself, and the
@@ -1905,9 +1916,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
         else
         {
+            // Read before the live check starts, as that check reads it as it begins. One that
+            // runs the submit profile answers IsFormValid as it lands, and a probe beside it would
+            // run an async rule a second time, since neither could reuse what the other was still
+            // computing. So the probe starts only beside a narrowed one.
+            var liveAnswersSubmit = ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile);
             ObserveBackground(RunLivePassAsync([e.FieldIdentifier]));
 
-            if (_options.TrackFormValidity)
+            if (_options.TrackFormValidity && !liveAnswersSubmit)
             {
                 ObserveBackground(ProbeFormValidityAsync());
             }
@@ -1939,10 +1955,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                  && UsableWait(window) is null
                  && !RefreshArmedByEdit)
         {
-            // A window that never closes never starts the probe its fire would, so before a
-            // submit or server reply nothing this change starts would move IsFormValid or put the
-            // vouch back; the validity check answers for it. A refresh an edit armed answers both
-            // for the whole model, and a check beside it would run an async rule a second time,
+            // A window that never closes never fires, so before a submit or server reply nothing
+            // this change starts would move IsFormValid or put the vouch back; the validity check
+            // answers for it. A refresh an edit armed answers both for the whole model, and a
+            // check beside it would run an async rule a second time,
             // since neither could reuse what the other was still computing: due with the refresh
             // or after it, its fire could follow the refresh's begin, when no refresh is armed
             // for it to stand down for. So the branch above drops a check armed or waiting,
@@ -1950,7 +1966,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             // Here that happens only after a first submit that ended unanswered, when an edit
             // made during it armed the refresh; the refresh begins after this change and answers
             // it. A refresh already running began before this change, so the check is armed for
-            // it. A null or finite window keeps the probe on its own cadence.
+            // it. Under a null or finite window the live check answers IsFormValid, or the probe
+            // beside a narrowed one does.
             ScheduleValidityCheck();
         }
     }
@@ -2036,6 +2053,15 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             case PassKind.Live when _currentPassScope is { } scope:
                 displaced.LiveFields.UnionWith(scope);
                 break;
+        }
+
+        // A live check cancelled here lands nothing, so its record must not count it as on its way
+        // to answering IsFormValid: the beginning pass answers in its place, or gives it back, and
+        // an end without an answer owes IsFormValid a check for it (GiveBack).
+        if (_currentPass is { Kind: PassKind.Live } live && live.EditStamp == _lastSubmitLiveEditStamp)
+        {
+            _lastSubmitLiveEditStamp = -1;
+            displaced.LiveAnswerCancelled = true;
         }
     }
 
@@ -2336,7 +2362,9 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                     // undisclosed ones included, which is exactly what "would fail submit" needs.
                     // A live pass is excluded by kind rather than by the profile it ran:
                     // LiveProfile decides that, and a narrowed one answers for fewer rules than a
-                    // submit would. The coverage version moves with EndPass below, for every
+                    // submit would. One that ran the submit profile records its own answer where it
+                    // adopts IsFormValid (RunLivePassAsync), since no probe starts beside such a
+                    // pass to record one. The coverage version moves with EndPass below, for every
                     // landing, live passes included: any landing can have written verdicts the
                     // coverage read derives from.
                     if (kind != PassKind.Live)
@@ -2496,14 +2524,19 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // checks a field the visitor only entered and left.
     //
     // IsFormValid is owed a check only where it can be stale, because a check where it is not
-    // would run an async rule again for an answer already given. It can be stale in three cases:
+    // would run an async rule again for an answer already given. It can be stale in four cases:
     // a load's own change, which no edit armed anything for; a cancelled re-check, which was
-    // going to answer it; and an edit made since the record opened, held back or not. Any other
-    // change has its own answer: a probe the edit or its window started, a validity check or
-    // re-check it armed, or a landing that adopted it. A cancelled live check is not a case,
-    // since a probe started beside it, or a landed load already answered. The owed check then
-    // takes the existing route, which stands down when the restarted re-check, an open window or
-    // a check already armed will answer it.
+    // going to answer it; an edit made since the record opened, held back or not; and a
+    // cancelled live check that runs the submit profile, which was going to answer it too. Any
+    // other change has its own answer: its live check where that runs the submit profile, a
+    // probe the edit or its window started beside a narrowed one, a validity check or re-check
+    // it armed, or a landing that adopted it. A cancelled narrowed live check had a probe started
+    // beside it, and a landed load already answered. The owed check then takes the existing
+    // route, which stands down when the restarted re-check, an open window that can pass, a
+    // live check run again above or a check already armed will answer it. So a cancelled live
+    // check run again at once, or behind a window that passes, costs nothing more, and one that
+    // runs nowhere (its fields left the page, it had none of its own, or a window that never
+    // closes holds them) gets the check.
     private void GiveBack(DisplacedChecks owed)
     {
         if (_disposed)
@@ -2535,7 +2568,8 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
         if (owed.LoadBegan
             || owed.RecheckFields is not null
-            || owed.OpenedAtEditStamp != _editStamp)
+            || owed.OpenedAtEditStamp != _editStamp
+            || owed.LiveAnswerCancelled)
         {
             _validityRecheckOwed = true;
         }
@@ -2587,18 +2621,20 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         }
     }
 
-    /// <summary>Whether something already on its way answers <see cref="IsFormValid"/> for the latest edit: a probe begun at the current edit stamp, an armed validity check, an armed or waiting refresh, or an open live window, each behind a wait that passes.</summary>
+    /// <summary>Whether something on its way answers <see cref="IsFormValid"/> for the latest edit: a check begun at the current edit stamp, an armed validity check, an armed or waiting refresh, or an open live window, each behind a wait that passes.</summary>
     /// <returns><see langword="true"/> when the check behind a landing that predates the edit would only repeat one of them.</returns>
     // Read at the end of a pass whose landing adopted nothing because an edit came after it began.
-    // Each answers the edit's IsFormValid on its own: a probe lands it, an armed validity check
-    // starts one, a refresh adopts its own report, and a live window's fire starts a probe beside
-    // its live pass. A check beside any of them would execute a still-unanswered async rule a
-    // second time, since freshness is the whole engine's edit stamp and neither could reuse what
-    // the other was still computing. An armed refresh counts however it was armed; one waiting
-    // for a pass in flight, and the validity check and the live window, count only while the
-    // option their next arm reads can pass, since that arm is still to come.
+    // Each answers the edit's IsFormValid on its own: a probe lands it, a live check that runs the
+    // submit profile and a refresh each adopt their own report, an armed validity check starts a
+    // probe, and a live window's fire starts a live check, which answers it when it runs the
+    // submit profile, or a probe beside a narrowed one. A check beside any of them would execute
+    // a still-unanswered async rule a second time, since freshness is the whole engine's edit
+    // stamp and neither could reuse what the other was still computing. An armed refresh counts
+    // however it was armed; one waiting for a pass in flight, and the validity check and the live
+    // window, count only while the option their next arm reads can pass, since that arm is still
+    // to come.
     private bool EditValidityAnswered() =>
-        _lastProbeEditStamp == _editStamp
+        ValidityAnswerBegunAtLatestEdit
         || (_validityCheckArmed && UsableWait(_options.RefreshDebounce) is not null)
         || _refreshArmed
         || (_refreshFireDeferred && UsableWait(_options.RefreshDebounce) is not null)
@@ -2858,6 +2894,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         // pass ran under is only knowable by remembering it here.
         var liveProfile = ResolvedLiveProfile;
 
+        // A pass that runs the submit profile adopts IsFormValid as it lands, so from here it is
+        // on its way to answering the edit stamp the pass is about to read, as a probe begun here
+        // would be (ValidityAnswerBegunAtLatestEdit).
+        if (ReferenceEquals(liveProfile, _options.SubmitProfile))
+        {
+            _lastSubmitLiveEditStamp = _editStamp;
+        }
+
         await RunPassAsync(
             PassKind.Live,
             liveProfile,
@@ -2913,6 +2957,17 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
                 {
                     (_submitVerdictErrors, _submitVerdictAdvisories) = SplitBySeverity(byField);
                     RecordSubmitAnswer(liveBeganAt);
+
+                    // The same answer IsFormValid tracks, so it is adopted as a submit's, a
+                    // refresh's and a load's are, under the same stamp rule, and no probe starts
+                    // beside this pass. Where it is adopted it is also the coverage source a
+                    // validator the engine cannot take rule by rule reads, as the probe's answer
+                    // would have been. With tracking off neither is written, so such a validator's
+                    // green still waits for a whole-form check.
+                    if (AdoptFormValidity(report, liveBeganAt))
+                    {
+                        _submitCoverage.RecordWholeModelAnswer(liveBeganAt, [.. _submitVerdictErrors.Keys]);
+                    }
                 }
             }).ConfigureAwait(false);
     }
@@ -3082,7 +3137,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     }
 
     /// <summary>Adopts a whole-model submit-profile report's validity into <see cref="IsFormValid"/>, ahead of any probe still in flight, when no edit arrived after the pass began; a no-op when <see cref="FormidableOptions.TrackFormValidity"/> is off.</summary>
-    /// <param name="report">The report of the submit, refresh or load that just landed.</param>
+    /// <param name="report">The report of the submit, refresh, load or submit-profile live pass that just landed.</param>
     /// <param name="beganAtEditStamp">The edit stamp the pass read as it began.</param>
     /// <returns><see langword="true"/> when the report's validity was adopted, so <see cref="IsFormValid"/> answers the latest edit.</returns>
     // Each of those passes computes exactly this quantity for the model it read, so there is
@@ -3117,11 +3172,11 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
 
     /// <summary>Writes <see cref="IsFormValid"/> and raises <see cref="StateChanged"/> only when the value changes.</summary>
     /// <param name="value">The answer a probe or an adoption computed.</param>
-    // Both writers recompute at their own cadence (the probe on every field-changed notification
-    // with no LiveDebounce, once per window with one, and RefreshDebounce after a change under a
-    // window that never closes), and the answer mostly comes back the same, so an unconditional
-    // notify would publish a render round for a value nothing on the page could tell from the
-    // last.
+    // Both writers recompute at their own cadence (on the default profiles every live check's
+    // landing adopts, the probe runs beside a narrowed live check, and RefreshDebounce after a
+    // change under a window that never closes), and the answer mostly comes back the same, so an
+    // unconditional notify would publish a render round for a value nothing on the page could
+    // tell from the last.
     private void SetFormValidity(bool value)
     {
         if (value != _isFormValid)
@@ -4061,6 +4116,10 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         && !HeldBackAnswerOnItsWay
         && UsableWait(_options.RefreshDebounce) is not null;
 
+    /// <summary>Whether a check that answers <see cref="IsFormValid"/> began at the latest edit stamp: a probe, or a live check that runs the submit profile; either is on its way to answering that edit, or has.</summary>
+    private bool ValidityAnswerBegunAtLatestEdit =>
+        _lastProbeEditStamp == _editStamp || _lastSubmitLiveEditStamp == _editStamp;
+
     /// <summary>Whether a <see cref="FormidableOptions.TrackFormValidity"/> probe begun at the latest edit stamp is still out, computing the rules an apply's re-check would run.</summary>
     private bool ProbeComputesLatestEdit => _probeOut != 0 && _lastProbeEditStamp == _editStamp;
 
@@ -4645,7 +4704,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         ArmTimer(ref _validityTimer, RunValidityCheckAsync, _options.RefreshDebounce, nameof(FormidableOptions.RefreshDebounce));
     }
 
-    /// <summary>The validity timer's handler: stands down when disposed or untracked, or when an answered submit, a <see cref="RefreshArmedByEdit"/> refresh or a probe begun for the latest edit answers; otherwise defers to a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
+    /// <summary>The validity timer's handler: stands down when disposed or untracked, or when an answered submit, a <see cref="RefreshArmedByEdit"/> refresh or a check begun for the latest edit answers; otherwise defers to a submit or load in flight, or starts the <see cref="FormidableOptions.TrackFormValidity"/> probe.</summary>
     /// <returns>A completed task; the probe it starts runs fire-and-forget.</returns>
     // A stand-down leaves the timer unarmed, because what it would have answered is answered
     // elsewhere or not wanted: an answered submit arms the refresh behind every later edit, a
@@ -4654,12 +4713,14 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
     // with tracking off nothing reads the answer. A probe beside that refresh would run a
     // still-unanswered async rule a second time, since neither could reuse what the other was
     // still computing. A server reply alone is no stand-down: it answers nothing this check
-    // computes, and the edit before it would go unanswered. A probe already begun at the current edit stamp answers that edit itself: under
-    // a window that never closes no edit starts one, but the check armed behind a landing an edit
-    // outdated (RecheckFormValidity) can come due after a later edit has started its own, and a
-    // second probe at that stamp would run a still-unanswered async rule again. The refresh is
-    // tested before the deferral below because it waits out a submit
-    // in flight too, and runs whether that submit answers or is cancelled. Behind a submit or a
+    // computes, and the edit before it would go unanswered. A probe, or a live check that runs
+    // the submit profile, already begun at the current edit stamp answers that edit itself: under
+    // a window that never closes no edit starts either (the live check that follows a load is the
+    // exception), but the check armed behind a landing an edit outdated (RecheckFormValidity) can
+    // come due after a later edit has started its own, and a probe at that stamp would run a
+    // still-unanswered async rule again. The refresh is tested before the deferral below because
+    // it waits out a submit in flight too, and runs whether that submit answers or is cancelled.
+    // Behind a submit or a
     // load in flight the fire records that it deferred and keeps its flag, as the live timer's
     // fire does, and the end of that pass arms it once more (ArmDeferredFires), because a submit
     // that ends without answering, or a load whose answer predates the edit, leaves the edit to
@@ -4688,7 +4749,7 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
             || !_options.TrackFormValidity
             || answeredSubmitStandsDown
             || RefreshArmedByEdit
-            || _lastProbeEditStamp == _editStamp)
+            || ValidityAnswerBegunAtLatestEdit)
         {
             _validityCheckArmed = false;
             _validityFireDeferred = false;
@@ -4849,14 +4910,18 @@ public sealed class FormidableEngine<TModel> : IFormidableEngine, IValidatingFie
         var fields = new HashSet<FieldIdentifier>(_pendingDebouncedLiveFields);
         _pendingDebouncedLiveFields.Clear();
 
-        if (_options.TrackFormValidity)
+        if (_options.TrackFormValidity
+            && (fields.Count == 0 || !ReferenceEquals(ResolvedLiveProfile, _options.SubmitProfile)))
         {
-            // Rides the same debounced cadence as the live pass below rather than the raw
-            // per-keystroke field-changed event this window exists to collapse — but it is not
-            // itself an engine pass (see ProbeFormValidityAsync's own remarks: no BeginPass, no
-            // pending indicator, no field scope), so it runs ahead of the empty-scope guard below
-            // rather than under it. An edit that accumulated a now-departed field still moved the
-            // model before that field left, and this is what keeps IsFormValid answering for it.
+            // A live pass that runs the submit profile answers IsFormValid as it lands, so the
+            // probe runs only where none will: beside a narrowed one, or where the snapshot is
+            // empty and no pass runs. It rides the same debounced cadence as the live pass below
+            // rather than the raw per-keystroke field-changed event this window exists to
+            // collapse, but it is not itself an engine pass (see ProbeFormValidityAsync's own
+            // remarks: no BeginPass, no pending indicator, no field scope), so it runs ahead of the
+            // empty-scope guard below rather than under it. An edit that accumulated a
+            // now-departed field still moved the model before that field left, and this is what
+            // keeps IsFormValid answering for it.
             ObserveBackground(ProbeFormValidityAsync());
         }
 
@@ -5069,4 +5134,7 @@ internal sealed class DisplacedChecks
 
     /// <summary>The edit stamp as the record opened; a stamp moved since then means an edit was made, or a later load declared a change, while the record was open.</summary>
     public int OpenedAtEditStamp { get; init; }
+
+    /// <summary>Whether the submit or load that began cancelled a live check that runs the submit profile, which was on its way to answering <c>IsFormValid</c>.</summary>
+    public bool LiveAnswerCancelled { get; set; }
 }

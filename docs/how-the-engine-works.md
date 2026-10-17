@@ -268,7 +268,9 @@ beside a second start.
 
 A `TrackFormValidity` probe, and a live pass narrowed by `LiveProfile`, are outside that promise.
 So is the probe behind a landing an edit outdated, which runs only when nothing already on its
-way answers that edit ([the probe's section](#the-trackformvalidity-probe)).
+way answers that edit ([the probe's section](#the-trackformvalidity-probe)). On the default
+profiles no probe starts beside an edit's live pass, so tracking leaves the promise standing for
+the edit.
 
 Filing a set drops every stored set answering for a different model state and every stored set
 sharing a rule with it, so the store's size stays bounded by rule count. A submit sets
@@ -446,8 +448,11 @@ the error fields are resolved from the served sets' issues.
 
 On any other validator, coverage is the last whole-model submit-profile evaluation a submit, a
 refresh, a load or a probe completed, current while its begin stamp is still the current stamp.
-A live pass is excluded by kind, whatever profile it ran. That source needs no held cover of its
-own: a field-set move leaves it as current as the stamp already found it.
+
+A live pass counts only where it ran the submit profile and adopted `IsFormValid`, standing in for
+the probe that would otherwise have run beside it; with tracking off, or under a narrowed
+`LiveProfile`, it is excluded. That source needs no held cover of its own: a field-set move leaves
+it as current as the stamp already found it.
 
 **The held vouch.** Every fresh answer is held together with its stamp and profile, and the held
 answer is served in place of a recomputed one on two grounds. First, a rendered-field-set move
@@ -462,9 +467,10 @@ The profile match guards both grounds: an answer about one selection of rules ne
 another. A served answer describes the model as it stood when the answer was computed until the
 pass behind it lands.
 
-`IsFormValid` lags the same way. A submit, refresh or load that began before an edit never writes
-it, but a probe begun before the edit still can, until a later probe starts; the check that answers
-the edit then writes the current answer.
+`IsFormValid` lags the same way. A submit, refresh, load or submit-profile live pass that began
+before an edit never writes it, but a probe begun before the edit still can, until a later probe
+starts or a later answer is adopted; the check that answers the edit then writes the current
+answer.
 
 "On its way" (`ReAnswerOnItsWay`) means one of six things. A pass is in flight whose landing
 answers the submit selection: a submit, a refresh, a load, or a live pass whose channel resolves
@@ -600,7 +606,10 @@ An end without an answer gives the record back in the dispatch that arms the def
   `LiveDebounce` is set and at once when it is not;
 - with `TrackFormValidity` on, `IsFormValid` is owed the check a landing an edit outdated owes
   ([the probe's section](#the-trackformvalidity-probe)), but only where it can be stale: a load is
-  in the record, a refresh was superseded, or an edit came after the record opened.
+  in the record, a refresh was superseded, or an edit came after the record opened;
+- with `TrackFormValidity` on, the same check is owed where a live pass was superseded and is not
+  run again (every field the record holds has left the page, the window they wait in never
+  closes, or the pass had no field of its own to give back).
 
 A landing drops the record, because its answer stands in for the passes it superseded. A submit
 whose answer an edit outdated does not land at first. When its verdict dispatch finds the edit
@@ -636,10 +645,13 @@ be.
 pass, a rule-capable validator with no later edit runs each rule once for the edit: the given-back
 pass runs it, and the refresh that edit armed waits for it and finds it answered.
 
-Under a `RefreshDebounce` that never passes, no refresh runs. With `TrackFormValidity` on, the owed
-check then starts the probe at once, beside the given-back pass, and neither can reuse what the
-other is still computing. So an async rule both of them run, and neither has answered yet, runs once
-in each, as it does for an edit made just after the landing, whose live pass and probe start together.
+Under a `RefreshDebounce` that never passes, no refresh runs. A given-back pass that runs the submit
+profile answers `IsFormValid` itself, so the owed check stands down for it.
+
+Beside a narrowed one, with `TrackFormValidity` on, the owed check starts the probe at once, and
+neither can reuse what the other is still computing. So an async rule both of them run, and neither
+has answered yet, runs once in each, as it does for an edit made just after the landing, whose
+narrowed live pass and probe start together.
 
 A submit that lands after checking again owes no such check, since its answer is for the latest
 edit. A load never checks again. It gives back nothing at a landing, because the live pass that
@@ -663,10 +675,13 @@ A submit or load that supersedes another takes over its record. Whichever ends a
 settles the record, so it is given back at most once. A field no longer engaged (it left the
 page) is owed nothing.
 
-Every other change already has its answer: the probe an edit or its window started, a check or
-refresh it armed, or a landing that adopted `IsFormValid`. A superseded live pass is not a case of
-its own, because the probe that started beside it, or the load before it, answers. A check where
-`IsFormValid` is current would only run an async rule a second time.
+Every other change already has its answer: its live pass where that runs the submit profile, the
+probe an edit or its window started beside a narrowed one, a check or refresh it armed, or a landing
+that adopted `IsFormValid`.
+
+A superseded live pass is a case of its own only when nothing runs it again: one that runs again
+answers in its own place, the probe that started beside a narrowed one answers, and so does a load
+before it. A check where `IsFormValid` is current would only run an async rule a second time.
 
 The owed check stands down when something already on its way answers the latest edit, the
 restarted refresh among them. Under a `RefreshDebounce` that never passes, the timer never
@@ -741,11 +756,13 @@ root's `Validator` parameter, else the container), and keeps that instance until
 it (`FormidableForm` on a `Model` swap or `ResetAsync`, `FormidableValidator` on a new cascaded
 `EditContext`), so a memo held as a field on the validator outlives every pass.
 
-**The whole-profile path and its price.** A validator without the capability gets the whole
-profile in one `ValidateAsync` call per pass: correct, unoptimised. Nothing is reused between
-passes, so a post-submit edit validates the whole profile once in its live pass and once in its
-refresh. The vouch reads the last whole-model answer instead of the store, and a live pass never
-supplies one. Every probe is a whole submit-profile validation of its own.
+**The whole-profile path and its price.** A validator without the capability gets the whole profile
+in one `ValidateAsync` call per pass: correct, unoptimised. Nothing is reused between passes, so a
+post-submit edit validates the whole profile once in its live pass and once in its refresh.
+
+The vouch reads the last whole-model answer instead of the store, which a live pass supplies only
+where it ran the submit profile with `TrackFormValidity` on. Every probe is a whole submit-profile
+validation of its own.
 
 Rule-level `.Cascade(CascadeMode.Stop)` is unaffected: it stops inside its one rule's chain and
 never flips the capability. A decorator that derives from `DelegatingModelValidator<TModel>`
@@ -1086,8 +1103,26 @@ when no error is on it; a summary click names its own field.
 [`TrackFormValidity`](options.md#trackformvalidity) keeps `IsFormValid` current with a standalone
 submit-profile evaluation that is not a pass. It never calls `BeginPass`, discloses nothing,
 writes no message, and never touches the pending indicator. One probe runs at construction, so a
-pristine form answers truthfully, and one runs at the live pass's own cadence afterwards: inside
-every field-changed notification, or once per window when `LiveDebounce` is set.
+pristine form answers truthfully.
+
+After that the probe runs only where no live pass runs the submit profile. The exception is the
+probe behind a load an edit outdated under a `RefreshDebounce` that never passes, which starts at
+once and can run beside the live pass that follows the load.
+
+On the default profiles the live pass itself is a submit-profile answer: it evaluates the whole
+model under the submit profile and writes the submit projection, so its landing adopts `IsFormValid`
+as a submit, a refresh or a load does, under the same stamp rule.
+
+A probe beside it would run a still-unanswered async rule a second time, since neither could reuse
+what the other was still computing.
+
+So the probe starts at the live pass's own cadence only beside a narrowed live pass: inside every
+field-changed notification, or once per window when `LiveDebounce` is set. A window's fire whose
+every accumulated field has left the page starts no live pass, and runs the probe on any profiles.
+
+On a validator that cannot be taken rule by rule, a live pass that adopted `IsFormValid` also
+records its answer as the vouch's coverage source, as the probe would have. With tracking off it
+records nothing.
 
 `Timeout.InfiniteTimeSpan` is the exception, because its window does not close. There a field
 change that arms no refresh (no `HasSubmitted`, no submit in flight) arms the validity timer at
@@ -1100,18 +1135,20 @@ that post. Every arm sets the flag before the timer can fire, and a check waitin
 it, so a fire that still has a check to answer always finds it set.
 
 Otherwise the fire tests for a stand-down: the engine is disposed, tracking is off, a submit has
-answered, an edit or a server apply that held answers back has armed the refresh, or a probe has
-already begun at the current edit stamp. A server reply that arms no refresh does not stand it
-down, since the reply answers nothing the probe computes.
+answered, an edit or a server apply that held answers back has armed the refresh, or a probe or a
+live pass that runs the submit profile has already begun at the current edit stamp. A server
+reply that arms no refresh does not stand it down, since the reply answers nothing the probe
+computes.
 
 An answered submit does not stand down the check an unanswered load owes, because a load's own
 change arms no refresh. The fire's other stand-downs apply to that check unchanged. The
 answered-submit stand-down applies to it again while a refresh of any origin is armed, waiting or
 running, and once a later submit or load has landed.
 
-A probe already begun at the current stamp stands down only the check armed behind an outdated
-landing (below), once a later edit has started its own probe; under a window that never closes no
-edit starts one.
+A probe or such a live pass already begun at the current stamp stands down the check armed behind
+an outdated landing (below), once a later edit has started its own. Under a window that never
+closes no edit starts either, but the live pass that follows a load does, so a check an edit armed
+while the load ran stands down for it once it begins.
 
 Otherwise, while a submit or a load is in flight, the fire records that it waited and keeps the
 flag, as the live timer's fire does, and the end of that pass arms it once more. Otherwise it
@@ -1145,9 +1182,9 @@ same reason. Such a refresh outlives a first submit that ends without an answer,
 during that submit armed it. It begins after the change, so it answers that change.
 
 Under a `RefreshDebounce` of `Timeout.InfiniteTimeSpan` the timer never fires, so
-`IsFormValid` moves only on a submit, a load, or the probe that starts behind one of them when an
-edit made while it ran has outdated its answer, or when it ended without an answer while
-`IsFormValid` could be stale.
+`IsFormValid` moves only on a submit, a load, the live pass that follows a load where it runs the
+submit profile, or the probe that starts behind one of them when an edit made while it ran has
+outdated its answer, or when it ended without an answer while `IsFormValid` could be stale.
 
 The probe stands down for a submit or a load in flight, which computes the same quantity for the
 model it read and adopts it, unless an edit after its begin has outdated it (below).
@@ -1184,10 +1221,11 @@ of the probe and the pass goes first has filed everything the other would have p
 share in full.
 
 `IsFormValid` is written only when the value flips, only while the probe's stamp is the latest
-taken, and only while tracking is on as the probe lands. With tracking on, a submit, a refresh or
-a load whose begin stamp is still the engine's adopts its own report's validity directly and bumps
-the same stamp, so a probe that started earlier discards its answer rather than overwrite a
-fresher one.
+taken, and only while tracking is on as the probe lands.
+
+With tracking on, a submit, a refresh, a load or a live pass that runs the submit profile, whose
+begin stamp is still the engine's, adopts its own report's validity directly and bumps the same
+stamp, so a probe that started earlier discards its answer rather than overwrite a fresher one.
 
 A landing an edit outdated (`AdoptFormValidity` finds `_editStamp` moved past the pass's begin)
 writes neither `IsFormValid` nor the stamp, so a probe begun after the edit still lands. The end
@@ -1197,19 +1235,25 @@ check beside it would run a still-unanswered async rule a second time.
 A submit lands such an answer only once it has checked again twice, and only a blocking one; until
 then it checks again instead ([supersession and deferral](#supersession-and-deferral)).
 
-Four things answer the edit's `IsFormValid` already: a probe begun at the current stamp
-(`_lastProbeEditStamp`), an armed validity check, an armed or waiting refresh of any origin, and an
-open live window (or its waiting fire), whose fire starts the probe. A submit or a load that ends
-without an answer owes the same check at its end where `IsFormValid` can be stale, under the same
-test ([supersession and deferral](#supersession-and-deferral)).
+Four things answer the edit's `IsFormValid` already: a probe or a submit-profile live pass begun at
+the current stamp (`_lastProbeEditStamp`, `_lastSubmitLiveEditStamp`), an armed validity check, an
+armed or waiting refresh of any origin, and an open live window (or its waiting fire), whose fire
+starts a live pass that answers it, or the probe beside a narrowed one.
+
+A submit or a load that cancels such a live pass as it begins drops its record, since that pass
+will land nothing.
+
+A submit or a load that ends without an answer owes the same check at its end where `IsFormValid`
+can be stale, under the same test ([supersession and deferral](#supersession-and-deferral)).
 
 The check behind an outdated landing goes through the validity timer while `RefreshDebounce` can
 pass, so a burst of edits behind a landing is one check, and starts the probe at once otherwise,
 since a timer at a wait that never passes never fires. Like the deferred fires' arm, it runs after
 the landing's dispatch.
 
-Probes are never cancelled short of disposal, so under a slow async rule and no `LiveDebounce`
-several can be in flight together, each answering for the model state it started at. A probe that
+Probes are never cancelled short of disposal, so under a slow async rule, a narrowed live pass
+and no `LiveDebounce` several can be in flight together, each answering for the model state it
+started at. A probe that
 throws raises `ValidationFaulted` and no form-level fault issue, which would disclose something an
 invisible probe promises never to. It raises the event in a dispatch of its own, after the exit that
 drops its hold.

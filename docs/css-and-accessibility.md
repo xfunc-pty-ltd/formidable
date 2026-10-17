@@ -93,22 +93,27 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 
 On the default profiles, the live check behind a committed change supplies that answer, unless
 `LiveDebounce` is `Timeout.InfiniteTimeSpan`. The live check answers that way only on a validator
-the engine can take rule by rule. FluentValidation's `AbstractValidator` is one unless you set
-`ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`, as
-[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit)
-says. [`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the
-submit rules. One answer covers the form, not only the changed field. A submit, and the whole-form
-re-check after one, turn fields green the same way.
+the engine can take rule by rule, or with `TrackFormValidity` on. FluentValidation's
+`AbstractValidator` is one unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or
+`ValidateAsync`, as
+[Async validation](async-validation.md#does-the-library-ever-run-my-rule-twice-for-one-edit) says.
+
+[`LiveProfile`](options.md#liveprofile) tracks the submit profile, so that check runs the submit
+rules. One answer covers the form, not only the changed field. A submit, and the whole-form re-check
+after one, turn fields green the same way.
 
 With no `LiveDebounce`, that live check starts at the change itself. With a finite one, it starts
 once the form has gone `LiveDebounce` without a committed change, and before a submit, green
 arrives when that check lands.
 
-A validator the engine cannot take rule by rule earns green only from a check that answers the
-whole model: a submit, the whole-form re-check, a load of values, or `TrackFormValidity`, never a
-live check. [`TrackFormValidity`](options.md#trackformvalidity)'s validity check covers what is
-left: a form that narrows `LiveProfile` past the submit rules, and a validator the engine cannot
-take rule by rule. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
+A validator the engine cannot take rule by rule earns green only from a check that answers the whole
+model: a submit, the whole-form re-check, a load of values, or `TrackFormValidity`, never a live
+check while tracking is off.
+
+[`TrackFormValidity`](options.md#trackformvalidity) covers what is left. A form that narrows
+`LiveProfile` past the submit rules gets green from its validity check. A validator the engine
+cannot take rule by rule gets it from the live check on the default profiles, and from the validity
+check elsewhere. A page that calls `DiscloseLoadedValuesAsync` answers for the values it loaded
 itself, with no validity check needed.
 
 The validity check also covers a `LiveDebounce` of `Timeout.InfiniteTimeSpan`, a window that never

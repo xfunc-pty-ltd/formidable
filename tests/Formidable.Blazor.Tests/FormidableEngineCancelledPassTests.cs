@@ -602,15 +602,21 @@ public class FormidableEngineCancelledPassTests
 
     // Under a RefreshDebounce that never passes, the re-check an edit arms never runs, so the check
     // the cancelled submit owes is the only thing left to answer IsFormValid for an edit made while
-    // it ran. The given-back live check and that check each run the async rule once, as the edit
-    // itself would have started both with no submit running.
+    // it ran. LiveProfile is narrowed to the draft bucket, so the given-back live check answers
+    // fewer rules than a submit and runs no async rule; the owed check runs it once. On the
+    // default profiles the given-back live check answers IsFormValid itself.
     // Mutation: drop "an edit since the record opened" from the cases that owe IsFormValid a check.
     // IsFormValid then stays true on a model whose Name is empty.
     [Fact]
     public async Task Under_a_RefreshDebounce_that_never_passes_an_edit_during_a_cancelled_submit_answers_IsFormValid()
     {
         using var form = Build(
-            new FormidableOptions { TrackFormValidity = true, RefreshDebounce = Timeout.InfiniteTimeSpan },
+            new FormidableOptions
+            {
+                TrackFormValidity = true,
+                RefreshDebounce = Timeout.InfiniteTimeSpan,
+                LiveProfile = ValidationProfile.Draft,
+            },
             new Recheck { Name = "Bo" });
         Assert.True(await UntilAsync(() => form.Engine.IsFormValid));
 
@@ -627,11 +633,11 @@ public class FormidableEngineCancelledPassTests
         Assert.False(form.Engine.IsFormValid);
         Assert.True(await UntilAsync(() => !form.Engine.IsValidating));
         Assert.Equal([NameRequired], form.NameMessages());
-        Assert.Equal(beforeCancel + 2, form.Validator.Runs);
+        Assert.Equal(beforeCancel + 1, form.Validator.Runs);
 
         form.Time.Advance(TimeSpan.FromHours(1));
         await Task.Delay(50);
-        Assert.Equal(beforeCancel + 2, form.Validator.Runs);
+        Assert.Equal(beforeCancel + 1, form.Validator.Runs);
     }
 
     // The re-check the cancelled submit cancelled was going to answer IsFormValid. The page sets
@@ -722,7 +728,7 @@ public class FormidableEngineCancelledPassTests
 
     /// <summary>A tracked form on a validator that can reuse no stored answer, holding a valid model.</summary>
     private static (FormidableEngine<Recheck> Engine, EditContext EditContext, Recheck Model, HeldAsyncValidator Validator, WholeProfileValidator Whole, FakeTimeProvider Time)
-        BuildWholeProfile(TimeSpan? liveDebounce = null)
+        BuildWholeProfile(TimeSpan? liveDebounce = null, ValidationProfile? liveProfile = null)
     {
         var model = new Recheck { Name = "Bob" };
         var editContext = new EditContext(model);
@@ -731,7 +737,7 @@ public class FormidableEngineCancelledPassTests
         var time = new FakeTimeProvider();
         var engine = new FormidableEngine<Recheck>(
             model, editContext, whole, new ReflectionModelIntrospector(),
-            new FormidableOptions { TrackFormValidity = true, LiveDebounce = liveDebounce },
+            new FormidableOptions { TrackFormValidity = true, LiveDebounce = liveDebounce, LiveProfile = liveProfile },
             time, EngineTestSync.OneAtATime());
         return (engine, editContext, model, validator, whole, time);
     }
@@ -832,10 +838,11 @@ public class FormidableEngineCancelledPassTests
     }
 
     // LiveDebounce never closes and no submit has answered, so an edit made while a load runs arms
-    // the validity check. The load lands, but that edit has outdated its answer, so the check,
-    // waiting for the load or still to come due, is the edit's answer. A check still to come due
-    // keeps its own time, RefreshDebounce after the edit. The live check that follows the load and
-    // the validity check each run the async rule once.
+    // the validity check. The load lands, but that edit has outdated its answer. LiveProfile is
+    // narrowed to the draft bucket, so the live check that follows the load answers fewer rules
+    // than a submit and runs no async rule, and the check, waiting for the load or still to come
+    // due, is the edit's answer. A check still to come due keeps its own time, RefreshDebounce
+    // after the edit. The check runs the async rule once.
     // Mutation: drop a validity check armed or waiting at every load landing, outdated or not. The
     // outdated landing then arms a check of its own, due RefreshDebounce after the landing rather
     // than after the edit, so in the row where the check is still to come due nothing has answered
@@ -845,7 +852,8 @@ public class FormidableEngineCancelledPassTests
     [InlineData(false)] // the load lands halfway through the check's wait
     public async Task A_check_armed_by_an_edit_during_a_load_answers_that_edit(bool dueDuringLoad)
     {
-        var (engine, editContext, model, validator, whole, time) = BuildWholeProfile(Timeout.InfiniteTimeSpan);
+        var (engine, editContext, model, validator, whole, time) =
+            BuildWholeProfile(Timeout.InfiniteTimeSpan, ValidationProfile.Draft);
         using var disposeEngine = engine;
         Assert.True(await UntilAsync(() => engine.IsFormValid));
         var half = TimeSpan.FromTicks(Refresh.Ticks / 2);
@@ -861,7 +869,8 @@ public class FormidableEngineCancelledPassTests
         validator.Release();
         await load;
         Assert.True(await UntilAsync(() => !engine.IsValidating));
-        Assert.Equal(runs + 1, validator.Runs); // the live check that follows the load
+        Assert.Equal(runs, validator.Runs);
+        Assert.Equal(calls + 1, whole.Calls); // the live check that follows the load
         Assert.True(engine.IsFormValid); // the load's answer predates the edit, so nothing has adopted it
 
         // RefreshDebounce after the landing re-armed the check that waited; RefreshDebounce after
@@ -869,12 +878,49 @@ public class FormidableEngineCancelledPassTests
         time.Advance(dueDuringLoad ? Refresh : Refresh - half);
         Assert.True(await UntilAsync(() => !engine.IsFormValid));
         Assert.False(engine.IsFormValid);
-        Assert.Equal(runs + 2, validator.Runs);
+        Assert.Equal(runs + 1, validator.Runs);
         Assert.Equal(calls + 2, whole.Calls);
 
         time.Advance(TimeSpan.FromHours(1));
         await Task.Delay(50);
-        Assert.Equal(runs + 2, validator.Runs);
+        Assert.Equal(runs + 1, validator.Runs);
+        Assert.False(engine.IsFormValid);
+    }
+
+    // On the default profiles the live check that follows a load runs the submit profile, so it
+    // answers IsFormValid for an edit made while the load ran, and the validity check that edit
+    // armed under a window that never closes stands down for it, whether it waited for the load
+    // or was still to come due. The async rule runs once for the edit, in that live check.
+    // Mutation: stand the validity check's fire down only for a probe begun at the latest edit,
+    // not for a live check that runs the submit profile, and the rule runs a second time.
+    [Theory]
+    [InlineData(true)] // the check comes due while the load runs, and waits for it
+    [InlineData(false)] // the load lands halfway through the check's wait
+    public async Task The_live_check_after_a_load_answers_an_edit_made_during_it(bool dueDuringLoad)
+    {
+        var (engine, editContext, model, validator, whole, time) = BuildWholeProfile(Timeout.InfiniteTimeSpan);
+        using var disposeEngine = engine;
+        Assert.True(await UntilAsync(() => engine.IsFormValid));
+        var half = TimeSpan.FromTicks(Refresh.Ticks / 2);
+
+        validator.Hold = true;
+        var load = engine.DiscloseLoadedValuesAsync(); // waits on the async rule
+        model.Name = string.Empty;
+        editContext.NotifyFieldChanged(new FieldIdentifier(model, nameof(Recheck.Name))); // arms the check
+        time.Advance(dueDuringLoad ? Refresh : half);
+
+        var runs = validator.Runs;
+        var calls = whole.Calls;
+        validator.Release();
+        await load;
+        Assert.True(await UntilAsync(() => !engine.IsValidating));
+        Assert.Equal(runs + 1, validator.Runs); // the live check that follows the load
+        Assert.False(engine.IsFormValid);
+
+        time.Advance(TimeSpan.FromHours(1));
+        await Task.Delay(50);
+        Assert.Equal(runs + 1, validator.Runs);
+        Assert.Equal(calls + 1, whole.Calls);
         Assert.False(engine.IsFormValid);
     }
 

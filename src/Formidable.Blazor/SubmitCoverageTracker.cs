@@ -106,13 +106,14 @@ internal sealed class SubmitCoverageTracker(
     internal static readonly TimeSpan HeldVouchBound = TimeSpan.FromSeconds(30);
 
     // The capability-less coverage source: the edit stamp at which the last whole-model
-    // SubmitProfile evaluation this source takes — a COMPLETED submit, refresh or load pass, or a
-    // fallback probe — began, and the fields its report failed. A live pass is excluded by kind
-    // rather than by the profile it ran: LiveProfile decides that, and a narrowed one answers for
-    // fewer rules than a submit would. A validator with no rule-level seam has no verdicts to
-    // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is
-    // the current stamp"; -1 until one completes, which is what keeps a never-evaluated form
-    // from wearing green it has not earned.
+    // SubmitProfile evaluation this source takes — a COMPLETED submit, refresh or load pass, a
+    // live pass that ran the submit profile and adopted IsFormValid, or a fallback probe — began,
+    // and the fields its report failed. Any other live pass is excluded: a narrowed LiveProfile
+    // answers for fewer rules than a submit would, and with TrackFormValidity off green waits for
+    // a check that answers the whole form. A validator with no rule-level seam has no verdicts to
+    // read, so "the submit answer is current" can only mean "that evaluation's begin stamp is the
+    // current stamp"; -1 until one completes, which is what keeps a never-evaluated form from
+    // wearing green it has not earned.
     private int _lastSubmitAnswerStamp = -1;
     private HashSet<FieldIdentifier> _lastSubmitAnswerErrorFields = [];
 
