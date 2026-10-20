@@ -25,7 +25,7 @@
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
+        <PackageReference Include="MinVer" Version="8.0.0" PrivateAssets="All" />
         <!-- SourceLink comes from the .NET SDK's own bundled Sdks (Microsoft.SourceLink.GitHub
              and Microsoft.Build.Tasks.Git ship inside the SDK), so no standalone package is
              referenced: the 8.0.0 package added nothing the SDK does not already provide and
