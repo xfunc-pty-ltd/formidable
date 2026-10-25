@@ -152,29 +152,10 @@ server raised for a field just opened stays. A section the page opens is such a 
 row your code adds to the list directly. A row added through `AddItem` is an edit, so the re-check
 after it replaces the reply.
 
-A server reply can arrive after the visitor has changed something since the form last checked every
-field. A field the reply brings a message to then displays only the server's answer, beside any
-message from its own live check. The form's own answer joins it once the form has checked the
-values the field now holds
-([Server integration](server-integration.md#does-applying-a-reply-count-as-a-submit)).
-
-The exception is a field the form already watches for the reply's kind of message
-([Disclosure](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)). For a reply that
-brings it an error, that is a field a blocked submit or an earlier reply showed an error on. For a
-reply that brings only a warning or a note, it is a field a submit or an earlier reply showed any
-message on.
-
-Such a field keeps the form's own answer beside the reply's. Any other field waits whole, so a
-warning the form showed there leaves while the reply's error shows.
-
-To bring that answer back, the reply starts a whole-form re-check at once, with no wait of its own.
-It starts none when another check is already on its way to answer for those fields, or when the
-form's last check could not finish. If a live check or a load of values is still running when the
-reply's re-check falls due, the re-check waits for it to end and then for `RefreshDebounce`.
-
-`Timeout.InfiniteTimeSpan` turns that re-check off too. The fields showing the reply's answer alone
-then wait for the next submit or load of values, or for a live check that runs the same rules as a
-submit.
+A server reply can start the re-check itself, with no wait of its own, when the form's last check
+is older than the visitor's latest change.
+[Server integration](server-integration.md#does-applying-a-reply-count-as-a-submit) has what the
+reply's fields show until it lands, when it waits, and what `Timeout.InfiniteTimeSpan` does to it.
 
 With [`TrackFormValidity`](#trackformvalidity) on (it keeps `IsFormValid` current with a validity
 check of its own) and [`LiveDebounce`](#livedebounce) (the wait between an edit and its live check)

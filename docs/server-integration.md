@@ -72,30 +72,38 @@ reply the visitor has since edited past
 
 ## What happens to a server error when I edit the field?
 
-It stays, until the whole form is re-checked. Your edit's own live check leaves a message the
-server put there standing, whatever the edit did to the value. The re-check runs the form's own
-validator and does not send the form back to the endpoint that raised the error, so the error
-clearing does not mean that server accepts the new value.
+It stays, until the whole form is re-checked. Your edit's own live check (the check each edit
+starts for the fields you have changed) leaves a message the server put there standing, whatever
+the edit did to the value. The re-check runs the form's own validator and does not send the form
+back to the endpoint that raised the error, so the error clearing does not mean that server accepts
+the new value.
 
-The server's verdict stands until a newer whole-form answer replaces it: the whole-form re-check
-(behind the next committed edit, or a field leaving the form), the next submit, or a page saying
-what its freshly loaded values have earned. At that point a server-only issue with no
-matching client rule goes, and one the client agrees with carries on through the client's own
-answer, so a client rule failing on the same field keeps its own message throughout.
+The server's verdict stands until one of three checks of the whole form replaces it:
 
-`RefreshDebounce` (300 ms by default) is how long after that edit the re-check waits.
-`Timeout.InfiniteTimeSpan` turns the re-check off, and the server's answer then stands until the
-next submit or load of values.
+- the whole-form re-check that follows your next committed edit (a change the form has heard of),
+  or a field leaving the form;
+- the next submit;
+- a page saying what its freshly loaded values have earned.
 
-The re-check replaces the reply only after an edit, or a field leaving the form, since the reply
-arrived. A re-check already waiting out `RefreshDebounce` when the reply lands, and any check
-already running, leave the reply standing, since neither knows anything the reply does not.
+At that point a server-only issue with no matching client rule goes. An issue the client agrees
+with carries on through the client's own answer, so a client rule failing on the same field keeps
+its own message throughout.
+
+`RefreshDebounce` (300 ms by default) is how long the re-check waits after your edit.
+`Timeout.InfiniteTimeSpan` turns the re-check off, after an edit and after a field leaving the form
+alike, so the server's answer then stands until the next submit or load of values. Live checks still
+run, and leave it standing.
+
+The whole-form re-check replaces the reply only when an edit, or a field leaving the form, came
+after the reply arrived. Two checks leave the reply standing because they know nothing the reply
+does not: a re-check already waiting out `RefreshDebounce` when the reply lands, and any check
+already running.
 
 A field joining the form leaves the reply standing too, when no value was edited and no other field
 left. A section the page opens after a reply, editing nothing and removing nothing, shows a message
-only the server raised for a field in it, and the message stays. A checkbox input of the form's own that opens the
-section (an `InputCheckbox`, say) is an edit. A step or a tab that replaces one section with another
-removes fields. The re-check after either replaces the reply.
+only the server raised for a field in it, and the message stays. A checkbox input of the form's own
+that opens the section (an `InputCheckbox`, say) is an edit. A step or a tab that replaces one
+section with another removes fields. The re-check after either replaces the reply.
 
 The form cannot see when your page sent the request unless the page marks it as it leaves, with
 `MarkServerRequest()` ([the next section](#how-do-i-stop-a-late-reply-showing-over-newer-values)).
@@ -153,9 +161,9 @@ on the input's [`UpdateOn`](options.md#updateon-per-input-not-a-formidableoption
 - `OnBlur`: the value commits on `change`, and the form hears of it at the next blur, after your
   `@onblur` handler.
 
-If the visitor presses Submit while that handler is still awaiting (a lookup, say), the mark your
-send handler takes comes before the change counts. The reply is then dropped, although the request
-carried the change.
+If the visitor presses Submit while your input's handler is still awaiting (a lookup, say), the
+mark your send handler takes comes before the change counts. The reply is then dropped, although
+the request carried the change.
 
 To keep that reply, let the handler start its lookup and return without awaiting it, so the form
 hears of the change at once. Or apply that form's replies through an unmarked overload, which
@@ -218,35 +226,57 @@ members as `FormidableForm`. The engine behind either component's `Engine` prope
 `MarkServerRequest()` and `IsCurrent` too. Its marked `ApplyServerIssues` takes issues rather than
 the problem, so hand it `problem.ToIssues()`. Neither `FormidableValidator` nor the engine moves
 focus when it applies. The engine's own `MarkServerRequest()` and marked `ApplyServerIssues` take
-no row change in first, and its `IsCurrent` counts one only once the component has taken it in. So
-mark, ask and apply through the component when your send adds or removes rows.
+no row change in first, and the engine's `IsCurrent` counts a row change only once the component
+has taken it in. So mark, ask and apply through the component when your send adds or removes rows.
 
 Why: [how the engine works: what replaces the server's answer](how-the-engine-works.md#what-replaces-the-servers-answer).
 
 ## Does applying a reply count as a submit?
 
 Yes. An apply is treated as a submit's verdict arriving late, so it sets `HasSubmitted`, and a
-page whose only validation is server-side reaches the submitted state through this call alone. From then on every committed edit re-checks the whole form after `RefreshDebounce`, which is
-what keeps the summary truthful for fields the edit never named. A field that was waiting for
-submit (`WaitForSubmit`) answers live from then on too.
+page whose only validation is server-side reaches the submitted state through this call alone.
+From then on every committed edit re-checks the whole form after `RefreshDebounce`, which is what
+keeps the summary truthful for fields the edit never named. A field that was waiting for submit
+(`WaitForSubmit`) answers live from then on too.
 
 An apply is also a disclosure event for the fields it shows: a client error the form has already
 found for those fields surfaces alongside the server's, and those fields go under the same watch a
-blocked submit puts its fields under
+blocked submit puts its fields under: their answer keeps showing, rendered or not, until a submit
+passes or the form is reset
 ([Disclosure](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)).
 
 The form's last check of every field can be older than the visitor's latest change. A field the
 reply reveals then shows only the server's answer, and any message from its own live check, until
 the form has checked the values it now holds.
 
-To check those values, the reply starts a whole-form re-check at once, with no wait of its own. It
-starts none when another check is already on its way to answer for those fields, or when the form's
-last check could not finish. The re-check leaves the reply standing unless an edit, or a field
-leaving the form, comes after the reply and before the re-check starts. The
-[`RefreshDebounce`](options.md#refreshdebounce) entry has the rest of its timing.
+The exception is a field the form already watches for the reply's kind of message
+([Disclosure](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)). For a reply that
+brings it an error, that is a field a blocked submit or an earlier reply showed an error on. For a
+reply that brings only a warning or an info, it is a field a submit or an earlier reply showed any
+message on.
 
-An apply also clears any standing incomplete-validation fault, whatever the client is doing: a
-verdict has arrived to stand in for the one a check that threw could not finish.
+Such a field keeps the form's own answer beside the reply's. Any other field holds back the form's
+whole answer, its warnings included, so a warning the form showed there leaves while the reply's
+error shows.
+
+To check the values those fields now hold, the reply asks for a whole-form re-check, due at once
+rather than after `RefreshDebounce`. It asks for none when a check already on its way will answer
+for those fields (a submit that is running, say), or when the form's last check could not finish.
+The re-check leaves the reply standing unless an edit, or a field leaving the form, comes after the
+reply and before the re-check starts.
+
+A live check or a load of values still running when the reply's re-check comes due is never
+cancelled for it: the re-check waits for that check to end, and then for
+[`RefreshDebounce`](options.md#refreshdebounce). Behind `TrackFormValidity`'s validity check of the
+same values, it waits for that check and then comes due at once, unless that check throws.
+
+A `RefreshDebounce` of `Timeout.InfiniteTimeSpan` turns the reply's re-check off as well. The fields
+showing the reply's answer alone then wait for the next submit or load of values, or for a live
+check that runs the same rules as a submit.
+
+An apply also takes down the form's [fault message](options.md#validationfaultmessage) (the message
+a check that threw leaves standing), whatever the client is doing. A verdict has arrived to stand in
+for the one that check could not finish.
 
 Why: [how the engine works: what an apply writes](how-the-engine-works.md#what-an-apply-writes).
 
@@ -307,8 +337,8 @@ field has been touched or modified, blocking nothing and never reaching that sto
 
 An error arrives carrying a path and a message and nothing else, because the `errors` dictionary has
 nowhere to put more. An advisory (a `ValidationProblemAdvisory`) carries its path, its message and
-its severity name, and optionally a code and a display name. [The wire contract](#the-wire-contract) below has the JSON, the members
-and the tolerance rules.
+its severity name, and optionally a code and a display name.
+[The wire contract](#the-wire-contract) below has the JSON, the members and the tolerance rules.
 
 ## What if the 400 is not Formidable's?
 
@@ -448,10 +478,10 @@ component for that field is still on screen. So when no field the reply names is
 other error shows there, the form's own message explains the block, as it does for a blocked submit
 ([Disclosure](disclosure.md#why-is-the-submit-blocked-with-no-message-in-sight)).
 
-Advisories in the same payload take the same override-aware visibility answer the client's own
-advisories do. A `DisclosureOverride` settles it in either direction, and where none speaks, one
-whose field is on screen shows there and one whose field is not is dropped. An advisory blocks
-nothing, so hiding one strands no verdict.
+Advisories in the same payload (its warnings and infos) are shown or hidden by the test the
+client's own advisories take. A `DisclosureOverride` settles it in either direction. Where none
+speaks, an advisory whose field is on screen shows there, and one whose field is not is dropped. An
+advisory blocks nothing, so hiding one strands no verdict.
 
 Reporting is where the two part company. A dropped advisory here is named by the suppressed-issue
 diagnostic, where one a submit drops reaches nothing at all (no Trace line, no logged warning, no
@@ -478,9 +508,10 @@ Why: [how the engine works: how a server copy folds into the client's](how-the-e
 ## Why does a native `ValidationMessage` show a server error but not its warning?
 
 Because the `EditContext`'s message store carries errors only, at no severity it can express, and
-collapses repeats on its own terms rather than the issue reads'. A server error reaches it. An
-advisory never does, and the page writes no advisory plumbing of its own: a warning or an info shows
-in Formidable's own message components and in the summary instead.
+collapses repeats by its own rule rather than the one the engine's issue reads (`GetIssues` and
+`GetVisibleIssues`) use. A server error reaches it. An advisory never does, and the page writes no
+advisory plumbing of its own: a warning or an info shows in Formidable's own message components and
+in the summary instead.
 
 The message store exists so a page that already renders a native `ValidationSummary` or
 `ValidationMessage`, or calls `GetValidationMessages` directly, keeps working without swapping in
@@ -496,14 +527,17 @@ Why: [how the engine works: what the message store carries](how-the-engine-works
 
 ### Why does a form with no Formidable components still see its errors?
 
-Because the message store takes the errors each channel discloses and asks nothing further about
-registration. A field the submit channel is watching keeps its entry there after it leaves the page,
-until a later check answers for it again. The live channel's default discloses an engaged field's
-error whether or not anything renders it, unless a component renders the field with
-`WaitForSubmit`, which holds it until a submit or server reply has answered.
+Because the message store takes the errors each channel shows and asks nothing further about
+registration (whether a component has told the form its field is on screen). A field the submit
+channel is watching keeps its entry there after it leaves the page, until a later check answers for
+it again.
 
-That last one matters most to a form with no Formidable components at all: nothing registers its
-fields, so a registration-gated live channel would leave that page's own errors out of the only
+By default the live channel shows an engaged field's error (a field changed by the visitor or engaged by a load of values) whether or
+not anything renders it. The exception is a field a component renders with `WaitForSubmit`, which
+holds it until a submit or server reply has answered.
+
+That live default matters most to a form with no Formidable components at all: nothing registers
+its fields, so a registration-gated live channel would leave that page's own errors out of the only
 surface it reads. A page that wants the narrower behaviour opts into it with
 [`FormidableOptions.LiveDisclosure`](options.md#livedisclosure), which moves every surface together
 rather than splitting them.
@@ -572,8 +606,8 @@ run, or in middleware reading a rejection's severity detail without parsing the 
 A report with no errors never blocks, so the wire contract has nothing to say about its warnings and
 infos. The `advisories` extension exists on a 400 body only; when the report has no errors, both
 adapters take the framework's ordinary success path and the handler's or action's own return value
-passes through untouched. A handler that wants its 200 to say "saved, but note…" builds that response itself, from the report
-the adapter already computed:
+passes through untouched. A handler that wants its 200 to say "saved, but note…" builds that
+response itself, from the report the adapter already computed:
 
 ```csharp
 var orders = app.MapGroup("/api/orders").Validate<RoundTripOrder>();

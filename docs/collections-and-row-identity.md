@@ -102,8 +102,8 @@ Why: [how the engine works: how a path resolves to an object](how-the-engine-wor
 Keep object rows keyed by their objects and the list is free to change. Remove a row and its
 messages go with it. Reorder the list and each row arrives in its new place still carrying whatever
 it was carrying. The exception is a row off the page that only `DisclosureOverride` keeps:
-[Disclosure](disclosure.md#why-isnt-my-message-showing-yet) says when a removal or a reorder takes
-its message.
+[Disclosure](disclosure.md#how-long-does-the-override-keep-a-live-message) says when a removal or a
+reorder takes its message.
 
 A `FormidableSummary` re-lists too. Under `FormidableForm`, entries list in the document order of
 the fields that render them, and the form re-resolves that order when its own elements move, so the
@@ -116,9 +116,10 @@ wrapping `FormidableField` hands its content (the wrapper itself is in
 [the nesting question](#how-do-i-nest-one-collection-inside-another) below), and `NotifyChanged()`
 on it tells the engine a page-driven edit happened.
 
-Without that call the edit is silent. Short of a submit or a server reply, live checking discloses
-only for the fields something has engaged, so an edit to a field nothing has engaged is one whose
-fresh answer nothing shows.
+Without that call the edit is silent. Short of a submit or a server reply, live checking shows
+messages only for engaged fields (fields a committed change has named, and filled-in fields a load
+of values has checked), so an edit to a field nothing has engaged is one whose fresh answer nothing
+shows.
 
 The next check to run still judges the new value. Putting that verdict on screen takes an engaged
 field, a submit, or a server apply naming it, and a silent page-driven edit supplies none of those.
@@ -133,10 +134,11 @@ Removing the last member does more than shrink a list on screen. It can flip a c
 passing to failing, and no prune can invent a failure no check produced.
 
 The engine does notice the row leave. It prunes that row's live issues rather than go on showing a
-verdict for a row that is gone, and re-checks the whole form. After a submit, or a server apply
-that put fields on watch, that re-check brings the messages on screen back into line with the
-shorter list. With nothing disclosed yet it answers in silence, keeping the `Valid` class's promise
-current.
+verdict for a row that is gone, and re-checks the whole form after `RefreshDebounce` (unless that
+is `Timeout.InfiniteTimeSpan`). After a submit, or a server apply that put fields on watch, that
+re-check brings the messages on screen back into line with the shorter list. With nothing shown yet
+it answers in silence, keeping the `Valid` class (the green a field wears when it would pass a
+submit) current.
 
 Why: [how the engine works: what a row leaving changes](how-the-engine-works.md#the-verdict-store).
 
@@ -235,24 +237,26 @@ loop ended on, so every row would bind past the end of the list. Over an array, 
 `ValidationMessage` bound to the same expression work too, with the `FormidableFieldAnchor` any
 native input takes.
 
-Keying the element around the loop is the object-row habit one level up: it tells Blazor which list
-the rows belong to. Editing the list in place keeps the key, and nothing changes. Replacing the list
-hands Blazor a new key, so every row is rebuilt against the new list. The rows themselves take no
-key: each row is its index, and a key taken from its value would move its components to another
-index.
+Keying the element around the loop is the object-row habit (`@key` on each row's object) one level
+up: it tells Blazor which list the rows belong to. Editing the list in place keeps the key, and
+nothing changes. Replacing the list hands Blazor a new key, so every row is rebuilt against the new
+list. The rows themselves take no key: each row is its index, and a key taken from its value would
+move its components to another index.
 
 To add or remove a row, wrap the loop in `<FormidableField For="() => model.Tags" Context="tagsField">`
-and call `tagsField.AddItem` and `tagsField.RemoveItem`, as the member list above does. `RemoveItem`
-matches a string or a number by value and removes the first equal row. To remove one particular row
-of two equal values, remove it by its index: `tagsField.Edit(() => model.Tags.RemoveAt(index))`.
+and call `tagsField.AddItem` and `tagsField.RemoveItem`, as
+[the member list](#what-does-key-actually-buy) does. `RemoveItem` matches a string or a number by
+value and removes the first equal row. To remove one particular row of two equal values, remove it
+by its index: `tagsField.Edit(() => model.Tags.RemoveAt(index))`.
 
 An array cannot grow in place, so `AddItem` throws for one. Replace it instead, as
 [what changes when the page replaces the list](#what-changes-when-the-page-replaces-the-list) shows.
 
 A string or a number has no members, so there is no row object for an error to follow. Formidable
-identifies the row by its index instead, the field `FieldIdentifier.Create(() => model.Tags[index])`
-names and Blazor's own `EditContext` uses. Each row's message shows at its own input, its state
-class reads its own value, and a blocked submit's summary lists it under its display name.
+identifies the row by its index instead. That is the field
+`FieldIdentifier.Create(() => model.Tags[index])` names, and the one Blazor's own `EditContext`
+uses. Each row's message shows at its own input, its state class (invalid, warning, info or valid)
+reads its own value, and a blocked submit's summary lists it under its display name.
 
 That holds in an array and in any list (a collection implementing `IList`, `IList<T>` or
 `IReadOnlyList<T>`, such as `List<T>`, `ImmutableArray<T>.Builder` or a `JsonArray`), unless the
@@ -262,72 +266,35 @@ element around the loop.
 A dictionary is the exception, an `OrderedDictionary<TKey, TValue>` included, though it is a list
 too: [dictionaries are not supported for per-entry validation](#can-i-validate-each-entry-of-a-dictionary).
 
-A collection with an int indexer but none of those list interfaces is not a list, and its indexer
-may read by id rather than by position. A row bound through it by id, `() => model.Codes[id]`, gets
-none of its messages. With an id of 0 or more, it never wears the valid class either.
+A collection with no indexer, or one whose indexer reads by id or by key, has an answer of its
+own: [What if my collection reads by id or key, or has no indexer?](#what-if-my-collection-reads-by-id-or-key-or-has-no-indexer).
 
-No binding reaches such a row while the collection stays as it is. Implement `IReadOnlyList<T>` or
-`IList<T>` on it explicitly, with an indexer that reads by position, and the collection keeps its
-own indexer by id. Then bind each row through that interface:
-`@bind-Value="((IList<string>)model.Codes)[index]"`, with the same cast in `For`. A cast to
-`IReadOnlyList<T>` serves `For` but not `@bind-Value`, which has to assign through it.
-
-Bound through the interface, each row gets its messages, its invalid and valid classes and its
-required mark, as a `List<T>` row does. The other way is to hold the rows in a `List<T>`.
-
-Which way out fits depends on what the rows hold. Rows of strings or numbers take the list interface
-and its cast, rows of objects take `Collection<T>` (below), and either kind can move to a `List<T>`.
-
-Rows that are objects (a `LineItem` with a `Sku`) bind by their members, as [the member
-list](#what-does-key-actually-buy) does, so they need no cast. The form finds each one by its
-position through the non-generic `IList`, which an array, a `List<T>` and a `Collection<T>` all
-implement. A collection without that interface but with an int indexer has each row read through
-that indexer instead.
-
-A collection with no indexer at all (a `HashSet<T>`, a `LinkedList<T>`, a type known only by
-`IEnumerable<T>`) has each row found by its position in the order the collection enumerates, which
-is the order the validator numbers its rows in. A set changed while a check runs can therefore put
-that check's failure on the wrong row. The validator numbered the rows as the set held them while
-the check ran, and an add or a remove since then can move them.
-
-Take a collection whose int indexer reads by id and that lacks the non-generic `IList`. An object
-row's message and required mark there land on the row whose id equals that row's position, or on no
-row. A failing row there can wear the valid class. Implementing `IReadOnlyList<T>` or `IList<T>`
-does not help. Derive the collection from `Collection<T>` instead, keeping its indexer by id (a
-`KeyedCollection` keyed by id is one), or hold the rows in a `List<T>`.
-
-A `KeyedCollection<TKey, TItem>` is a list, so bind its rows by position. With string keys,
-`() => model.Codes[index]` reads by position, because the key indexer takes a string. Where an `int`
-converts to the key type, as it does for `int`, `long` or `double` keys, `model.Codes[index]` picks
-the key indexer. Bind through the list interface there: `() => ((IList<TItem>)model.Codes)[index]`.
-
-Binding a row by its key is not supported. FluentValidation names each row by its position, so a
-key-bound input can show another row's message, or none. With int keys it can also wear the valid
-class while its own value fails.
-
-A load discloses a filled-in value that fails and confirms one that passes, whether the rule is
-written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a
+After a load of values
+([`DiscloseLoadedValuesAsync`](component-kit.md#saying-what-loaded-values-have-earned)), a filled-in
+row that fails shows its message, and one that passes gets its state class. That holds whether the
+rule is written `RuleForEach(m => m.Tags)` or `RuleFor(m => m.Tags).ForEach(...)`. In an array, a
 `List<T>`, a `Collection<T>` or a list that implements only `IList<T>` or `IReadOnlyList<T>`,
 filled in means what `NotEmpty()` means. In any other list, a zero or a `false` held as a nullable
 or an `object` counts as empty, so a load leaves it silent.
 
-A row whose input waits for Submit (`WaitForSubmit`) is still confirmed at a load when its value
-passes. While that input is rendered, a failing value shows no message and no state class until a
-submit or server reply answers.
+A row whose input waits for Submit (`WaitForSubmit`) still gets the valid class at a load when its
+value passes. While that input is rendered, a failing value shows no message and no state class
+until a submit or server reply answers.
 
-A presence rule written either way, such as `RuleForEach(m => m.Tags).NotEmpty()`, marks each
-row's input required. It demands nothing of the list itself, so a component bound to `m.Tags`
-carries no mark for it, and a load does not paint the list valid. Rows that are objects work the
-same way: a presence rule inside `ChildRules` or a child validator marks that member's input in each
-row, and puts no mark on the list.
+A presence rule (one that demands a value) written either way, such as
+`RuleForEach(m => m.Tags).NotEmpty()`, marks each row's input required. It demands nothing of the
+list itself, so a component bound to `m.Tags` carries no mark for it, and a load does not paint the
+list valid. Rows that are objects work the same way: a presence rule inside `ChildRules` or a child
+validator marks that member's input in each row, and puts no mark on the list.
 
 A list of lists works the same way, cell by cell. Bind each cell by both indexes
 (`() => model.Matrix[row][column]`, with both loop variables copied first), and key the element
 around each row's cells by that row's list (`@key="model.Matrix[row]"`), so that replacing a row's
-list rebuilds its cells. A presence rule on the
-cells marks each cell's input required, whether written `RuleForEach(m => m.Matrix).ForEach(...)` or
-as nested `ForEach` calls. A blocked submit shows each cell's message at its own input, and a load
-confirms each filled cell that passes.
+list rebuilds its cells.
+
+A presence rule on the cells marks each cell's input required, whether written
+`RuleForEach(m => m.Matrix).ForEach(...)` or as nested `ForEach` calls. A blocked submit shows each
+cell's message at its own input, and a load gives each filled cell that passes its state class.
 
 One rule covers what a remove or a reorder does to a list of strings or numbers: the index is the
 row's identity, so the check answers per position. Each position is judged by the value that now
@@ -363,10 +330,58 @@ only say that something not on screen is invalid.
 the first render after the replacement throws, naming the key on the element around the loop.
 
 A rebuilt row is a new field, so a replacement starts every row afresh. A message a row showed
-before it, from an edit or a blocked submit, comes back at that row's next edit or at the next
-submit.
+before the replacement, from an edit or a blocked submit, comes back at that row's next edit or at
+the next submit.
 
 Why: [how the engine works: what a component registers and re-reads](how-the-engine-works.md#what-a-component-registers-and-re-reads).
+
+### What if my collection reads by id or key, or has no indexer?
+
+A collection with an int indexer but none of the list interfaces (`IList`, `IList<T>` or
+`IReadOnlyList<T>`) is not a list, and its indexer may read by id rather than by position. A row
+bound through it by id, `() => model.Codes[id]`, gets none of its messages. With an id of 0 or more,
+it never wears the valid class either.
+
+No binding reaches such a row while the collection stays as it is. Implement `IReadOnlyList<T>` or
+`IList<T>` on it explicitly, with an indexer that reads by position, and the collection keeps its
+own indexer by id. Then bind each row through that interface:
+`@bind-Value="((IList<string>)model.Codes)[index]"`, with the same cast in `For`. A cast to
+`IReadOnlyList<T>` serves `For` but not `@bind-Value`, which has to assign through it.
+
+Bound through the interface, each row gets its messages, its invalid and valid classes and its
+required mark, as a `List<T>` row does. The other way is to hold the rows in a `List<T>`.
+
+Which way out fits depends on what the rows hold. Rows of strings or numbers take the list interface
+and its cast, rows of objects take `Collection<T>` (below), and either kind can move to a `List<T>`.
+
+Rows that are objects (a `LineItem` with a `Sku`) bind by their members, as [the member
+list](#what-does-key-actually-buy) does, so they need no cast. The form finds each one by its
+position through the non-generic `IList`, which an array, a `List<T>` and a `Collection<T>` all
+implement. A collection without that interface but with an int indexer has each row read through
+that indexer instead.
+
+A collection with no indexer at all (a `HashSet<T>`, a `LinkedList<T>`, a type known only by
+`IEnumerable<T>`) has each row found by its position in the order the collection enumerates, which
+is the order the validator numbers its rows in. A set changed while a check runs can therefore put
+that check's failure on the wrong row. The validator numbered the rows as the set held them while
+the check ran, and an add or a remove since then can move them.
+
+Take a collection whose int indexer reads by id and that lacks the non-generic `IList`. An object
+row's message and required mark there land on the row whose id equals that row's position, or on no
+row. A failing row there can wear the valid class. Implementing `IReadOnlyList<T>` or `IList<T>`
+does not help. Derive the collection from `Collection<T>` instead, keeping the collection's own
+indexer by id (a `KeyedCollection` keyed by id is one), or hold the rows in a `List<T>`.
+
+A `KeyedCollection<TKey, TItem>` is a list, so bind its rows by position. With string keys,
+`() => model.Codes[index]` reads by position, because the key indexer takes a string. Where an `int`
+converts to the key type, as it does for `int`, `long` or `double` keys, `model.Codes[index]` picks
+the key indexer. Bind through the list interface there: `() => ((IList<TItem>)model.Codes)[index]`.
+
+Binding a row by its key is not supported. FluentValidation names each row by its position, so a
+key-bound input can show another row's message, or none. With int keys it can also wear the valid
+class while its own value fails.
+
+Why: [how the engine works: how a path resolves to an object](how-the-engine-works.md#row-identity-how-a-path-resolves-to-an-object).
 
 ## Why did my message move rows?
 
@@ -402,8 +417,9 @@ and a page that replaces the list needs it
 ## How do I catch a message on the wrong row?
 
 Two options catch it, and both are off by default. Nothing on screen says a message is misfiled,
-so each watches the one thing that gives it away: a bound component whose accessor no longer names
-the field it registered. They are the safety net in the diagram above.
+so each watches the one thing that gives it away: a bound component whose accessor (the `For` or
+`@bind-Value` expression that names its field) no longer names the field it registered. They are
+the safety net in the diagram above.
 
 [`VerifyRowKeys`](options.md#verifyrowkeys) throws. Turned on, that divergence raises an
 `InvalidOperationException` from the component carrying it, and the message names both the field and

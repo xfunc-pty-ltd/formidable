@@ -1,8 +1,9 @@
 # Progressive disclosure
 
-**You should already know:** that a submit runs both rule buckets while an unchanged field stays
-quiet until one ([Draft and submit rules](tutorial/2-draft-and-submit.md)), and how a
-`ValidationProfile` picks which rules run at which moment ([Profiles](profiles.md)).
+**You should already know:** that a submit runs both buckets of rules (draft and submit), and that
+a field nobody has changed stays quiet until you submit
+([Draft and submit rules](tutorial/2-draft-and-submit.md)). [Profiles](profiles.md) has how a
+`ValidationProfile` picks which rules run at which moment.
 
 Hiding a field looks simple until its validation rule keeps running. Gate a shipping address behind
 "ship to a different address," gate step two behind step one passing, and the rule underneath never
@@ -12,9 +13,12 @@ missed `@if` away from a submit button that quietly does nothing.
 
 Formidable exists because that failure needs an audience-aware home, not a per-form workaround. Two
 channels carry a message to the screen, and they play by different rules. As you edit, a message
-shows at a field you have changed, and a field nobody has changed stays quiet. At submit, an issue
-surfaces when something says it has an audience: mounted markup, a watch from an earlier
-disclosure, or an explicit override. A submit that can show nothing says so out loud.
+shows at a field you have changed (an engaged field), and a field nobody has changed stays quiet.
+
+At submit, an issue surfaces when something says it has an audience. That is markup that renders
+its field, an earlier submit or server reply that showed the field (the form then watches it), or
+an explicit override. A submit that can show nothing says so out loud, with a message of the form's
+own called the defensive gate.
 
 Here is one failing rule, from the moment it fails to the moment the user reads it:
 
@@ -67,10 +71,13 @@ silence in a row of green reads as "not filled in yet".
 
 An engaged field's message shows on every surface, its own message component and
 `FormidableSummary` alike, and its errors reach what a native `ValidationMessage` renders, whether
-or not anything renders the field. That is deliberate: a form of plain `InputBase` inputs registers
-nothing, and its live errors still have to reach Blazor's own components.
-[`LiveDisclosure`](options.md#livedisclosure) (`Engaged` by default) is the one form-wide way to
-narrow that, and `EngagedAndVisible` narrows every surface at once.
+or not anything renders the field. That is deliberate. A form of plain `InputBase` inputs has no
+component that registers its fields (tells the form they are on screen), and its live errors still
+have to reach Blazor's own components.
+
+To narrow live messages for the whole form, set [`LiveDisclosure`](options.md#livedisclosure)
+(`Engaged` by default) to `EngagedAndVisible`. A live message then shows, on every surface at once,
+only where something renders its field or `DisclosureOverride` answers `true` for it.
 
 One field can be held back instead: with `WaitForSubmit="true"` on a component that renders it,
 that field's messages stay off every surface until a submit or server reply has answered, while its
@@ -81,33 +88,15 @@ a held field still shows and what ends the hold.
 An edit anywhere answers every engaged field, so a message can clear, or appear, because of an
 edit to a *different* field, which keeps a cross-field rule current between submits.
 
-Engagement ends when the field leaves the page: its message goes with the next change to which
-fields are on screen, one committed change away from returning. A field nothing has ever rendered
-has not left, so churn elsewhere on the page never takes its message away. Under the default, that
-is the whole of what rendering decides on this channel, apart from the hold `WaitForSubmit` puts on
-a field.
+Engagement ends when the field leaves the page. Its message goes with the next change to which
+fields are on screen, and one committed change to the field brings it back. A field nothing has
+ever rendered has not left, so churn elsewhere on the page never takes its message away. Under the
+default `LiveDisclosure`, a field leaving is all that rendering decides on this channel, apart from
+the hold `WaitForSubmit` puts on a field.
 
-`EngagedAndVisible` adds one exception: a message
-[the override](#disclosureoverride-the-escape-hatch) answers `true` for. A field showing one keeps
-it after the field leaves the page and through the whole-form re-check that follows, and still
-shows it when the field returns. The field keeps the message while the message's path still leads
-to it. A path such as `Lines[2].Sku` leads to whichever row is third in the list, so a row keeps
-its message while it is where the last check found it.
-
-A row deleted while on screen loses its message at once. A row removed with `RemoveItem` while off
-the page loses its message once the check that `RemoveItem` starts has finished.
-
-A row off the page can also lose its message after a list change moves it to another place in the
-list: a reorder, say, or an earlier row added or removed. A check that finishes after the move finds
-the row in its new place, and the message stays.
-
-A row off the page that a list change moved loses its message if a component that renders a field
-arrives or leaves anywhere on the form before the check after the move finishes. Deleting a row that
-is on the page is one such change, because that row's components leave.
-
-A check after the move can come too late in three cases. `LiveDebounce` delays it, a rule that
-awaits keeps it running, and a list change the form is not told about starts no check of its own.
-`KeepRegistered` on the row's inputs keeps the message in all three.
+`EngagedAndVisible` adds one exception: a live message
+[the override](#disclosureoverride-the-escape-hatch) answers `true` for can stay after its field
+leaves the page ([how long it stays](#how-long-does-the-override-keep-a-live-message)).
 
 Why: [how the engine works: the live view](how-the-engine-works.md#the-live-view).
 
@@ -142,9 +131,10 @@ The decision is taken as you press Submit, not continuously, and it decides whic
 watches. That set only grows: a later blocked submit adds to it, and so does a server reply.
 
 A watch also outlives the markup. Until the form passes or is reset, the field's answer keeps
-surfacing whether or not anything still renders it, so a field one submit showed and you hid again
-still discloses at the next, in a summary. The field's own message left with the field, so a submit
-with every failing field hidden also shows [the gate](#why-is-the-submit-blocked-with-no-message-in-sight).
+surfacing whether or not anything still renders it. So a field one submit showed and you hid again
+still shows at the next submit, in a summary. The field's own message left with the field, so a
+submit with every failing field hidden also shows
+[the gate](#why-is-the-submit-blocked-with-no-message-in-sight).
 
 Pressing Submit also replaces every live message with the submit's own answer; on a rendered field
 you see no change, because the submit shows the same message.
@@ -166,10 +156,11 @@ submit](#why-is-the-submit-blocked-with-no-message-in-sight). That message shows
 summary too.
 
 Bring one of those fields back and its message shows at the field, and the form's message gives way.
-When the change that brought it back removed no other field and edited no value, the whole-form
-re-check that follows leaves the server's answer standing. The message stays, even a message no
-client rule repeats, until it goes as any server message does
-([below](#why-is-it-still-showing-and-when-does-it-clear)).
+Bringing it back changes which fields are on screen, and that change re-checks the whole form after
+`RefreshDebounce` (the whole-form re-check, which `Timeout.InfiniteTimeSpan` turns off). When the
+change removed no other field and edited no value, that re-check leaves the server's answer
+standing. The message stays, even a message no client rule repeats, until it goes as any server
+message does ([below](#why-is-it-still-showing-and-when-does-it-clear)).
 
 Otherwise that re-check replaces the reply, and a message only the server raised goes with it. A
 change that shows the field by removing another (a step or a tab that replaces one section with
@@ -179,10 +170,10 @@ of the form's own that brings the field back (an `InputCheckbox`, say) is an edi
 If the re-check that replaces the reply comes back clean, the form's message stays down. If that
 re-check finds an error that nothing on screen shows, the form's message comes back.
 
-Advisories in a server reply follow the client's own rule instead: they show only where something
-renders the field, and a hidden one reports `SuppressedIssueDiagnostic`, which a submit's own hidden
-advisories do not. Nothing is stranded by that: an advisory blocks no submit, so hiding one leaves
-the user nothing to fix.
+Advisories (the warnings and infos) in a server reply follow the client's own rule instead: they
+show only where something renders the field. A hidden one reports `SuppressedIssueDiagnostic`,
+which a submit's own hidden advisories do not. Nothing is stranded by that: an advisory blocks no
+submit, so hiding one leaves the user nothing to fix.
 
 Why: [how the engine works: what a server reply reveals](how-the-engine-works.md#the-reveal-ledgers).
 
@@ -205,9 +196,9 @@ in another language, or in a wording of its own, replaces it through
 that asks.
 
 The explanation is a model-level issue, belonging to the form rather than to a field, so every
-surface that reads model-level issues shows it. `FormidableSummary` lists it, and its click focuses
-the form: `FormidableForm` renders the id that click targets, plus `tabindex="-1"`, on its own
-`<form>`, while a `FormidableValidator` page renders no `<form>` and adds the id by hand
+surface that reads model-level issues shows it. `FormidableSummary` lists it, and clicking that
+entry focuses the form. `FormidableForm` puts the id the click targets, plus `tabindex="-1"`, on its
+own `<form>`. A `FormidableValidator` page renders no `<form>`, so it adds the id by hand
 ([Component kit](component-kit.md#formidablevalidatortmodel-attaching-to-an-existing-form) has
 the pattern). Blazor's own `<ValidationSummary />` shows it too, and on a form with inline messages
 only, [`FormidableModelMessage`](component-kit.md#formidablemodelmessage) is the surface built for
@@ -220,17 +211,18 @@ announcement the gate exists to make is the one most likely to be dropped
 ([CSS and accessibility](css-and-accessibility.md#why-does-the-summary-render-empty-regions-before-anything-is-wrong) has why).
 
 The gate gives way the moment there is a real message to give way to: an error on a field something
-renders, a server error on a field on screen, or an answer that comes back clean. A clean answer
-does not take the gate down while a server error still stands off screen. A submit that passes takes
-it down whatever stands. Short of one of those, only a reset takes it down.
+renders, a server error on a field on screen, or an answer that comes back clean. A clean answer,
+one with no error in it, does not take the gate down while a server error still stands off screen.
+A submit that passes takes it down whatever stands. Short of one of those, only a reset takes it
+down.
 
 A control Formidable does not wrap counts as rendering its field only with [an
 anchor](#formidablefieldanchor-for-raw-and-foreign-controls) beside it.
 
-An edit, and the whole-form re-check that follows one after a submit, leave it standing while
-nothing on screen explains the block. Every submit decides it again from scratch, so it can stand
-at one submit, give way at the next, and come back at the one after that. A server reply can raise
-it between submits too.
+An edit leaves the gate standing while nothing on screen explains the block. So does the
+whole-form re-check that follows each edit after a submit. Every submit decides the gate again from
+scratch, so it can stand at one submit, give way at the next, and come back at the one after that. A
+server reply can raise it between submits too.
 
 A failure the form is still watching explains the block only while its field is on screen. Hide
 the field and its own message goes with it, so a submit that finds every failing field off screen
@@ -260,16 +252,21 @@ itself is a successful submit or a reset of the form (`ResetAsync`, or a model s
 which rebuilds it), each clearing every watch at once. Nothing else removes a field from it.
 
 With the defaults (`LiveProfile` and `LiveDebounce` both `null`) the clearing and the return both
-happen on the edit itself rather than after `RefreshDebounce`. Otherwise the clearing waits for the
-whole-form re-check that follows every post-submit edit (`RefreshDebounce`, 300 ms by default), or
-for your own live check where that runs the submit profile, whichever lands first. A return can be
-quicker: your live check shows the error again as soon as it runs the rule.
+happen on the edit itself rather than after `RefreshDebounce`. Otherwise the clearing waits for
+whichever of two checks lands first. One is the whole-form re-check that follows every edit after a
+submit (`RefreshDebounce`, 300 ms by default). The other is your own live check, where
+`LiveProfile` leaves it running the submit profile. A return can be quicker: your live check shows
+the error again as soon as it runs the rule.
 
 A message a server reply put on screen follows a different rule. A live check for its field leaves
-it standing, and it goes at the whole-form re-check after your next committed edit (or after a
-field leaves the form), at the next submit, or when a page discloses freshly loaded values. A field
-joining the form leaves it standing, unless an edit brought it in or another field left with it. A client rule failing the same
-way keeps its message through the client's own answer
+it standing. It goes at the whole-form re-check after your next committed edit (or after a field
+leaves the form), at the next submit, or at a load of values (`DiscloseLoadedValuesAsync`). A field
+joining the form leaves it standing, unless an edit brought it in or another field left with it.
+With `RefreshDebounce` at `Timeout.InfiniteTimeSpan` no whole-form re-check runs, so the message
+stands until the next submit or load of values.
+
+Where a client rule fails the same way as a server message, that rule's message stays through the
+re-check, because the client's own answer still holds it
 ([Server integration](server-integration.md#what-happens-to-a-server-error-when-i-edit-the-field)).
 
 A field no submit or server reply has shown an error on stays quiet on the submit side even while
@@ -438,10 +435,10 @@ and assistive technology ([CSS and accessibility](css-and-accessibility.md)); re
 anchor's job alone.
 
 Without the anchor, no submit would ever reveal `Nickname`: nothing registers the field, so its
-submit errors are suppressed as unrevealed and its issues sort last in a resolved issue order. A
-blocked submit also takes the field's on-screen live message with it, since the submit's answer
-replaces every live message and cannot show this one; the message returns at the next edit
-anywhere on the form.
+submit errors are suppressed as unrevealed. Where a summary lists
+issues in the order their fields appear on the page (under `FormidableForm`), its issues come last. A blocked submit also takes the field's
+on-screen live message with it, since the submit's answer replaces every live message and cannot
+show this one; the message returns at the next edit anywhere on the form.
 
 Without the anchor, the returning live message does not take down a
 [gate](#why-is-the-submit-blocked-with-no-message-in-sight) the blocked submit raised. The gate's
@@ -474,7 +471,8 @@ still disclose a row the visitor scrolled past.
 Under `EngagedAndVisible`, a live message [the override](#disclosureoverride-the-escape-hatch)
 answers `true` for stays when its row scrolls away, with or without `KeepRegistered`. Without
 `KeepRegistered`, the message can go if a list change moves the row to another place in the list
-([the exception](#why-isnt-my-message-showing-yet) says when).
+([how long the override keeps a message](#how-long-does-the-override-keep-a-live-message) says
+when).
 
 ## DisclosureOverride: the escape hatch
 
@@ -488,17 +486,20 @@ on screen, and the channels differ in what they make of it. The override is the 
 that don't fit the render-registration model: reaching a rule's failure without wrapping its field,
 or keeping a known-noisy one from being the reason a field is watched.
 
-At submit an answer decides whether that issue puts its field under watch, and the watch is per
-field rather than per issue. So a `false` on one of two issues failing on the same field keeps that
-issue from being the reason the field is watched, and no more. Once the other issue starts the
-watch, the field's answer shows whole, and the suppressed-issue diagnostic reports neither of them,
-since neither is in fact hidden.
+At submit an answer decides whether that issue puts its field under watch. The watch is per field
+rather than per issue, and kept per kind: a field shown an error is watched for all its messages, and a
+field shown only a warning or an info is watched for its warnings and infos.
+
+Say two issues fail on the same field and the override answers `false` for one of them. That issue
+cannot be the reason the field is watched, and that is all the `false` does. Once the other issue
+starts the watch, the field's answer shows whole, and the suppressed-issue diagnostic reports
+neither of them, since neither is in fact hidden.
 
 The live channel is a separate question again. Under its default policy this override filters
 nothing; the [`LiveDisclosure`](options.md#livedisclosure) opt-in is what applies it there, issue
 by issue. Under the opt-in, a `true` also keeps a field's live message after the field leaves
 the page, while the message's path still leads to that field
-([the exception](#why-isnt-my-message-showing-yet)).
+([below](#how-long-does-the-override-keep-a-live-message)).
 
 Under either policy, a `true` also counts at [the form's message about hidden
 fields](#why-is-the-submit-blocked-with-no-message-in-sight). A live error the override answers
@@ -507,16 +508,41 @@ Server-applied issues are the third case, and [the section
 above](#why-did-a-server-error-show-on-a-hidden-field) has it: only a `false` hides an error, while
 an advisory follows the client's own rule.
 
-A submit reports its own error-severity issues on fields it leaves unwatched, and a server response
-reports the advisories its visibility answer hid. Those two sites are the whole of what gets
-reported; everything else a visibility answer hides is dropped in silence. That covers a submit's
-own advisories, every live issue under `LiveIssueDisclosure.EngagedAndVisible`, and a
-server-declared *error* an override answered `false` for.
+Two places report what they hide. A submit reports each of its own errors on a field it leaves
+unwatched, and a server reply reports each advisory it does not show. Everything else that is
+hidden is dropped in silence: a submit's own advisories, every live issue
+`LiveIssueDisclosure.EngagedAndVisible` hides, and a server-declared *error* an override answered
+`false` for.
 
 Both reporting sites write a `Trace`-output warning whether or not
 [`SuppressedIssueDiagnostic`](options.md#suppressedissuediagnostic) is set, and log a warning too
 where the host resolved an `ILoggerFactory`; on WebAssembly that is the browser console, needing
 no wiring to be seen.
+
+### How long does the override keep a live message?
+
+Under `EngagedAndVisible`, a field showing a live message the override answers `true` for keeps it
+after the field leaves the page and through the whole-form re-check that follows. The message still
+shows when the field returns. The field keeps it while the message's path still leads to the field.
+A path such as `Lines[2].Sku` leads to whichever row is third in the list, so a row keeps its
+message while it is where the last check found it.
+
+A row deleted while on screen loses its message at once. A row removed with `RemoveItem` while off
+the page loses its message once the check that `RemoveItem` starts has finished.
+
+A row off the page can also lose its message after a list change moves it to another place in the
+list: a reorder, say, or an earlier row added or removed. A check that finishes after the move finds
+the row in its new place, and the message stays.
+
+A row off the page that a list change moved loses its message if a component that renders a field
+arrives or leaves anywhere on the form before the check after the move finishes. Deleting a row that
+is on the page is one such change, because that row's components leave.
+
+A check after the move can come too late in three cases. `LiveDebounce` delays it, a rule that
+awaits keeps it running, and a list change the form is not told about starts no check of its own.
+`KeepRegistered` on the row's inputs keeps the message in all three.
+
+Why: [how the engine works: the live view](how-the-engine-works.md#the-live-view).
 
 **Samples:** [`/disclosure`](../samples/Formidable.Sample/Pages/Disclosure.razor). Its
 suppressed-issue list reflects only the most recent submit (cleared as each submit starts, so a

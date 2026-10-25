@@ -16,8 +16,8 @@ check, so a burst of typing settles into one answer. The check is debounced only
 ([`LiveDebounce`](options.md#livedebounce)) and can be memoized so the same value is not checked
 twice (`MustAsyncMemoized`).
 
-After a submit, every edit also re-checks the whole form so the summary stays honest, behind a
-short timer of its own ([`RefreshDebounce`](options.md#refreshdebounce)).
+After a submit, every edit also starts a whole-form re-check, so the summary stays honest. The
+re-check waits behind a short timer of its own ([`RefreshDebounce`](options.md#refreshdebounce)).
 
 Three things are yours: write the rule, honour its cancellation token, and render the field's
 pending flag. The sequencing is the library's. Here is one field's async rule, from a keystroke
@@ -34,7 +34,8 @@ flowchart TD
 ```
 
 The diagram traces the default cadence, where the check starts on the edit itself; `LiveDebounce`
-puts a timer in front of the first step.
+puts a timer in front of the first step. A load of values, here and below, is your page calling
+`DiscloseLoadedValuesAsync` after it fills the model itself (from a saved draft, say).
 
 ## How do I write an async rule?
 
@@ -110,8 +111,8 @@ Honour the token. A newer keystroke cancels the older check, and a rule that ign
 wastes the request, never the answer: you still only see the answer for what you last typed.
 
 A rule that cancels its own work instead, as an `HttpClient` timeout does, has failed rather than
-been cancelled. The form treats it as any rule that throws: a check as you type, a submit or a load
-of values that is still the form's latest check shows the form's
+been cancelled. The form treats it as any rule that throws. If the check it ran in is still the
+form's latest (a check as you type, a submit or a load of values), the form shows its
 [fault message](options.md#validationfaultmessage). A submit that shows it is blocked, and its
 outcome's `Fault` carries what the rule threw.
 
@@ -153,10 +154,11 @@ it, and when it elapses quietly one check runs for every field the window collec
 its keep for an availability check, since each keystroke otherwise costs a started-and-cancelled
 request, and it leaves the whole-form re-check's timer untouched.
 
-By default the check starts on the edit itself, not on a timer: the moment an edit commits, work
-starts, and what work depends on whether the form has been submitted. Before the first submit an
-edit starts one check, which answers every field you have engaged; after a submit it also
-re-checks the whole form ([below](#why-did-the-summary-change-a-moment-after-i-fixed-a-field)).
+By default the check starts on the edit itself, not on a timer. What the edit starts depends on
+whether the form has been submitted. Before the first submit an edit starts one check, which
+answers every engaged field: each field you have changed, and each a load of values engaged. After
+a submit the edit also re-checks the whole form
+([below](#why-did-the-summary-change-a-moment-after-i-fixed-a-field)).
 
 Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
@@ -173,8 +175,8 @@ Why: [how the engine works: which check yields to which](how-the-engine-works.md
 ## What happens if I press Submit while a check is running?
 
 Press Submit and every field is answered at once, whatever partial work a half-typed field had
-running: every submit rule runs, whatever a live check answered a moment before. Keep typing
-while the submit spinner turns and nothing you type cancels it.
+running. Every submit rule runs, whatever the live check (the check an edit starts) answered a
+moment before. Keep typing while the submit spinner turns and nothing you type cancels it.
 
 A change you commit while the submit is checking makes it check again before it reports. So the
 answer `OnValidSubmit` receives is for the values the form held as the last check ended: a field you
@@ -220,54 +222,59 @@ and a burst of edits inside its window is one re-check.
 The knob is [`RefreshDebounce`](options.md#refreshdebounce), 300 ms by default: the re-check
 comes due after that much quiet, the one timer-based debounce a form gets without asking. A
 change to which fields are on screen (a row leaving, a section collapsing) re-checks the whole
-form at any point, against the page as it stands.
+form after the same wait at any point, against the page as it stands. `Timeout.InfiniteTimeSpan`
+turns every whole-form re-check off, after an edit and after such a change alike; live checks,
+submits and loads of values still run.
 
 The re-check never throws away an answer you are waiting on. It waits its turn behind three
 things and only three: a submit still running, the check your own edit started while it is still
 running, and a load of values still being checked. It never waits for an open `LiveDebounce`
 window, and it never cancels what it waits for.
 
-A server reply's messages stay on screen until something newer replaces them: the whole-form
-re-check after a later edit or after a field leaves the form, the next submit, or a load of values.
-A live check for one field does not, and nor does the re-check after a field joins the form with
-no edit behind it and no field leaving.
+A server reply is the answer your page hands to `ApplyServerIssues`. Its messages stay on screen
+until something newer replaces them: the whole-form re-check after a later edit or after a field
+leaves the form, the next submit, or a load of values. A live check for one field does not, and
+nor does the re-check after a field joins the form with no edit behind it and no field leaving.
 
 Set `LiveDebounce` wider than `RefreshDebounce` and the re-check lands before the live check, at no
-extra cost. What the submit disclosed then updates a beat before the field's own message; the
+extra cost. What the submit showed then updates a beat before the field's own message; the
 settled state, and the cost, are the same whichever lands first.
 
 Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
 ## Does the library ever run my rule twice for one edit?
 
-Not on a validator the library can take rule by rule. FluentValidation's `AbstractValidator` is
+Not on a validator the library can take rule by rule, running its rules separately so that one
+check can reuse what another found for the same values. FluentValidation's `AbstractValidator` is
 one, unless you set `ClassLevelCascadeMode.Stop` or override `PreValidate` or `ValidateAsync`.
 
-Submit, then edit a field, and no rule runs twice: one edit runs a rule declared once exactly once,
-however many profile names reach it. Whichever of the live check and the whole-form re-check lands
-first, you see the same messages and each rule ran once. On the default profiles the re-check runs
-no rule the live check already answered, and what it refreshes is still complete.
+Submit, then edit a field, and no rule runs twice. One edit runs a rule declared once exactly once,
+however many of the form's profiles select it. Whichever of the live check and the whole-form
+re-check lands first, you see the same messages and each rule ran once. On the default profiles
+(`LiveProfile` unset, so the live check runs the submit profile), the re-check runs no rule the
+live check already answered. Its answer still covers every rule.
 
 The sample's [`/async`](../samples/Formidable.Sample/Pages/AsyncRules.razor) page makes the saving
 visible: submit, then type, and one "checking" cycle runs, not two. The exceptions you can count:
 
 - Narrow `LiveProfile` and the re-check runs the rules the live check skipped. Swap `LiveProfile`
-  at runtime and it takes effect at the next check; rules both profiles select are not re-run.
+  at runtime and the new profile takes effect at the next check, which re-runs no rule both
+  profiles select.
 - When the live and submit profiles differ, a rule inside an `Include()` may run again. So may a
-  child validator attached with `SetValidator`, if one of its rules lacks a ruleset the attaching
-  rule sits in, or sits in a ruleset while the attaching rule sits in none. Rulesets named on the
-  `SetValidator` call itself keep the child to one run. Plain rules, ruleset rules and `ChildRules`
-  run once.
+  child validator attached with `SetValidator` when one of its rules lacks a ruleset the attaching
+  rule sits in. The same holds when one of its rules sits in a ruleset while the attaching rule
+  sits in none. Rulesets named on the `SetValidator` call itself keep the child to one run. Plain
+  rules, ruleset rules and `ChildRules` run once.
 - A rule written with `RuleForEach` is checked for every row at once, so an expensive per-row
   check costs the whole collection on each edit that reaches it.
 - A validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or one
   that is not FluentValidation's `AbstractValidator`, has every rule re-run on every check, so after
   a submit a rule can run twice for one edit. A per-rule `.Cascade(CascadeMode.Stop)` changes
   nothing.
-- Pressing Submit right after a live check asks the async rule again, and so can
+- Pressing Submit right after a live check asks the async rule again. So can
   [`TrackFormValidity`](#what-does-trackformvalidity-cost-with-async-rules) where `LiveProfile` is
-  narrowed, or, under a `RefreshDebounce` that never passes, after a load you edited during; a memo
-  answers the repeat
+  narrowed, and after a load you edited during where `RefreshDebounce` never passes
+  (`Timeout.InfiniteTimeSpan`). A memo answers each repeat
   ([next question](#why-did-the-same-value-get-checked-twice-and-how-do-i-stop-it)).
 
 Why: [how the engine works: how answers are reused](how-the-engine-works.md#the-verdict-store).
@@ -342,8 +349,9 @@ running its rules separately, so one check can reuse what another found for the 
 
 That check runs rules again when the library cannot take your validator rule by rule, or when a
 value changed while the load ran. It runs all of its rules again when a field appeared on the page
-or left it while the load ran. The form's first sight of its fields counts, so a load your page
-starts from its own first `OnAfterRenderAsync` runs them twice.
+or left it while the load ran. The form seeing its fields for the first time counts as fields
+appearing. So when your page starts a load from its own first `OnAfterRenderAsync`, the check after
+the load runs all of its rules again.
 
 Where `LiveProfile` differs from the submit profile, a rule inside an `Include()`, or in some child
 validators, may run again too, as after an edit
@@ -355,10 +363,10 @@ answers your change. It shows "checking" on your field only if the load engaged 
 emptied shows no "checking", and its message appears when that check ends.
 
 With `LiveDebounce` set, your field's own check also runs once the load has ended and the wait has
-passed: the wait from your last change, or a fresh one from the load's end if yours ran out during
-the load. That check shows "checking" on your field while it runs. If the check after the load has
-already finished, your field's check reuses its answers and ends at once, unless the library cannot
-take your validator rule by rule.
+passed. The wait runs from your last change, or starts afresh at the load's end if your wait ran
+out during the load. That check shows "checking" on your field while it runs. If the check after
+the load has already finished, your field's check reuses its answers and ends at once, unless the
+library cannot take your validator rule by rule.
 
 Why: [how the engine works: what starts each check](how-the-engine-works.md#the-pass-kinds).
 
@@ -369,8 +377,9 @@ it is touched or modified, shows no issue of any severity, and every rule the su
 selects has answered for the value as it stands. A narrowed `LiveProfile` leaves some of those
 rules unanswered, so no field goes green on the strength of a narrowed live check alone.
 
-With `TrackFormValidity` on, its validity check answers the rest, so tracking can put green on a
-field a narrowed live check could not.
+Where `LiveProfile` narrows, `TrackFormValidity` runs a validity check beside each live check: a
+whole-form check by the submit profile, which keeps `IsFormValid` current. With tracking on, that
+check answers the rest, so tracking can put green on a field a narrowed live check could not.
 
 Two more setups keep a passing check short of green. A validator the engine cannot take rule by
 rule (an `AbstractValidator` that sets `ClassLevelCascadeMode.Stop` or overrides `PreValidate` or
@@ -391,45 +400,60 @@ Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit
 [`TrackFormValidity`](options.md#trackformvalidity) (`false` by default) keeps `IsFormValid`
 current on every field change, or once per window when `LiveDebounce` is set, judging the whole
 model by the submit profile. It shows no message and no "checking". `IsFormValid` answers for the
-untouched form as soon as the check started at construction lands, before anything is typed.
+untouched form as soon as the check started at construction lands, before anything is typed. That
+first check runs as the page opens, so an async rule runs then too, unless its own condition skips
+it (a `When` on an empty value, say).
 
-A `LiveDebounce` of `Timeout.InfiniteTimeSpan` never closes its window, so before the first submit
-or server reply the edits start a validity check of their own instead, one for each burst,
-`RefreshDebounce` (300 ms) after its last edit. After a submit or server reply the whole-form
-re-check that follows each edit answers instead, and no validity check runs beside it, so an
-async rule is not paid twice.
+After that, tracking costs only the validity checks it runs of its own. On the default profiles it
+adds none to an edit that starts a live check, async rules included: that check runs the submit
+profile over the whole form, so its own answer moves `IsFormValid`. Tracking costs extra in four
+places:
 
-With `RefreshDebounce` also `Timeout.InfiniteTimeSpan`, `IsFormValid` moves only on a submit or a
-load of values, and on the check that follows one you edited during.
+- beside each live check, where `LiveProfile` narrows;
+- for each burst of edits before the first submit or server reply, where `LiveDebounce` is
+  `Timeout.InfiniteTimeSpan` and `RefreshDebounce` can pass;
+- one validity check after a load of values you edited during, where `LiveProfile` narrows or `RefreshDebounce` never
+  passes (`Timeout.InfiniteTimeSpan`);
+- one as a submit ends, where you edited through all three of its checks, `RefreshDebounce` never
+  passes, and `LiveProfile` narrows or `LiveDebounce` never closes.
 
-On the default profiles it adds no rule executions to an edit that starts a live check, async
-rules included. That check runs the submit profile over the whole form, so its own answer moves
-`IsFormValid`, and no validity check starts beside it. It costs extra in four places.
+The last two are skipped when a check already on its way answers `IsFormValid`: a check begun after
+your last edit that answers it, a validity check or whole-form re-check already due, or a
+`LiveDebounce` window that will still close.
 
 Narrowing `LiveProfile` does not save the work: the rules the live check skipped still run on every
-edit to keep `IsFormValid` honest. A validity check starts beside each live check, and an async
-rule both of them run is paid twice, since neither can reuse what the other is still computing.
+edit to keep `IsFormValid` honest. An async rule both checks run is paid twice, since neither can
+reuse what the other is still computing. A memo folds that pair into one round trip, because the
+second call joins the first.
 
-A memo folds that pair into one round trip, because the second call joins the first. With no
-`LiveDebounce` and a narrowed `LiveProfile`, ten quick edits can mean ten validity checks running
-at once, each answering for the form as it stood when it started, and the latest one wins: time,
-never correctness.
+With no `LiveDebounce` and a narrowed `LiveProfile`, ten quick edits can mean ten validity checks
+running at once. Each answers for the form as it stood when it started, and the latest one wins, so
+the cost is time, never correctness. Set `LiveDebounce` and each burst of edits starts one live
+check and one validity check instead.
 
-And under a `LiveDebounce` of `Timeout.InfiniteTimeSpan` no edit starts a live check, so each
-validity check there is rule work the edits would not otherwise cost, async rules included.
+A `LiveDebounce` of `Timeout.InfiniteTimeSpan` never closes its window, so no edit starts a live
+check, and each validity check there is rule work the edits would not otherwise cost, async rules
+included. Before the first submit or server reply, each burst's check runs `RefreshDebounce`
+(300 ms) after the burst's last edit. After a submit or server reply, the whole-form re-check that
+follows each edit answers instead. No validity check runs beside it, so an async rule is not paid
+twice.
 
-And an edit made while a load of values runs is answered, on the default profiles, by the check
-that follows the load. Where `LiveProfile` narrows, or `RefreshDebounce` never passes, it adds one
-validity check after the load ends, unless a check already on its way answers `IsFormValid`.
+With `RefreshDebounce` also `Timeout.InfiniteTimeSpan`, `IsFormValid` moves only on a submit or a
+load of values. It also moves on the check that follows a submit or load you edited during.
 
-An edit made while a submit runs adds none, because the submit checks again and that check answers
-`IsFormValid`. Keep editing through all three of its checks and the submit leaves `IsFormValid`
-where it was. On the default profiles your last edit's own check then answers it once the submit
-ends, unless a window that never closes holds that check. Otherwise your edits add one validity
-check as the submit ends, unless a check already on its way answers `IsFormValid`.
+An edit made while a load of values runs is answered, on the default profiles, by the check that
+follows the load. An edit made while a submit runs adds nothing, because the submit checks again and
+that check answers `IsFormValid`.
 
-[Options](options.md#trackformvalidity) has the cost on a validator that cannot be taken rule by
-rule.
+Keep editing through all three of a submit's checks and the submit leaves `IsFormValid` where it
+was. On the default profiles your last edit's own live check then answers `IsFormValid` once the
+submit ends, unless a window that never closes holds that check. With a narrowed `LiveProfile`, or
+a window that never closes, a check your edits already bring answers it instead. That is the
+whole-form re-check, or the validity check a `LiveDebounce` window runs. Only where
+`RefreshDebounce` never passes can they bring none (the fourth place above).
+
+On a validator the library cannot take rule by rule, each validity check beside a narrowed live check is one whole
+submit-profile validation on top of it ([Options](options.md#trackformvalidity) has the rest).
 
 Why: [how the engine works: what `TrackFormValidity` runs](how-the-engine-works.md#the-trackformvalidity-probe).
 

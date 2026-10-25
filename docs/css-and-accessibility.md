@@ -84,8 +84,8 @@ An input bound by an index to a collection that is not a list, such as one whose
 by id, never wears `Valid` either. A `KeyedCollection` row bound by a key that is not all digits,
 such as `"b"`, never wears `Valid` either. In a collection whose int indexer reads by id and that
 lacks the non-generic `IList`, an input bound to a member of a row object can wear `Valid` while
-that member fails ([How do I bind a list of strings or
-numbers?](collections-and-row-identity.md#how-do-i-bind-a-list-of-strings-or-numbers)).
+that member fails
+([Collections and row identity](collections-and-row-identity.md#what-if-my-collection-reads-by-id-or-key-or-has-no-indexer)).
 
 Why: [how the engine works: what green reads](how-the-engine-works.md#the-submit-coverage-vouch).
 

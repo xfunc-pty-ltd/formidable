@@ -74,9 +74,9 @@ also restarts that re-check's timer (`RefreshDebounce`, 300 ms).
 | `UpdateOn="InputUpdateMode.OnBlur"` | When the field loses focus after a change, so a multi-segment control never starts a check mid-edit; a blur with no commit before it starts nothing. | Not before submit. At submit; then, after each blur-commit, in the whole-form re-check 300 ms later. |
 | `WaitForSubmit="true"`, with any mode | Not before submit, though each commit still runs the check. At submit; then as that mode's row says. | Not before submit. At submit; then as that mode's row says. |
 
-The left column is for a `LiveDebounce` left unset. A finite wait delays each of its checks until
-the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column. In that
-column, the whole-form re-check answers the fields a blocked submit or a server reply showed an
+The left column is for a `LiveDebounce` left unset. A finite wait delays each left-column check
+until the wait passes, and `Timeout.InfiniteTimeSpan` puts every rule in the right-hand column. In
+that column, the whole-form re-check answers the fields a blocked submit or a server reply showed an
 error on. Any other field that fails after a later edit waits for the next submit
 ([Why is it still showing, and when does it clear?](disclosure.md#why-is-it-still-showing-and-when-does-it-clear)).
 
@@ -93,9 +93,10 @@ check off, though a `LiveDebounce` of `Timeout.InfiniteTimeSpan` stops every edi
 one.
 
 That wait has a cost before the first submit or server reply: with `TrackFormValidity` off, an edit
-can take the green off the other fields. With it on, edits start a validity check
-`RefreshDebounce` (300 ms) after the last of them instead, which moves green and `IsFormValid`
-unless that wait never passes either ([`LiveDebounce`](options.md#livedebounce)).
+can take the green off the other fields. With it on, edits start a validity check instead (the
+whole-form check by the submit profile that keeps `IsFormValid` current), `RefreshDebounce`
+(300 ms) after the last of them. That check moves green and `IsFormValid`, unless `RefreshDebounce`
+never passes either ([`LiveDebounce`](options.md#livedebounce)).
 
 For one field, `WaitForSubmit` holds back that field's messages rather than its rules, which still
 run, while the rest of the form answers live.
@@ -220,9 +221,12 @@ Options.LiveProfile = ValidationProfile.Named("Live", includeDefaultRules: true,
 ```
 
 `Profile(name, ...)` splits a joined name on `,` or `;`, trimming each part, so the call above tags
-the guest-name rule into both `"Submit"` and `"Live"`. Selection is not where FluentValidation
-splits a name, so `ValidationProfile.Named` rejects a joined entry. The rule then answers live where
-the visitor engages it, while the rules in `ConfigureSubmitRules()` wait for submit.
+the guest-name rule into both `"Submit"` and `"Live"`. The rule then answers live where the visitor
+changes it or a load of values engages it, while the rules in `ConfigureSubmitRules()` wait for submit.
+
+`ValidationProfile.Named` takes each ruleset name as its own argument and rejects a joined one.
+FluentValidation splits a joined name only where a rule is declared, never where a profile picks
+the rules to run, so a joined entry would select nothing.
 
 Choose live rules the submit profile also selects. A rule only the live profile selects shows a
 message that blocks nothing. While that rule's error shows on a rendered field, the form keeps down
@@ -241,12 +245,13 @@ app.MapGroup("/api/signups").Validate<Signup>(
 ```
 
 **What it costs.** Narrowing changes which checks run a rule, not what the form enforces at submit.
-After a submit, one edit still runs a shared rule once, however many profile names reach it.
+After a submit, one edit still runs a shared rule once, however many of the form's profiles select
+it.
 
-A rule inside an `Include()` may run again. So may a child validator attached with `SetValidator`,
-if one of its rules lacks a ruleset the attaching rule sits in, or sits in a ruleset while the
-attaching rule sits in none. Rulesets named on the `SetValidator` call itself keep the child to one
-run.
+A rule inside an `Include()` may run again. So may a child validator attached with `SetValidator`
+when one of its rules lacks a ruleset the attaching rule sits in. The same holds when one of its
+rules sits in a ruleset while the attaching rule sits in none. Rulesets named on the `SetValidator`
+call itself keep the child to one run.
 
 Only a validator with a class-level cascade stop, a `PreValidate` or `ValidateAsync` override, or
 one that is not FluentValidation's `AbstractValidator`, re-runs every rule on each check.
@@ -693,7 +698,8 @@ the block.
 **Reach past what is rendered with `DisclosureOverride`:** it answers for an issue whose field
 nothing renders, and at submit `true` reveals that field while `false` withholds the issue's own
 contribution to revealing it. For rows a `Virtualize` container disposes, `KeepRegistered` holds an
-already-showing error open, and an override on the collection covers rows it has never rendered.
+already-showing error open, and an override on the collection covers rows the container has never
+rendered.
 
 **Read more:**
 
